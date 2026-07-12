@@ -146,6 +146,7 @@ export const statusBarRegistry: { left: React.ComponentType[]; right: React.Comp
 };
 export const titleBarRegistry: { center: React.ComponentType[] } = { center: [] };
 export const overlayRegistry: React.ComponentType[] = [];
+export const editorBannerRegistry: React.ComponentType[] = [];
 export const initRegistry: Array<() => void> = [];
 
 function BottomPanelContent({ tab }: { tab: BottomTab }): React.JSX.Element {

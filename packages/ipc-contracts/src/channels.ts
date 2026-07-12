@@ -236,6 +236,134 @@ export const CHANNELS = {
     z.object({ tabs: OpenTabsStateSchema }).strict(),
     z.object({ saved: z.boolean() }),
   ),
+  'search.files': ch(
+    'search.files',
+    1,
+    z.object({ query: z.string().max(500) }).strict(),
+    z.object({
+      items: z.array(z.object({ path: z.string(), positions: z.array(z.number()) })),
+      total: z.number(),
+    }),
+  ),
+  'search.allFiles': ch(
+    'search.allFiles',
+    1,
+    z.object({}).strict(),
+    z.object({ files: z.array(z.string()), truncated: z.boolean() }),
+  ),
+  'search.textStart': ch(
+    'search.textStart',
+    1,
+    z
+      .object({
+        query: z.string().min(1).max(2000),
+        isRegex: z.boolean(),
+        caseSensitive: z.boolean(),
+        wholeWord: z.boolean(),
+        includeGlob: z.string().max(500).optional(),
+        excludeGlob: z.string().max(500).optional(),
+        maxResults: z.number().int().min(1).max(20000).default(2000),
+      })
+      .strict(),
+    z.object({ searchId: z.string() }),
+  ),
+  'search.cancel': ch(
+    'search.cancel',
+    1,
+    z.object({ searchId: z.string() }).strict(),
+    z.object({ cancelled: z.boolean() }),
+  ),
+  'search.replace': ch(
+    'search.replace',
+    1,
+    z
+      .object({
+        files: z.array(
+          z.object({
+            path: z.string(),
+            expectedHash: z.string(),
+            edits: z.array(
+              z.object({ start: z.number().int(), end: z.number().int(), text: z.string() }),
+            ),
+          }),
+        ),
+      })
+      .strict(),
+    z.object({
+      outcomes: z.array(
+        z.object({
+          path: z.string(),
+          status: z.enum(['applied', 'stale', 'error']),
+          detail: z.string().optional(),
+        }),
+      ),
+    }),
+  ),
+  'terminal.create': ch(
+    'terminal.create',
+    1,
+    z.object({ cwd: z.string().optional() }).strict(),
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      shell: z.string(),
+      pid: z.number(),
+    }),
+  ),
+  'terminal.write': ch(
+    'terminal.write',
+    1,
+    z.object({ id: z.string(), data: z.string().max(1024 * 128) }).strict(),
+    z.object({ ok: z.boolean() }),
+  ),
+  'terminal.resize': ch(
+    'terminal.resize',
+    1,
+    z.object({ id: z.string(), cols: z.number().int(), rows: z.number().int() }).strict(),
+    z.object({ ok: z.boolean() }),
+  ),
+  'terminal.kill': ch(
+    'terminal.kill',
+    1,
+    z.object({ id: z.string(), force: z.boolean().default(false) }).strict(),
+    z.object({ closed: z.boolean(), needsConfirm: z.boolean() }),
+  ),
+  'terminal.list': ch(
+    'terminal.list',
+    1,
+    z.object({}).strict(),
+    z.object({
+      items: z.array(
+        z.object({ id: z.string(), title: z.string(), shell: z.string(), pid: z.number() }),
+      ),
+    }),
+  ),
+  'lsp.status': ch(
+    'lsp.status',
+    1,
+    z.object({}).strict(),
+    z.object({
+      python: z.object({
+        available: z.boolean(),
+        serverPath: z.string().nullable(),
+        running: z.boolean(),
+        hint: z.string(),
+      }),
+    }),
+  ),
+  'lsp.pythonRequest': ch(
+    'lsp.pythonRequest',
+    1,
+    z
+      .object({
+        method: z.enum(['completion', 'hover', 'definition', 'symbols']),
+        path: z.string(),
+        line: z.number().int().min(0),
+        character: z.number().int().min(0),
+      })
+      .strict(),
+    z.object({ result: z.unknown() }),
+  ),
 } as const;
 
 export type ChannelName = keyof typeof CHANNELS;

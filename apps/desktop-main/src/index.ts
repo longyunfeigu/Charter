@@ -15,6 +15,7 @@ import { installApplicationMenu } from './menu.js';
 import { broadcast } from './broadcast.js';
 import { WorkspaceHost } from './services/workspace-host.js';
 import { registerWorkspaceHandlers } from './ipc/workspace-handlers.js';
+import { M4Services, registerM4Handlers } from './ipc/m4-handlers.js';
 
 const DEV_SERVER_URL = process.env.PI_IDE_DEV_SERVER_URL;
 const isDev = Boolean(DEV_SERVER_URL);
@@ -36,6 +37,7 @@ interface Bootstrap {
 
 let boot: Bootstrap | null = null;
 let mainWindow: BrowserWindow | null = null;
+let m4Ref: M4Services | null = null;
 const quitBlockers = new Map<number, string[]>();
 let forceQuit = false;
 
@@ -344,8 +346,12 @@ if (!gotLock) {
     if (!isDev) registerAppProtocol(join(app.getAppPath(), 'apps/desktop-renderer/dist'));
     installApplicationMenu({ isDev });
     registerCoreHandlers(boot);
-    if (workspaceHost && state) {
+    let m4: M4Services | null = null;
+    if (workspaceHost && state && settings) {
       registerWorkspaceHandlers(workspaceHost, state, logger.child('ipc'));
+      m4 = new M4Services(workspaceHost, settings, logger.child('m4'));
+      m4Ref = m4;
+      registerM4Handlers(m4, workspaceHost, logger.child('ipc'));
     }
 
     // E2E hook: open a workspace directly from the environment.
@@ -377,6 +383,7 @@ if (!gotLock) {
   });
 
   app.on('quit', () => {
+    m4Ref?.dispose();
     boot?.state?.close();
   });
 

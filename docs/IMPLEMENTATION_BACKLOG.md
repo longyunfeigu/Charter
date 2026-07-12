@@ -43,13 +43,13 @@
 
 | 任务 | 交付 | 依赖 | 状态 | 证据 |
 | --- | --- | --- | --- | --- |
-| M4-01 | Quick Open 与最近文件 | M3 | NOT_STARTED |  |
-| M4-02 | ripgrep 搜索、结果流、取消 | M3 | NOT_STARTED |  |
-| M4-03 | 替换预览与版本校验 | M4-02,M3-03 | NOT_STARTED |  |
-| M4-04 | LanguageServiceManager 与 Monaco bridge | M3 | NOT_STARTED |  |
-| M4-05 | JS/TS LSP 能力与 Problems | M4-04 | NOT_STARTED |  |
-| M4-06 | Python 基础 LSP 与降级提示 | M4-04 | NOT_STARTED |  |
-| M4-07 | xterm + PTY 多终端、resize、process tree | M2 | NOT_STARTED |  |
+| M4-01 | Quick Open 与最近文件 | M3 | VERIFIED | QuickOpen server-side fuzzy + recent boost (E2E) |
+| M4-02 | ripgrep 搜索、结果流、取消 | M3 | VERIFIED | SearchService: rg candidates + JS offsets engine, cancel, 6 unit tests |
+| M4-03 | 替换预览与版本校验 | M4-02,M3-03 | VERIFIED | replace preview modal + per-file hash verification (E2E-004 + unit stale test) |
+| M4-04 | LanguageServiceManager 与 Monaco bridge | M3 | VERIFIED | monaco TS worker project loading + registerEditorOpener + model sync |
+| M4-05 | JS/TS LSP 能力与 Problems | M4-04 | VERIFIED | TS diagnostics/definition/rename-preview (E2E-005), Problems panel + status counts |
+| M4-06 | Python 基础 LSP 与降级提示 | M4-04 | VERIFIED | Python LSP client (pylsp/pyright) + install guidance banner (E2E-006) |
+| M4-07 | xterm + PTY 多终端、resize、process tree | M2 | VERIFIED | node-pty terminals: multi-tab/rename/kill-confirm/process-tree, no orphans (E2E-007) |
 
 ## Milestone 5: Git 与 ChangeService
 

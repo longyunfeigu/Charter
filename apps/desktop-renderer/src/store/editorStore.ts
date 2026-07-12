@@ -196,6 +196,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
               ? monaco.editor.EndOfLineSequence.CRLF
               : monaco.editor.EndOfLineSequence.LF,
           );
+        } else if (!modelListeners.has(path) && model.getValue() !== doc.content) {
+          // Background project model may lag the store's view of the file.
+          model.setValue(doc.content);
+        }
+        if (!modelListeners.has(path)) {
           savedVersions.set(path, model.getAlternativeVersionId());
           const listener = model.onDidChangeContent(() => {
             const meta = get().docs[path];
@@ -258,12 +263,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     if (targetGroup.active === path) {
       targetGroup.active = targetGroup.tabs.at(-1)?.path ?? null;
     }
-    // Drop model + server doc when the file is closed everywhere.
+    // Detach editing state when the file is closed everywhere. The Monaco model
+    // itself stays alive as part of the TS project (cross-file intelligence);
+    // fs events keep background models in sync.
     const stillOpen = groups.some((g) => g.tabs.some((t) => t.path === path));
     if (!stillOpen) {
       modelListeners.get(path)?.dispose();
       modelListeners.delete(path);
-      getModel(path)?.dispose();
       savedVersions.delete(path);
       const docs = { ...get().docs };
       delete docs[path];

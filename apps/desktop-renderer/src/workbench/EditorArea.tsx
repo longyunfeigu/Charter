@@ -5,6 +5,8 @@ import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useAppStore } from '../store/appStore.js';
 import { WelcomeView } from '../views/WelcomeView.js';
 import { rpcResult } from '../bridge.js';
+import { editorBannerRegistry } from './Workbench.js';
+import { triggerRename } from '../contrib/intelligence.js';
 
 const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>();
 
@@ -46,6 +48,10 @@ function MonacoPane({
       theme: document.documentElement.dataset.theme === 'light' ? 'pi-light' : 'pi-dark',
     });
     editorRef.current = editor;
+    // Product rename flow (preview + version checks) replaces Monaco's inline rename.
+    editor.addCommand(monaco.KeyCode.F2, () => {
+      void triggerRename();
+    });
     editor.onDidChangeCursorPosition((e) => {
       setCursor(e.position.lineNumber, e.position.column);
     });
@@ -420,6 +426,7 @@ export function EditorArea(): React.JSX.Element {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <TabsRow group={group} groupIndex={i} />
             {group.active ? <ConflictBar path={group.active} /> : null}
+            {i === 0 ? editorBannerRegistry.map((C, bi) => <C key={bi} />) : null}
             <MonacoPane group={group} groupIndex={i} />
           </div>
         </React.Fragment>
