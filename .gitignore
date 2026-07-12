@@ -1,0 +1,15 @@
+node_modules/
+dist/
+out/
+release/
+coverage/
+*.tsbuildinfo
+.DS_Store
+*.log
+.tmp/
+tmp/
+test-results/
+playwright-report/
+fixtures/generated/
+.env
+.env.*

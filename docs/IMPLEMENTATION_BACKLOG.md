@@ -8,13 +8,13 @@
 
 | 任务 | 交付 | 依赖 | 状态 | 证据 |
 | --- | --- | --- | --- | --- |
-| M1-01 | 建立 npm workspace/monorepo、strict TS、统一 tsconfig | 无 | NOT_STARTED |  |
-| M1-02 | 创建 Main/Preload/Renderer/Agent Worker 四入口 | M1-01 | NOT_STARTED |  |
-| M1-03 | 配置 format/lint/typecheck/unit/CI | M1-01 | NOT_STARTED |  |
-| M1-04 | 定义 ProductError、IPC envelope、AgentRuntime/AgentEvent | M1-01 | NOT_STARTED |  |
-| M1-05 | 实现 MockAgentRuntime 与 deterministic event scripts | M1-04 | NOT_STARTED |  |
-| M1-06 | 添加依赖边界 lint：Pi 仅 agent-runtime-pi | M1-04 | NOT_STARTED |  |
-| M1-07 | 创建 ADR、状态、测试报告和发布清单模板 | M1-01 | NOT_STARTED |  |
+| M1-01 | 建立 npm workspace/monorepo、strict TS、统一 tsconfig | 无 | VERIFIED | npm workspaces + strict TS (tsconfig.base.json) |
+| M1-02 | 创建 Main/Preload/Renderer/Agent Worker 四入口 | M1-01 | VERIFIED | apps/{desktop-main,desktop-preload,desktop-renderer,agent-worker} |
+| M1-03 | 配置 format/lint/typecheck/unit/CI | M1-01 | VERIFIED | npm run check / test / CI (.github/workflows/ci.yml) |
+| M1-04 | 定义 ProductError、IPC envelope、AgentRuntime/AgentEvent | M1-01 | VERIFIED | packages/{foundation,ipc-contracts,agent-contract} + 28 unit tests |
+| M1-05 | 实现 MockAgentRuntime 与 deterministic event scripts | M1-04 | VERIFIED | packages/agent-runtime-mock + scenario engine tests |
+| M1-06 | 添加依赖边界 lint：Pi 仅 agent-runtime-pi | M1-04 | VERIFIED | scripts/check-boundaries.mjs + tests/unit/boundaries.test.ts |
+| M1-07 | 创建 ADR、状态、测试报告和发布清单模板 | M1-01 | VERIFIED | docs/adr/ADR-0001..0003, status/report templates in docs/ |
 
 ## Milestone 2: 应用壳与持久化
 

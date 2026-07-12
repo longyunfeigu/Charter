@@ -1,0 +1,52 @@
+{
+  "name": "pi-ide",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pi-powered Agentic IDE — local-first, task-native, observable, reviewable, revertible desktop IDE",
+  "license": "MIT",
+  "type": "module",
+  "main": "apps/desktop-main/dist/main.cjs",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "check": "prettier --check . && node scripts/check-boundaries.mjs && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run build && playwright test --config tests/e2e/playwright.config.ts",
+    "test:security": "vitest run --config vitest.security.config.ts && playwright test --config tests/security/playwright.config.ts",
+    "test:perf": "vitest run --config vitest.perf.config.ts",
+    "package": "node scripts/package.mjs",
+    "release:verify": "node scripts/release-verify.mjs",
+    "postinstall": "node scripts/postinstall.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@vscode/ripgrep": "1.18.0",
+    "node-pty": "1.1.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "4.2.0",
+    "@playwright/test": "1.61.1",
+    "@types/node": "22.20.1",
+    "electron": "43.1.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.1",
+    "prettier": "3.9.5",
+    "typescript": "5.9.3",
+    "vite": "7.3.6",
+    "vitest": "4.1.10"
+  },
+  "allowScripts": {
+    "@vscode/ripgrep@1.18.0": true,
+    "electron@43.1.0": true,
+    "esbuild@0.28.1": true,
+    "node-pty@1.1.0": true
+  }
+}

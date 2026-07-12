@@ -1,0 +1,11 @@
+{
+  "name": "@pi-ide/agent-runtime-pi",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.6"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@pi-ide/desktop-main",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@vscode/ripgrep": "1.18.0",
+    "node-pty": "1.1.0"
+  }
+}

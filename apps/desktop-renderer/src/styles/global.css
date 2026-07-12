@@ -1,0 +1,26 @@
+:root {
+  color-scheme: light dark;
+  --bg: #1e1e1e;
+  --fg: #d4d4d4;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.m1-shell {
+  padding: 2rem;
+}

@@ -1,7 +1,7 @@
 # IMPLEMENTATION_STATUS.md
 
-Overall status: NOT_STARTED  
-Current milestone: 1  
+Overall status: IN_PROGRESS  
+Current milestone: 2  
 Last verified commit: —
 
 ## Status legend
@@ -16,7 +16,7 @@ Last verified commit: —
 
 | Milestone | Status | Exit evidence | Notes |
 | --- | --- | --- | --- |
-| 1. Engineering baseline | NOT_STARTED | | |
+| 1. Engineering baseline | VERIFIED | E2E m1-baseline (isolation+IPC), 28 unit tests, packaged .app launch smoke, boundary lint | node:sqlite/node-pty/rg strategies in ADR-0003 |
 | 2. Shell and persistence | NOT_STARTED | | |
 | 3. Workspace and editor | NOT_STARTED | | |
 | 4. Search, LSP, terminal | NOT_STARTED | | |

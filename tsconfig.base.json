@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "useUnknownInCatchVariables": true,
+    "exactOptionalPropertyTypes": false,
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "paths": {
+      "@pi-ide/foundation": ["./packages/foundation/src/index.ts"],
+      "@pi-ide/ipc-contracts": ["./packages/ipc-contracts/src/index.ts"],
+      "@pi-ide/agent-contract": ["./packages/agent-contract/src/index.ts"],
+      "@pi-ide/agent-runtime-mock": ["./packages/agent-runtime-mock/src/index.ts"],
+      "@pi-ide/agent-runtime-pi": ["./packages/agent-runtime-pi/src/index.ts"],
+      "@pi-ide/app-domain": ["./packages/app-domain/src/index.ts"],
+      "@pi-ide/persistence": ["./packages/persistence/src/index.ts"],
+      "@pi-ide/tool-gateway": ["./packages/tool-gateway/src/index.ts"],
+      "@pi-ide/workspace-service": ["./packages/workspace-service/src/index.ts"],
+      "@pi-ide/document-service": ["./packages/document-service/src/index.ts"],
+      "@pi-ide/search-service": ["./packages/search-service/src/index.ts"],
+      "@pi-ide/git-service": ["./packages/git-service/src/index.ts"],
+      "@pi-ide/terminal-service": ["./packages/terminal-service/src/index.ts"],
+      "@pi-ide/change-service": ["./packages/change-service/src/index.ts"],
+      "@pi-ide/verification-service": ["./packages/verification-service/src/index.ts"],
+      "@pi-ide/language-service": ["./packages/language-service/src/index.ts"],
+      "@pi-ide/test-fixtures": ["./packages/test-fixtures/src/index.ts"]
+    }
+  }
+}
