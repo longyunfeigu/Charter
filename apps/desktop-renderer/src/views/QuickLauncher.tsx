@@ -43,9 +43,11 @@ export function QuickLauncher(): React.JSX.Element | null {
       if (res.ok) setRecent(res.data.items);
     });
     if (workspace) {
-      void rpcResult('task.list', { filter: 'all', includeArchived: false }).then((res) => {
-        if (res.ok) setTasks(res.data.tasks);
-      });
+      void rpcResult('task.list', { filter: 'all', includeArchived: false, scope: 'all' }).then(
+        (res) => {
+          if (res.ok) setTasks(res.data.tasks);
+        },
+      );
     } else {
       setTasks([]);
     }

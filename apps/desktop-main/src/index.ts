@@ -413,7 +413,7 @@ if (!gotLock) {
         agentHostRef,
         workspaceHost,
         settings,
-        m5Ref,
+        paths,
         logger.child('tasks'),
       );
       taskServiceRef = taskService;

@@ -32,6 +32,9 @@ function useWindowFocus(): boolean {
 export function LiveBoard(props: {
   taskId: string;
   onOpenLens: (path: string) => void;
+  /** 'launcher' (default): grid under the mission-control card.
+   *  'rail': single-column focus layer inside the Task Room (PIVOT-028). */
+  variant?: 'launcher' | 'rail';
 }): React.JSX.Element | null {
   const pulses = useActivityStore((s) => s.pulses);
   const focused = useWindowFocus();
@@ -48,15 +51,16 @@ export function LiveBoard(props: {
   const tiles = tilesForTask(pulses, props.taskId, now);
   if (tiles.length === 0) return null;
   const rate = writesPerMinute(pulses, props.taskId, now);
+  const rail = props.variant === 'rail';
 
   return (
     <div
-      className={`hm-board ${focused ? '' : 'paused'}`}
+      className={`hm-board ${rail ? 'rail' : ''} ${focused ? '' : 'paused'}`}
       data-testid={`live-board-${props.taskId}`}
     >
       <div className="hm-board-head">
         <span className="hm-board-beacon" />
-        <span>Working right now</span>
+        <span>{rail ? 'Writing now' : 'Working right now'}</span>
         <span className="hm-board-rate">{rate} writes/min</span>
       </div>
       <div className="hm-tiles">

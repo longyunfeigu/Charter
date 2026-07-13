@@ -46,6 +46,8 @@ interface SessionEntry {
   session: AgentSession;
   input: CreateSessionInput;
   currentRunId: string | null;
+  /** The product system preamble is delivered with the session's first prompt. */
+  preambleDelivered: boolean;
 }
 
 interface AsyncQueue<T> {
@@ -257,7 +259,7 @@ export class PiAgentRuntime implements AgentRuntime {
       settingsManager: SettingsManager.inMemory(),
     });
 
-    this.sessions.set(sessionId, { session, input, currentRunId: null });
+    this.sessions.set(sessionId, { session, input, currentRunId: null, preambleDelivered: false });
     return {
       sessionId,
       runtimeId: 'pi',
@@ -442,8 +444,17 @@ export class PiAgentRuntime implements AgentRuntime {
 
     queue.push({ ...base(), type: 'run.started' });
 
+    // The pi SDK has no per-session system-prompt hook, so the product preamble
+    // (mode rules, plan gate, Charter identity — AG-001/007, PIVOT-008) rides in
+    // front of the session's first prompt exactly once.
+    let promptText = input.prompt;
+    if (!entry.preambleDelivered && entry.input.systemPreamble.trim().length > 0) {
+      entry.preambleDelivered = true;
+      promptText = `<charter-instructions>\n${entry.input.systemPreamble}\n</charter-instructions>\n\n${input.prompt}`;
+    }
+
     void entry.session
-      .prompt(input.prompt)
+      .prompt(promptText)
       .then(() => {
         const run = this.runs.get(input.runId);
         if (run?.aborted) {

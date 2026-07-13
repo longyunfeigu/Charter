@@ -1,21 +1,15 @@
-import React from 'react';
 import { homeSurfaceRegistry, initRegistry, overlayRegistry } from '../workbench/Workbench.js';
-import { HomeView, registerHomeSurfaceListeners } from '../views/HomeView.js';
-import { TaskRoomView } from '../views/TaskRoomView.js';
+import { registerHomeSurfaceListeners } from '../views/HomeView.js';
+import { HomeShell } from '../views/HomeShell.js';
 import { QuickLauncher } from '../views/QuickLauncher.js';
 import { registerCommands } from '../commands.js';
 import { useAppStore } from '../store/appStore.js';
 
-/** Home surface: the launcher, or the Task Room page when a task is open
- * (ADR-0008 three-layer shell — the Editor is never a required passage). */
-function HomeSurface(): React.JSX.Element {
-  const taskRoomTaskId = useAppStore((s) => s.taskRoomTaskId);
-  return taskRoomTaskId ? <TaskRoomView /> : <HomeView />;
-}
-
-/** Dual-form shell (ADR-0004): Home task launcher as the default entry. */
+/** Dual-form shell (ADR-0004): Home task launcher as the default entry.
+ * PIVOT-028: the persistent shell keeps the sidebar mounted; Launcher and
+ * Task Room swap in its content area. */
 export function registerPivotHome(): void {
-  homeSurfaceRegistry.main = HomeSurface;
+  homeSurfaceRegistry.main = HomeShell;
   initRegistry.push(registerHomeSurfaceListeners);
   overlayRegistry.push(QuickLauncher);
   registerCommands([

@@ -47,3 +47,19 @@ describe('shared state vocabulary (PIVOT-023)', () => {
     expect(modeLabel('auto')).toBe('Auto · pause on risk');
   });
 });
+
+describe('ADR-0009 light completion presentation', () => {
+  it('REVIEW_READY with zero net changes presents as Answered (state untouched)', async () => {
+    const { presentedMeta, isAnswered } = await import(
+      '../../apps/desktop-renderer/src/views/labels.js'
+    );
+    expect(isAnswered({ state: 'REVIEW_READY', changedFiles: 0 })).toBe(true);
+    expect(presentedMeta({ state: 'REVIEW_READY', changedFiles: 0 }).short).toBe('Answered');
+    // Real changes keep full review weight.
+    expect(isAnswered({ state: 'REVIEW_READY', changedFiles: 2 })).toBe(false);
+    expect(presentedMeta({ state: 'REVIEW_READY', changedFiles: 2 }).short).toBe('Review');
+    // Unknown (pre-finalize) counts never fake an answer.
+    expect(isAnswered({ state: 'REVIEW_READY', changedFiles: null })).toBe(false);
+    expect(isAnswered({ state: 'IN_PROGRESS', changedFiles: 0 })).toBe(false);
+  });
+});

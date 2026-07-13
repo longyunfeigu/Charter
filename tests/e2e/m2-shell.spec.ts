@@ -11,22 +11,21 @@ test.describe('M2 shell, settings and persistence', () => {
     await expect(page.getByTestId('agent-panel')).toBeVisible();
     await expect(page.getByTestId('bottom-panel')).toHaveCount(0);
 
-    // Open command palette and switch theme to light.
+    // Open command palette and switch theme to light. Fill the input directly
+    // — free-typing races the palette's focus timing and drops keystrokes.
     await page.getByTestId('palette-chip').click();
     await page.getByRole('dialog', { name: 'Command palette' }).waitFor();
-    await page.keyboard.type('Theme: Light');
-    await page.keyboard.press('Enter');
+    await page.getByRole('textbox', { name: 'Command' }).fill('Theme: Light');
+    await page.getByRole('textbox', { name: 'Command' }).press('Enter');
     await expect
       .poll(async () => page.evaluate(() => document.documentElement.dataset.theme))
       .toBe('light');
 
     // Toggle bottom panel via palette; hide agent panel via keyboard.
-    // Wait for the palette to actually open before typing (else the first
-    // keystrokes race the dialog and the command never runs).
     await page.getByTestId('palette-chip').click();
     await page.getByRole('dialog', { name: 'Command palette' }).waitFor();
-    await page.keyboard.type('Toggle Bottom Panel');
-    await page.keyboard.press('Enter');
+    await page.getByRole('textbox', { name: 'Command' }).fill('Toggle Bottom Panel');
+    await page.getByRole('textbox', { name: 'Command' }).press('Enter');
     await expect(page.getByTestId('bottom-panel')).toBeVisible();
 
     // Change a setting through the Settings UI.

@@ -450,6 +450,10 @@ export const CHANNELS = {
         mode: AgentModeSchema,
         model: ModelRefSchema,
         verification: z.array(VerificationCommandSchema).max(10).default([]),
+        /** ADR-0009: dispatch target; defaults to the focused workspace. */
+        projectPath: z.string().min(1).max(2000).optional(),
+        /** ADR-0009: run the task in an isolated git worktree. */
+        isolation: z.enum(['none', 'worktree']).default('none'),
       })
       .strict(),
     z.object({ task: TaskDtoSchema }),
@@ -485,6 +489,8 @@ export const CHANNELS = {
       .object({
         filter: z.enum(['all', 'active', 'review', 'done', 'failed']).default('all'),
         includeArchived: z.boolean().default(false),
+        /** ADR-0009: 'all' returns tasks across every known project. */
+        scope: z.enum(['workspace', 'all']).default('workspace'),
       })
       .strict(),
     z.object({ tasks: z.array(TaskDtoSchema) }),
@@ -537,7 +543,8 @@ export const CHANNELS = {
     z
       .object({
         taskId: z.string(),
-        decision: z.enum(['approve', 'reject']),
+        /** ADR-0009: request_changes resolves propose_plan with the user's feedback. */
+        decision: z.enum(['approve', 'reject', 'request_changes']),
         editedPlan: PlanEditDtoSchema.optional(),
         reason: z.string().max(2000).optional(),
         confirmRemovedDone: z.boolean().default(false),
@@ -569,8 +576,19 @@ export const CHANNELS = {
   'task.accept': ch(
     'task.accept',
     1,
-    z.object({ taskId: z.string(), confirmUnverified: z.boolean().default(false) }).strict(),
-    z.object({ task: TaskDtoSchema }),
+    z
+      .object({
+        taskId: z.string(),
+        confirmUnverified: z.boolean().default(false),
+        /** ADR-0009: override worktree merge-back conflicts after explicit confirm. */
+        confirmConflicts: z.boolean().default(false),
+      })
+      .strict(),
+    z.object({
+      task: TaskDtoSchema,
+      status: z.enum(['accepted', 'conflicts']).default('accepted'),
+      conflicts: z.array(z.object({ path: z.string(), reason: z.string() })).optional(),
+    }),
   ),
   'task.rollback': ch(
     'task.rollback',

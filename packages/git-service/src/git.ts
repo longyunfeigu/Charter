@@ -306,4 +306,25 @@ export class GitService {
     const detect = await this.detect();
     return { head: detect.head, branch: detect.branch };
   }
+
+  // ---------- worktrees (ADR-0009) ----------
+
+  /** Create a linked worktree at `path` on a new branch from HEAD. */
+  async worktreeAdd(path: string, branch: string): Promise<void> {
+    if (!/^[A-Za-z0-9_./-]{1,120}$/.test(branch) || branch.startsWith('-')) {
+      throw gitError('GIT_INVALID_BRANCH', 'That branch name is not valid.');
+    }
+    const fresh = await this.run(['worktree', 'add', '-b', branch, '--', path, 'HEAD'], {
+      allowCodes: [128],
+    });
+    if (fresh.code === 0) return;
+    // Branch may survive from an earlier attempt — reuse it explicitly.
+    await this.run(['worktree', 'add', '--', path, branch]);
+  }
+
+  /** Remove a linked worktree (forced — task worktrees are disposable) and prune. */
+  async worktreeRemove(path: string): Promise<void> {
+    await this.run(['worktree', 'remove', '--force', '--', path], { allowCodes: [128] });
+    await this.run(['worktree', 'prune'], { allowCodes: [128] });
+  }
 }

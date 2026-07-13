@@ -31,16 +31,9 @@ import { projectActivity } from '@pi-ide/ipc-contracts';
 import type { z } from 'zod';
 import type { SqlDatabase } from '@pi-ide/persistence';
 import {
-  ToolGateway,
-  registerReadOnlyTools,
-  registerCommandTools,
-  registerWriteTools,
-  registerVerificationTool,
-  createPlanAwarePermission,
   normalizeProposedPlan,
   applyPlanEdit,
   applyStatusUpdates,
-  PermissionEngine,
   WRITE_TOOL_NAMES,
   type AskUserPrompt,
   type PermissionRequestCard,
@@ -48,23 +41,25 @@ import {
   type PlanStepUpdate,
   type ProposedPlanInput,
   type ToolAuditRecord,
+  type ToolGateway,
   type VerificationGate,
 } from '@pi-ide/tool-gateway';
 import { parseHunks } from '@pi-ide/change-service';
-import {
-  VerificationService,
-  type VerificationCommand as VerCommand,
-  type VerificationRunRecord,
+import type {
+  VerificationCommand as VerCommand,
+  VerificationRunRecord,
 } from '@pi-ide/verification-service';
 import { createHash } from 'node:crypto';
-import { SearchService } from '@pi-ide/search-service';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { GitService } from '@pi-ide/git-service';
+import { openWorkspaceInfo } from '@pi-ide/workspace-service';
 import type { AgentHost, RuntimeKind } from './agent-host.js';
 import type { WorkspaceHost } from './workspace-host.js';
 import type { SettingsService } from './settings-service.js';
-import type { M5Services } from '../ipc/m5-handlers.js';
-import { SqlPermissionStore } from './permission-store.js';
-import { SqlVerificationRepo } from './verification-store.js';
+import type { AppPaths } from '../app-paths.js';
+import { ProjectContexts, type ProjectContext } from './project-contexts.js';
+import { WorktreeService, type TaskWorktree } from './worktree-service.js';
 import { broadcast } from '../broadcast.js';
 
 type VerificationCommand = z.infer<typeof VerificationCommandSchema>;
@@ -87,6 +82,10 @@ export interface CreateTaskInput {
   mode: AgentMode;
   model: ModelRef;
   verification: VerificationCommand[];
+  /** ADR-0009: dispatch target; defaults to the focused workspace. */
+  projectPath?: string;
+  /** ADR-0009: run in an isolated git worktree. */
+  isolation?: 'none' | 'worktree';
 }
 
 interface TaskRow {
@@ -103,7 +102,14 @@ interface TaskRow {
   archived: number;
   created_at: string;
   updated_at: string;
+  worktree_json: string | null;
+  changed_files: number | null;
+  project_path: string;
+  project_name: string;
 }
+
+const TASK_SELECT =
+  'SELECT t.*, w.canonical_path AS project_path, w.display_name AS project_name FROM tasks t JOIN workspaces w ON w.id = t.workspace_id';
 
 /**
  * Task engine (spec §6): persistence-backed state machine, immutable event log,
@@ -114,9 +120,11 @@ export class TaskService {
   private readonly sessionRefs = new Map<string, RuntimeSessionRef>();
   private readonly runsByTask = new Map<string, string>();
   private readonly startQueue: Array<{ taskId: string; prompt: string | undefined }> = [];
-  private gateway: ToolGateway | null = null;
-  private permissionEngine: PermissionEngine | null = null;
-  private verifications: VerificationService | null = null;
+  /** Per-root agent contexts (ADR-0009) — tasks execute against these, never "the open workspace". */
+  private readonly contexts: ProjectContexts;
+  private readonly worktrees: WorktreeService;
+  /** Pending permission request → owning context (routes decisions). */
+  private readonly requestContext = new Map<string, ProjectContext>();
   /** Open ask_user questions waiting for an answer, keyed by callId. */
   private readonly pendingAsks = new Map<
     string,
@@ -135,14 +143,24 @@ export class TaskService {
   private readonly planWaiters = new Map<
     string,
     {
-      resolve: (outcome: { decision: 'approved' | 'edited'; plan: TaskPlan }) => void;
+      resolve: (
+        outcome:
+          | { decision: 'approved' | 'edited'; plan: TaskPlan }
+          | { decision: 'changes_requested'; plan: TaskPlan; feedback: string },
+      ) => void;
       reject: (error: unknown) => void;
       cleanup: () => void;
     }
   >();
   /** State-transition observers (notifications, PIVOT-014). */
   private readonly stateChangeListeners = new Set<
-    (info: { taskId: string; from: TaskState; to: TaskState; title: string }) => void
+    (info: {
+      taskId: string;
+      from: TaskState;
+      to: TaskState;
+      title: string;
+      changedFiles: number | null;
+    }) => void
   >();
 
   constructor(
@@ -150,84 +168,102 @@ export class TaskService {
     private readonly host: AgentHost,
     private readonly workspace: WorkspaceHost,
     private readonly settings: SettingsService,
-    private readonly m5: M5Services,
+    paths: AppPaths,
     private readonly logger: Logger,
   ) {
+    this.worktrees = new WorktreeService(paths, logger);
+    this.contexts = new ProjectContexts(
+      this.db,
+      paths,
+      settings,
+      workspace,
+      {
+        // Unknown task falls back to ask (fail closed = read-only).
+        modeForTask: (taskId) => {
+          try {
+            return this.getTask(taskId).mode;
+          } catch {
+            return 'ask';
+          }
+        },
+        planApproved: (taskId) => this.planStatus(taskId).status === 'approved',
+        audit: (record) => this.persistToolAudit(record),
+        onPermissionPending: (card, context) => {
+          this.requestContext.set(card.requestId, context);
+          this.onPermissionPending(card);
+        },
+        onPermissionResolved: (info) => {
+          this.requestContext.delete(info.requestId);
+          this.onPermissionResolved(info);
+        },
+        askUser: (prompt, signal) => this.askUser(prompt, signal),
+        planGate: () => this.planGate(),
+        verificationGate: () => this.verificationGate(),
+      },
+      logger,
+    );
     host.delegate = {
       onAgentEvent: (taskId, runId, event) => this.onAgentEvent(taskId, runId, event),
       onRunEnded: (taskId, runId) => this.onRunEnded(taskId, runId),
       onWorkerCrashed: (taskIds) => this.onWorkerCrashed(taskIds),
-      gatewayForTask: () => this.gateway,
+      gatewayForTask: (taskId) => this.gatewayForTask(taskId),
       onToolLifecycle: (taskId, call, result) => this.onToolLifecycle(taskId, call, result),
     };
-    workspace.onDidChangeWorkspace((ws) => {
-      this.permissionEngine?.cancelAll('workspace changed');
-      this.cancelAllAsks('workspace changed');
-      this.cancelAllPlanWaits('workspace changed');
-      this.planRecords.clear();
-      this.gateway = null;
-      this.permissionEngine = null;
-      this.verifications = null;
-      if (ws) this.buildGateway();
+    // ADR-0009: switching the focused editor workspace no longer cancels or
+    // rebinds anything — agent contexts are independent mounts.
+  }
+
+  // ---------- project contexts (ADR-0009) ----------
+
+  /** The agent context a task executes in: its worktree, or its project root. */
+  contextForTask(taskId: string): ProjectContext {
+    const row = this.getRow(taskId);
+    const worktree = row.worktree_json ? (JSON.parse(row.worktree_json) as TaskWorktree) : null;
+    const root = worktree?.path ?? row.project_path;
+    return this.contexts.forRoot({
+      root,
+      wsId: row.workspace_id,
+      isGitRepo: existsSync(join(root, '.git')),
     });
   }
 
-  private buildGateway(): void {
-    const ws = this.workspace.current;
-    if (!ws) return;
-    const engine = new PermissionEngine({
-      workspaceId: ws.id,
-      store: new SqlPermissionStore(this.db, ws.id),
-      events: {
-        onPending: (card) => this.onPermissionPending(card),
-        onResolved: (info) => this.onPermissionResolved(info),
-      },
-    });
-    const gateway = new ToolGateway({
-      root: ws.canonicalPath,
-      mode: 'ask',
-      // ADR-0006: concurrent runs — every call resolves its own task's mode.
-      // Unknown task falls back to ask (fail closed = read-only).
-      modeForTask: (taskId) => {
-        try {
-          return this.getTask(taskId).mode;
-        } catch {
-          return 'ask';
-        }
-      },
-      // AG-007: writes in edit/auto are refused until this task's plan is approved.
-      permission: createPlanAwarePermission(engine, {
-        planApproved: (taskId) => this.planStatus(taskId).status === 'approved',
-      }),
-      audit: (record) => this.persistToolAudit(record),
-    });
-    registerReadOnlyTools(gateway, {
-      root: ws.canonicalPath,
-      documents: ws.documents,
-      search: () =>
-        new SearchService(ws.canonicalPath, this.settings.effective.workspace.ignoreGlobs),
-      git: () => (ws.isGitRepo ? new GitService(ws.canonicalPath) : null),
-    });
-    registerCommandTools(gateway, {
-      root: ws.canonicalPath,
-      userGate: { ask: (prompt, signal) => this.askUser(prompt, signal) },
-    });
-    registerWriteTools(gateway, {
-      root: ws.canonicalPath,
-      changes: () => this.m5.changeService,
-      documents: ws.documents,
-      planGate: this.planGate(),
-    });
-    registerVerificationTool(gateway, { gate: this.verificationGate() });
-    this.verifications = this.m5.blobStore
-      ? new VerificationService({
-          root: ws.canonicalPath,
-          repo: new SqlVerificationRepo(this.db),
-          blobs: this.m5.blobStore,
-        })
-      : null;
-    this.gateway = gateway;
-    this.permissionEngine = engine;
+  private gatewayForTask(taskId: string): ToolGateway | null {
+    try {
+      return this.contextForTask(taskId).gateway;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Workspace row for a dispatch target path, creating the identity if new. */
+  private async workspaceRowForPath(
+    path: string,
+  ): Promise<{ id: string; canonicalPath: string; displayName: string; isGitRepo: boolean }> {
+    const info = await openWorkspaceInfo(path);
+    const row = this.db
+      .prepare('SELECT id, display_name FROM workspaces WHERE canonical_path = ?')
+      .get(info.canonicalPath) as { id: string; display_name: string } | undefined;
+    if (row) {
+      return {
+        id: row.id,
+        canonicalPath: info.canonicalPath,
+        displayName: row.display_name,
+        isGitRepo: info.isGitRepo,
+      };
+    }
+    const id = newId('ws');
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        'INSERT INTO workspaces (id, canonical_path, display_name, trust_state, last_opened_at, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(id, info.canonicalPath, info.displayName, 'untrusted', now, now);
+    return {
+      id,
+      canonicalPath: info.canonicalPath,
+      displayName: info.displayName,
+      isGitRepo: info.isGitRepo,
+    };
   }
 
   // ---------- permissions (PERM-001..010) ----------
@@ -295,8 +331,9 @@ export class TaskService {
     reason?: string;
     applyToSimilar?: boolean;
   }): { resolvedRequestIds: string[] } {
-    if (!this.permissionEngine) return { resolvedRequestIds: [] };
-    return this.permissionEngine.resolve({
+    const engine = this.requestContext.get(input.requestId)?.permissions;
+    if (!engine) return { resolvedRequestIds: [] };
+    return engine.resolve({
       requestId: input.requestId,
       kind: input.kind,
       scope: input.scope,
@@ -311,10 +348,14 @@ export class TaskService {
     permissions: PermissionCardDto[];
     asks: AskUserPromptDto[];
   } {
+    let pending: PermissionRequestCard[] = [];
+    try {
+      pending = this.contextForTask(taskId).permissions.pendingForTask(taskId);
+    } catch {
+      pending = [];
+    }
     return {
-      permissions: (this.permissionEngine?.pendingForTask(taskId) ?? []).map((c) =>
-        this.cardToDto(c),
-      ),
+      permissions: pending.map((c) => this.cardToDto(c)),
       asks: [...this.pendingAsks.values()].map((a) => a.prompt).filter((p) => p.taskId === taskId),
     };
   }
@@ -376,8 +417,8 @@ export class TaskService {
     }
   }
 
-  get toolGateway(): ToolGateway | null {
-    return this.gateway;
+  get projectContexts(): ProjectContexts {
+    return this.contexts;
   }
 
   // ---------- plan approval flow (M8-01, AG-007/008, §13.2) ----------
@@ -430,7 +471,10 @@ export class TaskService {
   private async proposePlan(
     input: { taskId: string; runId: string; callId: string; plan: ProposedPlanInput },
     signal: AbortSignal,
-  ): Promise<{ decision: 'approved' | 'edited'; plan: TaskPlan }> {
+  ): Promise<
+    | { decision: 'approved' | 'edited'; plan: TaskPlan }
+    | { decision: 'changes_requested'; plan: TaskPlan; feedback: string }
+  > {
     const task = this.getTask(input.taskId);
     const version = this.planStatus(input.taskId).version + 1;
     const plan = normalizeProposedPlan(input.plan, version);
@@ -477,7 +521,7 @@ export class TaskService {
   /** User decision on a proposed plan (IPC task.planDecision). */
   decidePlan(input: {
     taskId: string;
-    decision: 'approve' | 'reject';
+    decision: 'approve' | 'reject' | 'request_changes';
     editedPlan?: PlanEditDto;
     reason?: string;
     confirmRemovedDone?: boolean;
@@ -491,6 +535,32 @@ export class TaskService {
       );
     }
     const task = this.getTask(input.taskId);
+
+    if (input.decision === 'request_changes') {
+      // ADR-0009: the composer is the "Request changes" control — the blocked
+      // propose_plan resolves with the feedback and the model revises (v+1).
+      const feedback = (input.reason ?? '').trim() || 'Please revise the plan.';
+      this.planRecords.set(input.taskId, {
+        plan: record.plan,
+        status: 'none',
+        version: record.version,
+      });
+      this.recordEvent(input.taskId, 'user.planDecision', {
+        decision: 'changes_requested',
+        auto: false,
+        edited: false,
+        reason: feedback,
+        version: record.version,
+      });
+      const waiter = this.planWaiters.get(input.taskId);
+      if (waiter) {
+        this.planWaiters.delete(input.taskId);
+        waiter.cleanup();
+        waiter.resolve({ decision: 'changes_requested', plan: record.plan, feedback });
+      }
+      if (task.state === 'AWAITING_PLAN_APPROVAL') this.setState(input.taskId, 'IN_PROGRESS');
+      return this.getTask(input.taskId);
+    }
 
     if (input.decision === 'approve') {
       let finalPlan = record.plan;
@@ -627,12 +697,7 @@ export class TaskService {
 
   /** Net change set with hunks and review-state projection for the Review page. */
   async changeSetForReview(taskId: string): Promise<ChangeSetDto> {
-    const changes = this.m5.changeService;
-    if (!changes) {
-      throw new ProductFailure(
-        productError('WS_NONE_OPEN', { userMessage: 'No workspace is open.' }),
-      );
-    }
+    const changes = this.contextForTask(taskId).changes;
     const cs = await changes.changeSet(taskId);
     const decisions = this.reviewDecisions(taskId);
     const files: ChangeSetFileDto[] = cs.files.map((file) => {
@@ -722,12 +787,7 @@ export class TaskService {
         }),
       );
     }
-    const changes = this.m5.changeService;
-    if (!changes) {
-      throw new ProductFailure(
-        productError('WS_NONE_OPEN', { userMessage: 'No workspace is open.' }),
-      );
-    }
+    const changes = this.contextForTask(input.taskId).changes;
     if (input.decision === 'reject') {
       try {
         if (input.scope === 'hunk') {
@@ -767,11 +827,17 @@ export class TaskService {
     return { status: 'applied', changeSet: await this.changeSetForReview(input.taskId) };
   }
 
-  /** REVIEW_READY → ACCEPTED (user accepts the workspace state; not a git commit). */
+  /** REVIEW_READY → ACCEPTED (user accepts the workspace state; not a git commit).
+   * Worktree tasks merge their net change set back into the main tree first
+   * (ADR-0009); conflicts stop the accept unless explicitly confirmed. */
   async acceptTask(
     taskId: string,
-    options: { confirmUnverified?: boolean } = {},
-  ): Promise<TaskDto> {
+    options: { confirmUnverified?: boolean; confirmConflicts?: boolean } = {},
+  ): Promise<{
+    task: TaskDto;
+    status: 'accepted' | 'conflicts';
+    conflicts?: Array<{ path: string; reason: string }>;
+  }> {
     const task = this.getTask(taskId);
     if (task.state !== 'REVIEW_READY') {
       throw new ProductFailure(
@@ -780,12 +846,13 @@ export class TaskService {
         }),
       );
     }
+    const context = this.contextForTask(taskId);
     // VER-007/E2E-018: accepting real changes without any verification needs a
     // second, explicit confirmation.
-    const verificationRuns = this.verifications?.listForTask(taskId) ?? [];
+    const verificationRuns = context.verifications.listForTask(taskId);
     if (verificationRuns.length === 0 && task.mode !== 'ask' && !options.confirmUnverified) {
-      const changed = this.m5.changeService ? await this.m5.changeService.changeSet(taskId) : null;
-      if (changed && changed.files.length > 0) {
+      const changed = await context.changes.changeSet(taskId);
+      if (changed.files.length > 0) {
         throw new ProductFailure(
           productError('ACCEPT_NEEDS_CONFIRM', {
             userMessage:
@@ -795,6 +862,28 @@ export class TaskService {
         );
       }
     }
+
+    // ADR-0009: merge the worktree's net changes back into the main tree.
+    if (task.worktree) {
+      const mainRoot = task.projectPath;
+      const cs = await context.changes.changeSet(taskId);
+      if (cs.files.length > 0) {
+        const conflicts = await this.worktrees.mergeBackPreflight(mainRoot, cs);
+        if (conflicts.length > 0 && !options.confirmConflicts) {
+          this.recordEvent(taskId, 'merge.blocked', { conflicts });
+          return { task: this.getTask(taskId), status: 'conflicts', conflicts };
+        }
+        const { merged } = await this.worktrees.mergeBack(mainRoot, context.root, cs);
+        this.recordEvent(taskId, 'task.mergedBack', {
+          files: merged,
+          branch: task.worktree.branch,
+          conflictsOverridden: conflicts.map((c) => c.path),
+        });
+      }
+      await this.worktrees.discard(mainRoot, task.worktree as TaskWorktree);
+      this.contexts.drop(context.root);
+    }
+
     // §6.1: ACCEPTED requires a final report; it is recorded when the run completes.
     const hasReport = this.db
       .prepare("SELECT id FROM task_events WHERE task_id = ? AND type = 'report.final' LIMIT 1")
@@ -810,7 +899,7 @@ export class TaskService {
       at: new Date().toISOString(),
       unverifiedConfirmed: verificationRuns.length === 0 && options.confirmUnverified === true,
     });
-    return this.setState(taskId, 'ACCEPTED');
+    return { task: this.setState(taskId, 'ACCEPTED'), status: 'accepted' };
   }
 
   /** Full rollback with preflight (CHG-009/010, M9-04). Conflicts stop; force overrides explicitly. */
@@ -829,12 +918,26 @@ export class TaskService {
         }),
       );
     }
-    const changes = this.m5.changeService;
-    if (!changes) {
-      throw new ProductFailure(
-        productError('WS_NONE_OPEN', { userMessage: 'No workspace is open.' }),
-      );
+    // ADR-0009: a worktree task never touched the main tree — rollback is
+    // simply discarding the worktree (byte-exact by construction).
+    if (task.worktree) {
+      const context = this.contextForTask(taskId);
+      await this.worktrees.discard(task.projectPath, task.worktree as TaskWorktree);
+      this.contexts.drop(context.root);
+      this.recordEvent(taskId, 'task.rolledBack', {
+        ok: true,
+        restored: [],
+        discardedWorktree: true,
+        conflictsOverridden: [],
+        failed: [],
+      });
+      return {
+        status: 'ok',
+        task: this.setState(taskId, 'ROLLED_BACK'),
+        restored: [],
+      };
     }
+    const changes = this.contextForTask(taskId).changes;
     const preflight = await changes.rollbackPreflight(taskId);
     if (preflight.conflicts.length > 0 && !options.force) {
       this.recordEvent(taskId, 'rollback.blocked', {
@@ -891,9 +994,8 @@ export class TaskService {
 
   /** Fingerprint of the task's current net change set (VER-008 stale detection). */
   private async codeRevision(taskId: string): Promise<string | null> {
-    const changes = this.m5.changeService;
-    if (!changes) return null;
     try {
+      const changes = this.contextForTask(taskId).changes;
       const cs = await changes.changeSet(taskId);
       const shape = cs.files.map((f) => [f.path, f.currentHash]);
       return createHash('sha256').update(JSON.stringify(shape)).digest('hex').slice(0, 24);
@@ -907,12 +1009,7 @@ export class TaskService {
     taskId: string,
     options: { label?: string; initiator: 'agent' | 'user'; signal?: AbortSignal },
   ): Promise<VerificationRunRecord[] | null> {
-    const service = this.verifications;
-    if (!service) {
-      throw new ProductFailure(
-        productError('WS_NONE_OPEN', { userMessage: 'No workspace is open.' }),
-      );
-    }
+    const service = this.contextForTask(taskId).verifications;
     const task = this.getTask(taskId);
     const commands = (task.verification as VerCommand[]).filter(
       (c) => !options.label || c.label === options.label,
@@ -968,11 +1065,25 @@ export class TaskService {
   }
 
   verificationRuns(taskId: string): Array<Record<string, unknown>> {
-    return (this.verifications?.listForTask(taskId) ?? []).map((r) => this.verificationDto(r));
+    try {
+      return this.contextForTask(taskId)
+        .verifications.listForTask(taskId)
+        .map((r) => this.verificationDto(r));
+    } catch {
+      return [];
+    }
   }
 
+  /** Suggestions for the composer — based on the focused (dispatch-target) project. */
   async suggestVerifications(): Promise<VerCommand[]> {
-    return this.verifications ? this.verifications.detectSuggestions() : [];
+    const ws = this.workspace.current;
+    if (!ws) return [];
+    const context = this.contexts.forRoot({
+      root: ws.canonicalPath,
+      wsId: ws.id,
+      isGitRepo: ws.isGitRepo,
+    });
+    return context.verifications.detectSuggestions();
   }
 
   // ---------- persistence helpers ----------
@@ -994,12 +1105,15 @@ export class TaskService {
       gitBaseline: row.git_baseline_json
         ? (JSON.parse(row.git_baseline_json) as { head: string | null; branch: string | null })
         : null,
+      projectName: row.project_name,
+      projectPath: row.project_path,
+      changedFiles: row.changed_files,
+      worktree: row.worktree_json ? (JSON.parse(row.worktree_json) as TaskWorktree) : null,
     };
   }
 
   private getRow(taskId: string): TaskRow {
-    const row = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as
-      TaskRow | undefined;
+    const row = this.db.prepare(`${TASK_SELECT} WHERE t.id = ?`).get(taskId) as TaskRow | undefined;
     if (!row) {
       throw new ProductFailure(
         productError('TASK_NOT_FOUND', { userMessage: 'The task no longer exists.' }),
@@ -1015,12 +1129,15 @@ export class TaskService {
   listTasks(
     filter: 'all' | 'active' | 'review' | 'done' | 'failed',
     includeArchived: boolean,
+    scope: 'workspace' | 'all' = 'workspace',
   ): TaskDto[] {
     const ws = this.workspace.current;
-    if (!ws) return [];
-    const rows = this.db
-      .prepare('SELECT * FROM tasks WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT 300')
-      .all(ws.id) as unknown as TaskRow[];
+    if (scope === 'workspace' && !ws) return [];
+    const rows = (scope === 'all'
+      ? this.db.prepare(`${TASK_SELECT} ORDER BY t.updated_at DESC LIMIT 300`).all()
+      : this.db
+          .prepare(`${TASK_SELECT} WHERE t.workspace_id = ? ORDER BY t.updated_at DESC LIMIT 300`)
+          .all(ws!.id)) as unknown as TaskRow[];
     return rows
       .map((r) => this.rowToDto(r))
       .filter((t) => includeArchived || !t.archived)
@@ -1238,9 +1355,13 @@ export class TaskService {
       .run(to, new Date().toISOString(), taskId);
     this.recordEvent(taskId, 'task.stateChanged', { from, to, ...context });
     broadcast('task.stateChanged', { taskId, state: to });
+    const changedFiles = (
+      this.db.prepare('SELECT changed_files FROM tasks WHERE id = ?').get(taskId) as
+        { changed_files: number | null } | undefined
+    )?.changed_files;
     for (const listener of this.stateChangeListeners) {
       try {
-        listener({ taskId, from, to, title: row.title });
+        listener({ taskId, from, to, title: row.title, changedFiles: changedFiles ?? null });
       } catch (e) {
         this.logger.warn('state listener failed', {
           error: e instanceof Error ? e.message : String(e),
@@ -1252,7 +1373,13 @@ export class TaskService {
 
   /** Observe task state transitions (edge-triggered; used by notifications). */
   onStateChanged(
-    listener: (info: { taskId: string; from: TaskState; to: TaskState; title: string }) => void,
+    listener: (info: {
+      taskId: string;
+      from: TaskState;
+      to: TaskState;
+      title: string;
+      changedFiles: number | null;
+    }) => void,
   ): () => void {
     this.stateChangeListeners.add(listener);
     return () => this.stateChangeListeners.delete(listener);
@@ -1261,25 +1388,44 @@ export class TaskService {
   // ---------- lifecycle ----------
 
   async createTask(input: CreateTaskInput): Promise<TaskDto> {
-    const ws = this.workspace.mustActive();
+    // ADR-0009: dispatch target — explicit projectPath, else the focused workspace.
+    const project = input.projectPath
+      ? await this.workspaceRowForPath(input.projectPath)
+      : (() => {
+          const ws = this.workspace.mustActive();
+          return {
+            id: ws.id,
+            canonicalPath: ws.canonicalPath,
+            displayName: ws.displayName,
+            isGitRepo: ws.isGitRepo,
+          };
+        })();
     const now = new Date().toISOString();
     const id = newId('task');
+
+    // ADR-0009: isolated worktree for same-project parallel tasks.
+    let worktree: TaskWorktree | null = null;
+    if (input.isolation === 'worktree') {
+      worktree = await this.worktrees.create(project.canonicalPath, project.id, id);
+    }
+
+    const rootForBaseline = worktree?.path ?? project.canonicalPath;
     let gitBaseline: { head: string | null; branch: string | null } | null = null;
-    if (ws.isGitRepo) {
+    if (project.isGitRepo) {
       try {
-        gitBaseline = await new GitService(ws.canonicalPath).headInfo();
+        gitBaseline = await new GitService(rootForBaseline).headInfo();
       } catch {
         gitBaseline = null;
       }
     }
     this.db
       .prepare(
-        `INSERT INTO tasks (id, workspace_id, title, goal_md, acceptance_json, mode, state, model_json, verification_json, git_baseline_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'READY', ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, workspace_id, title, goal_md, acceptance_json, mode, state, model_json, verification_json, git_baseline_json, worktree_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'READY', ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
-        ws.id,
+        project.id,
         input.title,
         input.goalMd,
         JSON.stringify(input.acceptance),
@@ -1287,6 +1433,7 @@ export class TaskService {
         JSON.stringify(input.model),
         JSON.stringify(input.verification),
         gitBaseline ? JSON.stringify(gitBaseline) : null,
+        worktree ? JSON.stringify(worktree) : null,
         now,
         now,
       );
@@ -1296,8 +1443,15 @@ export class TaskService {
       model: input.model,
       acceptance: input.acceptance,
       gitBaseline,
+      project: { name: project.displayName, path: project.canonicalPath },
+      worktree,
     });
-    this.logger.info('task created', { id, mode: input.mode });
+    this.logger.info('task created', {
+      id,
+      mode: input.mode,
+      project: project.canonicalPath,
+      worktree: worktree?.branch ?? null,
+    });
     return this.getTask(id);
   }
 
@@ -1350,24 +1504,25 @@ export class TaskService {
 
   private async doLaunch(taskId: string, prompt?: string): Promise<void> {
     const task = this.getTask(taskId);
-    const ws = this.workspace.mustActive();
+    // ADR-0009: the task executes against its own mounted context — its
+    // worktree or its project root — independent of the focused workspace.
+    const context = this.contextForTask(taskId);
     const kind = this.runtimeKind();
     const model: ModelRef =
       kind === 'mock' ? { providerId: 'mock', modelId: 'mock-1' } : task.model;
 
     await this.host.ensure(kind);
-    if (!this.gateway) this.buildGateway();
 
     // Session: reuse existing ref when possible.
     let ref = this.sessionRefs.get(taskId);
     if (!ref) {
       const sessionInput: CreateSessionInput = {
         taskId,
-        workspaceRoot: ws.canonicalPath,
+        workspaceRoot: context.root,
         mode: task.mode,
         model,
-        tools: this.gateway!.catalog(task.mode),
-        systemPreamble: this.buildPreamble(task),
+        tools: context.gateway.catalog(task.mode),
+        systemPreamble: this.buildPreamble(task, context.root),
       };
       ref = await this.host.createSession(sessionInput);
       this.sessionRefs.set(taskId, ref);
@@ -1421,8 +1576,7 @@ export class TaskService {
     return `${task.goalMd}${acceptance}`;
   }
 
-  private buildPreamble(task: TaskDto): string {
-    const ws = this.workspace.mustActive();
+  private buildPreamble(task: TaskDto, root: string): string {
     const modeRules =
       task.mode === 'ask'
         ? 'You are in ASK mode: strictly read-only. You cannot modify files or run commands; if asked to, explain what you WOULD change instead.'
@@ -1432,9 +1586,13 @@ export class TaskService {
     const planRule =
       task.mode === 'ask'
         ? null
-        : 'Before your FIRST file modification, call propose_plan with your step-by-step plan and wait for the decision. The user may edit the plan — follow the version returned in the tool result, and keep step statuses current with update_plan.';
+        : 'Before your FIRST file modification, call propose_plan with your step-by-step plan and wait for the decision. The user may edit the plan or request changes — follow the version returned in the tool result, and keep step statuses current with update_plan.';
     return [
-      `You are the coding agent inside Charter working on the workspace at ${ws.canonicalPath}.`,
+      // PIVOT-008/ADR-0009: product identity — internal harness/vendor names
+      // must never leak into the agent's self-description.
+      'You are the Charter agent — the coding agent built into the Charter desktop app.',
+      `You are working on the project at ${root}.`,
+      'If asked who or what you are, answer as "the Charter agent". Never mention internal runtimes, harnesses or vendor tooling names (e.g. "pi", "Claude Code", "CLI").',
       modeRules,
       ...(planRule ? [planRule] : []),
       'Use only the provided tools. read_file returns a hash — pass it as baseHash when patching.',
@@ -1474,6 +1632,11 @@ export class TaskService {
     const task = this.getTask(taskId);
     if (['ACCEPTED', 'ROLLED_BACK', 'CANCELLED'].includes(task.state)) {
       this.setState(taskId, 'ARCHIVED');
+    }
+    // ADR-0009: best-effort worktree cleanup for finished isolated tasks.
+    if (task.worktree && existsSync(task.worktree.path)) {
+      void this.worktrees.discard(task.projectPath, task.worktree as TaskWorktree);
+      this.contexts.drop(task.worktree.path);
     }
     this.db
       .prepare('UPDATE tasks SET archived = 1, updated_at = ? WHERE id = ?')
@@ -1601,6 +1764,10 @@ export class TaskService {
         this.setState(taskId, 'IN_PROGRESS');
       }
       const report = await this.buildFinalReportData(taskId, runId, 'completed');
+      // ADR-0009: record the net changed-file count — zero-change tasks get the
+      // light "Answered" completion presentation.
+      const changedFiles = ((report.changed as { files?: number } | undefined)?.files ?? 0) | 0;
+      this.db.prepare('UPDATE tasks SET changed_files = ? WHERE id = ?').run(changedFiles, taskId);
       this.recordEvent(taskId, 'report.final', report);
       const current = this.getTask(taskId).state;
       if (current === 'VERIFYING') this.setState(taskId, 'REVIEW_READY');
@@ -1657,7 +1824,7 @@ export class TaskService {
     // System evidence: net changes.
     let changed: Record<string, unknown> = { files: 0, additions: 0, deletions: 0, list: [] };
     try {
-      const cs = this.m5.changeService ? await this.m5.changeService.changeSet(taskId) : null;
+      const cs = await this.contextForTask(taskId).changes.changeSet(taskId);
       if (cs) {
         changed = {
           files: cs.files.length,
@@ -1676,9 +1843,7 @@ export class TaskService {
     }
 
     // System evidence: verification runs with stale/superseded flags (VER-005/008).
-    const runs = (this.verifications?.listForTask(taskId) ?? []).map((r) =>
-      this.verificationDto(r),
-    );
+    const runs = this.verificationRuns(taskId);
     const currentRuns = runs.filter((r) => r.superseded !== true);
     const passed = currentRuns.filter((r) => r.state === 'passed' && r.stale !== true).length;
     const failed = currentRuns.filter((r) => r.state === 'failed').length;
@@ -1687,9 +1852,9 @@ export class TaskService {
     // GIT-009: report whether HEAD moved during the task.
     let gitHeadChanged: boolean | null = null;
     try {
-      const ws = this.workspace.current;
-      if (ws?.isGitRepo && task.gitBaseline) {
-        const head = await new GitService(ws.canonicalPath).headInfo();
+      const context = this.contextForTask(taskId);
+      if (context.isGitRepo && task.gitBaseline) {
+        const head = await new GitService(context.root).headInfo();
         gitHeadChanged = head.head !== task.gitBaseline.head;
       }
     } catch {
@@ -1855,7 +2020,9 @@ export class TaskService {
       if (record.state === 'SUCCEEDED' && WRITE_TOOL_NAMES.has(record.name)) {
         void this.codeRevision(record.taskId)
           .then((revision) => {
-            if (revision) this.verifications?.markStale(record.taskId, revision);
+            if (revision) {
+              this.contextForTask(record.taskId).verifications.markStale(record.taskId, revision);
+            }
           })
           .catch(() => undefined);
       }
@@ -1872,7 +2039,7 @@ export class TaskService {
    * persist. Fixes the "database is not open" crash on quit.
    */
   shutdown(): void {
-    this.permissionEngine?.cancelAll('app quit');
+    this.contexts.shutdown('app quit');
     this.cancelAllAsks('app quit');
     this.cancelAllPlanWaits('app quit');
     this.startQueue.length = 0;
@@ -1922,13 +2089,12 @@ export class TaskService {
         summary,
       });
     }
-    const ws = this.workspace.current;
+    // ADR-0009: tasks are global — the restart scan covers every project.
     const rows = this.db
       .prepare(
-        "SELECT id, state FROM tasks WHERE state IN ('EXPLORING','PLANNING','IN_PROGRESS','AWAITING_PERMISSION','VERIFYING')" +
-          (ws ? ' AND workspace_id = ?' : ''),
+        "SELECT id, state FROM tasks WHERE state IN ('EXPLORING','PLANNING','IN_PROGRESS','AWAITING_PERMISSION','VERIFYING')",
       )
-      .all(...(ws ? [ws.id] : [])) as Array<{ id: string; state: string }>;
+      .all() as Array<{ id: string; state: string }>;
     for (const row of rows) {
       this.recordEvent(row.id, 'system.interruptedByRestart', {
         previousState: row.state,

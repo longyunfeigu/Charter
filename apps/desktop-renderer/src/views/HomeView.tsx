@@ -7,28 +7,12 @@ import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useTaskStore, titleFromIntent, RUNNING_TASK_STATES } from '../store/taskStore.js';
 import { useActivityStore, currentActionLine } from '../store/activityStore.js';
 import { useGlowTasks } from './useGlow.js';
+import { needsAttention, ATTENTION_STATES } from './HomeSidebar.js';
 import { Ic } from './home-icons.js';
-import { MODE_META, stateShort, stateTone } from './labels.js';
+import { MODE_META, presentedMeta } from './labels.js';
 import { LiveBoard } from './LiveBoard.js';
-import { FileLens } from './FileLens.js';
-import { HomeProjectTree } from './HomeProjectTree.js';
-import '../styles/home.css';
 
 type VerificationCommand = z.infer<typeof VerificationCommandSchema>;
-
-const ATTENTION_STATES = [
-  'AWAITING_PERMISSION',
-  'AWAITING_PLAN_APPROVAL',
-  'REVIEW_READY',
-  'INTERRUPTED',
-  'FAILED',
-];
-
-/** Sidebar dot class from the shared tone (PIVOT-023). */
-function dotClass(state: string): string {
-  const tone = stateTone(state);
-  return tone === 'idle' ? 'done' : tone;
-}
 
 function parseCustomCommand(raw: string): VerificationCommand | null {
   const parts = raw.trim().split(/\s+/);
@@ -43,18 +27,16 @@ function parseCustomCommand(raw: string): VerificationCommand | null {
 }
 
 /**
- * Home surface v2 (PIVOT-011..015): Codex-style launcher — sidebar with
- * projects (selected project = working directory) and live tasks; composer
- * with inline approval/model, Advanced charter fields, drag/@ context feeding;
- * mission control cards under the composer.
+ * Launcher (PIVOT-011..015, PIVOT-028): the content page of the persistent
+ * shell — serif hero, composer (dispatch target = selected project), Advanced
+ * charter, and the global mission control with per-task Live Boards.
  */
 export function HomeView(): React.JSX.Element {
   const app = useAppStore();
   const workspaceStore = useWorkspaceStore();
   const taskStore = useTaskStore();
   const perTask = useActivityStore((s) => s.perTask);
-  const hydrate = useActivityStore((s) => s.hydrate);
-  // PIVOT-016: fresh agent writes make their task rows/cards glow.
+  // PIVOT-016: fresh agent writes make their task cards glow.
   const glowTasks = useGlowTasks();
 
   const [intent, setIntent] = useState('');
@@ -75,15 +57,14 @@ export function HomeView(): React.JSX.Element {
   const [selectedVerif, setSelectedVerif] = useState<Set<string>>(new Set());
   const [customVerif, setCustomVerif] = useState<VerificationCommand[]>([]);
   const [customDraft, setCustomDraft] = useState('');
+  // ADR-0009: worktree isolation for same-project parallel tasks.
+  const [worktree, setWorktree] = useState(false);
+  const [worktreeTouched, setWorktreeTouched] = useState(false);
   // @ file picker (PIVOT-015)
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState('');
   const [pickerItems, setPickerItems] = useState<string[]>([]);
   const [pickerIndex, setPickerIndex] = useState(0);
-  // Live Board lens (PIVOT-025): read-only diff-so-far for one file.
-  const [lens, setLens] = useState<{ taskId: string; path: string } | null>(null);
-  // Sidebar file tree for the active project (click the active row to toggle).
-  const [treeOpen, setTreeOpen] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pickerInputRef = useRef<HTMLInputElement>(null);
@@ -101,7 +82,13 @@ export function HomeView(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Selected project = working directory: show its branch in the chip.
+  // Sidebar "New task" (and friends) ask the composer to take focus.
+  const composerFocusSeq = useAppStore((s) => s.composerFocusSeq);
+  useEffect(() => {
+    if (composerFocusSeq > 0) inputRef.current?.focus();
+  }, [composerFocusSeq]);
+
+  // Selected project = dispatch target: show its branch in the chip.
   useEffect(() => {
     setBranch(null);
     if (!workspace) return;
@@ -121,6 +108,22 @@ export function HomeView(): React.JSX.Element {
     });
   }, [advanced, workspace]);
 
+  // ADR-0009: same-project parallelism defaults the worktree toggle ON.
+  const projectBusy = useMemo(
+    () =>
+      taskStore.tasks.some(
+        (t) =>
+          t.projectPath === workspace?.path &&
+          (RUNNING_TASK_STATES.has(t.state) ||
+            t.state === 'AWAITING_PLAN_APPROVAL' ||
+            t.state === 'READY'),
+      ),
+    [taskStore.tasks, workspace],
+  );
+  useEffect(() => {
+    if (!worktreeTouched) setWorktree(projectBusy && Boolean(workspace?.isGitRepo));
+  }, [projectBusy, workspace, worktreeTouched]);
+
   const configuredModels = useMemo(
     () => taskStore.models.filter((m) => m.configured),
     [taskStore.models],
@@ -136,15 +139,6 @@ export function HomeView(): React.JSX.Element {
       setModelKey(`${preferred.providerId}::${preferred.modelId}`);
     }
   }, [configuredModels, modelKey, app.settings]);
-
-  // Mission control hydration for tasks that were already running/waiting.
-  useEffect(() => {
-    for (const t of taskStore.tasks) {
-      if (RUNNING_TASK_STATES.has(t.state) || ATTENTION_STATES.includes(t.state)) {
-        void hydrate(t.id);
-      }
-    }
-  }, [taskStore.tasks, hydrate]);
 
   // Refs queued elsewhere (e.g. "attach annotated image", PIVOT-020).
   const pendingRefs = useAppStore((s) => s.pendingRefs);
@@ -226,6 +220,9 @@ export function HomeView(): React.JSX.Element {
       mode,
       model: { providerId, modelId },
       verification,
+      // ADR-0009: explicit dispatch target + optional worktree isolation.
+      projectPath: workspace.path,
+      isolation: advanced && worktree && workspace.isGitRepo ? 'worktree' : 'none',
     });
     setSubmitting(false);
     if (ok) {
@@ -236,6 +233,7 @@ export function HomeView(): React.JSX.Element {
       setCriteria('');
       setSelectedVerif(new Set());
       setCustomVerif([]);
+      setWorktreeTouched(false);
       // Stay on the Home surface (PIVOT-022): open the new task's room.
       const newId = useTaskStore.getState().activeTaskId;
       if (newId) app.openTaskRoom(newId);
@@ -303,28 +301,28 @@ export function HomeView(): React.JSX.Element {
     inputRef.current?.focus();
   };
 
-  // ---------- mission control ----------
+  // ---------- mission control (global, ADR-0009) ----------
 
   const needsYou = taskStore.tasks
-    .filter((t) => ATTENTION_STATES.includes(t.state))
+    .filter(needsAttention)
     .sort((a, b) => ATTENTION_STATES.indexOf(a.state) - ATTENTION_STATES.indexOf(b.state))
     .slice(0, 5);
   const running = taskStore.tasks
     .filter((t) => RUNNING_TASK_STATES.has(t.state) && t.state !== 'AWAITING_PERMISSION')
     .slice(0, 5);
-  const recentTasks = taskStore.tasks.slice(0, 8);
-  const reviewCount = taskStore.tasks.filter((t) => t.state === 'REVIEW_READY').length;
+  const multiProject = new Set([...needsYou, ...running].map((t) => t.projectPath)).size > 1;
 
   const mcCard = (t: TaskDto): React.JSX.Element => {
-    const attention = ATTENTION_STATES.includes(t.state);
+    const attention = needsAttention(t);
     const activity = perTask[t.id];
     const action = currentActionLine(activity);
+    const meta = presentedMeta(t);
     const chip = (
       <span
         className={`hm-stchip ${t.state === 'FAILED' ? 'err' : attention ? 'warn' : 'run'}`}
         data-state={t.state}
       >
-        {attention ? stateShort(t.state) : 'Running'}
+        {attention ? meta.short : 'Running'}
       </span>
     );
     const button =
@@ -339,17 +337,33 @@ export function HomeView(): React.JSX.Element {
               : t.state === 'FAILED'
                 ? 'Open'
                 : 'Watch';
-    const meta: React.ReactNode[] = [];
+    const cardMeta: React.ReactNode[] = [];
+    if (multiProject) {
+      cardMeta.push(
+        <span key="p" className="hm-projchip" title={t.projectPath}>
+          <Ic name="folder" size={10} />
+          {t.projectName}
+          {t.worktree ? <span className="mono"> · {t.worktree.branch}</span> : null}
+        </span>,
+      );
+    } else if (t.worktree) {
+      cardMeta.push(
+        <span key="w" className="hm-projchip mono" title="Isolated worktree">
+          <Ic name="branch" size={10} />
+          {t.worktree.branch}
+        </span>,
+      );
+    }
     if (action) {
-      meta.push(<span key="a">{action.label}</span>);
+      cardMeta.push(<span key="a">{action.label}</span>);
       if (action.status === 'running')
-        meta.unshift(<span key="d" className="hm-dot run" style={{ margin: 0 }} />);
+        cardMeta.unshift(<span key="d" className="hm-dot run" style={{ margin: 0 }} />);
     } else {
-      meta.push(<span key="s">{stateShort(t.state)}</span>);
+      cardMeta.push(<span key="s">{meta.short}</span>);
     }
     const touched = activity?.filesTouched.length ?? 0;
     if (touched > 0)
-      meta.push(
+      cardMeta.push(
         <span key="f">
           {' '}
           · {touched} file{touched === 1 ? '' : 's'} touched
@@ -360,14 +374,14 @@ export function HomeView(): React.JSX.Element {
         key={t.id}
         className={`hm-tcard ${attention ? 'attention' : ''} ${glowTasks.has(t.id) ? 'glow-pulse' : ''}`}
         data-testid={`home-mc-card-${t.id}`}
-        onClick={() => openTask(t.id, { review: t.state === 'REVIEW_READY' })}
+        onClick={() => openTask(t.id, { review: t.state === 'REVIEW_READY' && !t.worktree })}
       >
         {chip}
         <span className="hm-tinfo">
           <span className="hm-ttitle" style={{ display: 'block' }}>
             {t.title}
           </span>
-          <span className="hm-tmeta">{meta}</span>
+          <span className="hm-tmeta">{cardMeta}</span>
         </span>
         <span className={`hm-act ${attention ? '' : 'ghost'}`}>{button}</span>
       </button>
@@ -377,475 +391,372 @@ export function HomeView(): React.JSX.Element {
   const activeModeHint = MODE_META.find((m) => m.id === mode)?.hint;
 
   return (
-    <div className="hm-root" data-testid="home-view">
-      {/* ---------- sidebar ---------- */}
-      <aside className="hm-side">
-        <div className="hm-side-drag" />
-        <div className="hm-brand">
-          <Ic name="flag" size={17} />
-          <b>Charter</b>
-          <span className="hm-sp" />
+    <main className="hm-main" data-testid="home-view">
+      <div className="hm-main-top" />
+
+      <div className={`hm-hero ${needsYou.length > 0 || running.length > 0 ? 'compact' : ''}`}>
+        <h1>What should we build?</h1>
+        <div className="hm-sub">
+          Describe the outcome — plans, diffs and verification all wait for your OK.
         </div>
+      </div>
 
-        <button
-          className="hm-nav-item"
-          data-testid="home-new-task"
-          onClick={() => {
-            setAdvanced(true);
-            inputRef.current?.focus();
+      <div className="hm-composer">
+        <div
+          className={`hm-card ${dropActive ? 'drop' : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDropActive(true);
           }}
+          onDragLeave={() => setDropActive(false)}
+          onDrop={(e) => void onDrop(e)}
         >
-          <Ic name="pencil" />
-          <span>New Task</span>
-        </button>
-        <button
-          className="hm-nav-item"
-          data-testid="home-reviews"
-          onClick={() => {
-            const next = taskStore.tasks.find((t) => t.state === 'REVIEW_READY');
-            if (next) openTask(next.id, { review: true });
-            else app.pushToast('info', 'Nothing is waiting for review.');
-          }}
-        >
-          <Ic name="inbox" />
-          <span>Reviews</span>
-          {reviewCount > 0 ? <span className="hm-badge">{reviewCount}</span> : null}
-        </button>
+          <div className="hm-chiprow">
+            <button
+              className="hm-chip"
+              data-testid="home-project"
+              onClick={() => setProjectMenuOpen(!projectMenuOpen)}
+            >
+              <Ic name="folder" size={14} />
+              <span>{workspace ? workspace.displayName : 'Select a project'}</span>
+              {workspace && branch ? (
+                <>
+                  <span className="hm-sep">·</span>
+                  <Ic name="branch" size={13} />
+                  <span>{branch}</span>
+                </>
+              ) : null}
+              <Ic name="chevron" size={13} />
+            </button>
+            {refs.map((r) => (
+              <span key={r} className="hm-refchip" data-testid={`home-ref-${r}`}>
+                <Ic name="file" size={11} />
+                <span>{r}</span>
+                <button
+                  aria-label={`Remove ${r}`}
+                  onClick={() => setRefs(refs.filter((x) => x !== r))}
+                >
+                  <Ic name="x" size={11} />
+                </button>
+              </span>
+            ))}
 
-        <div className="hm-sec">Projects</div>
-        {recent.slice(0, 6).map((r) => {
-          const active = workspace?.path === r.path;
-          return (
-            <React.Fragment key={r.path}>
-              <button
-                className={`hm-row ${active ? 'active' : ''} ${active && glowTasks.size > 0 ? 'glow-pulse' : ''}`}
-                data-testid={`home-recent-${r.path}`}
-                title={active ? `${r.path} — click to browse files` : r.path}
-                onClick={() => {
-                  if (active) {
-                    // The selected project expands into its file tree in place.
-                    setTreeOpen(!treeOpen);
-                    return;
-                  }
-                  setTreeOpen(false);
-                  app.setHomePick(true);
-                  void workspaceStore.openPath(r.path);
-                }}
-              >
-                <Ic name="folder" />
-                <span className="hm-tt">{r.displayName}</span>
-                {r.kind ? <span className="hm-kind">{r.kind}</span> : null}
-                {active ? (
-                  <span className={`hm-check hm-caret ${treeOpen ? 'open' : ''}`}>
-                    <Ic name="chevron" size={13} strokeWidth={2} />
-                  </span>
-                ) : null}
-              </button>
-              {active && treeOpen ? <HomeProjectTree /> : null}
-            </React.Fragment>
-          );
-        })}
-        <button
-          className="hm-row"
-          data-testid="home-open-folder"
-          onClick={() => {
-            app.setHomePick(true);
-            void workspaceStore.openViaDialog();
-          }}
-        >
-          <Ic name="plus" />
-          <span className="hm-tt" style={{ color: 'var(--fg-muted)' }}>
-            Open folder…
-          </span>
-        </button>
-
-        {recentTasks.length > 0 ? <div className="hm-sec">Tasks</div> : null}
-        {recentTasks.map((t) => (
-          <button
-            key={t.id}
-            className={`hm-row ${glowTasks.has(t.id) ? 'glow-pulse' : ''}`}
-            data-testid={`home-task-${t.id}`}
-            title={`${t.title} — ${stateShort(t.state)}`}
-            onClick={() => openTask(t.id)}
-          >
-            <span className={`hm-dot ${dotClass(t.state)}`} />
-            <span className="hm-tt">{t.title}</span>
-          </button>
-        ))}
-
-        <div className="hm-grow" />
-        <div className="hm-side-bottom">
-          <button
-            className="hm-row"
-            data-testid="home-open-ide"
-            title="Open the full editor (file tree, terminal, git)"
-            onClick={() => app.setSurface('workspace')}
-          >
-            <Ic name="layout" size={15} />
-            <span>Editor</span>
-            <span className="hm-kbd">⌘E</span>
-          </button>
-          <button
-            className="hm-row"
-            data-testid="home-settings"
-            onClick={() => {
-              app.setSurface('workspace');
-              app.setOverlay('settings');
-            }}
-          >
-            <Ic name="sliders" size={15} />
-            <span>Settings</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* ---------- main ---------- */}
-      <main className="hm-main">
-        <div className="hm-main-top" />
-
-        <div className={`hm-hero ${needsYou.length > 0 || running.length > 0 ? 'compact' : ''}`}>
-          <h1>What should we build?</h1>
-          <div className="hm-sub">
-            Describe the outcome — plans, diffs and verification all wait for your OK.
-          </div>
-        </div>
-
-        <div className="hm-composer">
-          <div
-            className={`hm-card ${dropActive ? 'drop' : ''}`}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDropActive(true);
-            }}
-            onDragLeave={() => setDropActive(false)}
-            onDrop={(e) => void onDrop(e)}
-          >
-            <div className="hm-chiprow">
-              <button
-                className="hm-chip"
-                data-testid="home-project"
-                onClick={() => setProjectMenuOpen(!projectMenuOpen)}
-              >
-                <Ic name="folder" size={14} />
-                <span>{workspace ? workspace.displayName : 'Select a project'}</span>
-                {workspace && branch ? (
-                  <>
-                    <span className="hm-sep">·</span>
-                    <Ic name="branch" size={13} />
-                    <span>{branch}</span>
-                  </>
-                ) : null}
-                <Ic name="chevron" size={13} />
-              </button>
-              {refs.map((r) => (
-                <span key={r} className="hm-refchip" data-testid={`home-ref-${r}`}>
-                  <Ic name="file" size={11} />
-                  <span>{r}</span>
+            {projectMenuOpen ? (
+              <div className="hm-menu" data-testid="home-project-menu">
+                {recent.map((r) => (
                   <button
-                    aria-label={`Remove ${r}`}
-                    onClick={() => setRefs(refs.filter((x) => x !== r))}
-                  >
-                    <Ic name="x" size={11} />
-                  </button>
-                </span>
-              ))}
-
-              {projectMenuOpen ? (
-                <div className="hm-menu" data-testid="home-project-menu">
-                  {recent.map((r) => (
-                    <button
-                      key={r.path}
-                      className="hm-row"
-                      data-testid={`home-menu-recent-${r.path}`}
-                      onClick={() => {
-                        setProjectMenuOpen(false);
-                        app.setHomePick(true);
-                        void workspaceStore.openPath(r.path);
-                      }}
-                    >
-                      <Ic name="folder" />
-                      <span className="hm-tt">
-                        {r.displayName}
-                        <span className="hm-mono">{r.path}</span>
-                      </span>
-                      {r.kind ? <span className="hm-kind">{r.kind}</span> : null}
-                    </button>
-                  ))}
-                  <button
+                    key={r.path}
                     className="hm-row"
+                    data-testid={`home-menu-recent-${r.path}`}
                     onClick={() => {
                       setProjectMenuOpen(false);
                       app.setHomePick(true);
-                      void workspaceStore.openViaDialog();
+                      void workspaceStore.openPath(r.path);
                     }}
                   >
-                    <Ic name="plus" />
-                    <span className="hm-tt">Open Folder…</span>
+                    <Ic name="folder" />
+                    <span className="hm-tt">
+                      {r.displayName}
+                      <span className="hm-mono">{r.path}</span>
+                    </span>
+                    {r.kind ? <span className="hm-kind">{r.kind}</span> : null}
                   </button>
-                </div>
-              ) : null}
+                ))}
+                <button
+                  className="hm-row"
+                  onClick={() => {
+                    setProjectMenuOpen(false);
+                    app.setHomePick(true);
+                    void workspaceStore.openViaDialog();
+                  }}
+                >
+                  <Ic name="plus" />
+                  <span className="hm-tt">Open Folder…</span>
+                </button>
+              </div>
+            ) : null}
 
-              {pickerOpen ? (
-                <div className="hm-menu" data-testid="home-file-picker">
+            {pickerOpen ? (
+              <div className="hm-menu" data-testid="home-file-picker">
+                <input
+                  ref={pickerInputRef}
+                  data-testid="home-file-input"
+                  placeholder="Reference a project file…"
+                  value={pickerQuery}
+                  onChange={(e) => setPickerQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setPickerOpen(false);
+                      inputRef.current?.focus();
+                    } else if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setPickerIndex(Math.min(pickerIndex + 1, pickerItems.length - 1));
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setPickerIndex(Math.max(pickerIndex - 1, 0));
+                    } else if (e.key === 'Enter' && pickerItems[pickerIndex]) {
+                      e.preventDefault();
+                      pickFile(pickerItems[pickerIndex]!);
+                    }
+                  }}
+                />
+                {pickerItems.map((path, i) => (
+                  <button
+                    key={path}
+                    className={`hm-row ${i === pickerIndex ? 'active' : ''}`}
+                    data-testid={`home-file-item-${path}`}
+                    onClick={() => pickFile(path)}
+                  >
+                    <Ic name="file" size={13} />
+                    <span className="hm-tt">{path}</span>
+                  </button>
+                ))}
+                {pickerItems.length === 0 ? (
+                  <div className="hm-sec" style={{ padding: '8px 10px' }}>
+                    Type to search files in {workspace?.displayName ?? 'the project'}.
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <textarea
+            ref={inputRef}
+            className="hm-ta"
+            data-testid="home-intent"
+            value={intent}
+            placeholder="Describe a task, ask a question, or paste an error…"
+            rows={2}
+            onChange={(e) => setIntent(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void submit();
+              } else if (e.key === '@' && workspace) {
+                e.preventDefault();
+                openPicker();
+              }
+            }}
+          />
+
+          {advanced ? (
+            <div className="hm-adv" data-testid="home-advanced">
+              <div className="hm-field">
+                <label>Title (optional — defaults to the first line)</label>
+                <input
+                  data-testid="home-adv-title"
+                  placeholder="e.g. Add rate limiting to the login API"
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                />
+              </div>
+              <div className="hm-field">
+                <label>Boundaries</label>
+                <input
+                  data-testid="home-adv-boundaries"
+                  placeholder="e.g. Only touch src/auth/** — don't change public API signatures"
+                  value={boundaries}
+                  onChange={(e) => setBoundaries(e.target.value)}
+                />
+              </div>
+              <div className="hm-field">
+                <label>Success criteria (one per line)</label>
+                <textarea
+                  data-testid="home-adv-criteria"
+                  rows={2}
+                  placeholder={
+                    '429 after 5 failed attempts within a minute\nexisting tests stay green'
+                  }
+                  value={criteria}
+                  onChange={(e) => setCriteria(e.target.value)}
+                />
+              </div>
+              <div className="hm-field">
+                <label>Verification</label>
+                <div className="hm-vchips">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s.label}
+                      className={`hm-vchip ${selectedVerif.has(s.label) ? 'on' : ''}`}
+                      data-testid={`home-verif-${s.label}`}
+                      onClick={() => {
+                        const next = new Set(selectedVerif);
+                        if (next.has(s.label)) next.delete(s.label);
+                        else next.add(s.label);
+                        setSelectedVerif(next);
+                      }}
+                    >
+                      {selectedVerif.has(s.label) ? (
+                        <Ic name="check" size={12} strokeWidth={2} />
+                      ) : null}
+                      {s.label}
+                    </button>
+                  ))}
+                  {customVerif.map((c) => (
+                    <button
+                      key={c.label}
+                      className="hm-vchip on"
+                      title="Remove"
+                      onClick={() => setCustomVerif(customVerif.filter((x) => x.label !== c.label))}
+                    >
+                      <Ic name="check" size={12} strokeWidth={2} />
+                      {c.label}
+                    </button>
+                  ))}
                   <input
-                    ref={pickerInputRef}
-                    data-testid="home-file-input"
-                    placeholder="Reference a project file…"
-                    value={pickerQuery}
-                    onChange={(e) => setPickerQuery(e.target.value)}
+                    className="hm-vchip-add"
+                    data-testid="home-verif-custom"
+                    placeholder="+ custom command (⏎)"
+                    value={customDraft}
+                    onChange={(e) => setCustomDraft(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Escape') {
-                        setPickerOpen(false);
-                        inputRef.current?.focus();
-                      } else if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        setPickerIndex(Math.min(pickerIndex + 1, pickerItems.length - 1));
-                      } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        setPickerIndex(Math.max(pickerIndex - 1, 0));
-                      } else if (e.key === 'Enter' && pickerItems[pickerIndex]) {
-                        e.preventDefault();
-                        pickFile(pickerItems[pickerIndex]!);
+                      if (e.key === 'Enter') {
+                        const cmd = parseCustomCommand(customDraft);
+                        if (cmd && !customVerif.some((c) => c.label === cmd.label)) {
+                          setCustomVerif([...customVerif, cmd]);
+                          setCustomDraft('');
+                        }
                       }
                     }}
                   />
-                  {pickerItems.map((path, i) => (
-                    <button
-                      key={path}
-                      className={`hm-row ${i === pickerIndex ? 'active' : ''}`}
-                      data-testid={`home-file-item-${path}`}
-                      onClick={() => pickFile(path)}
-                    >
-                      <Ic name="file" size={13} />
-                      <span className="hm-tt">{path}</span>
-                    </button>
-                  ))}
-                  {pickerItems.length === 0 ? (
-                    <div className="hm-sec" style={{ padding: '8px 10px' }}>
-                      Type to search files in {workspace?.displayName ?? 'the project'}.
-                    </div>
-                  ) : null}
+                </div>
+              </div>
+              {workspace?.isGitRepo ? (
+                <div className="hm-field">
+                  <label
+                    className="hm-wtrow"
+                    title="The task runs on its own branch in a separate checkout; accepting merges it back"
+                  >
+                    <input
+                      type="checkbox"
+                      data-testid="home-adv-worktree"
+                      checked={worktree}
+                      onChange={(e) => {
+                        setWorktree(e.target.checked);
+                        setWorktreeTouched(true);
+                      }}
+                    />
+                    <span>
+                      Run in an isolated worktree
+                      {projectBusy ? (
+                        <span className="hm-wt-hint">
+                          {' '}
+                          — recommended: this project already has an active task
+                        </span>
+                      ) : null}
+                    </span>
+                  </label>
                 </div>
               ) : null}
             </div>
+          ) : null}
 
-            <textarea
-              ref={inputRef}
-              className="hm-ta"
-              data-testid="home-intent"
-              value={intent}
-              placeholder="Describe a task, ask a question, or paste an error…"
-              rows={2}
-              onChange={(e) => setIntent(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void submit();
-                } else if (e.key === '@' && workspace) {
-                  e.preventDefault();
-                  openPicker();
-                }
-              }}
-            />
-
-            {advanced ? (
-              <div className="hm-adv" data-testid="home-advanced">
-                <div className="hm-field">
-                  <label>Title (optional — defaults to the first line)</label>
-                  <input
-                    data-testid="home-adv-title"
-                    placeholder="e.g. Add rate limiting to the login API"
-                    value={titleDraft}
-                    onChange={(e) => setTitleDraft(e.target.value)}
-                  />
-                </div>
-                <div className="hm-field">
-                  <label>Boundaries</label>
-                  <input
-                    data-testid="home-adv-boundaries"
-                    placeholder="e.g. Only touch src/auth/** — don't change public API signatures"
-                    value={boundaries}
-                    onChange={(e) => setBoundaries(e.target.value)}
-                  />
-                </div>
-                <div className="hm-field">
-                  <label>Success criteria (one per line)</label>
-                  <textarea
-                    data-testid="home-adv-criteria"
-                    rows={2}
-                    placeholder={
-                      '429 after 5 failed attempts within a minute\nexisting tests stay green'
-                    }
-                    value={criteria}
-                    onChange={(e) => setCriteria(e.target.value)}
-                  />
-                </div>
-                <div className="hm-field">
-                  <label>Verification</label>
-                  <div className="hm-vchips">
-                    {suggestions.map((s) => (
-                      <button
-                        key={s.label}
-                        className={`hm-vchip ${selectedVerif.has(s.label) ? 'on' : ''}`}
-                        data-testid={`home-verif-${s.label}`}
-                        onClick={() => {
-                          const next = new Set(selectedVerif);
-                          if (next.has(s.label)) next.delete(s.label);
-                          else next.add(s.label);
-                          setSelectedVerif(next);
-                        }}
-                      >
-                        {selectedVerif.has(s.label) ? (
-                          <Ic name="check" size={12} strokeWidth={2} />
-                        ) : null}
-                        {s.label}
-                      </button>
-                    ))}
-                    {customVerif.map((c) => (
-                      <button
-                        key={c.label}
-                        className="hm-vchip on"
-                        title="Remove"
-                        onClick={() =>
-                          setCustomVerif(customVerif.filter((x) => x.label !== c.label))
-                        }
-                      >
-                        <Ic name="check" size={12} strokeWidth={2} />
-                        {c.label}
-                      </button>
-                    ))}
-                    <input
-                      className="hm-vchip-add"
-                      data-testid="home-verif-custom"
-                      placeholder="+ custom command (⏎)"
-                      value={customDraft}
-                      onChange={(e) => setCustomDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          const cmd = parseCustomCommand(customDraft);
-                          if (cmd && !customVerif.some((c) => c.label === cmd.label)) {
-                            setCustomVerif([...customVerif, cmd]);
-                            setCustomDraft('');
-                          }
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="hm-btmrow">
-              <button
-                className="hm-iconbtn"
-                title="Attach project files (or drop them here)"
-                data-testid="home-attach"
-                onClick={openPicker}
-              >
-                <Ic name="at" size={15} />
-              </button>
-              <div
-                className="hm-seg"
-                data-testid="home-mode"
-                data-mode={mode}
-                role="radiogroup"
-                aria-label="Trust level"
-                title={activeModeHint}
-              >
-                {MODE_META.map((m) => (
-                  <button
-                    key={m.id}
-                    className={mode === m.id ? 'on' : ''}
-                    data-testid={`home-mode-${m.id}`}
-                    role="radio"
-                    aria-checked={mode === m.id}
-                    title={m.hint}
-                    onClick={() => setMode(m.id)}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-              <button
-                className="hm-chip lite"
-                data-testid="home-advanced-toggle"
-                onClick={() => setAdvanced(!advanced)}
-              >
-                {advanced ? 'Simple' : 'Advanced'}
-              </button>
-              <span className="hm-spacer" />
-              <select
-                className="hm-select"
-                data-testid="home-model"
-                value={modelKey}
-                onChange={(e) => setModelKey(e.target.value)}
-              >
-                {configuredModels.length === 0 ? (
-                  <option value="">No model — add a key in Settings</option>
-                ) : (
-                  configuredModels.map((m) => (
-                    <option
-                      key={`${m.providerId}::${m.modelId}`}
-                      value={`${m.providerId}::${m.modelId}`}
-                    >
-                      {m.displayName}
-                    </option>
-                  ))
-                )}
-              </select>
-              <button
-                className={`hm-send ${intent.trim() && !submitting ? 'ready' : ''}`}
-                data-testid="home-submit"
-                disabled={!intent.trim() || submitting}
-                aria-label="Start task"
-                onClick={() => void submit()}
-              >
-                <Ic name="arrowUp" size={15} strokeWidth={2} />
-              </button>
+          <div className="hm-btmrow">
+            <button
+              className="hm-iconbtn"
+              title="Attach project files (or drop them here)"
+              data-testid="home-attach"
+              onClick={openPicker}
+            >
+              <Ic name="at" size={15} />
+            </button>
+            <div
+              className="hm-seg"
+              data-testid="home-mode"
+              data-mode={mode}
+              role="radiogroup"
+              aria-label="Trust level"
+              title={activeModeHint}
+            >
+              {MODE_META.map((m) => (
+                <button
+                  key={m.id}
+                  className={mode === m.id ? 'on' : ''}
+                  data-testid={`home-mode-${m.id}`}
+                  role="radio"
+                  aria-checked={mode === m.id}
+                  title={m.hint}
+                  onClick={() => setMode(m.id)}
+                >
+                  {m.label}
+                </button>
+              ))}
             </div>
-          </div>
-          <div className="hm-hint" data-testid="home-mode-hint">
-            <b>{MODE_META.find((m) => m.id === mode)?.label}</b> — {activeModeHint}. ⏎ to start · ⇧⏎
-            new line.
+            <button
+              className="hm-chip lite"
+              data-testid="home-advanced-toggle"
+              onClick={() => setAdvanced(!advanced)}
+            >
+              {advanced ? 'Simple' : 'Advanced'}
+            </button>
+            <span className="hm-spacer" />
+            <select
+              className="hm-select"
+              data-testid="home-model"
+              value={modelKey}
+              onChange={(e) => setModelKey(e.target.value)}
+            >
+              {configuredModels.length === 0 ? (
+                <option value="">No model — add a key in Settings</option>
+              ) : (
+                configuredModels.map((m) => (
+                  <option
+                    key={`${m.providerId}::${m.modelId}`}
+                    value={`${m.providerId}::${m.modelId}`}
+                  >
+                    {m.displayName}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              className={`hm-send ${intent.trim() && !submitting ? 'ready' : ''}`}
+              data-testid="home-submit"
+              disabled={!intent.trim() || submitting}
+              aria-label="Start task"
+              onClick={() => void submit()}
+            >
+              <Ic name="arrowUp" size={15} strokeWidth={2} />
+            </button>
           </div>
         </div>
+        <div className="hm-hint" data-testid="home-mode-hint">
+          <b>{MODE_META.find((m) => m.id === mode)?.label}</b> — {activeModeHint}. ⏎ to start · ⇧⏎
+          new line.
+        </div>
+      </div>
 
-        {needsYou.length > 0 || running.length > 0 ? (
-          <div className="hm-mc">
-            {needsYou.length > 0 ? (
-              <>
-                <div className="hm-mc-label">
-                  NEEDS YOU <span className="hm-count">{needsYou.length}</span>
-                </div>
-                <div data-testid="home-mc-needs">{needsYou.map(mcCard)}</div>
-              </>
-            ) : null}
-            {running.length > 0 ? (
-              <>
-                <div className="hm-mc-label">RUNNING</div>
-                <div data-testid="home-mc-running">
-                  {running.map((t) => (
-                    <React.Fragment key={t.id}>
-                      {mcCard(t)}
-                      <LiveBoard
-                        taskId={t.id}
-                        onOpenLens={(path) => setLens({ taskId: t.id, path })}
-                      />
-                    </React.Fragment>
-                  ))}
-                </div>
-              </>
-            ) : null}
-          </div>
-        ) : (
-          <div style={{ height: 26 }} />
-        )}
-      </main>
-
-      {lens ? (
-        <FileLens taskId={lens.taskId} path={lens.path} onClose={() => setLens(null)} />
-      ) : null}
-    </div>
+      {needsYou.length > 0 || running.length > 0 ? (
+        <div className="hm-mc">
+          {needsYou.length > 0 ? (
+            <>
+              <div className="hm-mc-label">
+                NEEDS YOU <span className="hm-count">{needsYou.length}</span>
+              </div>
+              <div data-testid="home-mc-needs">{needsYou.map(mcCard)}</div>
+            </>
+          ) : null}
+          {running.length > 0 ? (
+            <>
+              <div className="hm-mc-label">RUNNING</div>
+              <div data-testid="home-mc-running">
+                {running.map((t) => (
+                  <React.Fragment key={t.id}>
+                    {mcCard(t)}
+                    <LiveBoard
+                      taskId={t.id}
+                      onOpenLens={(path) => app.setLens({ taskId: t.id, path })}
+                    />
+                  </React.Fragment>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : (
+        <div style={{ height: 26 }} />
+      )}
+    </main>
   );
 }
 

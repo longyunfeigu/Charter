@@ -28,7 +28,7 @@ const RISK_POLICY =
   'R3 external/hard-to-reverse (always asks, never granted permanently) · R4 forbidden by product policy';
 
 /** Approval card (§13.3, PERM-004): tool, why, exact target, diff/command, scoped decisions. */
-function PermissionCard(props: {
+export function PermissionCard(props: {
   card: PermissionCardDto;
   resolution: { outcome: string; scope?: string | null } | null;
 }): React.JSX.Element {
@@ -195,7 +195,7 @@ const STEP_ICON: Record<string, string> = {
 };
 
 /** Plan card (§13.2, AG-007/008): view, edit (text/order/remove), approve or reject. */
-function PlanCard(props: { plan: TaskPlanDto; open: boolean }): React.JSX.Element {
+export function PlanCard(props: { plan: TaskPlanDto; open: boolean }): React.JSX.Element {
   const store = useTaskStore();
   const { plan, open } = props;
   const [editing, setEditing] = useState(false);
@@ -378,7 +378,7 @@ function PlanCard(props: { plan: TaskPlanDto; open: boolean }): React.JSX.Elemen
 }
 
 /** Agent patch hit a version conflict (M8-06, E2E-014): user edits are protected. */
-function ConflictCard(props: { payload: Record<string, unknown> }): React.JSX.Element {
+export function ConflictCard(props: { payload: Record<string, unknown> }): React.JSX.Element {
   const editor = useEditorStore();
   const input = (props.payload.input ?? {}) as { path?: string };
   const path = typeof input.path === 'string' ? input.path : null;
@@ -409,7 +409,10 @@ function ConflictCard(props: { payload: Record<string, unknown> }): React.JSX.El
 }
 
 /** ask_user question card — the run is paused until the user answers. */
-function QuestionCard(props: { prompt: AskUserPromptDto; answered: boolean }): React.JSX.Element {
+export function QuestionCard(props: {
+  prompt: AskUserPromptDto;
+  answered: boolean;
+}): React.JSX.Element {
   const store = useTaskStore();
   const [text, setText] = useState('');
   const { prompt, answered } = props;
@@ -495,7 +498,7 @@ export function StateBadge({ state }: { state: string }): React.JSX.Element {
   );
 }
 
-function Card(props: {
+export function Card(props: {
   /** Ic icon name (PIVOT-023: no emoji in chrome/cards). */
   icon: string;
   title: string;
@@ -564,7 +567,7 @@ function Card(props: {
   );
 }
 
-interface TimelineContext {
+export interface TimelineContext {
   permissionResolutions: Map<string, { outcome: string; scope?: string | null }>;
   answeredCallIds: Set<string>;
   /** Sequence of the latest plan proposal that has no decision after it. */

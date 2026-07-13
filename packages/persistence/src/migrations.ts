@@ -190,4 +190,15 @@ CREATE TABLE blobs (
 );
 `,
   },
+  {
+    version: 2,
+    name: 'global-tasks-worktrees',
+    // ADR-0009: worktree isolation metadata + net changed-file count recorded at
+    // run finalization (drives the zero-change "Answered" presentation).
+    up: `
+ALTER TABLE tasks ADD COLUMN worktree_json TEXT;
+ALTER TABLE tasks ADD COLUMN changed_files INTEGER;
+CREATE INDEX idx_tasks_updated ON tasks(updated_at);
+`,
+  },
 ];

@@ -35,7 +35,12 @@ export class NotificationService {
 
   constructor(private readonly deps: NotificationDeps) {}
 
-  onTaskState(info: { taskId: string; to: string; title: string }): void {
+  onTaskState(info: {
+    taskId: string;
+    to: string;
+    title: string;
+    changedFiles?: number | null;
+  }): void {
     if (!NOTIFY_STATES.has(info.to)) {
       // Leaving an attention state re-arms the edge for that task.
       this.lastNotified.delete(info.taskId);
@@ -45,8 +50,11 @@ export class NotificationService {
     this.lastNotified.set(info.taskId, info.to);
     if (!this.deps.enabled()) return;
     if (this.deps.anyWindowFocused()) return;
-    this.deps.show({ title: info.title, body: BODIES[info.to] ?? info.to }, () =>
-      this.deps.focusTask(info.taskId),
-    );
+    // ADR-0009: zero-change completion is an answer, not a review request.
+    const body =
+      info.to === 'REVIEW_READY' && info.changedFiles === 0
+        ? 'The agent answered — nothing changed on disk.'
+        : (BODIES[info.to] ?? info.to);
+    this.deps.show({ title: info.title, body }, () => this.deps.focusTask(info.taskId));
   }
 }

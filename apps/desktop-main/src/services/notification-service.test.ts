@@ -30,6 +30,15 @@ describe('NotificationService (PIVOT-014)', () => {
     expect(h.focusedTasks).toEqual(['t1']);
   });
 
+  it('ADR-0009: a zero-change completion reads as an answer, not a review request', () => {
+    const h = harness();
+    h.service.onTaskState({ taskId: 't1', to: 'REVIEW_READY', title: 'hi', changedFiles: 0 });
+    expect(h.shown[0]!.body).toBe('The agent answered — nothing changed on disk.');
+    // With real changes the review copy stays.
+    h.service.onTaskState({ taskId: 't2', to: 'REVIEW_READY', title: 'fix', changedFiles: 3 });
+    expect(h.shown[1]!.body).toBe('The task finished and is ready for your review.');
+  });
+
   it('fires once per edge, re-arms after leaving the state', () => {
     const h = harness();
     h.service.onTaskState({ taskId: 't1', to: 'AWAITING_PERMISSION', title: 'T' });

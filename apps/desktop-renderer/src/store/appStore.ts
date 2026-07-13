@@ -37,12 +37,18 @@ interface AppStore {
   homePick: boolean;
   /** File refs queued for the next Home charter (e.g. "attach annotated image"). */
   pendingRefs: string[];
+  /** Diff-so-far lens (PIVOT-025) — global so boards in any surface share it. */
+  lens: { taskId: string; path: string } | null;
+  /** Bumped when a control asks the launcher composer to take focus. */
+  composerFocusSeq: number;
 
   init(): Promise<void>;
   setSurface(surface: 'home' | 'workspace'): void;
   openTaskRoom(taskId: string): void;
   closeTaskRoom(): void;
   setHomePick(inProgress: boolean): void;
+  setLens(lens: { taskId: string; path: string } | null): void;
+  focusComposer(): void;
   addPendingRefs(refs: string[]): void;
   consumePendingRefs(): string[];
   setLayout(patch: Partial<LayoutState>): void;
@@ -111,9 +117,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
   taskRoomTaskId: null,
   homePick: false,
   pendingRefs: [],
+  lens: null,
+  composerFocusSeq: 0,
 
   setSurface(surface) {
     set({ surface });
+  },
+
+  setLens(lens) {
+    set({ lens });
+  },
+
+  focusComposer() {
+    set({ composerFocusSeq: get().composerFocusSeq + 1 });
   },
 
   openTaskRoom(taskId) {

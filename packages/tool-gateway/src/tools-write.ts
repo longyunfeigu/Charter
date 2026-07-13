@@ -38,7 +38,11 @@ export interface PlanGate {
   propose(
     input: { taskId: string; runId: string; callId: string; plan: ProposedPlanInput },
     signal: AbortSignal,
-  ): Promise<{ decision: 'approved' | 'edited'; plan: TaskPlan }>;
+  ): Promise<
+    | { decision: 'approved' | 'edited'; plan: TaskPlan }
+    /** ADR-0009: the user asked for revisions — propose a new plan version. */
+    | { decision: 'changes_requested'; plan: TaskPlan; feedback: string }
+  >;
   update(input: { taskId: string; updates: PlanStepUpdate[]; note?: string }): Promise<TaskPlan>;
 }
 
@@ -286,6 +290,14 @@ export function registerWriteTools(gateway: ToolGateway, services: WriteToolServ
         { taskId: call.taskId, runId: call.runId, callId: call.callId, plan: input },
         signal,
       );
+      if (outcome.decision === 'changes_requested') {
+        // ADR-0009: not an error — the model must revise and call propose_plan again.
+        return {
+          code: 'PLAN_CHANGES_REQUESTED',
+          summary: `The user requested changes to the plan: "${outcome.feedback.slice(0, 600)}". Revise the plan accordingly and call propose_plan again with the new version. Do not modify any files yet.`,
+          data: { decision: outcome.decision, feedback: outcome.feedback },
+        };
+      }
       return {
         code: 'OK',
         summary:

@@ -68,7 +68,9 @@ test.describe('Home v2 — advanced charter, mission control, context feeding', 
     try {
       await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
-      await page.getByTestId('home-intent').fill('[scenario:edit-plan-review] refactor utils');
+      // edit-basic writes a real change — REVIEW_READY must carry review weight
+      // (zero-change tasks are presented as "Answered" instead, ADR-0009).
+      await page.getByTestId('home-intent').fill('[scenario:edit-basic] refactor utils');
       await page.getByTestId('home-submit').click();
 
       // The run pauses for plan approval; Home shows it under "Needs you".
@@ -86,15 +88,20 @@ test.describe('Home v2 — advanced charter, mission control, context feeding', 
       await expect(page.getByTestId('task-room')).toBeVisible();
       await expect(page.getByTestId('plan-card')).toBeVisible();
       await page.getByTestId('plan-approve').click();
+      // edit mode: the write itself still asks for permission (PERM-004).
+      await page.getByTestId('perm-allow-task').click({ timeout: 20000 });
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
         timeout: 30000,
       });
 
-      // Review-ready tasks surface in Needs you and behind the Reviews badge.
+      // Review-ready tasks surface in Needs you and behind the Inbox badge.
       await page.getByTestId('task-room-back').click();
       await expect(page.getByTestId('home-mc-needs')).toContainText('Review');
       await expect(page.getByTestId('home-reviews')).toContainText('1');
+      // Inbox routes to the task's room (PIVOT-028); review is one click there.
       await page.getByTestId('home-reviews').click();
+      await expect(page.getByTestId('task-room')).toBeVisible();
+      await page.getByTestId('review-open').first().click();
       await expect(page.getByTestId('review-view')).toBeVisible({ timeout: 15000 });
     } finally {
       await app.close();

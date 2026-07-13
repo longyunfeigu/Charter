@@ -102,6 +102,57 @@ export const SCENARIOS: Record<string, Scenario> = {
     { kind: 'assistant', text: 'I applied the fix to src/index.ts.', chunkSize: 16 },
     { kind: 'usage', inputTokens: 900, outputTokens: 210 },
   ],
+  // ADR-0009: the user requests plan changes from the composer; the agent
+  // revises and proposes v2, then proceeds after approval.
+  'plan-request-changes': () => [
+    { kind: 'assistant', text: 'Proposing a first plan.', chunkSize: 24 },
+    {
+      kind: 'tool',
+      toolName: 'propose_plan',
+      input: {
+        summary: 'First attempt: apply the fix directly.',
+        steps: [{ title: 'Apply the fix', expectedFiles: ['src/index.ts'] }],
+      },
+      reason: 'initial plan',
+    },
+    {
+      kind: 'assistant',
+      text: 'Revising the plan per your feedback. (deterministic mock answer)',
+      chunkSize: 24,
+    },
+    {
+      kind: 'tool',
+      toolName: 'propose_plan',
+      input: {
+        summary: 'Revised: apply the fix, then verify with the test suite.',
+        steps: [
+          { title: 'Apply the fix', expectedFiles: ['src/index.ts'] },
+          { title: 'Run the test suite', verification: 'npm test' },
+        ],
+      },
+      reason: 'revised plan',
+      echo: 'plan',
+    },
+    { kind: 'tool', toolName: 'read_file', input: { path: 'src/index.ts' }, reason: 'inspect' },
+    {
+      kind: 'tool',
+      toolName: 'apply_patch',
+      input: {
+        path: 'src/index.ts',
+        patch:
+          "--- src/index.ts\n+++ src/index.ts\n@@ -1,5 +1,5 @@\n import { add } from './util';\n \n export function main(): number {\n-  return add(2, 3);\n+  return add(3, 4);\n }\n",
+        baseHash: '$lastReadHash',
+        reason: 'apply fix per the revised plan',
+      },
+      reason: 'apply the fix',
+    },
+    {
+      kind: 'assistant',
+      text: 'Fix applied after the plan revision. (deterministic mock answer)',
+      chunkSize: 16,
+    },
+    { kind: 'usage', inputTokens: 1100, outputTokens: 300 },
+  ],
   slow: () => [
     { kind: 'assistant', text: 'Working on a long analysis. '.repeat(20), chunkSize: 8 },
     { kind: 'wait', ms: 50 },

@@ -39,6 +39,28 @@ export function stateLabel(state: string): string {
   return TASK_STATE_META[state as TaskState]?.label ?? state;
 }
 
+/** ADR-0009 light completion: REVIEW_READY with zero net changes is an answer. */
+export function isAnswered(task: { state: string; changedFiles?: number | null }): boolean {
+  return task.state === 'REVIEW_READY' && task.changedFiles === 0;
+}
+
+/** Presentation meta for a task — the only place the "Answered" veneer exists. */
+export function presentedMeta(task: { state: string; changedFiles?: number | null }): {
+  label: string;
+  short: string;
+  tone: StateTone;
+} {
+  if (isAnswered(task))
+    return { label: 'Answered — nothing changed on disk', short: 'Answered', tone: 'ok' };
+  return (
+    TASK_STATE_META[task.state as TaskState] ?? {
+      label: task.state,
+      short: task.state,
+      tone: 'idle',
+    }
+  );
+}
+
 export function stateShort(state: string): string {
   return TASK_STATE_META[state as TaskState]?.short ?? state;
 }

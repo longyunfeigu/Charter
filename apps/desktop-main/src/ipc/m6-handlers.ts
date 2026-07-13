@@ -24,6 +24,8 @@ export function registerM6Handlers(
           mode: payload.mode,
           model: payload.model,
           verification: payload.verification,
+          ...(payload.projectPath !== undefined ? { projectPath: payload.projectPath } : {}),
+          isolation: payload.isolation,
         }),
       }),
       'task.start': async ({ taskId, prompt }) => {
@@ -34,8 +36,8 @@ export function registerM6Handlers(
         delivered: tasks.steerOrQueue(taskId, text, during),
       }),
       'task.stop': async ({ taskId }) => ({ task: await tasks.stopTask(taskId) }),
-      'task.list': async ({ filter, includeArchived }) => ({
-        tasks: tasks.listTasks(filter, includeArchived),
+      'task.list': async ({ filter, includeArchived, scope }) => ({
+        tasks: tasks.listTasks(filter, includeArchived, scope),
       }),
       'task.get': async ({ taskId, eventsAfter }) => ({
         task: tasks.getTask(taskId),

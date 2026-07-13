@@ -53,7 +53,14 @@ function fold(prev: TaskActivity, item: ActivityItem): TaskActivity {
     item.paths.length > 0
       ? [...new Set([...prev.filesTouched, ...item.paths])].slice(-MAX_FILES)
       : prev.filesTouched;
-  const isAction = item.kind !== 'state' && item.kind !== 'system' && item.kind !== 'report';
+  // "What is the agent DOING" — message/state/system noise never becomes the
+  // action line (fixes the room header overflowing with reply prose).
+  const isAction =
+    item.kind !== 'state' &&
+    item.kind !== 'system' &&
+    item.kind !== 'report' &&
+    item.kind !== 'message' &&
+    item.kind !== 'user';
   let current = prev.current;
   if (item.status === 'running' && item.callId) {
     current = item;
@@ -83,9 +90,8 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
       void taskId;
       get().ingest(item);
     });
-    onEvent('workspace.changed', () => {
-      set({ perTask: {}, pulses: [] });
-    });
+    // ADR-0009: activity is global; switching the focused project keeps every
+    // task's presence alive.
   },
 
   ingest(item) {

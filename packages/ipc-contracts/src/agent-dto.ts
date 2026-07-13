@@ -38,6 +38,15 @@ export const VerificationCommandSchema = z.object({
     .default(300000),
 });
 
+/** Worktree isolation metadata (ADR-0009): the task runs in its own git worktree. */
+export const TaskWorktreeSchema = z.object({
+  path: z.string(),
+  branch: z.string(),
+  baseHead: z.string().nullable(),
+  baseBranch: z.string().nullable(),
+});
+export type TaskWorktreeDto = z.infer<typeof TaskWorktreeSchema>;
+
 export const TaskDtoSchema = z.object({
   id: z.string(),
   workspaceId: z.string(),
@@ -52,6 +61,12 @@ export const TaskDtoSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   gitBaseline: z.object({ head: z.string().nullable(), branch: z.string().nullable() }).nullable(),
+  /** ADR-0009: tasks are global citizens — the project is an attribute. */
+  projectName: z.string(),
+  projectPath: z.string(),
+  /** Net changed-file count recorded at run finalization; null before then. */
+  changedFiles: z.number().int().nullable(),
+  worktree: TaskWorktreeSchema.nullable(),
 });
 export type TaskDto = z.infer<typeof TaskDtoSchema>;
 

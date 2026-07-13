@@ -44,6 +44,10 @@ interface TaskStore {
       cwd: string;
       timeoutMs: number;
     }>;
+    /** ADR-0009: dispatch target project (defaults to the focused workspace). */
+    projectPath?: string;
+    /** ADR-0009: isolate the task in its own git worktree. */
+    isolation?: 'none' | 'worktree';
   }): Promise<boolean>;
   send(text: string, during: 'steer' | 'followUp'): Promise<void>;
   stop(): Promise<void>;
@@ -68,7 +72,7 @@ interface TaskStore {
   openReplay(): void;
   closeReplay(): void;
   decidePlan(input: {
-    decision: 'approve' | 'reject';
+    decision: 'approve' | 'reject' | 'request_changes';
     editedPlan?: PlanEditDto;
     reason?: string;
     confirmRemovedDone?: boolean;
@@ -169,15 +173,20 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       void get().refreshTasks();
     });
     onEvent('agent.workerStatus', ({ alive }) => set({ workerAlive: alive }));
+    // ADR-0009: tasks are global — switching the focused project must not
+    // clear the list, the open room, or its timeline.
     onEvent('workspace.changed', () => {
-      set({ tasks: [], activeTaskId: null, timeline: [], streaming: null });
       void get().refreshTasks();
     });
     void get().refreshTasks();
   },
 
   async refreshTasks() {
-    const res = await rpcResult('task.list', { filter: 'all', includeArchived: false });
+    const res = await rpcResult('task.list', {
+      filter: 'all',
+      includeArchived: false,
+      scope: 'all',
+    });
     if (res.ok) set({ tasks: res.data.tasks });
   },
 
@@ -210,6 +219,8 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       mode: input.mode,
       model: input.model,
       verification: input.verification ?? [],
+      ...(input.projectPath ? { projectPath: input.projectPath } : {}),
+      isolation: input.isolation ?? 'none',
     });
     if (!create.ok) {
       useAppStore.getState().pushToast('error', create.error.userMessage);
@@ -355,18 +366,41 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   async acceptTask() {
     const taskId = get().activeTaskId;
     if (!taskId) return false;
-    let res = await rpcResult('task.accept', { taskId, confirmUnverified: false });
-    if (!res.ok && res.error.code === 'ACCEPT_NEEDS_CONFIRM') {
-      // VER-007/E2E-018: unverified changes need a second, explicit confirmation.
-      const confirmed = window.confirm(
-        'No verification was run for this task. Accept the unverified changes anyway?',
-      );
-      if (!confirmed) return false;
-      res = await rpcResult('task.accept', { taskId, confirmUnverified: true });
-    }
-    if (!res.ok) {
-      useAppStore.getState().pushToast('error', res.error.userMessage);
-      return false;
+    let confirmUnverified = false;
+    let confirmConflicts = false;
+    for (;;) {
+      const res = await rpcResult('task.accept', { taskId, confirmUnverified, confirmConflicts });
+      if (!res.ok) {
+        if (res.error.code === 'ACCEPT_NEEDS_CONFIRM' && !confirmUnverified) {
+          // VER-007/E2E-018: unverified changes need a second, explicit confirmation.
+          if (
+            !window.confirm(
+              'No verification was run for this task. Accept the unverified changes anyway?',
+            )
+          ) {
+            return false;
+          }
+          confirmUnverified = true;
+          continue;
+        }
+        useAppStore.getState().pushToast('error', res.error.userMessage);
+        return false;
+      }
+      // ADR-0009: worktree merge-back conflicts need an explicit override.
+      if (res.data.status === 'conflicts' && !confirmConflicts) {
+        const list = (res.data.conflicts ?? []).map((c) => `• ${c.path}: ${c.reason}`).join('\n');
+        if (
+          !window.confirm(
+            `Some files changed in the main project while this task ran in its worktree:\n\n${list}\n\n` +
+              'Merge anyway? Your main-tree versions of these files will be replaced.',
+          )
+        ) {
+          return false;
+        }
+        confirmConflicts = true;
+        continue;
+      }
+      break;
     }
     set({ reviewOpen: false });
     await get().refreshTasks();
