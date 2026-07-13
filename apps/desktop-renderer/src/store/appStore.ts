@@ -33,10 +33,14 @@ interface AppStore {
   surface: 'home' | 'workspace';
   /** True while the Home project menu is opening a workspace — suppresses the auto-switch. */
   homePick: boolean;
+  /** File refs queued for the next Home charter (e.g. "attach annotated image"). */
+  pendingRefs: string[];
 
   init(): Promise<void>;
   setSurface(surface: 'home' | 'workspace'): void;
   setHomePick(inProgress: boolean): void;
+  addPendingRefs(refs: string[]): void;
+  consumePendingRefs(): string[];
   setLayout(patch: Partial<LayoutState>): void;
   toggleSidebar(): void;
   toggleAgentPanel(): void;
@@ -101,6 +105,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   toasts: [],
   surface: 'home',
   homePick: false,
+  pendingRefs: [],
 
   setSurface(surface) {
     set({ surface });
@@ -108,6 +113,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setHomePick(inProgress) {
     set({ homePick: inProgress });
+  },
+
+  addPendingRefs(refs) {
+    set({ pendingRefs: [...new Set([...get().pendingRefs, ...refs])].slice(0, 20) });
+  },
+
+  consumePendingRefs() {
+    const refs = get().pendingRefs;
+    if (refs.length > 0) set({ pendingRefs: [] });
+    return refs;
   },
 
   async init() {

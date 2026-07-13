@@ -638,6 +638,27 @@ export const CHANNELS = {
       outside: z.array(z.string()),
     }),
   ),
+  'fs.readImage': ch(
+    'fs.readImage',
+    1,
+    z.object({ path: z.string().min(1) }).strict(),
+    z.object({ dataBase64: z.string(), mime: z.string(), sizeBytes: z.number().int() }),
+  ),
+  'image.saveAnnotated': ch(
+    'image.saveAnnotated',
+    1,
+    z
+      .object({
+        sourcePath: z.string().min(1),
+        /** PNG bytes; ~24 MB base64 cap keeps the IPC payload bounded. */
+        dataBase64: z
+          .string()
+          .min(1)
+          .max(32 * 1024 * 1024),
+      })
+      .strict(),
+    z.object({ path: z.string() }),
+  ),
   'models.list': ch(
     'models.list',
     1,

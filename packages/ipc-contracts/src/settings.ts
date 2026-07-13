@@ -28,6 +28,8 @@ export const SettingsSchema = z.object({
       autoSave: z.enum(['off', 'afterDelay', 'onFocusChange']).default('off'),
       autoSaveDelayMs: z.number().int().min(200).max(60000).default(1000),
       largeFileSizeMb: z.number().min(1).max(512).default(10),
+      /** Open .md files in the rich (Notion-style) editor by default (PIVOT-019). */
+      markdownRichDefault: z.boolean().default(false),
     })
     .prefault({}),
   terminal: z

@@ -149,6 +149,15 @@ export function HomeView(): React.JSX.Element {
     }
   }, [taskStore.tasks, hydrate]);
 
+  // Refs queued elsewhere (e.g. "attach annotated image", PIVOT-020).
+  const pendingRefs = useAppStore((s) => s.pendingRefs);
+  useEffect(() => {
+    if (pendingRefs.length === 0) return;
+    addRefs(app.consumePendingRefs());
+    inputRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingRefs.length]);
+
   // Dropdowns close on any outside interaction (they overlay the composer).
   useEffect(() => {
     if (!projectMenuOpen && !pickerOpen) return;

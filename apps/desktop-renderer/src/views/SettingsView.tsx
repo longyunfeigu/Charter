@@ -263,6 +263,17 @@ export function SettingsView(): React.JSX.Element {
               />
             </Row>
             <Row
+              label="Rich Markdown by default"
+              hint="Open .md files in the Notion-style editor (toggle per file on the tab)"
+            >
+              <input
+                type="checkbox"
+                data-testid="settings-md-rich"
+                checked={settings.editor.markdownRichDefault}
+                onChange={(e) => set({ editor: { markdownRichDefault: e.target.checked } })}
+              />
+            </Row>
+            <Row
               label="System notifications"
               hint="Plan approval · permission · review ready · failed (silent while a window is focused)"
             >

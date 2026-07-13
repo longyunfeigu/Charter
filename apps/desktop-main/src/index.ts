@@ -38,6 +38,7 @@ import { TaskService } from './services/task-service.js';
 import { NotificationService } from './services/notification-service.js';
 import { detectProjectKind } from './services/project-kind.js';
 import { registerActivityHandlers } from './ipc/activity-handlers.js';
+import { registerImageHandlers } from './ipc/image-handlers.js';
 import { join as joinPath } from 'node:path';
 
 const DEV_SERVER_URL = process.env.PI_IDE_DEV_SERVER_URL;
@@ -427,10 +428,12 @@ if (!gotLock) {
       registerM8Handlers(taskService, logger.child('ipc'));
       registerM9Handlers(taskService, logger.child('ipc'));
       registerActivityHandlers(taskService, workspaceHost, logger.child('ipc'));
+      registerImageHandlers(workspaceHost, logger.child('ipc'));
 
       // PIVOT-014: system notifications on attention-worthy task states.
+      // E2E runs must not spray real OS banners (they disturb focus/timing).
       const notifications = new NotificationService({
-        enabled: () => settings.effective.notifications.enabled,
+        enabled: () => settings.effective.notifications.enabled && !process.env.PI_IDE_E2E,
         anyWindowFocused: () => BrowserWindow.getFocusedWindow() !== null,
         show: (n, onClick) => {
           if (!Notification.isSupported()) return;

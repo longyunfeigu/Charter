@@ -41,6 +41,8 @@ interface EditorStore {
   compareWith: string | null; // path being compared (conflict view)
   cursor: { line: number; column: number };
   activeLanguage: string | null;
+  /** Per-file rich-markdown override (PIVOT-019); unset = editor.markdownRichDefault. */
+  mdRich: Record<string, boolean>;
 
   init(): void;
   openFile(path: string, opts?: { group?: number }): Promise<void>;
@@ -59,6 +61,7 @@ interface EditorStore {
   setEol(path: string, eol: 'lf' | 'crlf'): Promise<void>;
   setCursor(line: number, column: number): void;
   setActiveLanguage(lang: string | null): void;
+  toggleMdRich(path: string): void;
   restoreTabs(): Promise<void>;
   reset(): void;
   dirtyCount(): number;
@@ -120,6 +123,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   compareWith: null,
   cursor: { line: 1, column: 1 },
   activeLanguage: null,
+  mdRich: {},
 
   init() {
     onEvent('doc.changedExternally', ({ doc }) => {
@@ -422,6 +426,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   setActiveLanguage(lang) {
     set({ activeLanguage: lang });
   },
+  toggleMdRich(path) {
+    const next = !isMdRich(get(), path);
+    set({ mdRich: { ...get().mdRich, [path]: next } });
+  },
 
   async restoreTabs() {
     const result = await rpcResult('tabs.get', {});
@@ -460,6 +468,14 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     return Object.values(get().docs).filter((d) => d.dirty).length;
   },
 }));
+
+/** Effective rich-mode for a path: explicit override, else the setting default. */
+export function isMdRich(state: Pick<EditorStore, 'mdRich'>, path: string): boolean {
+  if (!path.toLowerCase().endsWith('.md')) return false;
+  const explicit = state.mdRich[path];
+  if (explicit !== undefined) return explicit;
+  return useAppStore.getState().settings?.editor.markdownRichDefault ?? false;
+}
 
 function syncQuitBlockers(state: EditorStore): void {
   const dirty = Object.values(state.docs).filter((d) => d.dirty).length;

@@ -1,12 +1,51 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { monaco, modelUri } from '../monaco-setup.js';
-import { useEditorStore, type EditorGroup } from '../store/editorStore.js';
+import { useEditorStore, isMdRich, type EditorGroup } from '../store/editorStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useAppStore } from '../store/appStore.js';
 import { WelcomeView } from '../views/WelcomeView.js';
+import { ImageView } from '../views/ImageView.js';
+
+// Rich markdown pulls lexical/mdast (ADR-0007) — loaded only when first used.
+const MarkdownEditor = React.lazy(() =>
+  import('../views/MarkdownEditor.js').then((m) => ({ default: m.MarkdownEditor })),
+);
+
+/** A rich-editor crash must never take the workbench down — fail to a hint. */
+class RichEditorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { failed: boolean }
+> {
+  override state = { failed: false };
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+  override componentDidCatch(error: unknown): void {
+    void import('../store/appStore.js').then(({ reportClientError }) =>
+      reportClientError('MD_RICH_CRASH', error instanceof Error ? error.message : String(error)),
+    );
+  }
+  override render(): React.ReactNode {
+    if (this.state.failed) {
+      return (
+        <div
+          className="empty-state"
+          style={{ position: 'absolute', inset: 0, zIndex: 3, background: 'var(--bg-editor)' }}
+          data-testid="md-rich-error"
+        >
+          <div className="es-title">Rich editor failed to load</div>
+          <div>Switch back to Source view — your file is untouched.</div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { rpcResult } from '../bridge.js';
 import { editorBannerRegistry } from './Workbench.js';
 import { triggerRename } from '../contrib/intelligence.js';
+
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|bmp)$/i;
 
 const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>();
 
@@ -25,6 +64,8 @@ function MonacoPane({
   const setActiveLanguage = useEditorStore((s) => s.setActiveLanguage);
   const setActiveGroup = useEditorStore((s) => s.setActiveGroup);
   const docs = useEditorStore((s) => s.docs);
+  const mdRich = useEditorStore((s) => s.mdRich);
+  const toggleMdRich = useEditorStore((s) => s.toggleMdRich);
   const active = group.active;
   const meta = active ? docs[active] : undefined;
 
@@ -105,6 +146,8 @@ function MonacoPane({
     }
   }, [active, meta?.editable, meta?.readonly, setActiveLanguage]);
 
+  const richActive = Boolean(active && meta?.editable && isMdRich({ mdRich }, active));
+
   return (
     <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
       <div
@@ -112,7 +155,46 @@ function MonacoPane({
         style={{ position: 'absolute', inset: 0 }}
         data-testid={`monaco-pane-${groupIndex}`}
       />
-      {active && meta && !meta.editable ? (
+      {/* PIVOT-019: Notion-style editing for .md, one toggle away. */}
+      {active && meta?.editable && active.toLowerCase().endsWith('.md') ? (
+        <div className="md-mode-toggle" data-testid="md-mode-toggle">
+          <button
+            className={richActive ? 'on' : ''}
+            data-testid="md-mode-rich"
+            onClick={() => {
+              if (!richActive) toggleMdRich(active);
+            }}
+          >
+            ✨ Rich
+          </button>
+          <button
+            className={richActive ? '' : 'on'}
+            data-testid="md-mode-source"
+            onClick={() => {
+              if (richActive) toggleMdRich(active);
+            }}
+          >
+            {'</>'} Source
+          </button>
+        </div>
+      ) : null}
+      {richActive && active ? (
+        <RichEditorBoundary key={`b-${active}`}>
+          <React.Suspense
+            fallback={
+              <div className="empty-state" style={{ position: 'absolute', inset: 0, zIndex: 3 }}>
+                <div className="text-muted">Loading rich editor…</div>
+              </div>
+            }
+          >
+            <MarkdownEditor key={active} path={active} />
+          </React.Suspense>
+        </RichEditorBoundary>
+      ) : null}
+      {/* PIVOT-020: images get a preview + annotation instead of a dead end. */}
+      {active && meta && !meta.editable && meta.binary && IMAGE_EXTENSIONS.test(active) ? (
+        <ImageView path={active} />
+      ) : active && meta && !meta.editable ? (
         <div
           className="empty-state"
           style={{ position: 'absolute', inset: 0, background: 'var(--bg-editor)' }}

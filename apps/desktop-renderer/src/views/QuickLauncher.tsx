@@ -263,7 +263,7 @@ export function QuickLauncher(): React.JSX.Element | null {
                   ) : null}
                   <button
                     data-testid={`qk-${entry.id}`}
-                    onMouseEnter={() => setIndex(i)}
+                    onMouseMove={() => setIndex(i)}
                     onClick={() => runEntry(entry)}
                     style={{
                       display: 'flex',
