@@ -461,10 +461,12 @@ export function HomeView(): React.JSX.Element {
           <button
             className="hm-row"
             data-testid="home-open-ide"
+            title="Open the full editor (file tree, terminal, git)"
             onClick={() => app.setSurface('workspace')}
           >
             <Ic name="layout" size={15} />
-            <span>Open IDE workspace</span>
+            <span>Editor</span>
+            <span className="hm-kbd">⌘E</span>
           </button>
           <button
             className="hm-row"
@@ -486,19 +488,17 @@ export function HomeView(): React.JSX.Element {
           <button
             className="tb-chip"
             data-testid="home-enter-ide"
+            title="Open the full editor"
             onClick={() => app.setSurface('workspace')}
           >
-            Open IDE workspace →
+            Editor →
           </button>
         </div>
 
-        <div className="hm-hero">
-          <span className="hm-mark">
-            <Ic name="flag" size={44} strokeWidth={1.4} />
-          </span>
+        <div className={`hm-hero ${needsYou.length > 0 || running.length > 0 ? 'compact' : ''}`}>
           <h1>What should we build?</h1>
           <div className="hm-sub">
-            Describe the outcome. Review every plan, diff and verification before it lands.
+            Describe the outcome — plans, diffs and verification all wait for your OK.
           </div>
         </div>
 
@@ -727,19 +727,28 @@ export function HomeView(): React.JSX.Element {
               >
                 <Ic name="at" size={15} />
               </button>
-              <select
-                className="hm-select"
+              <div
+                className="hm-seg"
                 data-testid="home-mode"
-                value={mode}
+                data-mode={mode}
+                role="radiogroup"
+                aria-label="Trust level"
                 title={activeModeHint}
-                onChange={(e) => setMode(e.target.value as 'ask' | 'edit' | 'auto')}
               >
                 {MODE_META.map((m) => (
-                  <option key={m.id} value={m.id}>
+                  <button
+                    key={m.id}
+                    className={mode === m.id ? 'on' : ''}
+                    data-testid={`home-mode-${m.id}`}
+                    role="radio"
+                    aria-checked={mode === m.id}
+                    title={m.hint}
+                    onClick={() => setMode(m.id)}
+                  >
                     {m.label}
-                  </option>
+                  </button>
                 ))}
-              </select>
+              </div>
               <button
                 className="hm-chip lite"
                 data-testid="home-advanced-toggle"
@@ -778,8 +787,9 @@ export function HomeView(): React.JSX.Element {
               </button>
             </div>
           </div>
-          <div className="hm-hint">
-            ⏎ start task · ⇧⏎ new line — every change is reviewed before it lands
+          <div className="hm-hint" data-testid="home-mode-hint">
+            <b>{MODE_META.find((m) => m.id === mode)?.label}</b> — {activeModeHint}. ⏎ to start · ⇧⏎
+            new line.
           </div>
         </div>
 
@@ -787,13 +797,15 @@ export function HomeView(): React.JSX.Element {
           <div className="hm-mc">
             {needsYou.length > 0 ? (
               <>
-                <div className="hm-mc-label">Needs you</div>
+                <div className="hm-mc-label">
+                  NEEDS YOU <span className="hm-count">{needsYou.length}</span>
+                </div>
                 <div data-testid="home-mc-needs">{needsYou.map(mcCard)}</div>
               </>
             ) : null}
             {running.length > 0 ? (
               <>
-                <div className="hm-mc-label">Running</div>
+                <div className="hm-mc-label">RUNNING</div>
                 <div data-testid="home-mc-running">{running.map(mcCard)}</div>
               </>
             ) : null}

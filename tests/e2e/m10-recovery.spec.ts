@@ -193,7 +193,7 @@ test.describe('M10 — crash recovery, reliability, diagnostics', () => {
 
       await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
-      await page.getByTestId('home-mode').selectOption('auto');
+      await page.getByTestId('home-mode-auto').click();
       await page
         .getByTestId('home-intent')
         .fill('[scenario:edit-basic] SECRET-PROMPT-MARKER do a thing');

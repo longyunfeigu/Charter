@@ -56,6 +56,17 @@ function useRegisterCoreCommands(): void {
         run: () => store.getState().setOverlay('about'),
       },
       {
+        // ADR-0008 §2: the Editor is one keystroke away from anywhere.
+        id: 'surface.toggleEditor',
+        title: 'Toggle Home / Editor',
+        category: 'View',
+        keybinding: 'mod+e',
+        run: () => {
+          const s = store.getState();
+          s.setSurface(s.surface === 'home' ? 'workspace' : 'home');
+        },
+      },
+      {
         id: 'layout.toggleSidebar',
         title: 'Toggle Sidebar',
         category: 'View',

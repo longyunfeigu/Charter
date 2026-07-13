@@ -63,16 +63,17 @@ test.describe('M4 search, intelligence, terminal', () => {
       await page.getByTestId('tree-item-src/broken.ts').click();
       await expect(page.getByTestId('tab-src/broken.ts')).toBeVisible();
 
-      // Problems panel should show the type error.
+      // Problems panel should show the type error (aria-label carries the counts
+      // — the visible glyphs are SVG icons since ADR-0008).
       await expect
         .poll(
           async () => {
-            const status = await page.getByTestId('status-problems').textContent();
+            const status = await page.getByTestId('status-problems').getAttribute('aria-label');
             return status ?? '';
           },
           { timeout: 20000 },
         )
-        .toMatch(/✖ [1-9]/);
+        .toMatch(/^[1-9]\d* errors?/);
       await page.getByTestId('status-problems').click();
       await expect(page.getByTestId('problems-panel')).toBeVisible();
       await expect(page.getByTestId('problem-error').first()).toContainText(

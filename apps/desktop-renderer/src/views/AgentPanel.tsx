@@ -1023,7 +1023,14 @@ export function AgentPanel(): React.JSX.Element {
         {task ? (
           <>
             <span
-              style={{ flex: 1, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontWeight: 600,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
               title={task.title}
             >
               {task.title}

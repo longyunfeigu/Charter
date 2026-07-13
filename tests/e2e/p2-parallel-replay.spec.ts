@@ -13,7 +13,7 @@ test.describe('P2 — parallel runs, session replay, quick launcher', () => {
       // Task A pauses mid-run on an ask_user question (holds its run slot).
       await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
-      await page.getByTestId('home-mode').selectOption('auto');
+      await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-conflict] task A holds a slot');
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('q-card')).toBeVisible({ timeout: 20000 });
@@ -22,7 +22,7 @@ test.describe('P2 — parallel runs, session replay, quick launcher', () => {
       // queue forever (A only ends after its question is answered).
       await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
-      await page.getByTestId('home-mode').selectOption('auto');
+      await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-hunks] task B in parallel');
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
@@ -54,7 +54,7 @@ test.describe('P2 — parallel runs, session replay, quick launcher', () => {
     try {
       await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
-      await page.getByTestId('home-mode').selectOption('auto');
+      await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] glow and replay');
       await page.getByTestId('home-submit').click();
 

@@ -1,75 +1,105 @@
+/* Studio visual language (ADR-0008, PIVOT-024).
+ * Tokens are ported 1:1 from docs/design/direction-picker.html [data-dir='studio'];
+ * the dark theme is the warm-paper palette inverted (same hue family, ink flips
+ * to paper). Both surfaces (Home + Editor) share these tokens — no VS Code blue.
+ */
 :root {
   --font-ui:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei',
     sans-serif;
+  --font-display: 'Charter', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
   --font-mono: Menlo, Monaco, 'SF Mono', Consolas, 'Courier New', monospace;
   --titlebar-height: 38px;
   --statusbar-height: 24px;
   --activitybar-width: 48px;
-}
-
-[data-theme='dark'] {
-  color-scheme: dark;
-  --bg-app: #181818;
-  --bg-titlebar: #1f1f1f;
-  --bg-sidebar: #1f1f1f;
-  --bg-editor: #1e1e1e;
-  --bg-panel: #181818;
-  --bg-statusbar: #0f4c81;
-  --bg-input: #2a2a2a;
-  --bg-hover: #2a2d2e;
-  --bg-active: #37373d;
-  --bg-selected: #04395e;
-  --bg-overlay: rgba(0, 0, 0, 0.55);
-  --bg-card: #252526;
-  --border: #3c3c3c;
-  --border-strong: #555;
-  --fg: #cccccc;
-  --fg-muted: #9d9d9d;
-  --fg-faint: #6e6e6e;
-  --fg-inverse: #1e1e1e;
-  --accent: #3794ff;
-  --accent-fg: #ffffff;
-  --danger: #f14c4c;
-  --warning: #cca700;
-  --success: #89d185;
-  --info: #75beff;
-  --diff-add-bg: rgba(60, 130, 60, 0.25);
-  --diff-del-bg: rgba(160, 60, 60, 0.25);
-  --focus-ring: #3794ff;
-  --scrollbar: rgba(121, 121, 121, 0.4);
+  --radius-card: 14px;
+  --radius-chip: 9px;
 }
 
 [data-theme='light'] {
   color-scheme: light;
-  --bg-app: #f3f3f3;
-  --bg-titlebar: #e8e8e8;
-  --bg-sidebar: #f3f3f3;
-  --bg-editor: #ffffff;
-  --bg-panel: #f8f8f8;
-  --bg-statusbar: #0f4c81;
+  /* mockup: --backdrop / --side / --main / --card */
+  --bg-app: #eceae5;
+  --bg-titlebar: #f6f5f1;
+  --bg-sidebar: #f6f5f1;
+  --bg-editor: #fbfaf7;
+  --bg-panel: #f6f5f1;
+  --bg-statusbar: #f6f5f1;
   --bg-input: #ffffff;
-  --bg-hover: #e8e8e8;
-  --bg-active: #dcdcdc;
-  --bg-selected: #cfe4f7;
-  --bg-overlay: rgba(0, 0, 0, 0.35);
   --bg-card: #ffffff;
-  --border: #d4d4d4;
-  --border-strong: #a0a0a0;
-  --fg: #333333;
-  --fg-muted: #6a6a6a;
-  --fg-faint: #9a9a9a;
-  --fg-inverse: #ffffff;
-  --accent: #0066bf;
+  /* mockup: --chip / --chip-hover */
+  --bg-hover: #e8e5de;
+  --bg-active: #e2dfd7;
+  --bg-selected: #e9e6df;
+  --bg-overlay: rgba(32, 30, 26, 0.4);
+  /* mockup: --border / --border-soft */
+  --border: #e5e1d8;
+  --border-soft: #edeae3;
+  --border-strong: #cfcabf;
+  /* mockup: --text / --text2 / --text3 */
+  --fg: #201e1a;
+  --fg-muted: #6e6a61;
+  --fg-faint: #a39e94;
+  --fg-inverse: #fbfaf7;
+  /* Studio ink primary (mockup --accent / --accent-text) */
+  --accent: #1b1a16;
   --accent-fg: #ffffff;
-  --danger: #d13438;
-  --warning: #995700;
-  --success: #107c10;
-  --info: #005fb8;
-  --diff-add-bg: rgba(155, 225, 155, 0.45);
-  --diff-del-bg: rgba(255, 160, 160, 0.45);
-  --focus-ring: #0066bf;
-  --scrollbar: rgba(100, 100, 100, 0.4);
+  /* mockup state colors + soft backgrounds */
+  --danger: #c4453d;
+  --danger-bg: #fdecea;
+  --warning: #b06f10;
+  --warning-bg: #faf0dc;
+  --success: #2f9e63;
+  --success-bg: #e7f5ec;
+  --info: #3f7bd9;
+  --info-bg: #e9f1fd;
+  --diff-add-bg: rgba(47, 158, 99, 0.14);
+  --diff-del-bg: rgba(196, 69, 61, 0.12);
+  --focus-ring: #1b1a16;
+  --scrollbar: rgba(110, 106, 97, 0.35);
+  /* mockup: --card-shadow / --win-shadow */
+  --shadow-card: 0 1px 2px rgba(30, 26, 18, 0.05), 0 14px 40px rgba(30, 26, 18, 0.08);
+  --shadow-menu: 0 30px 90px rgba(30, 26, 18, 0.22);
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg-app: #171614;
+  --bg-titlebar: #1d1c19;
+  --bg-sidebar: #1d1c19;
+  --bg-editor: #1a1917;
+  --bg-panel: #1d1c19;
+  --bg-statusbar: #1d1c19;
+  --bg-input: #24231f;
+  --bg-card: #21201c;
+  --bg-hover: #292823;
+  --bg-active: #31302a;
+  --bg-selected: #33322b;
+  --bg-overlay: rgba(0, 0, 0, 0.55);
+  --border: #33312b;
+  --border-soft: #2a2924;
+  --border-strong: #4a473f;
+  --fg: #e8e6e0;
+  --fg-muted: #a29d92;
+  --fg-faint: #6e6a61;
+  --fg-inverse: #1a1917;
+  /* Ink flips to paper in the dark theme (console-style inversion). */
+  --accent: #e8e6e0;
+  --accent-fg: #1a1917;
+  --danger: #e06b62;
+  --danger-bg: #38201d;
+  --warning: #d29a3a;
+  --warning-bg: #342a14;
+  --success: #46b477;
+  --success-bg: #17301f;
+  --info: #6ca1e8;
+  --info-bg: #182739;
+  --diff-add-bg: rgba(70, 180, 119, 0.16);
+  --diff-del-bg: rgba(224, 107, 98, 0.14);
+  --focus-ring: #e8e6e0;
+  --scrollbar: rgba(162, 157, 146, 0.3);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 14px 40px rgba(0, 0, 0, 0.35);
+  --shadow-menu: 0 30px 90px rgba(0, 0, 0, 0.6);
 }
 
 * {
@@ -89,6 +119,7 @@ body {
   font-size: 13px;
   background: var(--bg-app);
   color: var(--fg);
+  -webkit-font-smoothing: antialiased;
 }
 
 ::-webkit-scrollbar {

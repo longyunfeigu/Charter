@@ -31,7 +31,10 @@ test.describe('M6 read-only agent with deterministic runtime', () => {
       // Timeline: user message → streaming → tool call → final agent message.
       await expect(page.getByTestId('tl-user')).toBeVisible({ timeout: 20000 });
       await expect(page.getByTestId('tl-tool-read_file')).toBeVisible({ timeout: 20000 });
-      await expect(page.getByTestId('tl-tool-read_file')).toHaveAttribute('data-state', 'SUCCEEDED');
+      await expect(page.getByTestId('tl-tool-read_file')).toHaveAttribute(
+        'data-state',
+        'SUCCEEDED',
+      );
       await expect(page.getByTestId('tl-agent').last()).toContainText('package.json', {
         timeout: 20000,
       });

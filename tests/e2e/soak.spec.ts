@@ -58,7 +58,7 @@ test('soak: 50 consecutive tasks, one worker, zero restarts, clean exit', async 
     for (let i = 1; i <= 50; i += 1) {
       await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
-      await page.getByTestId('home-mode').selectOption('auto');
+      await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill(`[scenario:edit-basic] soak run ${i}`);
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {

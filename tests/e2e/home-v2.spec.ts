@@ -37,7 +37,7 @@ test.describe('Home v2 — advanced charter, mission control, context feeding', 
       await page.getByTestId('home-file-item-src/index.ts').click();
       await expect(page.getByTestId('home-ref-src/index.ts')).toBeVisible();
 
-      await page.getByTestId('home-mode').selectOption('auto');
+      await page.getByTestId('home-mode-auto').click();
       await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] quick change with context');
       await page.getByTestId('home-submit').click();
