@@ -9,6 +9,8 @@ import { useActivityStore, currentActionLine } from '../store/activityStore.js';
 import { useGlowTasks } from './useGlow.js';
 import { Ic } from './home-icons.js';
 import { MODE_META, stateShort, stateTone } from './labels.js';
+import { LiveBoard } from './LiveBoard.js';
+import { FileLens } from './FileLens.js';
 import '../styles/home.css';
 
 type VerificationCommand = z.infer<typeof VerificationCommandSchema>;
@@ -76,6 +78,8 @@ export function HomeView(): React.JSX.Element {
   const [pickerQuery, setPickerQuery] = useState('');
   const [pickerItems, setPickerItems] = useState<string[]>([]);
   const [pickerIndex, setPickerIndex] = useState(0);
+  // Live Board lens (PIVOT-025): read-only diff-so-far for one file.
+  const [lens, setLens] = useState<{ taskId: string; path: string } | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pickerInputRef = useRef<HTMLInputElement>(null);
@@ -798,7 +802,17 @@ export function HomeView(): React.JSX.Element {
             {running.length > 0 ? (
               <>
                 <div className="hm-mc-label">RUNNING</div>
-                <div data-testid="home-mc-running">{running.map(mcCard)}</div>
+                <div data-testid="home-mc-running">
+                  {running.map((t) => (
+                    <React.Fragment key={t.id}>
+                      {mcCard(t)}
+                      <LiveBoard
+                        taskId={t.id}
+                        onOpenLens={(path) => setLens({ taskId: t.id, path })}
+                      />
+                    </React.Fragment>
+                  ))}
+                </div>
               </>
             ) : null}
           </div>
@@ -806,6 +820,10 @@ export function HomeView(): React.JSX.Element {
           <div style={{ height: 26 }} />
         )}
       </main>
+
+      {lens ? (
+        <FileLens taskId={lens.taskId} path={lens.path} onClose={() => setLens(null)} />
+      ) : null}
     </div>
   );
 }

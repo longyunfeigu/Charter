@@ -96,6 +96,44 @@ test.describe('Shell v3 — Task Room and entry consolidation', () => {
   });
 });
 
+test.describe('Shell v3 — Live Board (PIVOT-025)', () => {
+  test('tiles appear from write events, open the read-only lens, and collapse when idle', async () => {
+    const fixture = createTsSmallFixture();
+    const { app, page } = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+    });
+    try {
+      await page.getByTestId('surface-home').click();
+      await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
+      await page.getByTestId('home-mode-auto').click();
+      await page.getByTestId('home-intent').fill('[scenario:edit-live] watch the agent work');
+      await page.getByTestId('home-submit').click();
+
+      // Watch from the launcher: the running card grows a live board.
+      await expect(page.getByTestId('task-room')).toBeVisible();
+      await page.getByTestId('task-room-back').click();
+      const tile = page.getByTestId('live-tile-notes-live-a.txt');
+      await expect(tile).toBeVisible({ timeout: 15000 });
+      await expect(tile).toHaveAttribute('data-heat', /hot|warm/);
+
+      // Tile → diff-so-far lens (read-only, from recorded changes).
+      await tile.click();
+      await expect(page.getByTestId('file-lens')).toBeVisible();
+      await expect(page.getByTestId('file-lens')).toContainText('live board A');
+      await page.getByTestId('file-lens-close').click();
+      await expect(page.getByTestId('file-lens')).toHaveCount(0);
+
+      // When nothing runs, the board folds away — Home goes quiet again.
+      await expect(page.locator('[data-testid^="live-board-"]')).toHaveCount(0, {
+        timeout: 30000,
+      });
+      await expect(page.getByTestId('home-mc-needs')).toContainText('watch the agent work');
+    } finally {
+      await app.close();
+    }
+  });
+});
+
 /** First (most recent) task id from the sidebar rows. */
 async function taskIdOf(page: import('@playwright/test').Page): Promise<string> {
   const el = page.locator('[data-testid^="home-task-"]').first();

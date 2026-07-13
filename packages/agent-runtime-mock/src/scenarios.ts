@@ -336,6 +336,38 @@ export const SCENARIOS: Record<string, Scenario> = {
     { kind: 'usage', inputTokens: 1200, outputTokens: 300 },
   ],
   // E2E-015: one file, two well-separated hunks for per-hunk review.
+  /** Live-board hook (PIVOT-025): two spaced writes keep the run observable. */
+  'edit-live': () => [
+    { kind: 'assistant', text: 'Writing two files with pauses (live-board test hook).' },
+    {
+      kind: 'tool',
+      toolName: 'propose_plan',
+      input: {
+        summary: 'Create two note files with pauses.',
+        steps: [
+          { title: 'Create notes-live-a.txt', expectedFiles: ['notes-live-a.txt'] },
+          { title: 'Create notes-live-b.txt', expectedFiles: ['notes-live-b.txt'] },
+        ],
+      },
+      reason: 'plan before writing (AG-007 gate)',
+    },
+    {
+      kind: 'tool',
+      toolName: 'create_file',
+      input: { path: 'notes-live-a.txt', content: 'live board A\n', reason: 'first live write' },
+      reason: 'first write',
+    },
+    { kind: 'wait', ms: 1400 },
+    {
+      kind: 'tool',
+      toolName: 'create_file',
+      input: { path: 'notes-live-b.txt', content: 'live board B\n', reason: 'second live write' },
+      reason: 'second write',
+    },
+    { kind: 'wait', ms: 1400 },
+    { kind: 'assistant', text: 'Done with the live edits.' },
+  ],
+
   'edit-hunks': () => [
     {
       kind: 'tool',

@@ -144,6 +144,21 @@ New:
 - `docs/UX_PIVOT_SPEC.md` gains the v3 section; IMPLEMENTATION_STATUS tracks
   SHELL-V3 phases (fixes → reskin → task room → live board).
 
+## Amendments (implementation, 2026-07-13)
+
+1. **Submit opens the Task Room.** PIVOT-005's "stays on Home" is implemented
+   as: submit opens the new task's room (still the Home surface, one click back
+   to the launcher, never the Editor). Watching your just-delegated task start
+   matches the chat mental model; mission control remains the multi-task home.
+2. **Live Board groups per task.** The engine opens one project at a time, so
+   "per-project boards" degenerate to per-running-task boards under the
+   Running section plus the (already shipped) sidebar project-row glow. If
+   multi-project sessions ever land, boards regain the project grouping level.
+3. **Agent panel mounting.** The Editor's agent panel unmounts while the Home
+   surface is active so task testids/flows have exactly one owner at a time;
+   Review/Replay render from the global overlay registry and work on both
+   surfaces.
+
 ## Alternatives considered
 
 - **A — keep co-equal dual surfaces, restyle only.** Cheapest; rejected: keeps
