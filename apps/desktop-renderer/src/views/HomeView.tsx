@@ -11,16 +11,15 @@ import { needsAttention, ATTENTION_STATES } from './HomeSidebar.js';
 import { Ic } from './home-icons.js';
 import {
   MODE_META,
-  THINKING_LEVELS,
   type ThinkingLevelId,
   canArchiveTask,
-  clampThinkingLevelTo,
   isAnswered,
   presentedMeta,
 } from './labels.js';
-import { ArmedIconButton } from './ui.js';
+import { ArmedIconButton, ModelEffortControl } from './ui.js';
 import { LiveBoard } from './LiveBoard.js';
 import { readDragRef } from './dragRefs.js';
+import { useSkillSlash } from './SkillSlashPicker.js';
 
 type VerificationCommand = z.infer<typeof VerificationCommandSchema>;
 
@@ -89,6 +88,14 @@ export function HomeView(): React.JSX.Element {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pickerInputRef = useRef<HTMLInputElement>(null);
   const workspace = workspaceStore.workspace;
+
+  // "/" in the empty composer → enabled-skills picker (ADR-0015).
+  const slash = useSkillSlash({
+    value: intent,
+    setValue: setIntent,
+    testid: 'home',
+    focus: () => inputRef.current?.focus(),
+  });
 
   useEffect(() => {
     taskStore.init();
@@ -160,20 +167,6 @@ export function HomeView(): React.JSX.Element {
     () => taskStore.models.filter((m) => m.configured),
     [taskStore.models],
   );
-  // PIVOT-033: multiple providers — the picker groups models per provider.
-  const modelGroups = useMemo(() => {
-    const groups: Array<{
-      providerId: string;
-      providerName: string;
-      models: typeof configuredModels;
-    }> = [];
-    for (const m of configuredModels) {
-      const last = groups[groups.length - 1];
-      if (last && last.providerId === m.providerId) last.models.push(m);
-      else groups.push({ providerId: m.providerId, providerName: m.providerName, models: [m] });
-    }
-    return groups;
-  }, [configuredModels]);
   useEffect(() => {
     if (!modelKey && configuredModels.length > 0) {
       const preferred =
@@ -186,21 +179,8 @@ export function HomeView(): React.JSX.Element {
     }
   }, [configuredModels, modelKey, app.settings]);
 
-  // Effort × model linkage: only the selected model's supported levels are
-  // offered; switching models clamps the current choice to the nearest one.
-  const selectedModel = useMemo(
-    () => configuredModels.find((m) => `${m.providerId}::${m.modelId}` === modelKey) ?? null,
-    [configuredModels, modelKey],
-  );
-  const supportedLevels = useMemo<readonly ThinkingLevelId[]>(() => {
-    const supported = selectedModel?.supportedThinkingLevels;
-    if (!supported || supported.length === 0) return THINKING_LEVELS;
-    return THINKING_LEVELS.filter((l) => supported.includes(l));
-  }, [selectedModel]);
-  const thinkingDisabled = supportedLevels.length === 1 && supportedLevels[0] === 'off';
-  useEffect(() => {
-    setThinking((current) => clampThinkingLevelTo(supportedLevels, current));
-  }, [supportedLevels]);
+  // Effort × model linkage lives inside ModelEffortControl now (it clamps the
+  // effort to the selected model's supported levels).
 
   // Refs queued elsewhere (e.g. "attach annotated image", PIVOT-020).
   const pendingRefs = useAppStore((s) => s.pendingRefs);
@@ -625,8 +605,15 @@ export function HomeView(): React.JSX.Element {
             value={intent}
             placeholder="Describe a task, ask a question, or paste an error…"
             rows={2}
-            onChange={(e) => setIntent(e.target.value)}
+            onChange={(e) => {
+              setIntent(e.target.value);
+              slash.handleChange(e.target.value);
+            }}
             onKeyDown={(e) => {
+              if (slash.handleKeyDown(e)) {
+                e.preventDefault();
+                return;
+              }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 void submit();
@@ -636,6 +623,7 @@ export function HomeView(): React.JSX.Element {
               }
             }}
           />
+          {slash.menu}
 
           {advanced ? (
             <div className="hm-adv" data-testid="home-advanced">
@@ -806,57 +794,14 @@ export function HomeView(): React.JSX.Element {
               {advanced ? 'Simple' : 'Advanced'}
             </button>
             <span className="hm-spacer" />
-            <select
-              className="hm-select"
-              data-testid="home-thinking"
-              title={
-                thinkingDisabled
-                  ? `${selectedModel?.displayName ?? 'This model'} does not support reasoning effort`
-                  : 'Reasoning effort — how hard the model thinks before acting (levels this model supports; default comes from Settings → Models)'
-              }
-              aria-label="Reasoning effort"
-              value={thinking}
-              disabled={thinkingDisabled}
-              onChange={(e) => setThinking(e.target.value as ThinkingLevelId)}
-            >
-              {supportedLevels.map((l) => (
-                <option key={l} value={l}>
-                  {l === 'off' ? 'no thinking' : `✦ ${l}`}
-                </option>
-              ))}
-            </select>
-            <select
-              className="hm-select"
-              data-testid="home-model"
-              value={modelKey}
-              onChange={(e) => setModelKey(e.target.value)}
-            >
-              {configuredModels.length === 0 ? (
-                <option value="">No model — add a key in Settings</option>
-              ) : modelGroups.length === 1 ? (
-                modelGroups[0]!.models.map((m) => (
-                  <option
-                    key={`${m.providerId}::${m.modelId}`}
-                    value={`${m.providerId}::${m.modelId}`}
-                  >
-                    {m.displayName}
-                  </option>
-                ))
-              ) : (
-                modelGroups.map((g) => (
-                  <optgroup key={g.providerId} label={g.providerName}>
-                    {g.models.map((m) => (
-                      <option
-                        key={`${m.providerId}::${m.modelId}`}
-                        value={`${m.providerId}::${m.modelId}`}
-                      >
-                        {m.displayName}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))
-              )}
-            </select>
+            <ModelEffortControl
+              models={configuredModels}
+              modelKey={modelKey}
+              onModelKey={setModelKey}
+              thinking={thinking}
+              onThinking={setThinking}
+              testid="home"
+            />
             <button
               className={`hm-send ${intent.trim() && !submitting ? 'ready' : ''}`}
               data-testid="home-submit"

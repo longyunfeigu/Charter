@@ -19,6 +19,7 @@ import {
 } from './agent-dto.js';
 import { ActivityItemSchema } from './activity.js';
 import { ProviderApiSchema, ProviderInfoSchema } from './providers.js';
+import { SkillDtoSchema } from './skills.js';
 
 const SettingsStateSchema = z.object({
   effective: SettingsSchema,
@@ -603,6 +604,22 @@ export const CHANNELS = {
       binary: z.boolean(),
     }),
   ),
+  /** ADR-0014 (PIVOT-034): current logical content of one file in the task's
+   * own mount (project root or worktree) for the in-room read-only peek. */
+  'task.peekFile': ch(
+    'task.peekFile',
+    1,
+    z.object({ taskId: z.string(), path: z.string().min(1).max(4000) }).strict(),
+    z.object({
+      content: z.string().nullable(),
+      binary: z.boolean(),
+      missing: z.boolean(),
+      truncated: z.boolean(),
+      sizeBytes: z.number().int().nonnegative(),
+      /** True when the content reflects an unsaved editor buffer (M8-06 routing). */
+      fromBuffer: z.boolean(),
+    }),
+  ),
   'task.reviewDecision': ch(
     'task.reviewDecision',
     1,
@@ -790,6 +807,42 @@ export const CHANNELS = {
     3,
     z.object({}).strict(),
     z.object({ items: z.array(ProviderInfoSchema) }),
+  ),
+  // ---- Skills (ADR-0015): managed store, never scans project dirs (AG-014) ----
+  'skills.list': ch(
+    'skills.list',
+    1,
+    z.object({}).strict(),
+    z.object({ skills: z.array(SkillDtoSchema) }),
+  ),
+  // Opens a native folder picker in main and imports the chosen SKILL.md
+  // folder; returns null when cancelled. `dir` skips the picker (drag-drop
+  // import and tests).
+  'skills.import': ch(
+    'skills.import',
+    1,
+    z.object({ dir: z.string().min(1).max(2000).optional() }).strict(),
+    z.object({ skill: SkillDtoSchema.nullable() }),
+  ),
+  'skills.remove': ch(
+    'skills.remove',
+    1,
+    z.object({ id: z.string().min(1).max(200) }).strict(),
+    z.object({ removed: z.boolean() }),
+  ),
+  'skills.setEnabled': ch(
+    'skills.setEnabled',
+    1,
+    z.object({ id: z.string().min(1).max(200), enabled: z.boolean() }).strict(),
+    z.object({ skill: SkillDtoSchema }),
+  ),
+  // Audit view: read one bundled file (defaults to SKILL.md). Path is resolved
+  // inside the skill root; traversal is rejected in the handler.
+  'skills.read': ch(
+    'skills.read',
+    1,
+    z.object({ id: z.string().min(1).max(200), relPath: z.string().max(1024).optional() }).strict(),
+    z.object({ path: z.string(), content: z.string(), binary: z.boolean() }),
   ),
   'lsp.status': ch(
     'lsp.status',

@@ -25,7 +25,7 @@ test.describe('Sidebar — New project entry and drag-to-@ context feeding', () 
       // The entry keeps working while a Task Room fills the content area —
       // the dialog is shell-global, not a Launcher local.
       await page.getByTestId('home-mode-auto').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] room for dialog test');
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
@@ -76,7 +76,7 @@ test.describe('Sidebar — New project entry and drag-to-@ context feeding', () 
 
       // The refs land in the charter exactly like picker-added ones.
       await page.getByTestId('home-mode-auto').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] drag refs into charter');
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
@@ -100,7 +100,7 @@ test.describe('Sidebar — New project entry and drag-to-@ context feeding', () 
       await expect(page.getByTestId('home-tree-src/index.ts')).toBeVisible();
 
       await page.getByTestId('home-mode-auto').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] drag into room reply');
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('task-room')).toBeVisible();

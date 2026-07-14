@@ -192,7 +192,7 @@ test.describe('M10 — crash recovery, reliability, diagnostics', () => {
       await page.keyboard.press('Escape');
 
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
       await page.getByTestId('home-mode-auto').click();
       await page
         .getByTestId('home-intent')

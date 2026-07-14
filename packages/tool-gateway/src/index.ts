@@ -3,6 +3,7 @@ export * from './tools-readonly.js';
 export * from './tools-command.js';
 export * from './tools-write.js';
 export * from './tools-verification.js';
+export * from './tools-skill.js';
 export * from './plan-utils.js';
 export * from './command-classifier.js';
 export * from './command-runner.js';

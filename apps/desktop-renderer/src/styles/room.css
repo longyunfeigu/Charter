@@ -65,7 +65,7 @@
   gap: 5px;
   font-size: 11px;
   color: var(--fg-muted);
-  background: var(--bg-chip);
+  background: var(--bg-hover);
   border-radius: 999px;
   padding: 3px 10px;
   white-space: nowrap;
@@ -216,7 +216,7 @@
   line-height: 1.55;
 }
 .rt-bubble.you {
-  background: var(--bg-chip);
+  background: var(--bg-hover);
   box-shadow: none;
 }
 .rt-who {
@@ -431,7 +431,7 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: var(--bg-chip);
+  background: var(--bg-hover);
   color: var(--fg-muted);
   font-size: 10.5px;
   font-weight: 650;
@@ -530,6 +530,37 @@
 .tr-composer.drop .tr-input {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* Follow-up composer — full parity with the Home composer: a follow-up is a
+   new task, so it gets the project chip, @-attach, trust level and the merged
+   model·effort control inside the same card chrome. */
+.tr-composer.follow {
+  display: block;
+  padding: 10px 22px 16px;
+}
+.tr-fcard {
+  position: relative;
+  max-width: 640px;
+}
+.tr-fta {
+  min-height: 24px;
+  font-size: 13.5px;
+  padding-top: 8px;
+  padding-bottom: 4px;
+}
+.tr-composer.follow.drop .hm-card {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.tr-fhint {
+  font-size: 12px;
+  color: var(--fg-faint);
+  padding: 8px 4px 0;
+}
+.tr-fhint b {
+  color: var(--fg-muted);
+  font-weight: 550;
 }
 
 /* ---------- rail (focus layer, PIVOT-028) ---------- */
@@ -865,4 +896,260 @@
   white-space: nowrap;
   max-width: 560px;
   min-width: 0;
+}
+
+/* ---------- in-room file peek (ADR-0014, PIVOT-034) ---------- */
+
+.tr-peek {
+  flex: none;
+  width: 46%;
+  min-width: 340px;
+  max-width: 720px;
+  border-left: 1px solid var(--border-soft);
+  background: var(--bg-editor);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  animation: tr-peek-in 0.22s ease;
+}
+@keyframes tr-peek-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tr-peek {
+    animation: none;
+  }
+}
+/* The rail yields to the peek; a slim restore tab brings it back. */
+.tr-body.peeking {
+  position: relative;
+}
+.tr-body.peeking .tr-rail {
+  display: none;
+}
+.tr-rail-tab {
+  position: absolute;
+  right: 0;
+  top: 96px;
+  z-index: 4;
+  writing-mode: vertical-rl;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  padding: 10px 3px;
+  cursor: pointer;
+}
+.tr-rail-tab:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+
+.tr-peek-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 0;
+}
+.tr-peek-tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tr-peek-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  padding: 3px 5px 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: none;
+}
+.tr-peek-tab.on {
+  background: var(--bg-card);
+  color: var(--fg);
+  border-color: var(--border);
+  font-weight: 600;
+}
+.tr-peek-tab-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tr-peek-tab-x {
+  border: none;
+  background: none;
+  color: var(--fg-faint);
+  cursor: pointer;
+  padding: 1px 2px;
+  border-radius: 4px;
+  display: inline-flex;
+}
+.tr-peek-tab-x:hover {
+  color: var(--danger);
+  background: var(--bg-hover);
+}
+.tr-peek-close {
+  border: none;
+  background: none;
+  color: var(--fg-faint);
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 6px;
+  display: inline-flex;
+}
+.tr-peek-close:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+
+.tr-peek-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.tr-peek-seg {
+  display: flex;
+  background: var(--bg-hover);
+  border-radius: 999px;
+  padding: 2px;
+  gap: 2px;
+}
+.tr-peek-seg button {
+  border: none;
+  background: none;
+  font-size: 11px;
+  color: var(--fg-muted);
+  padding: 2px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.tr-peek-seg button.on {
+  background: var(--bg-card);
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+}
+.tr-peek-ro {
+  font-size: 10px;
+  color: var(--fg-faint);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 1px 8px;
+  flex: none;
+}
+.tr-peek-wt {
+  font-size: 10px;
+  color: var(--warning);
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  flex: none;
+}
+.tr-peek-stat {
+  font-size: 10.5px;
+  flex: none;
+}
+.tr-peek-stat .plus,
+.tr-peek-diff .plus {
+  color: var(--success);
+  font-style: normal;
+}
+.tr-peek-stat .minus,
+.tr-peek-diff .minus {
+  color: var(--danger);
+  font-style: normal;
+}
+.tr-peek-sp {
+  flex: 1;
+}
+
+.tr-peek-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tr-peek-diff {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 0 20px;
+}
+.tr-peek-file {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tr-peek-monaco {
+  flex: 1;
+  min-height: 0;
+}
+.tr-peek-note {
+  padding: 16px 18px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  line-height: 1.6;
+}
+.tr-peek-banner {
+  font-size: 11px;
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  padding: 5px 12px;
+}
+.tr-peek-banner.info {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 10%, transparent);
+}
+
+/* Clickable file targets in timeline tool rows (PIVOT-015r). */
+.rt-tool-target.link {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0 3px;
+  margin: 0 -3px;
+}
+.rt-tool-target.link:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Narrow windows: the peek stacks under the timeline like the rail does. */
+@media (max-width: 1080px) {
+  .tr-peek {
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    border-left: none;
+    border-top: 1px solid var(--border-soft);
+    min-height: 45vh;
+  }
+  .tr-rail-tab {
+    display: none;
+  }
 }

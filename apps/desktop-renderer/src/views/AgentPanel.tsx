@@ -11,6 +11,8 @@ import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useEditorStore } from '../store/editorStore.js';
 import { NewTaskDialog } from './NewTaskDialog.js';
 import { PathChips } from './PathLinks.js';
+import { useDraftStore } from '../store/draftStore.js';
+import { restoreScroll, saveScroll } from './scrollMemory.js';
 import { Markdown } from './Markdown.js';
 import { Ic } from './home-icons.js';
 import { ConfirmDangerButton } from './ui.js';
@@ -1068,15 +1070,35 @@ export function useTimelineContext(taskState: string): TimelineContext {
 export function TimelineList({ taskState }: { taskState: string }): React.JSX.Element {
   const store = useTaskStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedToBottom = useRef(true);
   const timelineContext = useTimelineContext(taskState);
+  const taskId = store.activeTaskId;
+
+  // PIVOT-036: the reading position is shared with the Task Room timeline —
+  // ⌘E round-trips land where you left off.
+  useEffect(() => {
+    if (store.loadingTimeline || !taskId) return;
+    const el = scrollRef.current;
+    if (el) pinnedToBottom.current = restoreScroll(taskId, el);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.loadingTimeline, taskId]);
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight;
   }, [store.timeline.length, store.streaming?.text.length]);
 
   return (
-    <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', minHeight: 0 }} data-testid="timeline">
+    <div
+      ref={scrollRef}
+      style={{ flex: 1, overflow: 'auto', minHeight: 0 }}
+      data-testid="timeline"
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+        if (taskId) saveScroll(taskId, el);
+      }}
+    >
       {store.loadingTimeline ? (
         <div className="text-muted" style={{ padding: 12 }}>
           Loading timeline…
@@ -1111,7 +1133,12 @@ export function TimelineList({ taskState }: { taskState: string }): React.JSX.El
 /** Reply composer (steer / queue / new run). Used by panel + room. */
 export function TaskComposer({ running }: { running: boolean }): React.JSX.Element {
   const store = useTaskStore();
-  const [input, setInput] = useState('');
+  // PIVOT-036: the draft is per-task and shared with the Task Room composer.
+  const taskId = store.activeTaskId ?? '';
+  const input = useDraftStore((s) => (taskId ? (s.drafts[taskId] ?? '') : ''));
+  const setInput = (text: string): void => {
+    if (taskId) useDraftStore.getState().setDraft(taskId, text);
+  };
   const [sendMode, setSendMode] = useState<'steer' | 'followUp'>('steer');
   return (
     <div

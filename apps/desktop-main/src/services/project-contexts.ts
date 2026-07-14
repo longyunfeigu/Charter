@@ -9,11 +9,13 @@ import {
   registerCommandTools,
   registerWriteTools,
   registerVerificationTool,
+  registerSkillTool,
   createPlanAwarePermission,
   PermissionEngine,
   type AskUserPrompt,
   type PermissionRequestCard,
   type PlanGate,
+  type SkillProviderEntry,
   type ToolAuditRecord,
   type VerificationGate,
 } from '@pi-ide/tool-gateway';
@@ -71,6 +73,8 @@ export interface ContextHooks {
   askUser(prompt: AskUserPrompt, signal: AbortSignal): Promise<string>;
   planGate(): PlanGate;
   verificationGate(): VerificationGate;
+  /** Enabled managed-store skills for load_skill (ADR-0015); resolved per call. */
+  skills(): SkillProviderEntry[];
 }
 
 /**
@@ -214,6 +218,8 @@ export class ProjectContexts {
       planGate: this.hooks.planGate(),
     });
     registerVerificationTool(gateway, { gate: this.hooks.verificationGate() });
+    // ADR-0015: skills load from the managed store only — never this root.
+    registerSkillTool(gateway, { skills: () => this.hooks.skills() });
 
     const verifications = new VerificationService({
       root: input.root,

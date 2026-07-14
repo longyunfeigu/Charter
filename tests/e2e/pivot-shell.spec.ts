@@ -53,7 +53,7 @@ test.describe('Dual-form shell pivot (ADR-0004, PIVOT-001..010)', () => {
       await expect(page.getByTestId('home-view')).toBeVisible();
 
       // PIVOT-003/004: model auto-selected (mock), approval policy set to auto.
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
       await page.getByTestId('home-mode-auto').click();
 
       // PIVOT-005/021/022: submit stays on the Home surface — the task's room

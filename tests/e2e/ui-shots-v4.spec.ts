@@ -17,7 +17,7 @@ test('shell v4 visual walk', async () => {
   try {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.getByTestId('surface-home').click();
-    await expect(page.getByTestId('home-model')).toHaveValue(/mock/, { timeout: 15000 });
+    await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
     await page.screenshot({ path: `${OUT}/v4-1-launcher.png` });
 
     // Plan approval in the room (timeline v2 + persistent sidebar).

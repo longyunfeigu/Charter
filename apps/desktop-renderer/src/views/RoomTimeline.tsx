@@ -8,6 +8,10 @@ import type {
 } from '@pi-ide/ipc-contracts';
 import { toolPaths } from '@pi-ide/ipc-contracts';
 import { useTaskStore } from '../store/taskStore.js';
+import { useAppStore } from '../store/appStore.js';
+import { useEditorStore } from '../store/editorStore.js';
+import { peekModeForTool } from './peek.js';
+import { restoreScroll, saveScroll } from './scrollMemory.js';
 import { Ic } from './home-icons.js';
 import { ConfirmDangerButton } from './ui.js';
 import {
@@ -110,6 +114,25 @@ function Bubble(props: {
   );
 }
 
+/** Open a timeline evidence path: peek by default (ADR-0014), Editor on ⌘/alt. */
+function openTimelinePath(
+  path: string,
+  toolName: string,
+  e?: { metaKey?: boolean; altKey?: boolean; ctrlKey?: boolean },
+): void {
+  const app = useAppStore.getState();
+  const taskId = app.taskRoomTaskId;
+  if (!taskId) return;
+  const task = useTaskStore.getState().tasks.find((t) => t.id === taskId);
+  const explicit = e?.metaKey === true || e?.altKey === true || e?.ctrlKey === true;
+  if (explicit && !task?.worktree) {
+    app.setSurface('workspace');
+    void useEditorStore.getState().openFile(path);
+    return;
+  }
+  app.openPeek(taskId, path, peekModeForTool(toolName));
+}
+
 /** Single-line tool row; clicking expands the evidence. */
 function ToolRow({ event }: { event: TimelineEventDto }): React.JSX.Element | null {
   const [open, setOpen] = useState(false);
@@ -148,7 +171,31 @@ function ToolRow({ event }: { event: TimelineEventDto }): React.JSX.Element | nu
           <Ic name={TOOL_ICON[name] ?? 'wrench'} size={12} />
         </span>
         <span className="rt-tool-verb">{live ? liveVerb(name) : toolVerb(name)}</span>
-        {target ? <span className="rt-tool-target mono">{target}</span> : null}
+        {target && paths.length > 0 ? (
+          // PIVOT-015r: evidence paths open the in-room peek; ⌘/alt-click keeps
+          // the explicit Editor jump (never for worktree tasks — not honest).
+          <span
+            className="rt-tool-target mono link"
+            role="link"
+            tabIndex={0}
+            title={`Peek at ${target}`}
+            data-testid={`tl-path-${target}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              openTimelinePath(target, name, e);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.stopPropagation();
+                openTimelinePath(target, name);
+              }
+            }}
+          >
+            {target}
+          </span>
+        ) : target ? (
+          <span className="rt-tool-target mono">{target}</span>
+        ) : null}
         <span className="rt-tool-sp" />
         {stat && !denied ? (
           <span className="rt-tool-stat mono">
@@ -791,11 +838,22 @@ function pastLabel(state: string, past: boolean): string {
 export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
   const store = useTaskStore();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pinnedToBottom = useRef(true);
   const context = useTimelineContext(task.state);
 
+  // PIVOT-036: restore the per-task reading position once the timeline loads —
+  // the same memory the Editor agent panel uses, so ⌘E round-trips keep it.
+  useEffect(() => {
+    if (store.loadingTimeline) return;
+    const el = scrollRef.current;
+    if (el) pinnedToBottom.current = restoreScroll(task.id, el);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.loadingTimeline, task.id]);
+
+  // Follow live output only while the user is pinned to the bottom.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight;
   }, [store.timeline.length, store.streaming?.text.length, store.streamingThinking?.text.length]);
 
   // Elapsed time per milestone = distance to the next state change.
@@ -808,7 +866,16 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
   }
 
   return (
-    <div ref={scrollRef} className="rt-scroll" data-testid="timeline">
+    <div
+      ref={scrollRef}
+      className="rt-scroll"
+      data-testid="timeline"
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+        saveScroll(task.id, el);
+      }}
+    >
       {store.loadingTimeline ? (
         <div className="rt-note">Loading timeline…</div>
       ) : (

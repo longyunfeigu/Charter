@@ -20,7 +20,7 @@ test.describe('Shell v4 — persistent shell (PIVOT-028)', () => {
     try {
       await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/, { timeout: 15000 });
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-intent').fill('[scenario:edit-plan-review] shell walk');
       await page.getByTestId('home-submit').click();
 
@@ -72,7 +72,7 @@ test.describe('Shell v4 — global tasks on a multi-mount engine (ADR-0009)', ()
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/, { timeout: 15000 });
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-intent').fill('[scenario:edit-plan-review] cross project plan');
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('plan-card')).toBeVisible({ timeout: 20000 });
@@ -126,7 +126,7 @@ test.describe('Shell v4 — worktree isolation and merge-back (ADR-0009)', () =>
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/, { timeout: 15000 });
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-advanced-toggle').click();
       const wt = page.getByTestId('home-adv-worktree');
       await expect(wt).toBeVisible();
@@ -147,6 +147,17 @@ test.describe('Shell v4 — worktree isolation and merge-back (ADR-0009)', () =>
 
       // The agent edited the file — but only inside the worktree.
       expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).toContain('add(2, 3)');
+
+      // PIVOT-034 (ADR-0014): the in-room peek reads through the task's mount,
+      // so File mode shows the WORKTREE content while the main tree is
+      // untouched — and the Editor escape hatch is hidden (not honest here).
+      await page.getByTestId('task-room-file-src/index.ts').click();
+      await expect(page.getByTestId('file-peek')).toBeVisible();
+      await page.getByTestId('peek-mode-file').click();
+      await expect(page.getByTestId('peek-body')).toContainText('add(3, 4)', { timeout: 10000 });
+      await expect(page.getByTestId('peek-open-editor')).toHaveCount(0);
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('file-peek')).toHaveCount(0);
 
       // Review, accept-all, accept the task (native confirm for unverified).
       await page.getByTestId('review-open').first().click();
@@ -177,7 +188,7 @@ test.describe('Shell v4 — the composer is "Request changes" (ADR-0009)', () =>
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/, { timeout: 15000 });
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-intent').fill('[scenario:plan-request-changes] revise me');
       await page.getByTestId('home-submit').click();
 
@@ -221,7 +232,7 @@ test.describe('Shell v4 — heartbeat + focus layers (PIVOT-028/025)', () => {
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/, { timeout: 15000 });
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-live] live activity');
       await page.getByTestId('home-submit').click();

@@ -17,7 +17,7 @@ test.describe('Shell v3 — Task Room and entry consolidation', () => {
     page.on('dialog', (dialog) => void dialog.accept());
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
       await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] room flow');
       await page.getByTestId('home-submit').click();
@@ -59,7 +59,7 @@ test.describe('Shell v3 — Task Room and entry consolidation', () => {
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
       await page.getByTestId('home-intent').fill('[scenario:edit-plan-review] entry check');
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
@@ -104,7 +104,7 @@ test.describe('Shell v3 — Live Board (PIVOT-025)', () => {
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
       await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-live] watch the agent work');
       await page.getByTestId('home-submit').click();
@@ -163,7 +163,7 @@ test.describe('Shell v3 — Home refinements (PIVOT-027, PIVOT-012 title)', () =
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
       await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-advanced-toggle').click();
       await page.getByTestId('home-adv-title').fill('Custom charter title');

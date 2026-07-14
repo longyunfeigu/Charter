@@ -42,7 +42,8 @@ test('real gateway: configure key+baseUrl, fetch models, run a real ask task', a
     await page.getByTestId('surface-home').click();
     const model = page.getByTestId('home-model');
     await expect(model).toBeVisible();
-    await model.selectOption(`anthropic::${MODEL}`);
+    await model.click();
+    await page.getByTestId(`home-model-opt-anthropic::${MODEL}`).click();
     await page.getByTestId('home-mode-ask').click();
     await page
       .getByTestId('home-intent')
@@ -106,7 +107,8 @@ test('real gateway: LiteLLM preset over the OpenAI-compatible surface (PIVOT-033
     await page.getByTestId('surface-home').click();
     const model = page.getByTestId('home-model');
     await expect(model).toBeVisible();
-    await model.selectOption(`litellm::${MODEL}`);
+    await model.click();
+    await page.getByTestId(`home-model-opt-litellm::${MODEL}`).click();
     await page.getByTestId('home-mode-ask').click();
     await page
       .getByTestId('home-intent')

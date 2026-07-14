@@ -38,7 +38,7 @@ test.describe('Home v2 — advanced charter, mission control, context feeding', 
       await expect(page.getByTestId('home-ref-src/index.ts')).toBeVisible();
 
       await page.getByTestId('home-mode-auto').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] quick change with context');
       await page.getByTestId('home-submit').click();
 
@@ -67,7 +67,7 @@ test.describe('Home v2 — advanced charter, mission control, context feeding', 
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/);
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
       // edit-basic writes a real change — REVIEW_READY must carry review weight
       // (zero-change tasks are presented as "Answered" instead, ADR-0009).
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] refactor utils');

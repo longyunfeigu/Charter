@@ -18,7 +18,7 @@ test.describe('P4 review v2 + decorations (ADR-0013)', () => {
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/, { timeout: 15000 });
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-hunks] two-block change');
       await page.getByTestId('home-submit').click();
@@ -71,7 +71,7 @@ test.describe('P4 review v2 + decorations (ADR-0013)', () => {
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/, { timeout: 15000 });
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] decorate without git');
       await page.getByTestId('home-submit').click();

@@ -19,6 +19,8 @@ export function registerM8Handlers(tasks: TaskService, logger: Logger): void {
         changeSet: await tasks.changeSetForReview(taskId),
       }),
       'task.reviewFile': async ({ taskId, path }) => tasks.reviewFileContents(taskId, path),
+      // ADR-0014: read-only in-room peek — current content via the task's mount.
+      'task.peekFile': async ({ taskId, path }) => tasks.peekFile(taskId, path),
       'task.reviewDecision': async (payload) =>
         tasks.applyReviewDecision({
           taskId: payload.taskId,

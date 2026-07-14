@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import type { DirEntryDto } from '@pi-ide/ipc-contracts';
 import { useEditorStore } from '../store/editorStore.js';
 import { useAppStore } from '../store/appStore.js';
+import { useTaskStore } from '../store/taskStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useGitStatusStore, MARK_COLOR } from '../store/gitStatusStore.js';
 import { useGlowPaths } from './useGlow.js';
@@ -35,7 +36,19 @@ export function HomeProjectTree(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openFile = (path: string): void => {
+  const openFile = (path: string, e?: React.MouseEvent): void => {
+    // PIVOT-027r (ADR-0014): while a room of THIS project is open, a plain
+    // click peeks beside the conversation; ⌘/alt-click keeps the Editor jump.
+    const explicit = e ? e.metaKey || e.altKey || e.ctrlKey : false;
+    const roomTaskId = app.taskRoomTaskId;
+    if (!explicit && roomTaskId) {
+      const task = useTaskStore.getState().tasks.find((t) => t.id === roomTaskId);
+      const focused = useWorkspaceStore.getState().workspace?.path;
+      if (task && task.projectPath === focused) {
+        app.openPeek(task.id, path, 'file');
+        return;
+      }
+    }
     void editor.openFile(path);
     app.closeTaskRoom();
     app.setSurface('workspace');
@@ -69,7 +82,7 @@ export function HomeProjectTree(): React.JSX.Element {
             title={path}
             draggable
             onDragStart={(e) => setDragRef(e, isDir ? `${path}/` : path)}
-            onClick={() => (isDir ? toggleExpand(path) : openFile(path))}
+            onClick={(e) => (isDir ? toggleExpand(path) : openFile(path, e))}
           >
             <span className={`hm-tree-caret ${isDir ? (isOpen ? 'open' : '') : 'none'}`}>
               {isDir ? <Ic name="chevron" size={11} /> : null}

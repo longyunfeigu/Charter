@@ -9,6 +9,7 @@ import type {
 import { LayoutStateSchema } from '@pi-ide/ipc-contracts';
 import { newId } from '@pi-ide/foundation';
 import { onEvent, rpc, rpcResult } from '../bridge.js';
+import { peekOpen, peekCloseTab, type PeekState } from '../views/peek.js';
 
 export type OverlayKind = 'none' | 'settings' | 'diagnostics' | 'about';
 
@@ -41,6 +42,8 @@ interface AppStore {
   newProjectOpen: boolean;
   /** Diff-so-far lens (PIVOT-025) — global so boards in any surface share it. */
   lens: { taskId: string; path: string } | null;
+  /** In-room file peek (ADR-0014, PIVOT-034) — global so it survives ⌘E round-trips. */
+  peek: PeekState | null;
   /** Bumped when a control asks the launcher composer to take focus. */
   composerFocusSeq: number;
 
@@ -50,6 +53,11 @@ interface AppStore {
   closeTaskRoom(): void;
   setHomePick(inProgress: boolean): void;
   setLens(lens: { taskId: string; path: string } | null): void;
+  openPeek(taskId: string, path: string, mode?: 'diff' | 'file'): void;
+  closePeek(): void;
+  closePeekTab(path: string): void;
+  setPeekMode(mode: 'diff' | 'file'): void;
+  setPeekActive(path: string): void;
   focusComposer(): void;
   addPendingRefs(refs: string[]): void;
   consumePendingRefs(): string[];
@@ -122,6 +130,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   pendingRefs: [],
   newProjectOpen: false,
   lens: null,
+  peek: null,
   composerFocusSeq: 0,
 
   setSurface(surface) {
@@ -132,12 +141,37 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ lens });
   },
 
+  openPeek(taskId, path, mode) {
+    set({ peek: peekOpen(get().peek, taskId, path, mode) });
+  },
+  closePeek() {
+    set({ peek: null });
+  },
+  closePeekTab(path) {
+    const peek = get().peek;
+    if (peek) set({ peek: peekCloseTab(peek, path) });
+  },
+  setPeekMode(mode) {
+    const peek = get().peek;
+    if (peek) set({ peek: { ...peek, mode } });
+  },
+  setPeekActive(path) {
+    const peek = get().peek;
+    if (peek && peek.paths.includes(path)) set({ peek: { ...peek, active: path } });
+  },
+
   focusComposer() {
     set({ composerFocusSeq: get().composerFocusSeq + 1 });
   },
 
   openTaskRoom(taskId) {
-    set({ taskRoomTaskId: taskId, surface: 'home' });
+    // The peek belongs to one room — entering a different task's room resets it.
+    const peek = get().peek;
+    set({
+      taskRoomTaskId: taskId,
+      surface: 'home',
+      ...(peek && peek.taskId !== taskId ? { peek: null } : {}),
+    });
   },
 
   closeTaskRoom() {

@@ -24,6 +24,7 @@
 证据基线（pivot 提交时）：**238 个单元/集成测试**（32 文件）、**32 个 E2E** 连续两轮全绿；`npm run check` 干净（boundary 151 文件）。
 
 **重要方向变更（ADR-0004，用户 2026-07-13 试用后拍板）**：产品更名 **Charter**（UI 全面去 Pi 品牌，`@pi-ide/*` 包名与 `PI_IDE_*` 环境变量为内部实现保留）；默认入口是 Codex 式 **Home 任务台**（`HomeView.tsx`：项目/模型/审批策略内联 + 一句话意图 → `createFromIntent` 自动派生标题建任务），完整 IDE 为第二 surface（`appStore.surface`，标题栏 ⌂ Home / Open IDE workspace 切换，workspace 打开自动切 IDE，Home 选项目例外经 `homePick` 标志）；Settings→Models 有 Provider 密钥管理 + **实时拉模型**（主进程 `model-catalog.ts`，anthropic/openai 端点，merge 进 models.list）。用户后续计划：基于 Pi 扩展自研 agent 逻辑（保持 SDK 锁定 + AgentRuntime 合同，不复制源码——ADR-0004 记录了性能与维护性论证）；阶段 2：意图→元代理起草验收标准/验证命令、任务预算、验证不绿自动迭代。E2E 注意：`launchApp` 新增 `home:'keep'|'dismiss'`（默认 dismiss），无 workspace 的测试会自动点掉 Home。
+**Shell v5（ADR-0014，2026-07-14）**：交互终态定为"一个房间三档缩放、对话恒锚"——L1=Task Room 内驻留式文件 peek（`task.peekFile` 走 per-mount `contextForTask().documents.readLogical`，worktree 诚实；`appStore.peek` + `views/FilePeek.tsx`，Changes/File 双模只读，Esc 收回）；所有文件引用默认开 peek，⌘/alt-click 或显式入口才进 Editor（PIVOT-034/035）；L2=⌘E 房间感知 + 每任务草稿（draftStore）/时间线滚动（scrollMemory）跨表面共享（PIVOT-036）；PIVOT-037 壳层合一为记录的下阶段。peek 内 spot-edit 需先做归属语义 ADR 再上。
 M7 交付与接续点详见 `docs/TODO_M8_M12.md` 顶部"已完成状态"。
 测试命令：`npm test`、`npx playwright test --config tests/e2e/playwright.config.ts`、`npm run check`、`node scripts/build.mjs`。
 

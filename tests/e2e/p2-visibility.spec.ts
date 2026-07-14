@@ -18,7 +18,7 @@ test.describe('P2 visibility — thinking + live activity (ADR-0011)', () => {
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/, { timeout: 15000 });
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-mode-ask').click();
       await page.getByTestId('home-intent').fill('what is this project?');
       await page.getByTestId('home-submit').click();
@@ -58,7 +58,7 @@ test.describe('P2 visibility — thinking + live activity (ADR-0011)', () => {
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/, { timeout: 15000 });
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-live] narrate the work');
       await page.getByTestId('home-submit').click();

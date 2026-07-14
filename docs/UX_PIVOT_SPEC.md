@@ -102,6 +102,31 @@ New acceptance:
 | PIVOT-033 | Multi-provider registry: Settings → Models configures any number of providers side by side — presets (Anthropic, OpenAI, OpenRouter, LiteLLM) plus custom Anthropic-/OpenAI-compatible gateways (id + protocol + Base URL + key + display name). Keys stay in the OS keychain scope; protocol/endpoint/name are non-secret meta. Each provider fetches its live model list over its own protocol (Bearer vs x-api-key; OpenRouter name/context_length mapped); the runtime registers non-builtin providers with their wire protocol and synthesizes gateway-listed model ids. The Home model picker groups models per provider when more than one is configured. Deleting a provider evicts its fetched models immediately. |
 | PIVOT-032 | Timeline v2 (Task Room): ✓ milestones with elapsed time, quiet YOU/AGENT bubbles, single-line tool rows (verb + target + diffstat/status) that expand to evidence on demand, numbered-chip plan presentation, compact final report. While a plan awaits approval the reply composer IS “Request changes”: sending feedback resolves propose_plan with PLAN_CHANGES_REQUESTED and the agent proposes a revised version. Plan card buttons stay Approve + Edit plan + Cancel task. |
 
+## Shell v5 — room zoom continuum (ADR-0014, PIVOT-034..037)
+
+Mockup: `docs/design/room-peek-directions.html` (A+B fused end state,
+product-owner approved). One anchor rule: **no plain click on a file reference
+moves the user off the conversation** — the Editor is reached by explicit
+intent only.
+
+Revisions to earlier acceptance (authoritative where they conflict):
+
+| ID | Revision |
+| --- | --- |
+| PIVOT-006r | ⌘E is room-aware: from a Task Room it opens the Editor with that task's context (agent panel visible, task active, cross-project focus handled); from elsewhere it toggles surfaces as before. State preserved both ways (unchanged). |
+| PIVOT-015r | File paths in room timeline/report cards open the in-room peek (PIVOT-034), not the Editor. ⌘/alt-click keeps the direct Editor jump. |
+| PIVOT-025r2 | In-room Live Board tiles open the peek in Changes mode (replacing the modal lens inside rooms). Launcher boards keep the global lens overlay. |
+| PIVOT-027r | Home tree file clicks open the peek while a Task Room of the focused project is open; otherwise (launcher context) they open the Editor as before. |
+
+New acceptance:
+
+| ID | Requirement |
+| --- | --- |
+| PIVOT-034 | In-room file peek: activating a file reference in a Task Room (changes rail, live board tile, timeline evidence path, Home tree, ⌘K file result) opens a resident split panel — Changes/File dual mode, pinned tabs, read-only, contents via the task's own mount (`task.peekFile`, worktree-honest, live-following while the agent writes; binary/missing/truncated render honest notes). Esc or close restores the rail; the timeline and composer stay interactive throughout. Opening another task's room resets the peek. |
+| PIVOT-035 | Editor demoted to explicit intent: peek header "Open in editor" (hidden for worktree tasks), ⌘/alt-click on file references, sidebar Editor row, ⌘E, and the room header button are the only Editor entries from the Home surface. No plain file click switches surfaces. Launcher-context file opens (no room) still go to the Editor. |
+| PIVOT-036 | L2 continuity: room → Editor → room round-trips preserve the task selection, the reply draft and the timeline scroll position (per task, session-scoped), and the peek state. |
+| PIVOT-037 | Shell unification (staged, not this round): the Editor becomes a content-area state of the persistent shell; surfaces disappear; transitions morph around the conversation column. Recorded as the end-state skeleton in ADR-0014. |
+
 ## Notes
 
 - Fast path vs full form: the Home input is the primary path; the Workspace

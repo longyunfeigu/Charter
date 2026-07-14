@@ -275,3 +275,148 @@
   color: var(--fg-muted);
   line-height: 1.9;
 }
+
+/* ---------- Skills manager (ADR-0015; mockup: skills-manager-mockup.html) ---------- */
+
+.st-card-head .st-sp {
+  flex: 1;
+}
+.st-skill-safe {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  font-size: 12px;
+  color: var(--fg-muted);
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--warning) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 26%, transparent);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 12px 0 6px;
+}
+.st-skill-safe svg {
+  flex: none;
+  color: var(--warning);
+  margin-top: 1px;
+}
+.st-skill-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 2px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 12.5px;
+}
+.st-skill-row.off .st-skill-name,
+.st-skill-row.off .st-skill-desc {
+  opacity: 0.55;
+}
+.st-skill-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  flex: none;
+  max-width: 40%;
+}
+.st-skill-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.st-skill-badge.explicit {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 13%, transparent);
+}
+.st-skill-badge.script {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+}
+.st-skill-desc {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-skill-seg {
+  display: inline-flex;
+  background: var(--bg-hover);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+  flex: none;
+}
+.st-skill-seg button {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+.st-skill-seg button.on {
+  background: var(--bg-card);
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.st-skill-audit {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 14px;
+  padding: 4px 2px 14px;
+}
+.st-skill-cap {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+  margin: 0 0 7px;
+}
+.st-skill-files {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.st-skill-file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  padding: 3px 6px;
+  border-radius: 6px;
+}
+.st-skill-file.script {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+.st-skill-md {
+  background: var(--bg-hover);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  white-space: pre-wrap;
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+}
+.st-skill-gate {
+  margin-top: 9px;
+  font-size: 11.5px;
+  color: var(--success);
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}

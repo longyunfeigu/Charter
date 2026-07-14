@@ -32,6 +32,8 @@ import { registerM7Handlers } from './ipc/m7-handlers.js';
 import { registerM8Handlers } from './ipc/m8-handlers.js';
 import { registerM9Handlers } from './ipc/m9-handlers.js';
 import { SecretService } from './services/secret-service.js';
+import { SkillStore } from './services/skill-store.js';
+import { registerSkillsHandlers } from './ipc/skills-handlers.js';
 import { ModelCatalogService } from './services/model-catalog.js';
 import { AgentHost } from './services/agent-host.js';
 import { TaskService } from './services/task-service.js';
@@ -454,11 +456,16 @@ if (!gotLock) {
         secretService,
         logger.child('agent-host'),
       );
+      // ADR-0015: managed skills store — imported SKILL.md folders, never
+      // discovered inside projects (AG-014).
+      const skillStore = new SkillStore(paths.skillsDir, logger.child('skills'));
+      registerSkillsHandlers(skillStore, logger.child('ipc'));
       const taskService = new TaskService(
         state.db,
         agentHostRef,
         workspaceHost,
         settings,
+        skillStore,
         paths,
         logger.child('tasks'),
       );

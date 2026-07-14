@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useAppStore } from '../store/appStore.js';
+import { useTaskStore } from '../store/taskStore.js';
+import { openTaskInEditor } from '../views/openInEditor.js';
 import { handleGlobalKeydown, registerCommands, executeCommand } from '../commands.js';
 import { onEvent, platform, rpcResult } from '../bridge.js';
 import { Splitter } from './Splitter.js';
@@ -57,13 +59,27 @@ function useRegisterCoreCommands(): void {
       },
       {
         // ADR-0008 §2: the Editor is one keystroke away from anywhere.
+        // PIVOT-006r (ADR-0014): from a Task Room, ⌘E carries the task's
+        // context into the Editor instead of a blind surface flip.
         id: 'surface.toggleEditor',
         title: 'Toggle Home / Editor',
         category: 'View',
         keybinding: 'mod+e',
         run: () => {
           const s = store.getState();
-          s.setSurface(s.surface === 'home' ? 'workspace' : 'home');
+          if (s.surface === 'home') {
+            const roomId = s.taskRoomTaskId;
+            const task = roomId
+              ? useTaskStore.getState().tasks.find((t) => t.id === roomId)
+              : undefined;
+            if (task) {
+              openTaskInEditor(task);
+              return;
+            }
+            s.setSurface('workspace');
+          } else {
+            s.setSurface('home');
+          }
         },
       },
       {

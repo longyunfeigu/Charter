@@ -8,10 +8,21 @@ import { useEditorStore } from '../store/editorStore.js';
 import { StateBadge } from './AgentPanel.js';
 import { RoomTimeline } from './RoomTimeline.js';
 import { LiveBoard } from './LiveBoard.js';
-import { ConfirmDangerButton } from './ui.js';
+import { FilePeek } from './FilePeek.js';
+import { ConfirmDangerButton, ModelEffortControl } from './ui.js';
 import { Ic } from './home-icons.js';
-import { canArchiveTask, isAnswered, modeLabel, presentedMeta } from './labels.js';
+import {
+  MODE_META,
+  type ThinkingLevelId,
+  canArchiveTask,
+  isAnswered,
+  modeLabel,
+  presentedMeta,
+} from './labels.js';
 import { hasDragRef, readDragRef } from './dragRefs.js';
+import { useSkillSlash } from './SkillSlashPicker.js';
+import { useDraftStore } from '../store/draftStore.js';
+import { openTaskInEditor } from './openInEditor.js';
 
 /**
  * Task Room v2 (ADR-0008/0009, PIVOT-021/028): the per-task page rendered in
@@ -67,19 +78,16 @@ export function TaskRoomView(): React.JSX.Element {
   const answered = isAnswered(task);
   const files = activity?.filesTouched ?? [];
   const sameProject = workspace?.path === task.projectPath;
+  const peek = useAppStore((s) => s.peek);
+  const peeking = peek !== null && peek.taskId === task.id;
 
-  const openInEditor = (): void => {
-    // ADR-0009: the room may belong to a non-focused project — focus it first.
-    const go = (): void => {
-      app.setLayout({ agentPanelVisible: true });
-      app.setSurface('workspace');
-    };
-    if (!sameProject) {
-      app.setHomePick(true);
-      void workspaceStore.openPath(task.projectPath).then(go);
-    } else {
-      go();
-    }
+  // ADR-0009/0014: shared with the room-aware ⌘E toggle (PIVOT-006r).
+  const openInEditor = (): void => openTaskInEditor(task);
+
+  // Peek escape hatch (PIVOT-035): the ONLY plain-click path to the Editor.
+  const openFileInEditor = (path: string): void => {
+    void editor.openFile(path);
+    openInEditor();
   };
 
   return (
@@ -143,7 +151,7 @@ export function TaskRoomView(): React.JSX.Element {
         ) : null}
       </div>
 
-      <div className="tr-body">
+      <div className={`tr-body ${peeking ? 'peeking' : ''}`}>
         <div className="tr-main">
           <div className="tr-mode text-muted">
             <span className="tr-mode-fixed">
@@ -153,8 +161,26 @@ export function TaskRoomView(): React.JSX.Element {
           </div>
           <RoomTimeline task={task} />
           {running ? <ActivityStrip taskId={task.id} /> : null}
-          <RoomComposer task={task} running={running} />
+          <RoomComposer key={task.id} task={task} running={running} />
         </div>
+
+        {peeking ? (
+          <FilePeek
+            taskId={task.id}
+            worktree={task.worktree !== null}
+            onOpenInEditor={openFileInEditor}
+          />
+        ) : null}
+        {peeking ? (
+          <button
+            className="tr-rail-tab"
+            data-testid="peek-rail-restore"
+            title="Close the peek and show the task rail"
+            onClick={app.closePeek}
+          >
+            Changes{files.length > 0 ? ` · ${files.length}` : ''}
+          </button>
+        ) : null}
 
         <aside className="tr-rail">
           {task.worktree?.missing ? (
@@ -172,7 +198,8 @@ export function TaskRoomView(): React.JSX.Element {
               <LiveBoard
                 taskId={task.id}
                 variant="rail"
-                onOpenLens={(path) => app.setLens({ taskId: task.id, path })}
+                // ADR-0014: in-room tiles open the resident peek, not the modal lens.
+                onOpenLens={(path) => app.openPeek(task.id, path, 'diff')}
               />
             </>
           ) : null}
@@ -189,19 +216,16 @@ export function TaskRoomView(): React.JSX.Element {
                 key={path}
                 className="tr-frow"
                 data-testid={`task-room-file-${path}`}
-                title={
-                  task.worktree
-                    ? `Show what changed in ${path} (the file lives in the task's worktree)`
-                    : `Open ${path} in the editor`
-                }
-                onClick={() => {
-                  // Worktree tasks: the main tree does NOT have these changes —
-                  // open the honest diff-so-far lens instead of the untouched file.
-                  if (task.worktree) {
-                    app.setLens({ taskId: task.id, path });
-                  } else {
+                title={`Peek at what changed in ${path} — the conversation stays put`}
+                onClick={(e) => {
+                  // PIVOT-035: plain click peeks; ⌘/alt-click is the explicit
+                  // Editor jump (not offered for worktree tasks — the main tree
+                  // does not contain those changes).
+                  if ((e.metaKey || e.altKey || e.ctrlKey) && !task.worktree) {
                     void editor.openFile(path);
                     openInEditor();
+                  } else {
+                    app.openPeek(task.id, path, 'diff');
                   }
                 }}
               >
@@ -474,10 +498,14 @@ function WorktreeChip({
   );
 }
 
-/** Room reply pill — plan-aware: while a plan awaits approval, typing here IS
+/** Room reply — plan-aware: while a plan awaits approval, typing here IS
  * "Request changes" (ADR-0009; no extra button). On a closed task (accepted /
- * rolled back / cancelled) a reply starts a FOLLOW-UP task in the same
- * project with the same mode+model — closed tasks cannot restart (§6.1). */
+ * rolled back / cancelled) a reply starts a FOLLOW-UP task in the same project
+ * — closed tasks cannot restart (§6.1). The follow-up gets the SAME composer
+ * chrome as Home (project chip, @-attach, trust level, merged model·effort),
+ * seeded from the finished task but fully editable, since it really is a new
+ * task. Mid-run / plan-awaiting states keep the bare reply pill — there is no
+ * mode or model to re-pick on a task that is already running. */
 function RoomComposer({
   task,
   running,
@@ -486,31 +514,82 @@ function RoomComposer({
     id: string;
     state: string;
     title: string;
+    projectPath: string;
+    projectName: string;
     mode: 'ask' | 'edit' | 'auto' | 'full';
     model: {
       providerId: string;
       modelId: string;
       thinkingLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     };
-    projectPath: string;
   };
   running: boolean;
 }): React.JSX.Element {
   const store = useTaskStore();
   const app = useAppStore();
-  const [input, setInput] = useState('');
+  const workspacePath = useWorkspaceStore((s) => s.workspace?.path);
+  // PIVOT-036: the draft is per-task, session-scoped and shared with the
+  // Editor agent panel — it survives ⌘E round-trips.
+  const input = useDraftStore((s) => s.drafts[task.id] ?? '');
+  const setInput = (text: string): void => useDraftStore.getState().setDraft(task.id, text);
   const [dropActive, setDropActive] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const planOpen = task.state === 'AWAITING_PLAN_APPROVAL';
   const closed = ['ACCEPTED', 'ROLLED_BACK', 'CANCELLED', 'ARCHIVED'].includes(task.state);
 
+  // A follow-up is a NEW task: its own mode / model / effort, seeded from the
+  // finished task but freely editable (state reseeds per task via key=).
+  const configuredModels = useMemo(() => store.models.filter((m) => m.configured), [store.models]);
+  const [mode, setMode] = useState(task.mode);
+  const [modelKey, setModelKey] = useState(`${task.model.providerId}::${task.model.modelId}`);
+  const [thinking, setThinking] = useState<ThinkingLevelId>(task.model.thinkingLevel ?? 'medium');
+  const sameProject = workspacePath === task.projectPath;
+
+  // @ file picker (only meaningful when the task's project is the focused one —
+  // search.files is scoped to the focused workspace).
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState('');
+  const [pickerItems, setPickerItems] = useState<string[]>([]);
+  const [pickerIndex, setPickerIndex] = useState(0);
+  const pickerInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const handle = setTimeout(() => {
+      void rpcResult('search.files', { query: pickerQuery }).then((res) => {
+        if (res.ok) {
+          setPickerItems(res.data.items.slice(0, 12).map((i) => i.path));
+          setPickerIndex(0);
+        }
+      });
+    }, 80);
+    return () => clearTimeout(handle);
+  }, [pickerOpen, pickerQuery]);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDown = (e: MouseEvent): void => {
+      const t = e.target as HTMLElement | null;
+      if (t && !t.closest('.hm-menu') && !t.closest('[data-testid="room-attach"]')) {
+        setPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [pickerOpen]);
+
   const startFollowUp = async (text: string): Promise<void> => {
+    const [providerId, modelId] = modelKey.split('::');
+    if (!providerId || !modelId) {
+      app.pushToast('warning', 'No model available — add a provider key in Settings.');
+      return;
+    }
     const ok = await store.createAndStart({
       title: titleFromIntent(text),
       goalMd: `${text}\n\n(Follow-up to “${task.title}” — that task's changes are already applied in this project.)`,
       acceptance: [],
-      mode: task.mode,
-      model: task.model,
+      mode,
+      model: { providerId, modelId, thinkingLevel: thinking },
       projectPath: task.projectPath,
       isolation: 'none',
     });
@@ -533,8 +612,8 @@ function RoomComposer({
     setInput('');
   };
 
-  // Sidebar tree drag → inline "@path" at the caret (context feeding; the
-  // reply is plain text, so refs travel inside the message itself).
+  // Sidebar tree drag / picker → inline "@path" at the caret (context feeding;
+  // the reply is plain text, so refs travel inside the message itself).
   const insertRef = (rel: string): void => {
     const el = ref.current;
     const token = `@${rel}`;
@@ -551,57 +630,221 @@ function RoomComposer({
     }, 0);
   };
 
+  const pickFile = (path: string): void => {
+    setPickerOpen(false);
+    insertRef(path);
+  };
+
+  const dragHandlers = {
+    onDragOver: (e: React.DragEvent): void => {
+      if (!hasDragRef(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      setDropActive(true);
+    },
+    onDragLeave: (): void => setDropActive(false),
+    onDrop: (e: React.DragEvent): void => {
+      const rel = readDragRef(e);
+      if (!rel) return;
+      e.preventDefault();
+      setDropActive(false);
+      insertRef(rel);
+    },
+  };
+
+  const placeholder = planOpen
+    ? 'Request changes to the plan — the agent will revise it…'
+    : running
+      ? 'Reply — steer the agent or add context…'
+      : closed
+        ? 'Follow up — starts a new task in this project…'
+        : 'Reply — starts a new run…';
+
+  // "/" in the empty reply → enabled-skills picker (ADR-0015); works for
+  // steers, new runs and follow-ups alike (expansion happens product-side).
+  const slash = useSkillSlash({
+    value: input,
+    setValue: setInput,
+    testid: 'room',
+    focus: () => ref.current?.focus(),
+  });
+
+  const textarea = (className: string): React.JSX.Element => (
+    <textarea
+      ref={ref}
+      className={className}
+      data-testid="agent-input"
+      rows={1}
+      placeholder={placeholder}
+      value={input}
+      onChange={(e) => {
+        setInput(e.target.value);
+        slash.handleChange(e.target.value);
+      }}
+      onKeyDown={(e) => {
+        if (slash.handleKeyDown(e)) {
+          e.preventDefault();
+          return;
+        }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          send();
+        }
+      }}
+    />
+  );
+
+  const sendButton = (
+    <button
+      className={`hm-send ${input.trim() ? 'ready' : ''}`}
+      data-testid="agent-send"
+      disabled={!input.trim()}
+      aria-label={planOpen ? 'Request plan changes' : 'Send'}
+      onClick={send}
+    >
+      <Ic name="arrowUp" size={15} strokeWidth={2} />
+    </button>
+  );
+
+  // Mid-run / plan-awaiting: the bare reply pill — nothing to re-pick.
+  if (!closed) {
+    return (
+      <div
+        className={`tr-composer ${dropActive ? 'drop' : ''}`}
+        data-testid="room-composer"
+        {...dragHandlers}
+      >
+        {textarea('tr-input')}
+        {slash.menu}
+        {sendButton}
+      </div>
+    );
+  }
+
+  // Closed → follow-up: full composer parity with Home.
   return (
     <div
-      className={`tr-composer ${dropActive ? 'drop' : ''}`}
+      className={`tr-composer follow ${dropActive ? 'drop' : ''}`}
       data-testid="room-composer"
-      onDragOver={(e) => {
-        if (!hasDragRef(e)) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-        setDropActive(true);
-      }}
-      onDragLeave={() => setDropActive(false)}
-      onDrop={(e) => {
-        const rel = readDragRef(e);
-        if (!rel) return;
-        e.preventDefault();
-        setDropActive(false);
-        insertRef(rel);
-      }}
+      {...dragHandlers}
     >
-      <textarea
-        ref={ref}
-        className="tr-input"
-        data-testid="agent-input"
-        rows={1}
-        placeholder={
-          planOpen
-            ? 'Request changes to the plan — the agent will revise it…'
-            : running
-              ? 'Reply — steer the agent or add context…'
-              : closed
-                ? 'Follow up — starts a new task in this project…'
-                : 'Reply — starts a new run…'
-        }
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            send();
-          }
-        }}
-      />
-      <button
-        className={`hm-send ${input.trim() ? 'ready' : ''}`}
-        data-testid="agent-send"
-        disabled={!input.trim()}
-        aria-label={planOpen ? 'Request plan changes' : 'Send'}
-        onClick={send}
-      >
-        <Ic name="arrowUp" size={15} strokeWidth={2} />
-      </button>
+      <div className="tr-fcard">
+        <div className="hm-card">
+          <div className="hm-chiprow">
+            <span
+              className="hm-chip"
+              style={{ cursor: 'default' }}
+              title={task.projectPath}
+              data-testid="room-project"
+            >
+              <Ic name="folder" size={14} />
+              <span>{task.projectName}</span>
+            </span>
+
+            {pickerOpen ? (
+              <div className="hm-menu" data-testid="room-file-picker">
+                <input
+                  ref={pickerInputRef}
+                  data-testid="room-file-input"
+                  placeholder="Reference a project file…"
+                  value={pickerQuery}
+                  onChange={(e) => setPickerQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setPickerOpen(false);
+                      ref.current?.focus();
+                    } else if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setPickerIndex(Math.min(pickerIndex + 1, pickerItems.length - 1));
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setPickerIndex(Math.max(pickerIndex - 1, 0));
+                    } else if (e.key === 'Enter' && pickerItems[pickerIndex]) {
+                      e.preventDefault();
+                      pickFile(pickerItems[pickerIndex]!);
+                    }
+                  }}
+                />
+                {pickerItems.map((path, i) => (
+                  <button
+                    key={path}
+                    className={`hm-row ${i === pickerIndex ? 'active' : ''}`}
+                    data-testid={`room-file-item-${path}`}
+                    onClick={() => pickFile(path)}
+                  >
+                    <Ic name="file" size={13} />
+                    <span className="hm-tt">{path}</span>
+                  </button>
+                ))}
+                {pickerItems.length === 0 ? (
+                  <div className="hm-sec" style={{ padding: '8px 10px' }}>
+                    Type to search files in {task.projectName}.
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          {textarea('hm-ta tr-fta')}
+          {slash.menu}
+
+          <div className="hm-btmrow">
+            <button
+              className="hm-iconbtn"
+              data-testid="room-attach"
+              disabled={!sameProject}
+              title={
+                sameProject
+                  ? 'Attach project files (or drop them here)'
+                  : 'Open this project to attach files by name'
+              }
+              onClick={() => {
+                if (!sameProject) return;
+                setPickerOpen((v) => !v);
+                setPickerQuery('');
+                setPickerItems([]);
+                setTimeout(() => pickerInputRef.current?.focus(), 0);
+              }}
+            >
+              <Ic name="at" size={15} />
+            </button>
+            <div
+              className="hm-seg"
+              data-testid="room-mode"
+              data-mode={mode}
+              role="radiogroup"
+              aria-label="Trust level"
+            >
+              {MODE_META.map((m) => (
+                <button
+                  key={m.id}
+                  className={`${mode === m.id ? 'on' : ''} ${m.danger ? 'danger' : ''}`}
+                  data-testid={`room-mode-${m.id}`}
+                  role="radio"
+                  aria-checked={mode === m.id}
+                  title={`${m.label} — ${m.hint}`}
+                  onClick={() => setMode(m.id)}
+                >
+                  {m.seg}
+                </button>
+              ))}
+            </div>
+            <span className="hm-spacer" />
+            <ModelEffortControl
+              models={configuredModels}
+              modelKey={modelKey}
+              onModelKey={setModelKey}
+              thinking={thinking}
+              onThinking={setThinking}
+              testid="room"
+            />
+            {sendButton}
+          </div>
+        </div>
+        <div className="tr-fhint">
+          Follow-up — a new task in <b>{task.projectName}</b>, seeded from this one. ⏎ to start.
+        </div>
+      </div>
     </div>
   );
 }

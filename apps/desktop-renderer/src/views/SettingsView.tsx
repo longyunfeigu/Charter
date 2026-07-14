@@ -3,6 +3,7 @@ import { PROVIDER_PRESETS, providerPreset, type ProviderInfoDto } from '@pi-ide/
 import { rpcResult } from '../bridge.js';
 import { useAppStore } from '../store/appStore.js';
 import { useTaskStore } from '../store/taskStore.js';
+import { useSkillsStore } from '../store/skillsStore.js';
 import { Ic } from './home-icons.js';
 import '../styles/settings.css';
 
@@ -266,6 +267,184 @@ function ProvidersBlock(): React.JSX.Element {
   );
 }
 
+/**
+ * Skills manager (ADR-0015): the managed store's visual surface — import,
+ * Off/Auto toggle, audit view (inspect SKILL.md + bundled scripts before
+ * trusting), two-step remove. Mockup: docs/design/skills-manager-mockup.html.
+ */
+function SkillsBlock(): React.JSX.Element {
+  const skills = useSkillsStore((s) => s.skills);
+  const refresh = useSkillsStore((s) => s.refresh);
+  const importSkill = useSkillsStore((s) => s.importSkill);
+  const removeSkill = useSkillsStore((s) => s.remove);
+  const setEnabled = useSkillsStore((s) => s.setEnabled);
+  const read = useSkillsStore((s) => s.read);
+  const [auditId, setAuditId] = useState<string | null>(null);
+  const [auditText, setAuditText] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openAudit = async (id: string): Promise<void> => {
+    if (auditId === id) {
+      setAuditId(null);
+      return;
+    }
+    const file = await read(id);
+    setAuditText(file?.content ?? '');
+    setAuditId(id);
+  };
+
+  const remove = async (id: string): Promise<void> => {
+    if (!window.confirm(`Remove the "${id}" skill from the managed store?`)) return;
+    await removeSkill(id);
+    if (auditId === id) setAuditId(null);
+  };
+
+  return (
+    <div className="st-card" data-testid="skills-block">
+      <div className="st-card-head">
+        <Ic name="zap" size={14} />
+        <div>
+          <div className="st-card-title">Skills</div>
+          <div className="st-card-sub">
+            Imported SKILL.md folders live in a managed store — Charter never loads skills from your
+            projects. Enabled skills are offered to the model (it loads them through the audited
+            load_skill tool) and can be invoked with “/” in the composer.
+          </div>
+        </div>
+        <span className="st-sp" />
+        <button
+          className="btn primary"
+          data-testid="skills-import"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void importSkill().finally(() => setBusy(false));
+          }}
+        >
+          {busy ? 'Importing…' : 'Import skill folder…'}
+        </button>
+      </div>
+
+      <div className="st-skill-safe">
+        <Ic name="alert" size={14} />
+        <span>
+          Skills can bundle scripts. Review each one before enabling — every command a skill runs
+          still passes the Permission Engine, so a skill can’t run anything you didn’t allow.
+        </span>
+      </div>
+
+      {skills.length === 0 ? (
+        <div className="st-empty" data-testid="skills-empty">
+          No skills yet. Import a folder containing a SKILL.md to add one.
+        </div>
+      ) : (
+        skills.map((skill) => (
+          <React.Fragment key={skill.id}>
+            <div
+              className={`st-skill-row ${skill.enabled ? '' : 'off'}`}
+              data-testid={`skill-row-${skill.id}`}
+            >
+              <span className="st-skill-name">
+                <span className="mono">{skill.name}</span>
+                {skill.explicitOnly ? (
+                  <span
+                    className="st-skill-badge explicit"
+                    title="The skill declares disable-model-invocation — the model never auto-fires it; run it with /skill:name"
+                  >
+                    explicit-only
+                  </span>
+                ) : null}
+                {skill.scriptCount > 0 ? (
+                  <span className="st-skill-badge script">
+                    {skill.scriptCount} script{skill.scriptCount > 1 ? 's' : ''}
+                  </span>
+                ) : null}
+              </span>
+              <span className="st-skill-desc" title={skill.description}>
+                {skill.description || '(no description)'}
+              </span>
+              <span
+                className="st-skill-seg"
+                role="radiogroup"
+                aria-label={`${skill.name} enablement`}
+              >
+                <button
+                  className={skill.enabled ? '' : 'on'}
+                  data-testid={`skill-off-${skill.id}`}
+                  role="radio"
+                  aria-checked={!skill.enabled}
+                  title="Disabled: not offered to the model, hidden from the “/” picker"
+                  onClick={() => void setEnabled(skill.id, false)}
+                >
+                  Off
+                </button>
+                <button
+                  className={skill.enabled ? 'on' : ''}
+                  data-testid={`skill-auto-${skill.id}`}
+                  role="radio"
+                  aria-checked={skill.enabled}
+                  title="Enabled: the model may auto-invoke it; you can also run /skill:name"
+                  onClick={() => void setEnabled(skill.id, true)}
+                >
+                  Auto
+                </button>
+              </span>
+              <button
+                className="btn"
+                data-testid={`skill-audit-${skill.id}`}
+                title="Inspect SKILL.md and bundled files before trusting"
+                onClick={() => void openAudit(skill.id)}
+              >
+                {auditId === skill.id ? 'Close' : 'Audit'}
+              </button>
+              <button
+                className="btn quiet-danger"
+                data-testid={`skill-remove-${skill.id}`}
+                onClick={() => void remove(skill.id)}
+              >
+                Remove
+              </button>
+            </div>
+            {auditId === skill.id ? (
+              <div className="st-skill-audit" data-testid={`skill-audit-panel-${skill.id}`}>
+                <div className="st-skill-files">
+                  <div className="st-skill-cap">Bundled files</div>
+                  {skill.files.map((f) => (
+                    <div key={f} className={`st-skill-file ${isScriptPath(f) ? 'script' : ''}`}>
+                      <Ic name={isScriptPath(f) ? 'terminal' : 'file'} size={12} />
+                      <span className="mono">{f}</span>
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <div className="st-skill-cap">SKILL.md</div>
+                  <pre className="st-skill-md">{auditText}</pre>
+                  <div className="st-skill-gate">
+                    <Ic name="check" size={13} strokeWidth={2} />
+                    {skill.scriptCount > 0
+                      ? `${skill.scriptCount} script${skill.scriptCount > 1 ? 's' : ''} — each run still goes through the Permission Engine.`
+                      : 'Instructions only — no bundled scripts.'}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </React.Fragment>
+        ))
+      )}
+    </div>
+  );
+}
+
+/** Audit view: which bundled files look executable (mirrors the store's list). */
+function isScriptPath(relPath: string): boolean {
+  return /\.(sh|bash|zsh|py|js|mjs|cjs|ts|rb|pl|ps1|cmd|bat)$/i.test(relPath);
+}
+
 type Section =
   | 'general'
   | 'editor'
@@ -519,46 +698,49 @@ export function SettingsView(): React.JSX.Element {
         ) : null}
 
         {section === 'agent' ? (
-          <div className="st-card">
-            <Row label="Default mode">
-              <select
-                className="st-input"
-                value={settings.agent.defaultMode}
-                onChange={(e) => set({ agent: { defaultMode: e.target.value } })}
+          <>
+            <div className="st-card">
+              <Row label="Default mode">
+                <select
+                  className="st-input"
+                  value={settings.agent.defaultMode}
+                  onChange={(e) => set({ agent: { defaultMode: e.target.value } })}
+                >
+                  <option value="ask">Read-only</option>
+                  <option value="edit">Approve changes</option>
+                  <option value="auto">Auto · pause on risk</option>
+                </select>
+              </Row>
+              <Row
+                label="Auto mode: auto-approve workspace edits (R1)"
+                hint="Off = Auto only auto-approves read-only tools"
               >
-                <option value="ask">Read-only</option>
-                <option value="edit">Approve changes</option>
-                <option value="auto">Auto · pause on risk</option>
-              </select>
-            </Row>
-            <Row
-              label="Auto mode: auto-approve workspace edits (R1)"
-              hint="Off = Auto only auto-approves read-only tools"
-            >
-              <Toggle
-                checked={settings.agent.autoApproveR1}
-                onChange={(v) => set({ agent: { autoApproveR1: v } })}
-              />
-            </Row>
-            <Row
-              label="Auto mode: auto-approve recognized verification commands (R2)"
-              hint="npm test / lint / typecheck detected from the project"
-            >
-              <Toggle
-                checked={settings.agent.autoApproveKnownR2}
-                onChange={(v) => set({ agent: { autoApproveKnownR2: v } })}
-              />
-            </Row>
-            <Row
-              label="Show model thinking"
-              hint="Streams the model's reasoning, collapsed in the timeline — never treated as evidence"
-            >
-              <Toggle
-                checked={settings.agent.showThinking}
-                onChange={(v) => set({ agent: { showThinking: v } })}
-              />
-            </Row>
-          </div>
+                <Toggle
+                  checked={settings.agent.autoApproveR1}
+                  onChange={(v) => set({ agent: { autoApproveR1: v } })}
+                />
+              </Row>
+              <Row
+                label="Auto mode: auto-approve recognized verification commands (R2)"
+                hint="npm test / lint / typecheck detected from the project"
+              >
+                <Toggle
+                  checked={settings.agent.autoApproveKnownR2}
+                  onChange={(v) => set({ agent: { autoApproveKnownR2: v } })}
+                />
+              </Row>
+              <Row
+                label="Show model thinking"
+                hint="Streams the model's reasoning, collapsed in the timeline — never treated as evidence"
+              >
+                <Toggle
+                  checked={settings.agent.showThinking}
+                  onChange={(v) => set({ agent: { showThinking: v } })}
+                />
+              </Row>
+            </div>
+            <SkillsBlock />
+          </>
         ) : null}
 
         {section === 'models' ? (

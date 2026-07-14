@@ -11,6 +11,8 @@ export interface AppPaths {
   runtimeDir: string;
   backupsDir: string;
   logsDir: string;
+  /** Managed skills store (ADR-0015) — imported SKILL.md folders live here. */
+  skillsDir: string;
 }
 
 export function createAppPaths(userData: string): AppPaths {
@@ -23,6 +25,7 @@ export function createAppPaths(userData: string): AppPaths {
     runtimeDir: join(userData, 'runtime'),
     backupsDir: join(userData, 'backups'),
     logsDir: join(userData, 'logs'),
+    skillsDir: join(userData, 'skills'),
   };
   for (const dir of [
     paths.secretsDir,
@@ -30,6 +33,7 @@ export function createAppPaths(userData: string): AppPaths {
     paths.runtimeDir,
     paths.backupsDir,
     paths.logsDir,
+    paths.skillsDir,
   ]) {
     mkdirSync(dir, { recursive: true });
   }

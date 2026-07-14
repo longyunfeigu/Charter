@@ -57,6 +57,7 @@ import { openWorkspaceInfo } from '@pi-ide/workspace-service';
 import type { AgentHost, RuntimeKind } from './agent-host.js';
 import type { WorkspaceHost } from './workspace-host.js';
 import type { SettingsService } from './settings-service.js';
+import type { SkillStore } from './skill-store.js';
 import type { AppPaths } from '../app-paths.js';
 import { ProjectContexts, type ProjectContext } from './project-contexts.js';
 import { WorktreeService, type TaskWorktree } from './worktree-service.js';
@@ -171,6 +172,7 @@ export class TaskService {
     private readonly host: AgentHost,
     private readonly workspace: WorkspaceHost,
     private readonly settings: SettingsService,
+    private readonly skills: SkillStore,
     paths: AppPaths,
     private readonly logger: Logger,
   ) {
@@ -202,6 +204,9 @@ export class TaskService {
         askUser: (prompt, signal) => this.askUser(prompt, signal),
         planGate: () => this.planGate(),
         verificationGate: () => this.verificationGate(),
+        // ADR-0015: load_skill resolves enabled skills at call time, so
+        // Settings toggles apply to running sessions immediately.
+        skills: () => this.skills.enabledSkills(),
       },
       logger,
     );
@@ -697,6 +702,58 @@ export class TaskService {
   }
 
   // ---------- review projection and decisions (M8-05, CHG-005/007/008) ----------
+
+  /** ADR-0014 (PIVOT-034): current logical content of one file in the task's
+   * mount for the in-room read-only peek. Reads through the context's document
+   * facade (path boundary enforced; live editor buffer when focused; the
+   * worktree when the task is isolated). Missing/binary/oversized files return
+   * honest flags instead of errors — the peek renders them as quiet notes. */
+  async peekFile(
+    taskId: string,
+    path: string,
+  ): Promise<{
+    content: string | null;
+    binary: boolean;
+    missing: boolean;
+    truncated: boolean;
+    sizeBytes: number;
+    fromBuffer: boolean;
+  }> {
+    const context = this.contextForTask(taskId);
+    const MAX_PEEK_CHARS = 1_000_000;
+    try {
+      const read = await context.documents.readLogical(path);
+      if (read.binary) {
+        return {
+          content: null,
+          binary: true,
+          missing: false,
+          truncated: false,
+          sizeBytes: read.sizeBytes,
+          fromBuffer: false,
+        };
+      }
+      const truncated = read.content.length > MAX_PEEK_CHARS;
+      return {
+        content: truncated ? read.content.slice(0, MAX_PEEK_CHARS) : read.content,
+        binary: false,
+        missing: false,
+        truncated,
+        sizeBytes: read.sizeBytes,
+        fromBuffer: read.fromBuffer,
+      };
+    } catch {
+      // Unreadable = not on disk (deleted, renamed away) or outside the mount.
+      return {
+        content: null,
+        binary: false,
+        missing: true,
+        truncated: false,
+        sizeBytes: 0,
+        fromBuffer: false,
+      };
+    }
+  }
 
   /** Net change set with hunks and review-state projection for the Review page. */
   /** ADR-0013: both sides of one file for the review diff editor. */
@@ -1693,7 +1750,9 @@ export class TaskService {
     this.host.startRun(taskId, {
       sessionRef: ref,
       runId,
-      prompt: userText,
+      // ADR-0015: a leading `/skill:name` expands to the skill's instructions
+      // (the timeline keeps the user's original text above).
+      prompt: this.skills.expandCommand(userText),
     });
   }
 
@@ -1718,6 +1777,7 @@ export class TaskService {
       task.mode === 'ask'
         ? null
         : 'Before your FIRST file modification, call propose_plan with your step-by-step plan and wait for the decision. The user may edit the plan or request changes — follow the version returned in the tool result, and keep step statuses current with update_plan.';
+    const skillsBlock = this.skills.preambleBlock();
     return [
       // PIVOT-008/ADR-0009: product identity — internal harness/vendor names
       // must never leak into the agent's self-description.
@@ -1728,6 +1788,9 @@ export class TaskService {
       ...(planRule ? [planRule] : []),
       'Use only the provided tools. read_file returns a hash — pass it as baseHash when patching.',
       'Never claim work is complete without evidence from tools; verification results are recorded by the IDE.',
+      // ADR-0015: enabled, model-invocable skills (loading goes through the
+      // audited load_skill tool; explicit-only skills stay out of this list).
+      ...(skillsBlock ? [skillsBlock] : []),
       `Task: ${task.title}`,
     ].join('\n');
   }
@@ -1750,8 +1813,10 @@ export class TaskService {
     const task = this.getTask(taskId);
     if (runId && isRunningState(task.state as TaskState)) {
       this.recordEvent(taskId, 'user.message', { text, kind: during });
-      if (during === 'steer') this.host.steer(runId, text);
-      else this.host.followUp(runId, text);
+      // ADR-0015: `/skill:name` works in replies too — expanded product-side.
+      const expanded = this.skills.expandCommand(text);
+      if (during === 'steer') this.host.steer(runId, expanded);
+      else this.host.followUp(runId, expanded);
       return during === 'steer' ? 'steered' : 'queued';
     }
     // Closed tasks cannot restart (ACCEPTED/ROLLED_BACK/CANCELLED/ARCHIVED —

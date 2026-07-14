@@ -21,7 +21,7 @@ test.describe('P3 full mode (ADR-0012)', () => {
     try {
       page.on('dialog', (dialog) => void dialog.accept());
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/, { timeout: 15000 });
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-mode-full').click();
       await expect(page.getByTestId('home-mode-hint')).toContainText('Full auto');
       // edit-rollback touches create/modify/delete/rename — delete_file is R3,
@@ -79,7 +79,7 @@ test.describe('P3 full mode (ADR-0012)', () => {
     });
     try {
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toHaveValue(/mock/, { timeout: 15000 });
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-mode-full').click();
       // Configure a verification command via the Advanced charter.
       await page.getByTestId('home-advanced-toggle').click();
