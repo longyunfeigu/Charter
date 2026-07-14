@@ -61,7 +61,7 @@ export function createPlanAwarePermission(
       if (PLAN_TOOL_NAMES.has(name)) return { kind: 'allow', scope: 'auto' };
       if (
         WRITE_TOOL_NAMES.has(name) &&
-        (input.mode === 'edit' || input.mode === 'auto') &&
+        (input.mode === 'edit' || input.mode === 'auto' || input.mode === 'full') &&
         !options.planApproved(input.call.taskId)
       ) {
         return {

@@ -3,7 +3,7 @@ import type { ProductError } from '@pi-ide/foundation';
 /** Product-owned Agent Runtime contract (spec §8.2). UI and domain code depend on
  * these types only; Pi types never cross this boundary. */
 
-export type AgentMode = 'ask' | 'edit' | 'auto';
+export type AgentMode = 'ask' | 'edit' | 'auto' | 'full';
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type AbortReason = 'user_stop' | 'app_quit' | 'timeout' | 'superseded' | 'error';
 

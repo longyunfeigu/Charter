@@ -332,6 +332,38 @@ describe('PermissionEngine (PERM-001..010)', () => {
     expect((await p).kind).toBe('allow');
   });
 
+  it('full mode auto-allows R1–R3 without asking, but standing denies and R4 still win (ADR-0012)', async () => {
+    for (const risk of [
+      { level: 'R1' as const },
+      { level: 'R2' as const },
+      { level: 'R2' as const, recognized: true },
+      { level: 'R3' as const },
+    ]) {
+      const decision = await decide({ mode: 'full', risk });
+      expect(decision.kind).toBe('allow');
+    }
+    expect(pending).toHaveLength(0);
+
+    // R4 is refused before/without any prompt — full mode is not a bypass.
+    const r4 = await decide({ mode: 'full', risk: { level: 'R4' } });
+    expect(r4.kind).toBe('deny');
+    expect((r4 as { permanent?: boolean }).permanent).toBe(true);
+
+    // A standing user deny beats full-mode auto-allow.
+    store.saveRule({
+      id: 'rule-deny',
+      workspaceId: 'ws1',
+      taskId: null,
+      kind: 'deny',
+      ruleKey: 'run_command:npm:install',
+      risk: 'R2',
+      createdAt: new Date().toISOString(),
+    });
+    const denied = await decide({ mode: 'full', risk: { level: 'R2' } });
+    expect(denied.kind).toBe('deny');
+    expect(pending).toHaveLength(0);
+  });
+
   it('auto mode auto-allows R1 and recognized R2, still asks for unknown R2 and R3', async () => {
     const r1 = await decide({ mode: 'auto', risk: { level: 'R1' } });
     expect(r1.kind).toBe('allow');

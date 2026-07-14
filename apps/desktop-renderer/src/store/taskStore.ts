@@ -46,7 +46,7 @@ interface TaskStore {
     title: string;
     goalMd: string;
     acceptance: string[];
-    mode: 'ask' | 'edit' | 'auto';
+    mode: 'ask' | 'edit' | 'auto' | 'full';
     model: {
       providerId: string;
       modelId: string;

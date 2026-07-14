@@ -39,7 +39,9 @@ const TRANSITIONS: Record<TaskState, readonly TaskState[]> = {
   AWAITING_PERMISSION: ['IN_PROGRESS', 'INTERRUPTED', 'FAILED'],
   VERIFYING: ['IN_PROGRESS', 'REVIEW_READY', 'FAILED', 'INTERRUPTED'],
   REVIEW_READY: ['IN_PROGRESS', 'ACCEPTED', 'ROLLED_BACK'],
-  ACCEPTED: ['ARCHIVED'],
+  // ADR-0012: accepting is not a commit — while snapshots exist the user can
+  // still restore the pre-task state after accept (esp. full-auto tasks).
+  ACCEPTED: ['ARCHIVED', 'ROLLED_BACK'],
   ROLLED_BACK: ['ARCHIVED'],
   INTERRUPTED: ['READY', 'IN_PROGRESS', 'REVIEW_READY', 'ROLLED_BACK'],
   FAILED: ['IN_PROGRESS', 'REVIEW_READY', 'ROLLED_BACK'],

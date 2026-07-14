@@ -25,7 +25,9 @@ When requirements conflict, acceptance criteria take precedence. Record interpre
 - No generic IPC bridge. Every channel has a versioned runtime schema.
 - Pi never gets unrestricted filesystem/shell access. All tools go through Tool Gateway and Permission Engine.
 - File changes use revision/hash checks, snapshots, atomic writes and conflict handling.
-- Agent completion means `REVIEW_READY`, never automatic `ACCEPTED`.
+- Agent completion means `REVIEW_READY`, never automatic `ACCEPTED` — except the
+  user-opt-in Full mode (ADR-0012): system auto-accept after completion, with
+  verification-failure/merge-conflict fallbacks to review and post-accept rollback.
 
 ## Working protocol
 

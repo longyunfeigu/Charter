@@ -476,6 +476,7 @@ if (!gotLock) {
         },
       });
       taskService.onStateChanged((info) => notifications.onTaskState(info));
+      taskService.onAttention((info) => notifications.pingAttention(info));
 
       // M10/E2E-022: redacted support bundle export.
       registerHandlers(

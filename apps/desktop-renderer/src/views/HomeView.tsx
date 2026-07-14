@@ -51,7 +51,7 @@ export function HomeView(): React.JSX.Element {
 
   const [intent, setIntent] = useState('');
   // Settings → Agent → default mode seeds the composer (it loads before mount).
-  const [mode, setMode] = useState<'ask' | 'edit' | 'auto'>(
+  const [mode, setMode] = useState<'ask' | 'edit' | 'auto' | 'full'>(
     () => useAppStore.getState().settings?.agent.defaultMode ?? 'edit',
   );
   const [modelKey, setModelKey] = useState('');
@@ -782,7 +782,7 @@ export function HomeView(): React.JSX.Element {
               {MODE_META.map((m) => (
                 <button
                   key={m.id}
-                  className={mode === m.id ? 'on' : ''}
+                  className={`${mode === m.id ? 'on' : ''} ${m.danger ? 'danger' : ''}`}
                   data-testid={`home-mode-${m.id}`}
                   role="radio"
                   aria-checked={mode === m.id}
@@ -863,7 +863,7 @@ export function HomeView(): React.JSX.Element {
             </button>
           </div>
         </div>
-        <div className="hm-hint" data-testid="home-mode-hint">
+        <div className={`hm-hint ${mode === 'full' ? 'danger' : ''}`} data-testid="home-mode-hint">
           <b>{MODE_META.find((m) => m.id === mode)?.label}</b> — {activeModeHint}. ⏎ to start · ⇧⏎
           new line.
         </div>

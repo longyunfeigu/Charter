@@ -502,6 +502,23 @@
   font-weight: 550;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
+/* ADR-0012: Full auto reads as the dangerous choice at a glance. */
+.hm-seg button.danger {
+  color: var(--danger);
+  opacity: 0.75;
+}
+.hm-seg button.danger.on {
+  background: color-mix(in srgb, var(--danger) 14%, var(--bg-card));
+  color: var(--danger);
+  opacity: 1;
+  font-weight: 650;
+}
+.hm-hint.danger {
+  color: var(--danger);
+}
+.hm-hint.danger b {
+  color: var(--danger);
+}
 
 /* ---------- heartbeat layer (PIVOT-028): global task rows ---------- */
 

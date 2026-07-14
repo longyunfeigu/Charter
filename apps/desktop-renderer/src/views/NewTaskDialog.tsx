@@ -9,7 +9,9 @@ export function NewTaskDialog(): React.JSX.Element {
   const [title, setTitle] = useState('');
   const [goal, setGoal] = useState('');
   const [acceptance, setAcceptance] = useState<string[]>(['']);
-  const [mode, setMode] = useState<'ask' | 'edit' | 'auto'>(settings?.agent.defaultMode ?? 'edit');
+  const [mode, setMode] = useState<'ask' | 'edit' | 'auto' | 'full'>(
+    settings?.agent.defaultMode ?? 'edit',
+  );
   const [modelKey, setModelKey] = useState<string>('');
   const [providerForKey, setProviderForKey] = useState('anthropic');
   const [apiKey, setApiKey] = useState('');
@@ -249,8 +251,21 @@ export function NewTaskDialog(): React.JSX.Element {
             <span className="text-muted" style={{ fontSize: 11 }}>
               Mode
             </span>
-            {(['ask', 'edit', 'auto'] as const).map((m) => (
-              <label key={m} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            {(['ask', 'edit', 'auto', 'full'] as const).map((m) => (
+              <label
+                key={m}
+                style={{
+                  display: 'flex',
+                  gap: 4,
+                  alignItems: 'center',
+                  ...(m === 'full' ? { color: 'var(--danger)' } : {}),
+                }}
+                title={
+                  m === 'full'
+                    ? 'Nothing asks and the result is applied automatically — you can still roll back'
+                    : undefined
+                }
+              >
                 <input
                   type="radio"
                   data-testid={`mode-${m}`}
@@ -261,7 +276,9 @@ export function NewTaskDialog(): React.JSX.Element {
                   ? 'Ask (read-only)'
                   : m === 'edit'
                     ? 'Edit (approvals)'
-                    : 'Auto (bounded)'}
+                    : m === 'auto'
+                      ? 'Auto (bounded)'
+                      : 'Full auto (dangerous)'}
               </label>
             ))}
           </div>

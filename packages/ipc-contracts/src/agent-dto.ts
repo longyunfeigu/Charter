@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const AgentModeSchema = z.enum(['ask', 'edit', 'auto']);
+export const AgentModeSchema = z.enum(['ask', 'edit', 'auto', 'full']);
 export const TaskStateSchema = z.enum([
   'DRAFT',
   'READY',

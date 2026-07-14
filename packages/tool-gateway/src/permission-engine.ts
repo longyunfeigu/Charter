@@ -172,6 +172,13 @@ export class PermissionEngine implements PermissionDecider {
       };
     }
 
+    // Full autonomy (ADR-0012): the user opted into running without approval
+    // prompts — R1–R3 auto-allow. R4 was already refused above, path/product
+    // boundaries still hold at the gateway, and standing denies still win.
+    if (mode === 'full') {
+      return { kind: 'allow', scope: 'auto', paramsHash };
+    }
+
     // Standing allow grants never satisfy R3: each R3 call needs explicit confirmation (PERM-003).
     if (risk.level !== 'R3') {
       const allowRule = rules.find((r) => r.kind === 'allow' && matches(r));

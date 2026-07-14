@@ -47,6 +47,12 @@ describe('task state machine (spec §6.1)', () => {
     expect(canTransition('INTERRUPTED', 'ROLLED_BACK')).toBe(true);
   });
 
+  it('ACCEPTED can be rolled back while snapshots survive (ADR-0012)', () => {
+    expect(canTransition('ACCEPTED', 'ROLLED_BACK')).toBe(true);
+    expect(canTransition('ACCEPTED', 'ARCHIVED')).toBe(true);
+    expect(canTransition('ACCEPTED', 'IN_PROGRESS')).toBe(false);
+  });
+
   it('REVIEW_READY can return to IN_PROGRESS (continue) or ROLLED_BACK', () => {
     expect(canTransition('REVIEW_READY', 'IN_PROGRESS')).toBe(true);
     expect(canTransition('REVIEW_READY', 'ROLLED_BACK')).toBe(true);

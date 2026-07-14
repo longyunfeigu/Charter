@@ -505,6 +505,32 @@ export const SCENARIOS: Record<string, Scenario> = {
     },
     { kind: 'usage', inputTokens: 1500, outputTokens: 380 },
   ],
+  // ADR-0012: verification fails and the agent stops — full mode must NOT
+  // auto-apply (the task stays in review with the failure on record).
+  'verify-fail-stop': () => [
+    {
+      kind: 'tool',
+      toolName: 'propose_plan',
+      input: {
+        summary: 'Create the check target and verify.',
+        steps: [{ title: 'Create target and verify' }],
+      },
+      reason: 'plan before writing',
+    },
+    {
+      kind: 'tool',
+      toolName: 'create_file',
+      input: { path: 'check-target.txt', content: 'WRONG\n', reason: 'seed the check target' },
+      reason: 'create the target (failing)',
+    },
+    { kind: 'tool', toolName: 'run_verification', input: {}, reason: 'verify' },
+    {
+      kind: 'assistant',
+      text: 'Verification failed — stopping here for review. (deterministic mock answer)',
+      chunkSize: 24,
+    },
+    { kind: 'usage', inputTokens: 900, outputTokens: 200 },
+  ],
   // E2E-017: verification fails, the agent fixes the code, the re-run passes.
   'verify-fail-fix': () => [
     {

@@ -162,6 +162,7 @@ export class TaskService {
       to: TaskState;
       title: string;
       changedFiles: number | null;
+      mode: string;
     }) => void
   >();
 
@@ -482,8 +483,8 @@ export class TaskService {
     const plan = normalizeProposedPlan(input.plan, version);
     this.recordEvent(input.taskId, 'agent.planProposed', { plan, callId: input.callId });
 
-    if (task.mode === 'auto') {
-      // §5.2/§19.3 default: Auto approves the plan automatically and keeps going.
+    if (task.mode === 'auto' || task.mode === 'full') {
+      // §5.2/§19.3 default: Auto/Full approve the plan automatically and keep going.
       this.planRecords.set(input.taskId, { plan, status: 'approved', version });
       this.recordEvent(input.taskId, 'user.planDecision', {
         decision: 'approved',
@@ -834,7 +835,12 @@ export class TaskService {
    * (ADR-0009); conflicts stop the accept unless explicitly confirmed. */
   async acceptTask(
     taskId: string,
-    options: { confirmUnverified?: boolean; confirmConflicts?: boolean } = {},
+    options: {
+      confirmUnverified?: boolean;
+      confirmConflicts?: boolean;
+      /** Who accepted — 'user' (default) or 'system:full-auto' (ADR-0012). */
+      actor?: string;
+    } = {},
   ): Promise<{
     task: TaskDto;
     status: 'accepted' | 'conflicts';
@@ -899,6 +905,7 @@ export class TaskService {
     }
     this.recordEvent(taskId, 'task.accepted', {
       at: new Date().toISOString(),
+      actor: options.actor ?? 'user',
       unverifiedConfirmed: verificationRuns.length === 0 && options.confirmUnverified === true,
     });
     return { task: this.setState(taskId, 'ACCEPTED'), status: 'accepted' };
@@ -913,7 +920,18 @@ export class TaskService {
     | { status: 'conflicts'; task: TaskDto; conflicts: Array<{ path: string; reason: string }> }
   > {
     const task = this.getTask(taskId);
-    if (!['REVIEW_READY', 'INTERRUPTED', 'FAILED'].includes(task.state)) {
+    // ADR-0012: post-accept rollback — snapshots survive accept, so a plain
+    // task can still be restored. A merged worktree task cannot (its worktree
+    // — the change-record root — was discarded on accept).
+    if (task.state === 'ACCEPTED' && task.worktree) {
+      throw new ProductFailure(
+        productError('TASK_NOT_ROLLBACKABLE', {
+          userMessage:
+            'This task ran in a worktree that was merged and discarded on accept — restore from git instead.',
+        }),
+      );
+    }
+    if (!['REVIEW_READY', 'INTERRUPTED', 'FAILED', 'ACCEPTED'].includes(task.state)) {
       throw new ProductFailure(
         productError('TASK_NOT_ROLLBACKABLE', {
           userMessage: `The task cannot be rolled back from state ${task.state}.`,
@@ -1389,7 +1407,14 @@ export class TaskService {
     )?.changed_files;
     for (const listener of this.stateChangeListeners) {
       try {
-        listener({ taskId, from, to, title: row.title, changedFiles: changedFiles ?? null });
+        listener({
+          taskId,
+          from,
+          to,
+          title: row.title,
+          changedFiles: changedFiles ?? null,
+          mode: row.mode,
+        });
       } catch (e) {
         this.logger.warn('state listener failed', {
           error: e instanceof Error ? e.message : String(e),
@@ -1407,6 +1432,7 @@ export class TaskService {
       to: TaskState;
       title: string;
       changedFiles: number | null;
+      mode: string;
     }) => void,
   ): () => void {
     this.stateChangeListeners.add(listener);
@@ -1629,7 +1655,9 @@ export class TaskService {
         ? 'You are in ASK mode: strictly read-only. You cannot modify files or run commands; if asked to, explain what you WOULD change instead.'
         : task.mode === 'edit'
           ? 'You are in EDIT mode: workspace writes and commands require user approval — a denied permission is final for that call; adapt instead of retrying it verbatim.'
-          : 'You are in AUTO mode: recognized low-risk actions run automatically; higher-risk actions pause for user approval. A denial is final for that call.';
+          : task.mode === 'full'
+            ? 'You are in FULL AUTO mode: your actions run without user approval and the result is applied automatically when you finish. Work carefully and verify your changes — nobody reviews them before they land. Product-forbidden actions are still blocked; a denial is final for that call.'
+            : 'You are in AUTO mode: recognized low-risk actions run automatically; higher-risk actions pause for user approval. A denial is final for that call.';
     const planRule =
       task.mode === 'ask'
         ? null
@@ -1841,6 +1869,12 @@ export class TaskService {
       const current = this.getTask(taskId).state;
       if (current === 'VERIFYING') this.setState(taskId, 'REVIEW_READY');
       else this.safeTransition(taskId, 'REVIEW_READY');
+      // ADR-0012: Full autonomy applies the result automatically — with honest
+      // fallbacks. Verification failures and merge conflicts keep the task in
+      // REVIEW_READY for a human.
+      if (task.mode === 'full' && this.getTask(taskId).state === 'REVIEW_READY') {
+        await this.autoAcceptFullTask(taskId);
+      }
     } catch (e) {
       this.logger.error('finalize run failed', {
         taskId,
@@ -1848,6 +1882,64 @@ export class TaskService {
       });
       this.safeTransition(taskId, 'REVIEW_READY');
     }
+  }
+
+  /** Full mode (ADR-0012): auto-accept unless the evidence says stop. */
+  private async autoAcceptFullTask(taskId: string): Promise<void> {
+    try {
+      const context = this.contextForTask(taskId);
+      const runs = context.verifications.listForTask(taskId);
+      const failed = runs.filter((r) => r.state === 'failed' || r.state === 'timeout');
+      if (failed.length > 0) {
+        this.recordEvent(taskId, 'system.diagnostic', {
+          code: 'AUTO_APPLY_SKIPPED',
+          detail: `Auto-apply paused: ${failed.length} verification run(s) failed — review the changes.`,
+        });
+        this.attention(taskId, 'Auto-apply paused: verification failed — review the changes.');
+        return;
+      }
+      const result = await this.acceptTask(taskId, {
+        confirmUnverified: true,
+        actor: 'system:full-auto',
+      });
+      if (result.status === 'conflicts') {
+        // merge.blocked already recorded by acceptTask.
+        this.attention(
+          taskId,
+          'Auto-apply paused: the project changed during the task — resolve the merge.',
+        );
+      }
+    } catch (e) {
+      this.logger.warn('full-auto accept failed; task stays in review', {
+        taskId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      this.attention(taskId, 'Auto-apply failed — review the changes.');
+    }
+  }
+
+  /** Ad-hoc attention ping (full-mode fallbacks) — wired to notifications. */
+  private attention(taskId: string, body: string): void {
+    const task = this.getTask(taskId);
+    for (const listener of this.attentionListeners) {
+      try {
+        listener({ taskId, title: task.title, body });
+      } catch {
+        /* observer failures never break the engine */
+      }
+    }
+  }
+
+  private readonly attentionListeners = new Set<
+    (info: { taskId: string; title: string; body: string }) => void
+  >();
+
+  /** Observe ad-hoc attention pings (ADR-0012 full-mode fallbacks). */
+  onAttention(
+    listener: (info: { taskId: string; title: string; body: string }) => void,
+  ): () => void {
+    this.attentionListeners.add(listener);
+    return () => this.attentionListeners.delete(listener);
   }
 
   /**

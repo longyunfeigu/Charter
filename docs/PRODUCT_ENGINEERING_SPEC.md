@@ -126,6 +126,7 @@ V1.0 必须完整支持以下场景；任何一个场景只能通过手工绕路
 6. **只读 Ask**：询问架构、调用链或 Bug 位置；Agent 不得写文件或执行有副作用命令。
 7. **受控 Edit**：定义任务与验收条件，Agent 计划、读取、修改、运行验证；关键动作审批。
 8. **Auto 模式**：在用户配置的低/中风险边界内自动执行，遇到高风险或不确定动作暂停。
+9. **Full 模式（ADR-0012）**：R1–R3 全部免审批执行，完成后自动应用变更；R4/路径越界仍由 Tool Gateway 硬性拦截，用户的永久 deny 规则依然生效；验证失败/合并冲突降级回人工审查；事后可回滚。
 9. **手工与 Agent 交错**：用户可在 Agent 暂停时修改文件；Agent 继续前检测版本变化并重新读取。
 10. **权限拒绝**：用户拒绝安装依赖或删除文件；Agent 获得结构化拒绝并调整方案。
 11. **冲突处理**：Agent 基于旧版本提交 patch 时不得覆盖用户的新编辑；界面提供重新读取、三方比较或放弃。
@@ -266,7 +267,7 @@ Application
 2. 第一次触碰文件前保存基线：路径、存在性、原始字节、哈希、权限位、换行符和编码。
 3. patch 包含 `baseRevision/baseHash`；不匹配时拒绝并产生冲突事件。
 4. 成功修改后同步 Monaco model、磁盘、文件监听器和 Git 状态。
-5. Agent 宣布任务完成时只进入 `VERIFYING` 或 `REVIEW_READY`，不会自动接受。
+5. Agent 宣布任务完成时只进入 `VERIFYING` 或 `REVIEW_READY`，不会自动接受。（ADR-0012 修订：用户显式选择的 Full 模式例外 —— 完成后由系统自动 accept（actor=system:full-auto）；验证失败或合并冲突时仍停在 REVIEW_READY；快照保留，ACCEPTED 后可回滚。）
 6. Review 页面展示任务级文件清单、增删统计、每个 hunk、验证结果、风险提示和未解决诊断。
 7. 用户可以接受全部、逐文件接受、逐 hunk 接受、要求继续修改或完整回滚。
 8. `ACCEPTED` 只表示用户接受当前工作区变化，不等于已 Git commit；提交是单独动作。
@@ -294,7 +295,7 @@ Application
 | AWAITING_PERMISSION | 一个或多个工具等待决定 | IN_PROGRESS | IN_PROGRESS、INTERRUPTED、FAILED |
 | VERIFYING | 运行测试/构建/检查 | IN_PROGRESS | IN_PROGRESS、REVIEW_READY、FAILED、INTERRUPTED |
 | REVIEW_READY | Agent 已停止，等待用户审查 | IN_PROGRESS、VERIFYING、INTERRUPTED | IN_PROGRESS、ACCEPTED、ROLLED_BACK |
-| ACCEPTED | 用户接受全部或选定变更 | REVIEW_READY | ARCHIVED |
+| ACCEPTED | 用户（或 Full 模式系统）接受全部或选定变更 | REVIEW_READY | ARCHIVED、ROLLED_BACK（ADR-0012） |
 | ROLLED_BACK | 任务创建的变更已恢复 | REVIEW_READY、INTERRUPTED、FAILED | ARCHIVED |
 | INTERRUPTED | 用户停止、应用退出或 Worker 崩溃 | 任意运行态 | READY、IN_PROGRESS、REVIEW_READY、ROLLED_BACK |
 | FAILED | 不可自动继续的运行错误 | 任意运行态 | IN_PROGRESS、REVIEW_READY、ROLLED_BACK |

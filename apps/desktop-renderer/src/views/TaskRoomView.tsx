@@ -268,6 +268,22 @@ export function TaskRoomView(): React.JSX.Element {
                   onConfirm={() => void store.rollbackTask()}
                 />
               </>
+            ) : task.state === 'ACCEPTED' && !task.worktree ? (
+              <>
+                <div className="tr-note" data-testid="task-room-accepted">
+                  {task.mode === 'full'
+                    ? 'Completed & applied automatically (Full auto). Snapshots are kept — you can restore the pre-task state.'
+                    : 'Accepted. Snapshots are kept — you can still restore the pre-task state.'}
+                </div>
+                <ConfirmDangerButton
+                  label="Roll back…"
+                  confirmLabel="Confirm — restore all files"
+                  testid="task-rollback"
+                  quiet
+                  title="Restore every touched file to its pre-task state (drift-checked)"
+                  onConfirm={() => void store.rollbackTask()}
+                />
+              </>
             ) : task.state === 'INTERRUPTED' || task.state === 'FAILED' ? (
               <>
                 <button

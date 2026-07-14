@@ -473,16 +473,18 @@ function eventNode(
           <span className="mono">{String(payload.path)}</span>
         </div>
       );
-    case 'task.accepted':
+    case 'task.accepted': {
+      const auto = String(payload.actor ?? 'user') === 'system:full-auto';
       return (
         <Milestone
           key={event.id}
           tone="ok"
-          label="Changes accepted"
-          meta="accepting is not a git commit"
+          label={auto ? 'Completed & applied automatically' : 'Changes accepted'}
+          meta={auto ? 'Full auto — you can still roll back' : 'accepting is not a git commit'}
           testid="tl-accepted"
         />
       );
+    }
     case 'task.mergedBack': {
       const files = (payload.files ?? []) as string[];
       return (

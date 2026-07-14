@@ -92,10 +92,21 @@ export const TONE_COLOR: Record<StateTone, string> = {
 };
 
 /** Trust levels (approval modes) — shared by Home composer and task headers. */
-export const MODE_META: Array<{ id: 'ask' | 'edit' | 'auto'; label: string; hint: string }> = [
+export const MODE_META: Array<{
+  id: 'ask' | 'edit' | 'auto' | 'full';
+  label: string;
+  hint: string;
+  danger?: boolean;
+}> = [
   { id: 'ask', label: 'Read-only', hint: 'Answers questions; never writes or runs anything' },
   { id: 'edit', label: 'Approve changes', hint: 'Plans first; every write/command asks you' },
   { id: 'auto', label: 'Auto · pause on risk', hint: 'Low-risk actions run; risky ones ask' },
+  {
+    id: 'full',
+    label: 'Full auto',
+    hint: 'Nothing asks and the result is applied automatically — forbidden actions stay blocked, verification failures pause, and you can roll back afterwards',
+    danger: true,
+  },
 ];
 
 export function modeLabel(mode: string): string {
