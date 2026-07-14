@@ -3,6 +3,7 @@ import type {
   AbortReason,
   AgentEvent,
   CreateSessionInput,
+  ModelRef,
   RuntimeSessionRef,
   StartRunInput,
   ToolCallRequest,
@@ -34,6 +35,8 @@ export type WorkerInbound =
   | { type: 'startRun'; taskId: string; input: StartRunInput }
   | { type: 'steer'; runId: string; text: string }
   | { type: 'followUp'; runId: string; text: string }
+  /** ADR-0016: request/response — the caller must learn if the switch failed. */
+  | { type: 'setSessionModel'; reqId: string; sessionId: string; model: ModelRef }
   | { type: 'abort'; runId: string; reason: AbortReason }
   | { type: 'listModels'; reqId: string }
   | { type: 'validateCredential'; reqId: string; providerId: string }

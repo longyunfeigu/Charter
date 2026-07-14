@@ -7,6 +7,7 @@ import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useEditorStore } from '../store/editorStore.js';
 import { StateBadge } from './AgentPanel.js';
 import { RoomTimeline } from './RoomTimeline.js';
+import { Markdown } from './Markdown.js';
 import { LiveBoard } from './LiveBoard.js';
 import { FilePeek } from './FilePeek.js';
 import { ConfirmDangerButton, ModelEffortControl } from './ui.js';
@@ -155,6 +156,9 @@ export function TaskRoomView(): React.JSX.Element {
         <div className="tr-main">
           {/* Mockup A (ADR-0014): mode/model/effort live in the composer foot. */}
           <RoomTimeline task={task} />
+          {/* ADR-0016 (direction B): the completion report is STATE — a review
+              bar docked above the composer while the decision is pending. */}
+          {task.state === 'REVIEW_READY' && !answered ? <ReviewBar task={task} /> : null}
           {running ? <ActivityStrip taskId={task.id} /> : null}
           <RoomComposer key={task.id} task={task} running={running} />
         </div>
@@ -358,6 +362,146 @@ function actionLine(kind: string, label: string): string {
 }
 
 /**
+ * Review bar (ADR-0016, direction B): the completion report presented as
+ * state, docked above the composer while the task is REVIEW_READY. Headline
+ * evidence + the primary Review action inline; agent summary and rollback in
+ * the overflow. Disappears the moment the state moves on — like the plan gate.
+ * Data source is the recorded `report.final` event (never the agent's word).
+ */
+function ReviewBar({
+  task,
+}: {
+  task: { id: string; worktree: { branch: string } | null };
+}): React.JSX.Element | null {
+  const store = useTaskStore();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent): void => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [menuOpen]);
+
+  // Latest recorded report for this task (loading → bar renders actions only).
+  const report = useMemo(() => {
+    for (let i = store.timeline.length - 1; i >= 0; i--) {
+      const event = store.timeline[i]!;
+      if (event.type === 'report.final') return event.payload as Record<string, unknown>;
+    }
+    return null;
+  }, [store.timeline]);
+
+  const changed = report?.changed as
+    { files: number; additions: number; deletions: number } | undefined;
+  const verification = report?.verification as
+    | {
+        runs: Array<{ label: string; state: string; stale?: boolean; superseded?: boolean }>;
+        passed: number;
+        failed: number;
+      }
+    | undefined;
+  const unverified = report?.unverified === true;
+  const risks = (report?.unresolvedRisks ?? []) as string[];
+  const agentSummary = typeof report?.agentSummary === 'string' ? report.agentSummary : null;
+  const superseded = verification?.runs.filter((r) => r.superseded).length ?? 0;
+  const stale = verification?.runs.some((r) => r.stale) === true;
+
+  return (
+    <div className="tr-reviewbar" data-testid="review-bar">
+      <div className="tr-rb-main">
+        <span className="tr-rb-dot" aria-hidden />
+        <b>Ready to review</b>
+        {changed && changed.files > 0 ? (
+          <span className="tr-rb-meta" data-testid="report-changed">
+            {changed.files} file{changed.files === 1 ? '' : 's'}{' '}
+            <span className="mono">
+              <i className="plus">+{changed.additions}</i>{' '}
+              <i className="minus">−{changed.deletions}</i>
+            </span>
+          </span>
+        ) : null}
+        {verification && verification.runs.length > 0 ? (
+          <span className="tr-rb-meta" data-testid="report-verification">
+            checks: {verification.passed} passed
+            {verification.failed > 0 ? `, ${verification.failed} failed` : ''}
+            {superseded > 0 ? ` · ${superseded} superseded${stale ? ' (stale)' : ''}` : ''}
+          </span>
+        ) : null}
+        <span className="tr-rb-sp" />
+        <button
+          className="btn primary"
+          data-testid="review-bar-open"
+          onClick={() => void store.openReview()}
+        >
+          Review changes
+        </button>
+        <div className="tr-rb-morewrap" ref={menuRef}>
+          <button
+            className="tr-rb-more"
+            data-testid="review-bar-more"
+            title="Agent summary · Roll back"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            ⋯
+          </button>
+          {menuOpen ? (
+            <div className="tr-rb-menu" data-testid="review-bar-menu" role="menu">
+              {agentSummary ? (
+                <button
+                  className="tr-rb-menurow"
+                  data-testid="review-bar-summary-toggle"
+                  onClick={() => {
+                    setSummaryOpen(!summaryOpen);
+                    setMenuOpen(false);
+                  }}
+                >
+                  {summaryOpen ? 'Hide agent summary' : "Agent's own summary"}
+                </button>
+              ) : null}
+              <div className="tr-rb-menucap">
+                Evidence comes from the recorded change/verification records, not from the agent.
+              </div>
+              <hr />
+              <ConfirmDangerButton
+                label={task.worktree ? 'Discard worktree…' : 'Roll back all…'}
+                confirmLabel={task.worktree ? 'Confirm — discard' : 'Confirm — roll back all'}
+                testid="report-rollback"
+                quiet
+                title={
+                  task.worktree
+                    ? 'Throw away the isolated worktree; the project was never touched'
+                    : 'Restore every touched file to its pre-task state'
+                }
+                onConfirm={() => void store.rollbackTask()}
+              />
+            </div>
+          ) : null}
+        </div>
+      </div>
+      {unverified ? (
+        <div className="tr-rb-warn" data-testid="report-unverified">
+          Unverified — no verification commands were run.
+        </div>
+      ) : null}
+      {risks.length > 0 ? <div className="tr-rb-warn">Risks: {risks.join('; ')}</div> : null}
+      {summaryOpen && agentSummary ? (
+        <div className="tr-rb-summary" data-testid="review-bar-summary">
+          <div className="tr-rb-menucap">Agent's own summary (unverified narrative)</div>
+          <Markdown text={agentSummary} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * Live activity strip (ADR-0011): what the agent is DOING right now — current
  * tool + target, elapsed time and token spend — replacing the bare "Working".
  */
@@ -538,6 +682,9 @@ function RoomComposer({
   const [mode, setMode] = useState(task.mode);
   const [modelKey, setModelKey] = useState(`${task.model.providerId}::${task.model.modelId}`);
   const [thinking, setThinking] = useState<ThinkingLevelId>(task.model.thinkingLevel ?? 'medium');
+  // ADR-0016: a reply may override the task's model/effort for the next turn.
+  // Only a touched control sends an override — untouched replies stay silent.
+  const [modelDirty, setModelDirty] = useState(false);
   const sameProject = workspacePath === task.projectPath;
 
   // @ file picker (only meaningful when the task's project is the focused one —
@@ -602,7 +749,13 @@ function RoomComposer({
     } else if (closed) {
       void startFollowUp(text);
     } else {
-      void store.send(text, 'steer');
+      const [providerId, modelId] = modelKey.split('::');
+      const override =
+        modelDirty && providerId && modelId
+          ? { providerId, modelId, thinkingLevel: thinking }
+          : undefined;
+      void store.send(text, 'steer', override);
+      setModelDirty(false);
     }
     setInput('');
   };
@@ -702,8 +855,10 @@ function RoomComposer({
   );
 
   // Mid-run / plan-awaiting: the mockup-A reply card (ADR-0014) — textarea on
-  // top, a quiet mode·model·effort foot and the round send button below.
-  // Nothing to re-pick on a running task, so the meta is read-only here.
+  // top, trust level (fixed for the session) and the model·effort control in
+  // the foot. ADR-0016: replies can re-pick model/effort for the next turn;
+  // a plan-change reply revises within the current turn, so it keeps the
+  // read-only meta (the override rides on task.message only).
   if (!closed) {
     return (
       <div
@@ -715,10 +870,31 @@ function RoomComposer({
           {textarea('tr-cinput')}
           {slash.menu}
           <div className="tr-cfoot">
-            <span className="tr-mode" title="This task's trust level, model and reasoning effort">
-              {modeLabel(task.mode)} · {task.model.providerId}/{task.model.modelId}
-              {task.model.thinkingLevel ? ` · effort ${task.model.thinkingLevel}` : ''}
+            <span className="tr-mode" title="The trust level is fixed for this task's session">
+              {modeLabel(task.mode)}
             </span>
+            <span className="tr-rb-sp" />
+            {planOpen ? (
+              <span className="tr-mode" title="A plan-change reply revises within the current turn">
+                {task.model.providerId}/{task.model.modelId}
+                {task.model.thinkingLevel ? ` · effort ${task.model.thinkingLevel}` : ''}
+              </span>
+            ) : (
+              <ModelEffortControl
+                models={configuredModels}
+                modelKey={modelKey}
+                onModelKey={(key) => {
+                  setModelKey(key);
+                  setModelDirty(true);
+                }}
+                thinking={thinking}
+                onThinking={(level) => {
+                  setThinking(level);
+                  setModelDirty(true);
+                }}
+                testid="reply"
+              />
+            )}
             {sendButton}
           </div>
         </div>

@@ -386,9 +386,9 @@
   margin: -2px 0 8px;
 }
 
-/* Plan (static) + report cards. */
-.rt-plan,
-.rt-report {
+/* Plan (static) + conflict/failure cards. The completion report is no longer
+   a timeline card — it presents as the review bar (ADR-0016). */
+.rt-plan {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 13px;
@@ -472,34 +472,146 @@
 .rt-report-row.warn {
   color: var(--warning);
 }
-.rt-report-sum {
-  font-size: 11.5px;
-  color: var(--fg-muted);
-  margin-top: 4px;
-}
-.rt-report-sum summary {
-  cursor: pointer;
-}
-.rt-report-sum div {
-  white-space: pre-wrap;
-  padding-top: 4px;
-}
-.rt-report-note {
-  font-size: 10px;
-  color: var(--fg-faint);
-  margin-top: 6px;
-}
-.rt-report-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-top: 9px;
-}
 .rt-conflicts {
   border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
 }
 .rt-failedcard {
   border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+/* ---------- review bar (ADR-0016, direction B) ---------- */
+/* The completion report as STATE: docked above the composer while the task is
+   REVIEW_READY. Headline evidence + primary action inline; summary/rollback in
+   the overflow. Vanishes with the state, like the plan-approval affordance. */
+
+.tr-reviewbar {
+  flex: none;
+  margin: 0 22px 8px;
+  max-width: 640px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  box-shadow: var(--shadow-card);
+  padding: 8px 8px 8px 14px;
+  animation: tr-rb-in 0.25s ease;
+}
+@keyframes tr-rb-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tr-reviewbar {
+    animation: none;
+  }
+}
+.tr-rb-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.3px;
+  color: var(--fg-muted);
+  min-width: 0;
+}
+.tr-rb-main b {
+  color: var(--fg);
+  font-weight: 600;
+  flex: none;
+}
+.tr-rb-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  flex: none;
+}
+.tr-rb-meta {
+  color: var(--fg-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.tr-rb-sp {
+  flex: 1;
+}
+.tr-rb-morewrap {
+  position: relative;
+  flex: none;
+}
+.tr-rb-more {
+  border: none;
+  background: none;
+  color: var(--fg-faint);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-family: inherit;
+}
+.tr-rb-more:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.tr-rb-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: 280px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-menu);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tr-rb-menu hr {
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  margin: 2px 0;
+}
+.tr-rb-menurow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+.tr-rb-menurow:hover {
+  background: var(--bg-hover);
+}
+.tr-rb-menucap {
+  font-size: 10px;
+  color: var(--fg-faint);
+  line-height: 1.45;
+  padding: 2px 8px;
+}
+.tr-rb-warn {
+  font-size: 11.5px;
+  color: var(--warning);
+  padding: 5px 2px 0;
+}
+.tr-rb-summary {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  border-top: 1px dashed var(--border-soft);
+  margin-top: 7px;
+  padding: 6px 2px 2px;
 }
 
 /* ---------- room composer ---------- */

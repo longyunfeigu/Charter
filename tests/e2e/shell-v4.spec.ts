@@ -106,7 +106,9 @@ test.describe('Shell v4 — global tasks on a multi-mount engine (ADR-0009)', ()
       });
       await expect(page.getByTestId('task-room-answered')).toBeVisible();
       await expect(page.getByTestId('tl-answered')).toBeVisible();
-      await expect(page.getByTestId('tl-report')).toHaveCount(0);
+      // ADR-0016: no Done ceremony and no review bar for an answered task.
+      await expect(page.getByTestId('tl-done')).toHaveCount(0);
+      await expect(page.getByTestId('review-bar')).toHaveCount(0);
       await expect(page.getByTestId('review-open')).toHaveCount(0);
       await page.getByTestId('task-done').click();
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
@@ -216,7 +218,9 @@ test.describe('Shell v4 — the composer is "Request changes" (ADR-0009)', () =>
         timeout: 30000,
       });
       // One real change this time → full review weight, no "Answered" veneer.
-      await expect(page.getByTestId('tl-report')).toBeVisible();
+      // ADR-0016: the review bar carries the completion; the timeline gets Done.
+      await expect(page.getByTestId('review-bar')).toBeVisible();
+      await expect(page.getByTestId('tl-done')).toBeVisible();
       await expect(page.getByTestId('task-room-answered')).toHaveCount(0);
     } finally {
       await app.close();

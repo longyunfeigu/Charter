@@ -204,6 +204,8 @@ export interface AgentRuntime {
   startRun(input: StartRunInput): AsyncIterable<AgentEvent>;
   steer(runId: string, text: string): Promise<void>;
   followUp(runId: string, text: string): Promise<void>;
+  /** ADR-0016: switch an existing session's model/effort; applies from the next LLM call. */
+  setSessionModel(sessionId: string, model: ModelRef): Promise<void>;
   abort(runId: string, reason: AbortReason): Promise<void>;
   listModels(): Promise<ModelDescriptor[]>;
   validateCredential(providerId: string): Promise<CredentialCheck>;

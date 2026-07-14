@@ -76,7 +76,8 @@ test('soak: 50 consecutive tasks, one worker, zero restarts, clean exit', async 
         timeout: 30000,
       });
       // Roll back so the next run patches a pristine file (and rollback itself
-      // gets 50 reps).
+      // gets 50 reps). ADR-0016: rollback lives in the review bar's overflow.
+      await page.getByTestId('review-bar-more').click();
       await page.getByTestId('report-rollback').click();
       await page.getByTestId('report-rollback-confirm').click();
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ROLLED_BACK', {

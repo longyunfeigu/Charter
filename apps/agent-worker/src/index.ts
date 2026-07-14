@@ -139,6 +139,20 @@ async function handle(message: WorkerInbound): Promise<void> {
     case 'followUp':
       await runtime?.followUp(message.runId, message.text);
       break;
+    case 'setSessionModel': {
+      try {
+        await runtime!.setSessionModel(message.sessionId, message.model);
+        send({ type: 'response', reqId: message.reqId, ok: true, data: null });
+      } catch (e) {
+        send({
+          type: 'response',
+          reqId: message.reqId,
+          ok: false,
+          error: toProductError(e, 'AG_SET_MODEL_FAILED'),
+        });
+      }
+      break;
+    }
     case 'abort':
       await runtime?.abort(message.runId, message.reason);
       break;

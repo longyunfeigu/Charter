@@ -37,6 +37,7 @@ import {
   type CreateSessionInput,
   type CredentialCheck,
   type ModelDescriptor,
+  type ModelRef,
   type ModelUsage,
   type ThinkingLevel,
   type RuntimeInfo,
@@ -551,6 +552,40 @@ export class PiAgentRuntime implements AgentRuntime {
     if (!run) return;
     const entry = this.sessions.get(run.sessionId);
     await entry?.session.prompt(text, { streamingBehavior: 'steer' });
+  }
+
+  /**
+   * ADR-0016: reply-time model/effort override. Applies to the session's next
+   * LLM call (pi finishes any in-flight completion on the old model). The
+   * stored input.model is updated so usage events attribute to the new model.
+   */
+  async setSessionModel(sessionId: string, model: ModelRef): Promise<void> {
+    const entry = this.sessions.get(sessionId);
+    if (!entry) {
+      throw toProductError(
+        productError('AG_SESSION_NOT_FOUND', {
+          userMessage: 'The agent session no longer exists in this worker.',
+          retryable: true,
+        }),
+        'AG_SESSION_NOT_FOUND',
+      );
+    }
+    this.ensureModel(model.providerId, model.modelId);
+    const registered = this.registry.find(model.providerId, model.modelId);
+    if (!registered) {
+      throw toProductError(
+        productError('AG_MODEL_NOT_FOUND', {
+          userMessage: `Model ${model.providerId}/${model.modelId} is not available.`,
+        }),
+        'AG_MODEL_NOT_FOUND',
+      );
+    }
+    await entry.session.setModel(registered as Model<Api>);
+    // Same clamp as createSession: an unsupported effort can never reach the provider.
+    entry.session.setThinkingLevel(
+      clampThinkingLevel(registered as Model<Api>, (model.thinkingLevel ?? 'medium') as never),
+    );
+    entry.input = { ...entry.input, model };
   }
 
   async followUp(runId: string, text: string): Promise<void> {

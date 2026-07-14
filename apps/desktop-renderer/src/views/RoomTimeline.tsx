@@ -13,7 +13,6 @@ import { useEditorStore } from '../store/editorStore.js';
 import { peekModeForTool } from './peek.js';
 import { restoreScroll, saveScroll } from './scrollMemory.js';
 import { Ic } from './home-icons.js';
-import { ConfirmDangerButton } from './ui.js';
 import {
   PermissionCard,
   PlanCard,
@@ -297,86 +296,37 @@ function PlanStatic({ plan }: { plan: TaskPlanDto }): React.JSX.Element {
   );
 }
 
-/** Compact final report (hidden entirely for zero-change "Answered" tasks). */
-function ReportCard({
-  payload,
-  context,
-}: {
-  payload: Record<string, unknown>;
-  context: TimelineContext;
-}): React.JSX.Element {
-  const store = useTaskStore();
-  const unverified = payload.unverified === true;
+/**
+ * ADR-0016 (direction B): the completion report presents as STATE — the review
+ * bar above the composer (TaskRoomView) — not as a timeline card. The timeline
+ * keeps a quiet Done milestone whose meta carries the headline evidence.
+ */
+function DoneMilestone({ payload }: { payload: Record<string, unknown> }): React.JSX.Element {
   const changed = payload.changed as
     { files: number; additions: number; deletions: number } | undefined;
   const verification = payload.verification as
-    | {
-        runs: Array<{ label: string; state: string; stale?: boolean }>;
-        passed: number;
-        failed: number;
-      }
-    | undefined;
-  const agentSummary = typeof payload.agentSummary === 'string' ? payload.agentSummary : null;
-  const risks = (payload.unresolvedRisks ?? []) as string[];
+    { runs: unknown[]; passed: number; failed: number } | undefined;
+  const parts: string[] = [];
+  if (changed && changed.files > 0) {
+    parts.push(
+      `${changed.files} file${changed.files === 1 ? '' : 's'} +${changed.additions} −${changed.deletions}`,
+    );
+  }
+  if (verification && verification.runs.length > 0) {
+    parts.push(
+      `checks ${verification.passed} passed${
+        verification.failed > 0 ? `, ${verification.failed} failed` : ''
+      }`,
+    );
+  }
+  if (payload.unverified === true) parts.push('unverified');
   return (
-    <div className="rt-report" data-testid="tl-report">
-      <div className="rt-plan-head">
-        <b>Final report</b>
-        <span className="rt-plan-meta">outcome: {String(payload.outcome)}</span>
-      </div>
-      {changed ? (
-        <div className="rt-report-row" data-testid="report-changed">
-          Changed {changed.files} file{changed.files === 1 ? '' : 's'}{' '}
-          <span className="mono">
-            <i className="plus">+{changed.additions}</i>{' '}
-            <i className="minus">−{changed.deletions}</i>
-          </span>
-        </div>
-      ) : null}
-      {verification && verification.runs.length > 0 ? (
-        <div className="rt-report-row" data-testid="report-verification">
-          Verification: {verification.passed} passed, {verification.failed} failed
-          {verification.runs.some((r) => r.stale) ? ' (some stale)' : ''}
-        </div>
-      ) : null}
-      {unverified ? (
-        <div className="rt-report-row warn" data-testid="report-unverified">
-          Unverified — no verification commands were run.
-        </div>
-      ) : null}
-      {risks.length > 0 ? (
-        <div className="rt-report-row warn">Risks: {risks.join('; ')}</div>
-      ) : null}
-      {agentSummary ? (
-        <details className="rt-report-sum">
-          <summary>Agent's own summary (unverified narrative)</summary>
-          <Markdown text={agentSummary} />
-        </details>
-      ) : null}
-      <div className="rt-report-note">
-        Evidence comes from the recorded change/verification/permission records, not from the agent.
-      </div>
-      {context.taskState === 'REVIEW_READY' ? (
-        <div className="rt-report-actions">
-          <button
-            className="btn primary"
-            data-testid="report-review-open"
-            onClick={() => void store.openReview()}
-          >
-            Review changes
-          </button>
-          <span style={{ flex: 1 }} />
-          <ConfirmDangerButton
-            label="Roll back all…"
-            confirmLabel="Confirm — roll back all"
-            testid="report-rollback"
-            quiet
-            title="Restore every touched file to its pre-task state"
-            onConfirm={() => void store.rollbackTask()}
-          />
-        </div>
-      ) : null}
-    </div>
+    <Milestone
+      tone={(verification?.failed ?? 0) > 0 ? 'warn' : 'ok'}
+      label="Done"
+      meta={parts.join(' · ') || `outcome: ${String(payload.outcome)}`}
+      testid="tl-done"
+    />
   );
 }
 
@@ -581,7 +531,21 @@ function eventNode(
     }
     case 'report.final': {
       if (isAnswered(task)) return null; // the Answered milestone covers it
-      return <ReportCard key={event.id} payload={payload} context={context} />;
+      return <DoneMilestone key={event.id} payload={payload} />;
+    }
+    case 'task.modelChanged': {
+      // ADR-0016: honest audit of a reply-time model/effort override.
+      const model = payload.model as
+        { providerId: string; modelId: string; thinkingLevel?: string } | undefined;
+      return (
+        <div key={event.id} className="rt-note" data-testid="tl-model-changed">
+          Model for the next turn:{' '}
+          <span className="mono">
+            {model?.providerId}/{model?.modelId}
+          </span>
+          {model?.thinkingLevel ? ` · effort ${model.thinkingLevel}` : ''}
+        </div>
+      );
     }
     case 'run.failed': {
       const error = payload.error as { userMessage?: string; code?: string } | undefined;

@@ -89,6 +89,25 @@ describe('MockAgentRuntime', () => {
     await rt.dispose();
   });
 
+  it('setSessionModel switches a known model and rejects unknown sessions/models (ADR-0016)', async () => {
+    const { rt, session } = await makeSession();
+    // Known model: accepted (listModels ships mock-1 and mock-2).
+    await rt.setSessionModel(session.sessionId, {
+      providerId: 'mock',
+      modelId: 'mock-2',
+      thinkingLevel: 'low',
+    });
+    // Unknown model: loud product failure — nothing silently downgraded.
+    await expect(
+      rt.setSessionModel(session.sessionId, { providerId: 'mock', modelId: 'mock-99' }),
+    ).rejects.toMatchObject({ error: { code: 'AG_MODEL_NOT_FOUND' } });
+    // Unknown session: the caller must learn the worker lost it.
+    await expect(
+      rt.setSessionModel('mocksess_gone', { providerId: 'mock', modelId: 'mock-1' }),
+    ).rejects.toMatchObject({ error: { code: 'AG_SESSION_NOT_FOUND' } });
+    await rt.dispose();
+  });
+
   it('propagates tool executor denial as a non-successful tool result, not a crash', async () => {
     const executor: ToolExecutor = async (call) => ({
       callId: call.callId,

@@ -508,6 +508,8 @@ export const CHANNELS = {
         taskId: z.string(),
         text: z.string().min(1).max(20000),
         during: z.enum(['steer', 'followUp']).default('steer'),
+        /** ADR-0016: optional model/effort override for the next turn onward. */
+        model: ModelRefSchema.optional(),
       })
       .strict(),
     z.object({ delivered: z.enum(['started', 'steered', 'queued']) }),

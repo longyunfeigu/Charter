@@ -5,6 +5,7 @@ import type {
   CreateSessionInput,
   CredentialCheck,
   ModelDescriptor,
+  ModelRef,
   ModelUsage,
   RuntimeInfo,
   RuntimeInit,
@@ -15,7 +16,7 @@ import type {
   VisibleMessage,
 } from '@pi-ide/agent-contract';
 import { AGENT_EVENT_SCHEMA_VERSION } from '@pi-ide/agent-contract';
-import { delay, newId, productError } from '@pi-ide/foundation';
+import { delay, newId, productError, ProductFailure } from '@pi-ide/foundation';
 import { resolveScenario, type ScenarioStep } from './scenarios.js';
 
 interface RunHandle {
@@ -358,6 +359,30 @@ export class MockAgentRuntime implements AgentRuntime {
     this.runs.get(runId)?.followUpQueue.push(text);
   }
 
+  /** ADR-0016: record the switch; scenarios are model-agnostic but the session stays honest. */
+  async setSessionModel(sessionId: string, model: ModelRef): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new ProductFailure(
+        productError('AG_SESSION_NOT_FOUND', {
+          userMessage: 'The agent session no longer exists in this worker.',
+          retryable: true,
+        }),
+      );
+    }
+    const known = (await this.listModels()).some(
+      (m) => m.providerId === model.providerId && m.modelId === model.modelId,
+    );
+    if (!known) {
+      throw new ProductFailure(
+        productError('AG_MODEL_NOT_FOUND', {
+          userMessage: `Model ${model.providerId}/${model.modelId} is not available.`,
+        }),
+      );
+    }
+    this.sessions.set(sessionId, { ...session, model });
+  }
+
   async abort(runId: string, reason: AbortReason): Promise<void> {
     const handle = this.runs.get(runId);
     if (!handle) return;
@@ -375,6 +400,19 @@ export class MockAgentRuntime implements AgentRuntime {
         contextWindow: 128000,
         supportsThinking: true,
         supportedThinkingLevels: ['off', 'minimal', 'low', 'medium', 'high'],
+        configured: true,
+        authKind: 'none',
+      },
+      // ADR-0016: a second model so reply-time model switching is testable
+      // end-to-end without provider credentials.
+      {
+        providerId: 'mock',
+        providerName: 'Deterministic Mock',
+        modelId: 'mock-2',
+        displayName: 'Mock Model 2',
+        contextWindow: 64000,
+        supportsThinking: true,
+        supportedThinkingLevels: ['off', 'low', 'medium'],
         configured: true,
         authKind: 'none',
       },

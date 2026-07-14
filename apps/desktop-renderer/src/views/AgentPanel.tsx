@@ -1027,6 +1027,21 @@ function TimelineCard({
           {String(payload.detail ?? payload.code)}
         </div>
       );
+    case 'task.modelChanged': {
+      // ADR-0016: honest audit of a reply-time model/effort override.
+      const changedModel = payload.model as
+        { providerId: string; modelId: string; thinkingLevel?: string } | undefined;
+      return (
+        <div
+          className="text-muted tl-note"
+          style={{ padding: '0 14px', fontSize: 11 }}
+          data-testid="tl-model-changed"
+        >
+          Model for the next turn: {changedModel?.providerId}/{changedModel?.modelId}
+          {changedModel?.thinkingLevel ? ` · effort ${changedModel.thinkingLevel}` : ''}
+        </div>
+      );
+    }
     case 'task.created':
     case 'task.queued':
     case 'run.completed':

@@ -14,6 +14,7 @@ import type {
   AgentEvent,
   CreateSessionInput,
   ModelDescriptor,
+  ModelRef,
   RuntimeSessionRef,
   StartRunInput,
   ToolCallRequest,
@@ -307,6 +308,11 @@ export class AgentHost {
 
   followUp(runId: string, text: string): void {
     this.post({ type: 'followUp', runId, text });
+  }
+
+  /** ADR-0016: switch a live session's model/effort; rejects loudly on failure. */
+  async setSessionModel(sessionId: string, model: ModelRef): Promise<void> {
+    await this.request({ type: 'setSessionModel', reqId: newId('req'), sessionId, model });
   }
 
   abort(

@@ -34,8 +34,8 @@ export function registerM6Handlers(
         const result = await tasks.startTask(taskId, prompt);
         return { task: result.task, queued: result.queued };
       },
-      'task.message': async ({ taskId, text, during }) => ({
-        delivered: tasks.steerOrQueue(taskId, text, during),
+      'task.message': async ({ taskId, text, during, model }) => ({
+        delivered: await tasks.steerOrQueue(taskId, text, during, model),
       }),
       'task.stop': async ({ taskId }) => ({ task: await tasks.stopTask(taskId) }),
       'task.list': async ({ filter, includeArchived, scope }) => ({

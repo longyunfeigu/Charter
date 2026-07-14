@@ -1694,13 +1694,33 @@ export class TaskService {
     // worktree or its project root — independent of the focused workspace.
     const context = this.contextForTask(taskId);
     const kind = this.runtimeKind();
+    // Mock runs force a mock model only when the task was created against a
+    // real provider — a task already on a mock model keeps it (ADR-0016 lets
+    // replies pick mock-2, and the run record must stay honest).
     const model: ModelRef =
-      kind === 'mock' ? { providerId: 'mock', modelId: 'mock-1' } : task.model;
+      kind === 'mock' && task.model.providerId !== 'mock'
+        ? { providerId: 'mock', modelId: 'mock-1' }
+        : task.model;
 
     await this.host.ensure(kind);
 
     // Session: reuse existing ref when possible.
     let ref = this.sessionRefs.get(taskId);
+    if (ref) {
+      // ADR-0016: sessions outlive runs with their creation-time model —
+      // re-assert the task's current model so a reply-time override survives
+      // the idle restart. A session the worker lost is recreated below.
+      try {
+        await this.host.setSessionModel(ref.sessionId, model);
+      } catch (e) {
+        this.logger.warn('session model re-assert failed; recreating session', {
+          taskId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        this.sessionRefs.delete(taskId);
+        ref = undefined;
+      }
+    }
     if (!ref) {
       const sessionInput: CreateSessionInput = {
         taskId,
@@ -1804,11 +1824,15 @@ export class TaskService {
     return this.getTask(taskId);
   }
 
-  steerOrQueue(
+  async steerOrQueue(
     taskId: string,
     text: string,
     during: 'steer' | 'followUp',
-  ): 'steered' | 'queued' | 'started' {
+    model?: ModelRef,
+  ): Promise<'steered' | 'queued' | 'started'> {
+    // ADR-0016: a reply may re-point the task's model/effort for the next turn.
+    // Applied BEFORE the message so a failed switch rejects the send loudly.
+    if (model) await this.applyModelOverride(taskId, model);
     const runId = this.runsByTask.get(taskId);
     const task = this.getTask(taskId);
     if (runId && isRunningState(task.state as TaskState)) {
@@ -1839,6 +1863,50 @@ export class TaskService {
       this.attention(taskId, 'Your reply could not start a run — open the task and retry.');
     });
     return 'started';
+  }
+
+  /**
+   * ADR-0016: persist a reply-time model/effort override and apply it to the
+   * live session. The task record always names the model that serves the NEXT
+   * turn. The runtime switch happens first — if it fails, nothing is persisted
+   * and the reply is rejected, so no text is ever sent on the wrong model.
+   */
+  private async applyModelOverride(taskId: string, model: ModelRef): Promise<void> {
+    const current = this.getTask(taskId).model;
+    if (
+      current.providerId === model.providerId &&
+      current.modelId === model.modelId &&
+      (current.thinkingLevel ?? null) === (model.thinkingLevel ?? null)
+    ) {
+      return;
+    }
+    const ref = this.sessionRefs.get(taskId);
+    if (ref && !this.host.alive) {
+      // The session died with the worker; the next launch recreates it.
+      this.sessionRefs.delete(taskId);
+    } else if (ref) {
+      try {
+        await this.host.setSessionModel(ref.sessionId, model);
+      } catch (e) {
+        if (e instanceof ProductFailure && e.error.code === 'AG_SESSION_NOT_FOUND') {
+          // Restarted worker no longer knows the session: drop the stale ref —
+          // the next launch recreates the session with the new model.
+          this.sessionRefs.delete(taskId);
+        } else {
+          throw e;
+        }
+      }
+    }
+    this.db
+      .prepare('UPDATE tasks SET model_json = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(model), new Date().toISOString(), taskId);
+    this.recordEvent(taskId, 'task.modelChanged', { model, note: 'applies from the next turn' });
+    this.logger.info('task model overridden', {
+      taskId,
+      provider: model.providerId,
+      model: model.modelId,
+      effort: model.thinkingLevel ?? null,
+    });
   }
 
   archive(taskId: string): TaskDto {

@@ -67,7 +67,12 @@ interface TaskStore {
     /** ADR-0009 am.2: command run once inside the fresh worktree (deps, codegen). */
     worktreeSetup?: string;
   }): Promise<boolean>;
-  send(text: string, during: 'steer' | 'followUp'): Promise<void>;
+  send(
+    text: string,
+    during: 'steer' | 'followUp',
+    /** ADR-0016: optional model/effort override for the next turn onward. */
+    model?: TaskDto['model'],
+  ): Promise<void>;
   stop(): Promise<void>;
   /** Restart an INTERRUPTED/FAILED task's run (M10 recovery). */
   resumeTask(): Promise<void>;
@@ -324,11 +329,19 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     return true;
   },
 
-  async send(text, during) {
+  async send(text, during, model) {
     const taskId = get().activeTaskId;
     if (!taskId) return;
-    const res = await rpcResult('task.message', { taskId, text, during });
+    const res = await rpcResult('task.message', {
+      taskId,
+      text,
+      during,
+      ...(model ? { model } : {}),
+    });
     if (!res.ok) useAppStore.getState().pushToast('error', res.error.userMessage);
+    // ADR-0016: an override updates the task's model — refresh so the composer
+    // pill and task lists reflect the model serving the next turn.
+    else if (model) void get().refreshTasks();
   },
 
   async stop() {

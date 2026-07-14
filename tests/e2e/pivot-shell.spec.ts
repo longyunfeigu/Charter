@@ -65,7 +65,10 @@ test.describe('Dual-form shell pivot (ADR-0004, PIVOT-001..010)', () => {
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
         timeout: 30000,
       });
-      await expect(page.getByTestId('tl-report')).toBeVisible();
+      // ADR-0016: completion presents as the review bar (state), with a quiet
+      // Done milestone in the timeline — no report card.
+      await expect(page.getByTestId('review-bar')).toBeVisible();
+      await expect(page.getByTestId('tl-done')).toBeVisible();
 
       // PIVOT-007: back on Home, the task shows up in recent tasks.
       await page.getByTestId('task-room-back').click();
