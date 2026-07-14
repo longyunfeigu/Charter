@@ -281,6 +281,10 @@
 .st-card-head .st-sp {
   flex: 1;
 }
+.st-card-head .btn {
+  flex: none;
+  white-space: nowrap;
+}
 .st-skill-safe {
   display: flex;
   gap: 9px;

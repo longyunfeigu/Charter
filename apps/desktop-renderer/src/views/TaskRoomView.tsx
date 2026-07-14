@@ -153,12 +153,7 @@ export function TaskRoomView(): React.JSX.Element {
 
       <div className={`tr-body ${peeking ? 'peeking' : ''}`}>
         <div className="tr-main">
-          <div className="tr-mode text-muted">
-            <span className="tr-mode-fixed">
-              {modeLabel(task.mode)} · {task.model.providerId}/{task.model.modelId}
-              {task.model.thinkingLevel ? ` · effort ${task.model.thinkingLevel}` : ''}
-            </span>
-          </div>
+          {/* Mockup A (ADR-0014): mode/model/effort live in the composer foot. */}
           <RoomTimeline task={task} />
           {running ? <ActivityStrip taskId={task.id} /> : null}
           <RoomComposer key={task.id} task={task} running={running} />
@@ -706,7 +701,9 @@ function RoomComposer({
     </button>
   );
 
-  // Mid-run / plan-awaiting: the bare reply pill — nothing to re-pick.
+  // Mid-run / plan-awaiting: the mockup-A reply card (ADR-0014) — textarea on
+  // top, a quiet mode·model·effort foot and the round send button below.
+  // Nothing to re-pick on a running task, so the meta is read-only here.
   if (!closed) {
     return (
       <div
@@ -714,9 +711,17 @@ function RoomComposer({
         data-testid="room-composer"
         {...dragHandlers}
       >
-        {textarea('tr-input')}
-        {slash.menu}
-        {sendButton}
+        <div className="tr-ccard">
+          {textarea('tr-cinput')}
+          {slash.menu}
+          <div className="tr-cfoot">
+            <span className="tr-mode" title="This task's trust level, model and reasoning effort">
+              {modeLabel(task.mode)} · {task.model.providerId}/{task.model.modelId}
+              {task.model.thinkingLevel ? ` · effort ${task.model.thinkingLevel}` : ''}
+            </span>
+            {sendButton}
+          </div>
+        </div>
       </div>
     );
   }

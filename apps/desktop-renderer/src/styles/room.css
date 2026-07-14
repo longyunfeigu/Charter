@@ -147,10 +147,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 12px 0 8px;
+  margin: 14px 0 10px;
   font-size: 11.5px;
   color: var(--fg-faint);
   max-width: none;
+}
+/* Mockup A: the milestone sits centered between two hairlines. */
+.rt-milestone::before {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
 }
 .rt-milestone b {
   color: var(--fg-muted);
@@ -205,29 +212,25 @@
   background: var(--border-soft);
 }
 
+/* Mockup A (ADR-0014): the side carries the speaker — you on the right as a
+   quiet chip-bubble, the agent on the left as plain prose. No role labels. */
 .rt-bubble {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  box-shadow: var(--shadow-card);
-  padding: 10px 14px;
-  margin: 0 0 10px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 2px 0;
+  margin: 0 0 14px;
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.7;
+  max-width: 82%;
 }
 .rt-bubble.you {
   background: var(--bg-hover);
-  box-shadow: none;
-}
-.rt-who {
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--fg-faint);
-  margin-bottom: 4px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  border-radius: 13px 13px 4px 13px;
+  padding: 9px 13px;
+  margin-left: auto;
+  max-width: 78%;
+  line-height: 1.65;
 }
 .rt-text {
   white-space: pre-wrap;
@@ -239,25 +242,24 @@
   background: var(--info);
   display: inline-block;
   animation: rt-pulse 0.9s infinite;
+  margin-left: 3px;
+  vertical-align: text-bottom;
 }
 .rt-kind {
   color: var(--fg-faint);
 }
 
-/* Single-line tool rows — the mockup's collapsed evidence. */
+/* Single-line tool rows — mockup A: faint verb + target chip, no box. */
 .rt-tool {
-  border: 1px solid var(--border-soft);
-  border-radius: 9px;
-  background: var(--bg-main, transparent);
-  margin: 0 0 5px;
+  border: none;
+  background: none;
+  margin: 0 0 2px;
+  border-radius: 8px;
 }
-.rt-tool.live {
-  border-color: color-mix(in srgb, var(--info) 40%, var(--border));
-}
-.rt-tool.denied {
+.rt-tool.denied .rt-tool-target {
   border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
 }
-.rt-tool.failed {
+.rt-tool.failed .rt-tool-target {
   border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
 }
 .rt-tool-line {
@@ -265,27 +267,30 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px 11px;
+  padding: 4px 2px;
   background: transparent;
   border: none;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 12.3px;
   font-family: inherit;
   cursor: pointer;
   text-align: left;
   min-width: 0;
 }
 .rt-tool-ic {
-  color: var(--fg-faint);
-  display: flex;
-  flex: none;
+  display: none;
 }
 .rt-tool-verb {
   flex: none;
+  color: var(--fg-faint);
 }
 .rt-tool-target {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--fg);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 1px 7px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -504,8 +509,55 @@
   display: flex;
   gap: 9px;
   align-items: flex-end;
-  padding: 10px 22px 14px;
-  border-top: 1px solid var(--border-soft);
+  padding: 8px 22px 16px;
+}
+/* Mockup A reply card: textarea on top, quiet meta + round send in the foot. */
+.tr-ccard {
+  position: relative;
+  flex: 1;
+  max-width: 640px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  box-shadow: var(--shadow-card);
+  padding: 10px 12px;
+}
+.tr-cinput {
+  width: 100%;
+  border: none;
+  background: none;
+  resize: none;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  outline: none;
+  padding: 2px 2px 10px;
+  min-height: 40px;
+}
+.tr-cinput::placeholder {
+  color: var(--fg-faint);
+}
+.tr-cfoot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tr-cfoot .tr-mode {
+  font-size: 11px;
+  color: var(--fg-faint);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tr-cfoot .hm-send {
+  margin-left: auto;
+  flex: none;
+}
+.tr-composer.drop .tr-ccard {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
 }
 .tr-input {
   flex: 1;
@@ -834,15 +886,14 @@
 }
 
 /* ---------- live activity strip (ADR-0011) ---------- */
+/* Mockup A: a quiet inline strip above the composer — no card chrome. */
 .tr-activity {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 4px 0 2px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-card);
+  margin: 0;
+  padding: 7px 22px;
+  border-top: 1px solid var(--border-soft);
   font-size: 11.5px;
   color: var(--fg-muted);
   min-height: 30px;
@@ -872,17 +923,22 @@
   }
 }
 .tr-activity-label {
-  flex: 1;
+  flex: none;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--fg);
 }
+/* Mockup A: meta runs inline right after the action, mono and faint. */
 .tr-activity-meta {
   display: inline-flex;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
   color: var(--fg-faint);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1128,15 +1184,10 @@
 /* Clickable file targets in timeline tool rows (PIVOT-015r). */
 .rt-tool-target.link {
   cursor: pointer;
-  border-radius: 4px;
-  padding: 0 3px;
-  margin: 0 -3px;
 }
 .rt-tool-target.link:hover {
-  background: var(--bg-hover);
-  color: var(--fg);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  background: var(--bg-active);
+  border-color: var(--border);
 }
 
 /* Narrow windows: the peek stacks under the timeline like the rail does. */

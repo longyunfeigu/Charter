@@ -100,16 +100,17 @@ function Bubble(props: {
   testid?: string;
   live?: boolean;
 }): React.JSX.Element {
+  // Mockup A (ADR-0014): the side carries the speaker — you on the right as a
+  // quiet chip-bubble, the agent on the left as plain prose. No role labels.
   return (
     <div
       className={`rt-bubble ${props.who}`}
       {...(props.testid ? { 'data-testid': props.testid } : {})}
     >
-      <div className="rt-who">
-        {props.who === 'you' ? 'YOU' : 'AGENT'}
+      <div className="rt-text">
+        {props.children}
         {props.live ? <span className="rt-live-caret" aria-hidden /> : null}
       </div>
-      <div className="rt-text">{props.children}</div>
     </div>
   );
 }
@@ -170,7 +171,7 @@ function ToolRow({ event }: { event: TimelineEventDto }): React.JSX.Element | nu
         <span className="rt-tool-ic" aria-hidden>
           <Ic name={TOOL_ICON[name] ?? 'wrench'} size={12} />
         </span>
-        <span className="rt-tool-verb">{live ? liveVerb(name) : toolVerb(name)}</span>
+        <span className="rt-tool-verb">{live ? liveVerb(name) : roomVerb(name)}</span>
         {target && paths.length > 0 ? (
           // PIVOT-015r: evidence paths open the in-room peek; ⌘/alt-click keeps
           // the explicit Editor jump (never for worktree tasks — not honest).
@@ -227,6 +228,25 @@ function ToolRow({ event }: { event: TimelineEventDto }): React.JSX.Element | nu
       ) : null}
     </div>
   );
+}
+
+/** Mockup A: one compact verb, the target chip carries the rest. */
+const ROOM_VERBS: Record<string, string> = {
+  read_file: 'Read',
+  list_directory: 'Listed',
+  search_text: 'Searched',
+  apply_patch: 'Write',
+  create_file: 'Write',
+  delete_file: 'Delete',
+  rename_file: 'Rename',
+  run_command: 'Run',
+  run_verification: 'Verify',
+  git_status: 'Git',
+  git_diff: 'Git',
+};
+
+function roomVerb(name: string): string {
+  return ROOM_VERBS[name] ?? toolVerb(name);
 }
 
 function liveVerb(name: string): string {
