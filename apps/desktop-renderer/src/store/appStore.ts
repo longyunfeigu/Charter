@@ -37,6 +37,8 @@ interface AppStore {
   homePick: boolean;
   /** File refs queued for the next Home charter (e.g. "attach annotated image"). */
   pendingRefs: string[];
+  /** New project dialog (empty/clone) — global so the sidebar entry works from any surface. */
+  newProjectOpen: boolean;
   /** Diff-so-far lens (PIVOT-025) — global so boards in any surface share it. */
   lens: { taskId: string; path: string } | null;
   /** Bumped when a control asks the launcher composer to take focus. */
@@ -51,6 +53,7 @@ interface AppStore {
   focusComposer(): void;
   addPendingRefs(refs: string[]): void;
   consumePendingRefs(): string[];
+  setNewProjectOpen(open: boolean): void;
   setLayout(patch: Partial<LayoutState>): void;
   toggleSidebar(): void;
   toggleAgentPanel(): void;
@@ -117,6 +120,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   taskRoomTaskId: null,
   homePick: false,
   pendingRefs: [],
+  newProjectOpen: false,
   lens: null,
   composerFocusSeq: 0,
 
@@ -152,6 +156,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const refs = get().pendingRefs;
     if (refs.length > 0) set({ pendingRefs: [] });
     return refs;
+  },
+
+  setNewProjectOpen(open) {
+    set({ newProjectOpen: open });
   },
 
   async init() {

@@ -526,6 +526,11 @@
   outline: none;
   border-color: var(--border-strong);
 }
+/* Sidebar-tree drag hovering the reply pill (context feeding). */
+.tr-composer.drop .tr-input {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
 
 /* ---------- rail (focus layer, PIVOT-028) ---------- */
 
@@ -849,4 +854,15 @@
   color: var(--fg-faint);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Collapsed thinking rows carry a one-line preview (ADR-0011 follow-up). */
+.rt-think-preview {
+  font-style: italic;
+  color: var(--fg-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 560px;
+  min-width: 0;
 }

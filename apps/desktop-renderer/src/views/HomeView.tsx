@@ -20,7 +20,7 @@ import {
 } from './labels.js';
 import { ArmedIconButton } from './ui.js';
 import { LiveBoard } from './LiveBoard.js';
-import { NewProjectDialog } from './NewProjectDialog.js';
+import { readDragRef } from './dragRefs.js';
 
 type VerificationCommand = z.infer<typeof VerificationCommandSchema>;
 
@@ -62,7 +62,6 @@ export function HomeView(): React.JSX.Element {
   const [recent, setRecent] = useState<RecentWorkspaceDto[]>([]);
   const [branch, setBranch] = useState<string | null>(null);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
-  const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [refs, setRefs] = useState<string[]>([]);
@@ -316,6 +315,13 @@ export function HomeView(): React.JSX.Element {
       app.pushToast('warning', 'Choose a project before attaching files.');
       return;
     }
+    // Sidebar tree drag: the payload is already workspace-relative.
+    const rel = readDragRef(e);
+    if (rel) {
+      addRefs([rel]);
+      inputRef.current?.focus();
+      return;
+    }
     const files = [...e.dataTransfer.files];
     const paths = files
       .map((f) => pathForDroppedFile(f))
@@ -472,7 +478,6 @@ export function HomeView(): React.JSX.Element {
   return (
     <main className="hm-main" data-testid="home-view">
       <div className="hm-main-top" />
-      {newProjectOpen ? <NewProjectDialog onClose={() => setNewProjectOpen(false)} /> : null}
 
       <div
         className={`hm-hero ${needsYou.length > 0 || running.length > 0 || recentDone.length > 0 ? 'compact' : ''}`}
@@ -512,7 +517,7 @@ export function HomeView(): React.JSX.Element {
             </button>
             {refs.map((r) => (
               <span key={r} className="hm-refchip" data-testid={`home-ref-${r}`}>
-                <Ic name="file" size={11} />
+                <Ic name={r.endsWith('/') ? 'folder' : 'file'} size={11} />
                 <span>{r}</span>
                 <button
                   aria-label={`Remove ${r}`}
@@ -560,7 +565,7 @@ export function HomeView(): React.JSX.Element {
                   data-testid="home-menu-new-project"
                   onClick={() => {
                     setProjectMenuOpen(false);
-                    setNewProjectOpen(true);
+                    app.setNewProjectOpen(true);
                   }}
                 >
                   <Ic name="plus" />

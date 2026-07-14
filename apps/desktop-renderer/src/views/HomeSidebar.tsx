@@ -221,14 +221,26 @@ export function HomeSidebar(): React.JSX.Element {
       <button
         className="hm-row"
         data-testid="home-open-folder"
+        title="Open an existing folder as a project"
         onClick={() => {
           app.setHomePick(true);
           void workspaceStore.openViaDialog();
         }}
       >
-        <Ic name="plus" />
+        <Ic name="folder" />
         <span className="hm-tt" style={{ color: 'var(--fg-muted)' }}>
           Open folder…
+        </span>
+      </button>
+      <button
+        className="hm-row"
+        data-testid="home-new-project"
+        title="Create an empty project or clone a repository"
+        onClick={() => app.setNewProjectOpen(true)}
+      >
+        <Ic name="plus" />
+        <span className="hm-tt" style={{ color: 'var(--fg-muted)' }}>
+          New project…
         </span>
       </button>
 

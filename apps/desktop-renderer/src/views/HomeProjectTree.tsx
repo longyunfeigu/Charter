@@ -6,6 +6,7 @@ import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useGitStatusStore, MARK_COLOR } from '../store/gitStatusStore.js';
 import { useGlowPaths } from './useGlow.js';
 import { Ic } from './home-icons.js';
+import { setDragRef } from './dragRefs.js';
 
 const MAX_ENTRIES = 200;
 
@@ -66,6 +67,8 @@ export function HomeProjectTree(): React.JSX.Element {
             data-testid={`home-tree-${path}`}
             style={{ paddingLeft: 10 + depth * 12 }}
             title={path}
+            draggable
+            onDragStart={(e) => setDragRef(e, isDir ? `${path}/` : path)}
             onClick={() => (isDir ? toggleExpand(path) : openFile(path))}
           >
             <span className={`hm-tree-caret ${isDir ? (isOpen ? 'open' : '') : 'none'}`}>
@@ -78,6 +81,21 @@ export function HomeProjectTree(): React.JSX.Element {
             >
               {entry.name}
             </span>
+            {!isDir && gitMarks[path] ? (
+              <span
+                className="mono hm-tree-mark"
+                data-testid={`home-tree-mark-${path}`}
+                style={{
+                  color: MARK_COLOR[gitMarks[path]!],
+                  fontSize: 9.5,
+                  fontWeight: 700,
+                  marginLeft: 'auto',
+                  paddingRight: 2,
+                }}
+              >
+                {gitMarks[path]}
+              </span>
+            ) : null}
           </button>
           {isDir && isOpen ? renderDir(path, depth + 1) : null}
         </React.Fragment>

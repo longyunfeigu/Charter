@@ -6,6 +6,7 @@ import { HomeSidebar, needsAttention } from './HomeSidebar.js';
 import { HomeView } from './HomeView.js';
 import { TaskRoomView } from './TaskRoomView.js';
 import { FileLens } from './FileLens.js';
+import { NewProjectDialog } from './NewProjectDialog.js';
 import '../styles/home.css';
 import '../styles/room.css';
 
@@ -19,6 +20,8 @@ export function HomeShell(): React.JSX.Element {
   const taskRoomTaskId = useAppStore((s) => s.taskRoomTaskId);
   const lens = useAppStore((s) => s.lens);
   const setLens = useAppStore((s) => s.setLens);
+  const newProjectOpen = useAppStore((s) => s.newProjectOpen);
+  const setNewProjectOpen = useAppStore((s) => s.setNewProjectOpen);
   const taskStore = useTaskStore();
   const hydrate = useActivityStore((s) => s.hydrate);
 
@@ -46,6 +49,7 @@ export function HomeShell(): React.JSX.Element {
       {lens ? (
         <FileLens taskId={lens.taskId} path={lens.path} onClose={() => setLens(null)} />
       ) : null}
+      {newProjectOpen ? <NewProjectDialog onClose={() => setNewProjectOpen(false)} /> : null}
     </div>
   );
 }
