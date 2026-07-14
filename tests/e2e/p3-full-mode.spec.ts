@@ -41,6 +41,23 @@ test.describe('P3 full mode (ADR-0012)', () => {
       expect(existsSync(join(fixture, 'rollback-note.txt'))).toBe(true);
       expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).toContain('add(3, 4)');
 
+      // Replying to a CLOSED task starts a follow-up task (same project/mode)
+      // instead of silently doing nothing.
+      await page.getByTestId('agent-input').fill('now also add a moon');
+      await page.getByTestId('agent-send').click();
+      await expect(page.getByTestId('task-room')).toContainText('now also add a moon', {
+        timeout: 20000,
+      });
+      await expect(page.getByTestId('task-state')).not.toHaveAttribute('data-state', 'ACCEPTED');
+
+      // Back to the original room for the rollback half of this test.
+      await page.getByTestId('task-room-back').click();
+      await page
+        .locator('[data-testid^="home-task-"]')
+        .filter({ hasText: 'full auto' })
+        .first()
+        .click();
+
       // Post-accept rollback (ADR-0012): snapshots survive accept.
       await expect(page.getByTestId('task-room-accepted')).toBeVisible();
       await page.getByTestId('task-rollback').click();

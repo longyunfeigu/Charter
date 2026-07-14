@@ -1754,8 +1754,25 @@ export class TaskService {
       else this.host.followUp(runId, text);
       return during === 'steer' ? 'steered' : 'queued';
     }
-    // Idle: start a fresh run with this text as the prompt.
-    void this.startTask(taskId, text);
+    // Closed tasks cannot restart (ACCEPTED/ROLLED_BACK/CANCELLED/ARCHIVED —
+    // §6.1). Fail loudly; the room composer starts a follow-up task instead.
+    if (!['READY', 'INTERRUPTED', 'REVIEW_READY', 'FAILED'].includes(task.state)) {
+      throw new ProductFailure(
+        productError('TASK_CLOSED', {
+          userMessage:
+            'This task is closed — send the message as a follow-up task from its room instead.',
+        }),
+      );
+    }
+    // Idle: start a fresh run with this text as the prompt. Failures must not
+    // vanish (a swallowed rejection here read as "typing does nothing").
+    void this.startTask(taskId, text).catch((e) => {
+      this.logger.warn('reply-start failed', {
+        taskId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      this.attention(taskId, 'Your reply could not start a run — open the task and retry.');
+    });
     return 'started';
   }
 

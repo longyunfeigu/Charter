@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { rpcResult } from '../bridge.js';
-import { useTaskStore, RUNNING_TASK_STATES } from '../store/taskStore.js';
+import { useTaskStore, RUNNING_TASK_STATES, titleFromIntent } from '../store/taskStore.js';
 import { useActivityStore, currentActionLine } from '../store/activityStore.js';
 import { useAppStore } from '../store/appStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
@@ -11,6 +11,7 @@ import { LiveBoard } from './LiveBoard.js';
 import { ConfirmDangerButton } from './ui.js';
 import { Ic } from './home-icons.js';
 import { canArchiveTask, isAnswered, modeLabel, presentedMeta } from './labels.js';
+import { hasDragRef, readDragRef } from './dragRefs.js';
 
 /**
  * Task Room v2 (ADR-0008/0009, PIVOT-021/028): the per-task page rendered in
@@ -474,32 +475,101 @@ function WorktreeChip({
 }
 
 /** Room reply pill — plan-aware: while a plan awaits approval, typing here IS
- * "Request changes" (ADR-0009; no extra button). */
+ * "Request changes" (ADR-0009; no extra button). On a closed task (accepted /
+ * rolled back / cancelled) a reply starts a FOLLOW-UP task in the same
+ * project with the same mode+model — closed tasks cannot restart (§6.1). */
 function RoomComposer({
   task,
   running,
 }: {
-  task: { id: string; state: string };
+  task: {
+    id: string;
+    state: string;
+    title: string;
+    mode: 'ask' | 'edit' | 'auto' | 'full';
+    model: {
+      providerId: string;
+      modelId: string;
+      thinkingLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    };
+    projectPath: string;
+  };
   running: boolean;
 }): React.JSX.Element {
   const store = useTaskStore();
+  const app = useAppStore();
   const [input, setInput] = useState('');
+  const [dropActive, setDropActive] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const planOpen = task.state === 'AWAITING_PLAN_APPROVAL';
+  const closed = ['ACCEPTED', 'ROLLED_BACK', 'CANCELLED', 'ARCHIVED'].includes(task.state);
+
+  const startFollowUp = async (text: string): Promise<void> => {
+    const ok = await store.createAndStart({
+      title: titleFromIntent(text),
+      goalMd: `${text}\n\n(Follow-up to “${task.title}” — that task's changes are already applied in this project.)`,
+      acceptance: [],
+      mode: task.mode,
+      model: task.model,
+      projectPath: task.projectPath,
+      isolation: 'none',
+    });
+    if (ok) {
+      const newId = useTaskStore.getState().activeTaskId;
+      if (newId) app.openTaskRoom(newId);
+    }
+  };
 
   const send = (): void => {
     const text = input.trim();
     if (!text) return;
     if (planOpen) {
       void store.decidePlan({ decision: 'request_changes', reason: text });
+    } else if (closed) {
+      void startFollowUp(text);
     } else {
       void store.send(text, 'steer');
     }
     setInput('');
   };
 
+  // Sidebar tree drag → inline "@path" at the caret (context feeding; the
+  // reply is plain text, so refs travel inside the message itself).
+  const insertRef = (rel: string): void => {
+    const el = ref.current;
+    const token = `@${rel}`;
+    const start = el?.selectionStart ?? input.length;
+    const end = el?.selectionEnd ?? input.length;
+    const before = input.slice(0, start);
+    const after = input.slice(end);
+    const sep = before.length > 0 && !/\s$/.test(before) ? ' ' : '';
+    const caret = start + sep.length + token.length + 1;
+    setInput(`${before}${sep}${token} ${after}`);
+    setTimeout(() => {
+      el?.focus();
+      el?.setSelectionRange(caret, caret);
+    }, 0);
+  };
+
   return (
-    <div className="tr-composer">
+    <div
+      className={`tr-composer ${dropActive ? 'drop' : ''}`}
+      data-testid="room-composer"
+      onDragOver={(e) => {
+        if (!hasDragRef(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        setDropActive(true);
+      }}
+      onDragLeave={() => setDropActive(false)}
+      onDrop={(e) => {
+        const rel = readDragRef(e);
+        if (!rel) return;
+        e.preventDefault();
+        setDropActive(false);
+        insertRef(rel);
+      }}
+    >
       <textarea
         ref={ref}
         className="tr-input"
@@ -510,7 +580,9 @@ function RoomComposer({
             ? 'Request changes to the plan — the agent will revise it…'
             : running
               ? 'Reply — steer the agent or add context…'
-              : 'Reply — starts a new run…'
+              : closed
+                ? 'Follow up — starts a new task in this project…'
+                : 'Reply — starts a new run…'
         }
         value={input}
         onChange={(e) => setInput(e.target.value)}
