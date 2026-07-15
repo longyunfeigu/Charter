@@ -39,6 +39,32 @@ function fmtDuration(ms: number): string | null {
   return `${m}m ${s - m * 60 < 10 ? '0' : ''}${s - m * 60}s`;
 }
 
+/** Worklog clock (ADR-0018): mm:ss.d since the room's first event. */
+function fmtClock(ms: number): string {
+  const s = Math.max(0, Number.isFinite(ms) ? ms : 0) / 1000;
+  const m = Math.floor(s / 60);
+  const r = s - m * 60;
+  return `${String(m).padStart(2, '0')}:${r.toFixed(1).padStart(4, '0')}`;
+}
+
+/**
+ * ADR-0018: contiguous evidence rows collapse into one recessed worklog.
+ * Row events group; null-rendering events pass through without breaking a
+ * group; everything else (milestones, bubbles, cards) closes it.
+ */
+function isLogRow(event: TimelineEventDto): boolean {
+  if (event.type === 'verification.completed' || event.type === 'worktree.setup') return true;
+  if (event.type !== 'tool.call') return false;
+  const payload = event.payload as Record<string, unknown>;
+  const name = String(payload.name ?? '');
+  if (name === 'propose_plan' || name === 'update_plan') return false; // renders null
+  // Conflict cards present as cards, not rows — they break the group.
+  return !(
+    String(payload.state ?? '') === 'FAILED' &&
+    String(payload.summary ?? '') === 'CHG_VERSION_CONFLICT'
+  );
+}
+
 /** +a −d from a unified patch (honest: derived from the change itself). */
 function patchStat(patch: string): { additions: number; deletions: number } {
   let additions = 0;
@@ -134,7 +160,13 @@ function openTimelinePath(
 }
 
 /** Single-line tool row; clicking expands the evidence. */
-function ToolRow({ event }: { event: TimelineEventDto }): React.JSX.Element | null {
+function ToolRow({
+  event,
+  ts,
+}: {
+  event: TimelineEventDto;
+  ts?: string;
+}): React.JSX.Element | null {
   const [open, setOpen] = useState(false);
   const payload = event.payload as Record<string, unknown>;
   const name = String(payload.name ?? '');
@@ -167,6 +199,7 @@ function ToolRow({ event }: { event: TimelineEventDto }): React.JSX.Element | nu
       data-state={state}
     >
       <button className="rt-tool-line" onClick={() => setOpen(!open)} title="Show details">
+        {ts ? <span className="rt-ts">{ts}</span> : null}
         <span className="rt-tool-ic" aria-hidden>
           <Ic name={TOOL_ICON[name] ?? 'wrench'} size={12} />
         </span>
@@ -335,8 +368,10 @@ function eventNode(
   context: TimelineContext,
   task: TaskDto,
   msMeta: Map<string, string | null>,
+  runStartMs: number,
 ): React.JSX.Element | null {
   const payload = event.payload as Record<string, unknown>;
+  const clock = fmtClock(Date.parse(event.at) - runStartMs);
   switch (event.type) {
     case 'task.stateChanged': {
       const to = String(payload.to);
@@ -409,7 +444,7 @@ function eventNode(
       ) {
         return <ConflictCard key={event.id} payload={payload} />;
       }
-      return <ToolRow key={`${event.id}-${event.sequence}`} event={event} />;
+      return <ToolRow key={`${event.id}-${event.sequence}`} event={event} ts={clock} />;
     }
     case 'agent.toolProposed':
       return null;
@@ -575,6 +610,7 @@ function eventNode(
       return (
         <SetupRow
           key={event.id}
+          ts={clock}
           command={String(payload.command ?? '')}
           ok={ok}
           exitCode={typeof payload.exitCode === 'number' ? payload.exitCode : null}
@@ -593,7 +629,7 @@ function eventNode(
         outputExcerpt: string;
       };
       const passed = run.state === 'passed';
-      return <VerRow key={event.id} run={run} passed={passed} />;
+      return <VerRow key={event.id} run={run} passed={passed} ts={clock} />;
     }
     case 'rollback.blocked': {
       const conflicts = (payload.conflicts ?? []) as Array<{ path: string; reason: string }>;
@@ -668,9 +704,11 @@ function eventNode(
 function VerRow({
   run,
   passed,
+  ts,
 }: {
   run: { label: string; state: string; exitCode: number | null; outputExcerpt: string };
   passed: boolean;
+  ts?: string;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   return (
@@ -679,6 +717,7 @@ function VerRow({
       data-testid={`tl-verification-${run.state}`}
     >
       <button className="rt-tool-line" onClick={() => setOpen(!open)} title="Show output">
+        {ts ? <span className="rt-ts">{ts}</span> : null}
         <span className="rt-tool-ic" aria-hidden>
           <Ic name="play" size={12} />
         </span>
@@ -769,12 +808,14 @@ function SetupRow(props: {
   exitCode: number | null;
   durationMs: number;
   output: string;
+  ts?: string;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const seconds = Math.round(props.durationMs / 1000);
   return (
     <div className={`rt-tool ${props.ok ? '' : 'failed'}`} data-testid="tl-worktree-setup">
       <button className="rt-tool-line" onClick={() => setOpen(!open)} title="Show setup output">
+        {props.ts ? <span className="rt-ts">{props.ts}</span> : null}
         <span className="rt-tool-ic" aria-hidden>
           <Ic name="wrench" size={12} />
         </span>
@@ -849,6 +890,35 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
     msMeta.set(cur.id, next ? fmtDuration(Date.parse(next.at) - Date.parse(cur.at)) : null);
   }
 
+  // ADR-0018: the worklog clock counts from the room's first event; contiguous
+  // evidence rows collapse into one recessed worklog block.
+  const runStartMs = store.timeline.length > 0 ? Date.parse(store.timeline[0]!.at) : Date.now();
+  const grouped: React.JSX.Element[] = [];
+  let logGroup: React.JSX.Element[] = [];
+  let logGroupKey = '';
+  const flushLog = (): void => {
+    if (logGroup.length > 0) {
+      grouped.push(
+        <div className="rt-worklog" key={`wl-${logGroupKey}`} data-testid="tl-worklog">
+          {logGroup}
+        </div>,
+      );
+      logGroup = [];
+    }
+  };
+  for (const event of store.timeline) {
+    const node = eventNode(event, context, task, msMeta, runStartMs);
+    if (node === null) continue; // silent events never break a worklog
+    if (isLogRow(event)) {
+      if (logGroup.length === 0) logGroupKey = event.id;
+      logGroup.push(node);
+    } else {
+      flushLog();
+      grouped.push(node);
+    }
+  }
+  flushLog();
+
   return (
     <div
       ref={scrollRef}
@@ -860,26 +930,28 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
         saveScroll(task.id, el);
       }}
     >
-      {store.loadingTimeline ? (
-        <div className="rt-note">Loading timeline…</div>
-      ) : (
-        <>
-          {store.timeline.map((event) => eventNode(event, context, task, msMeta))}
-          {store.streamingThinking ? (
-            <ThinkingBlock
-              live
-              text={store.streamingThinking.text}
-              durationMs={null}
-              startedAt={store.streamingThinking.startedAt}
-            />
-          ) : null}
-          {store.streaming ? (
-            <Bubble who="agent" testid="tl-streaming" live>
-              <Markdown text={store.streaming.text} />
-            </Bubble>
-          ) : null}
-        </>
-      )}
+      <div className="rt-col">
+        {store.loadingTimeline ? (
+          <div className="rt-note">Loading timeline…</div>
+        ) : (
+          <>
+            {grouped}
+            {store.streamingThinking ? (
+              <ThinkingBlock
+                live
+                text={store.streamingThinking.text}
+                durationMs={null}
+                startedAt={store.streamingThinking.startedAt}
+              />
+            ) : null}
+            {store.streaming ? (
+              <Bubble who="agent" testid="tl-streaming" live>
+                <Markdown text={store.streaming.text} />
+              </Bubble>
+            ) : null}
+          </>
+        )}
+      </div>
     </div>
   );
 }

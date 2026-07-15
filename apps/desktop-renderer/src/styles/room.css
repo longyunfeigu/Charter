@@ -1,6 +1,8 @@
-/* Task Room v2 (ADR-0008/0009, PIVOT-021/028/032) — rendered inside the
-   persistent shell's content area. Timeline follows the mockup language:
-   ✓ milestones with elapsed time, quiet bubbles, single-line tool rows. */
+/* Task Room v3 (ADR-0018, preset E「手记工作台」from
+   docs/design/room-conversation-directions.html) — rendered inside the
+   persistent shell's content area. One centered column with a time spine on
+   the left; the agent speaks in serif prose; contiguous tool evidence sinks
+   into a recessed mono worklog; the composer stays a Home-family card. */
 
 .tr-root {
   flex: 1;
@@ -137,36 +139,52 @@
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding: 8px 22px 14px;
+  padding: 14px 24px 18px;
 }
-.rt-scroll > * {
-  max-width: 640px;
+/* ADR-0018: one centered 640px column carrying a time spine on its left. */
+.rt-col {
+  position: relative;
+  width: min(640px, 100%);
+  margin: 0 auto;
+  padding-left: 30px;
+}
+.rt-col::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: var(--border);
 }
 
+/* Milestones anchor their glyph onto the spine; the label runs mono
+   uppercase with a trailing hairline (preset E = spine + console). */
 .rt-milestone {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 14px 0 10px;
+  margin: 20px 0 12px;
   font-size: 11.5px;
   color: var(--fg-faint);
-  max-width: none;
-}
-/* Mockup A: the milestone sits centered between two hairlines. */
-.rt-milestone::before {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border-soft);
 }
 .rt-milestone b {
   color: var(--fg-muted);
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 .rt-ms-ic {
-  width: 14px;
+  position: absolute;
+  left: -30px;
+  width: 19px;
   text-align: center;
   flex: none;
+  background: var(--bg-editor);
+  padding: 3px 0;
 }
 .rt-milestone.ok .rt-ms-ic {
   color: var(--success);
@@ -205,6 +223,8 @@
 }
 .rt-ms-meta {
   color: var(--fg-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
 }
 .rt-ms-line {
   flex: 1;
@@ -212,25 +232,32 @@
   background: var(--border-soft);
 }
 
-/* Mockup A (ADR-0014): the side carries the speaker — you on the right as a
-   quiet chip-bubble, the agent on the left as plain prose. No role labels. */
+/* ADR-0018 (keeps ADR-0014's side-carries-the-speaker): the agent speaks in
+   serif prose, you reply as a quiet chip-bubble on the right. No role labels. */
 .rt-bubble {
   background: none;
   border: none;
   box-shadow: none;
   padding: 2px 0;
-  margin: 0 0 14px;
-  font-size: 13px;
-  line-height: 1.7;
-  max-width: 82%;
+  margin: 0 0 16px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 1.9;
+  max-width: 96%;
 }
 .rt-bubble.you {
+  font-family: var(--font-ui);
+  font-size: 13.5px;
   background: var(--bg-hover);
-  border-radius: 13px 13px 4px 13px;
-  padding: 9px 13px;
+  border-radius: 15px 15px 5px 15px;
+  padding: 10px 14px;
   margin-left: auto;
-  max-width: 78%;
+  max-width: 76%;
   line-height: 1.65;
+}
+/* Serif prose keeps mono chips at worklog scale. */
+.rt-bubble .md-inlinecode {
+  font-size: 11.5px;
 }
 .rt-text {
   white-space: pre-wrap;
@@ -249,30 +276,62 @@
   color: var(--fg-faint);
 }
 
-/* Single-line tool rows — mockup A: faint verb + target chip, no box. */
+/* ADR-0018: contiguous tool evidence sinks into a recessed mono worklog with
+   timestamps — the log IS the evidence surface (preset E, from mock C). */
+.rt-worklog {
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 7px 12px;
+  margin: 4px 0 12px;
+}
+.rt-worklog .rt-tool {
+  animation: rt-login 0.5s ease;
+}
+@keyframes rt-login {
+  from {
+    opacity: 0;
+    background: color-mix(in srgb, var(--info) 10%, transparent);
+  }
+  to {
+    opacity: 1;
+    background: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rt-worklog .rt-tool {
+    animation: none;
+  }
+}
 .rt-tool {
   border: none;
   background: none;
-  margin: 0 0 2px;
-  border-radius: 8px;
+  margin: 0;
+  border-radius: 6px;
 }
 .rt-tool.denied .rt-tool-target {
-  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+  color: var(--warning);
 }
 .rt-tool.failed .rt-tool-target {
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+  color: var(--danger);
+}
+.rt-ts {
+  flex: none;
+  font-size: 10px;
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
 }
 .rt-tool-line {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 4px 2px;
+  padding: 3px 0;
   background: transparent;
   border: none;
   color: var(--fg-muted);
-  font-size: 12.3px;
-  font-family: inherit;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
   cursor: pointer;
   text-align: left;
   min-width: 0;
@@ -287,10 +346,10 @@
 .rt-tool-target {
   font-size: 11.5px;
   color: var(--fg);
-  background: var(--bg-hover);
-  border: 1px solid var(--border-soft);
-  border-radius: 6px;
-  padding: 1px 7px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -486,8 +545,9 @@
 
 .tr-reviewbar {
   flex: none;
-  margin: 0 22px 8px;
-  max-width: 640px;
+  /* ADR-0018: the bar rides the same centered 640 column as the timeline. */
+  margin: 0 auto 8px;
+  width: min(640px, calc(100% - 48px));
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 13px;
@@ -621,18 +681,22 @@
   display: flex;
   gap: 9px;
   align-items: flex-end;
-  padding: 8px 22px 16px;
+  justify-content: center;
+  padding: 8px 24px 16px;
 }
-/* Mockup A reply card: textarea on top, quiet meta + round send in the foot. */
+/* Reply card: textarea on top, quiet meta + round send in the foot. */
 .tr-ccard {
   position: relative;
   flex: 1;
   max-width: 640px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 13px;
+  border-radius: 16px;
   box-shadow: var(--shadow-card);
-  padding: 10px 12px;
+  padding: 11px 13px 9px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.2s ease;
 }
 .tr-cinput {
   width: 100%;
@@ -648,6 +712,19 @@
 }
 .tr-cinput::placeholder {
   color: var(--fg-faint);
+}
+/* Focus lives on the card, not the raw textarea (theme.css's global
+   :focus-visible otherwise paints a 2px ink box inside the reply card —
+   same treatment as .hm-ta / .hm-card in home.css). */
+.tr-cinput:focus-visible {
+  outline: none;
+}
+.tr-ccard:focus-within,
+.tr-fcard .hm-card:focus-within {
+  border-color: var(--fg-muted);
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 3px color-mix(in srgb, var(--fg) 7%, transparent);
 }
 .tr-cfoot {
   display: flex;
@@ -706,6 +783,7 @@
 .tr-fcard {
   position: relative;
   max-width: 640px;
+  margin: 0 auto;
 }
 .tr-fta {
   min-height: 24px;
@@ -998,17 +1076,19 @@
 }
 
 /* ---------- live activity strip (ADR-0011) ---------- */
-/* Mockup A: a quiet inline strip above the composer — no card chrome. */
+/* ADR-0018: a quiet console ticker above the composer — mono, faintly inked. */
 .tr-activity {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 0;
-  padding: 7px 22px;
+  padding: 7px 24px;
   border-top: 1px solid var(--border-soft);
-  font-size: 11.5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
   color: var(--fg-muted);
   min-height: 30px;
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
 }
 .tr-activity-dot {
   width: 7px;
@@ -1298,8 +1378,8 @@
   cursor: pointer;
 }
 .rt-tool-target.link:hover {
-  background: var(--bg-active);
-  border-color: var(--border);
+  background: var(--bg-hover);
+  box-shadow: 0 0 0 3px var(--bg-hover);
 }
 
 /* Narrow windows: the peek stacks under the timeline like the rail does. */
