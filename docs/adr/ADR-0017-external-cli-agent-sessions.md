@@ -122,4 +122,49 @@ sit at their prompts.
 Recorded boundary: a non-exec shell-script wrapper keeps a shell comm and is
 still missed while its title reads as a shell; real installers exec or use
 shebangs, so this is accepted. E2E covers the version-named shape with a real
-binary (`fakeclaude → versions/9.9.9`, a zsh copy) driven on a real PTY.
+binary (`fakeclaude → versions/9.9.9`) driven on a real PTY. Fixture note
+(2026-07-15): the fixture binary is a copy of the running node executable —
+the earlier `/bin/zsh` copy never executed (macOS AMFI SIGKILLs copies of
+Apple platform binaries), which had silently voided that E2E.
+
+## Amendment 2 (2026-07-15) — 决策 4 revised: decorate in place, promote on intent
+
+Field failure: the automatic promotion shipped unusable — typing `claude` in
+the dock yanked the terminal into a 350px column ~700 ms later, and because
+xterm 6's `open()` only attaches on the FIRST call (re-open is a no-op that
+never re-parents `term.element`), the promoted panel came up EMPTY: the TUI
+invisible, keystrokes going nowhere. The same broken re-mount pattern
+(`host.innerHTML=''; term.open(host)`) also blanked dock tab switching
+(A→B→A), the Home⇄Editor round-trip, and the return-to-dock path
+(`active=null`). `external-cli.spec.ts` asserted the moved scrollback and was
+red at HEAD — the feature was committed against a failing gate.
+
+Design verdict (product owner approved the redesign via
+`docs/design/external-cli-attach-redesign.html`, an interactive film of the
+full flow): the approved END STATE stands (side column, changes strip, room,
+review); the detection-triggered TRANSITION was the flaw — it moved the
+surface the user was typing into, hung a layout mutation on a weak heuristic
+signal, sized the column below the TUI's 80-column floor, and offered no way
+to decline or undo.
+
+Decision 4 now reads:
+
+1. **Detection only decorates.** Tab badge `✳ <cli> EXT`, a 34 px session bar
+   at the top of the terminal pane (snapshot chip, live file counter, ⤢ Room,
+   ⇥ Move to side panel), one toast, tree-row badges. Zero layout change,
+   zero focus movement. Signal flap can only flicker decoration, never
+   layout.
+2. **Placement is user intent.** "Move to side panel" (600 px default,
+   resizable 480–900, ≥80 columns) and "⤢ Room" are clicks on the bar;
+   "⇤ Return to dock" undoes the move at any time. The pref
+   `terminal.autoPromoteExternal` (default **off**) restores auto-move for
+   those who want it.
+3. **Session end moves nothing.** The bar/panel header flip to an ended state
+   with a Review entry; the terminal stays where the user put it. The task
+   still lands in REVIEW_READY (unchanged).
+4. **Substrate: `mountTerminal(host, item)`** — first mount `open()`, every
+   re-mount moves the live `term.element` (`replaceChildren`) + fit + refresh
+   + focus. Used by the dock, the side panel and the room; fixes the four
+   blank-pane paths above. E2E now types INTO the promoted terminal and
+   asserts the PTY echo, plus tab-switch / surface round-trip / return
+   regressions (`terminal-remount.spec.ts`).

@@ -1,16 +1,14 @@
 import React, { useEffect, useRef } from 'react';
 import { useAppStore } from '../store/appStore.js';
-import { useExternalStore } from '../store/externalStore.js';
-import { useTerminalStore } from './TerminalPanel.js';
+import { useExternalStore, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH } from '../store/externalStore.js';
+import { useTerminalStore, mountTerminal } from './TerminalPanel.js';
 
 /**
- * ADR-0017 决策 4 —「检测升格」. While an accounted external CLI session is
- * active, its terminal (same xterm instance, PTY uninterrupted) is promoted
- * out of the bottom dock into this right-side vertical column. The column
- * carries a live "session changes" strip driven by the FS-watcher accounting;
- * a change row zooms into the session room, landing on that file's diff peek
- * (the peek is a room facility, ADR-0014). Session end returns the pane to
- * the dock.
+ * ADR-0017 rev.2 —「意图升格」. The side panel exists only after the user
+ * clicked "Move to side panel" on a session bar (or opted into auto-promote).
+ * Same xterm instance, PTY uninterrupted; 600px default so the TUI keeps
+ * ≥80 columns; resizable; the session ending does NOT move the pane — the
+ * user returns it with ⇤ (or closes the terminal).
  */
 export function ExternalPanel(): React.JSX.Element | null {
   const promoted = useExternalStore((s) => s.promoted);
@@ -18,22 +16,21 @@ export function ExternalPanel(): React.JSX.Element | null {
     promoted ? (s.agentByTerminal[promoted.terminalId] ?? null) : null,
   );
   const session = useExternalStore((s) => (promoted ? s.sessions[promoted.taskId] : undefined));
+  const width = useExternalStore((s) => s.panelWidth);
   const surface = useAppStore((s) => s.surface);
   const items = useTerminalStore((s) => s.items);
   const hostRef = useRef<HTMLDivElement>(null);
+  const dragStart = useRef(0);
 
   const item = promoted ? (items.find((t) => t.id === promoted.terminalId) ?? null) : null;
 
-  // Mount the promoted terminal (same mount pattern as the dock / the room).
+  // Mount the promoted terminal (same mount substrate as the dock / the room).
   // The room takes the instance while it is open (Home surface) — only claim
   // it while the Editor surface is actually in front.
   useEffect(() => {
     const host = hostRef.current;
     if (!host || !item || surface !== 'workspace') return;
-    host.innerHTML = '';
-    item.term.open(host);
-    item.fit.fit();
-    item.term.focus();
+    mountTerminal(host, item);
     const observer = new ResizeObserver(() => {
       try {
         item.fit.fit();
@@ -47,16 +44,42 @@ export function ExternalPanel(): React.JSX.Element | null {
 
   if (!promoted) return null;
 
+  const live = (session?.status ?? 'active') === 'active';
   const files = session?.files ?? [];
   const openRoom = (path?: string): void => {
     const app = useAppStore.getState();
     app.openTaskRoom(promoted.taskId);
     if (path) app.openPeek(promoted.taskId, path, 'diff');
   };
+  const startDrag = (e: React.MouseEvent): void => {
+    e.preventDefault();
+    dragStart.current = e.clientX + width;
+    const onMove = (ev: MouseEvent): void => {
+      useExternalStore.getState().setPanelWidth(dragStart.current - ev.clientX);
+    };
+    const onUp = (): void => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
 
   return (
-    <aside className="external-panel" data-testid="external-panel" aria-label="External session">
-      <div className="xp-head">
+    <aside
+      className="external-panel"
+      style={{ width }}
+      data-testid="external-panel"
+      aria-label="External session"
+    >
+      <div
+        className="xp-resize"
+        role="separator"
+        aria-label="Resize session panel"
+        title={`Drag to resize (${PANEL_MIN_WIDTH}–${PANEL_MAX_WIDTH}px)`}
+        onMouseDown={startDrag}
+      />
+      <div className={`xp-head ${live ? '' : 'ended'}`}>
         <span className="xp-dot" />
         <span className="term-agent" data-testid={`terminal-agent-${promoted.terminalId}`}>
           ✳ {cli ?? session?.cli ?? 'agent'}{' '}
@@ -67,14 +90,37 @@ export function ExternalPanel(): React.JSX.Element | null {
             EXT
           </span>
         </span>
+        {!live ? (
+          <span className="xp-ended" data-testid="external-panel-ended">
+            ✻ ended
+          </span>
+        ) : null}
         <span className="xp-sp" />
+        {!live ? (
+          <button
+            className="xp-btn review"
+            data-testid="external-panel-review"
+            title="Review this session's changes (accept or roll back byte-exactly)"
+            onClick={() => openRoom()}
+          >
+            Review
+          </button>
+        ) : null}
         <button
-          className="xp-room"
+          className="xp-btn"
           data-testid={`terminal-open-room-${promoted.terminalId}`}
           title="Open this session's Task Room — live changes, peek and review around this terminal"
           onClick={() => openRoom()}
         >
-          ⤢ Open session room
+          ⤢ Room
+        </button>
+        <button
+          className="xp-btn"
+          data-testid="external-return-dock"
+          title="Return this terminal to the bottom dock"
+          onClick={() => useExternalStore.getState().unpromote()}
+        >
+          ⇤ Return to dock
         </button>
       </div>
       <div ref={hostRef} className="xp-term" data-testid="external-panel-terminal" />

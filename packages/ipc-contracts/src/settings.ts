@@ -37,6 +37,9 @@ export const SettingsSchema = z.object({
       fontSize: z.number().min(8).max(32).default(12),
       shellPath: z.string().nullable().default(null),
       scrollback: z.number().int().min(100).max(200000).default(5000),
+      /** ADR-0017 rev.2: auto-move a detected external CLI session to the side
+       * panel. Off = detection only decorates in place; moving is a user action. */
+      autoPromoteExternal: z.boolean().default(false),
     })
     .prefault({}),
   agent: z

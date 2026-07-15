@@ -31,6 +31,29 @@ interface TerminalStore {
   clearActive(): void;
 }
 
+/**
+ * Mount an existing xterm into a host element. xterm 6's `open()` only
+ * attaches on the FIRST call (re-open is a window-bookkeeping no-op), so every
+ * re-mount — dock tab switch, side panel, room, surface round-trip — must move
+ * the live element itself (ADR-0017 rev.2 substrate fix).
+ */
+export function mountTerminal(host: HTMLElement, item: Pick<TermInstance, 'term' | 'fit'>): void {
+  const el = item.term.element;
+  if (!el) {
+    host.replaceChildren();
+    item.term.open(host);
+  } else if (el.parentElement !== host) {
+    host.replaceChildren(el);
+  }
+  try {
+    item.fit.fit();
+    item.term.refresh(0, item.term.rows - 1);
+  } catch {
+    // fit/refresh races during teardown are harmless
+  }
+  item.term.focus();
+}
+
 function makeTerm(fontSize: number, scrollback: number): { term: Terminal; fit: FitAddon } {
   const dark = document.documentElement.dataset.theme !== 'light';
   const term = new Terminal({
@@ -134,6 +157,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       ?.term.dispose();
     const items = get().items.filter((t) => t.id !== id);
     set({ items, active: items.at(-1)?.id ?? null, pendingKill: null });
+    useExternalStore.getState().handleTerminalClosed(id);
   },
 
   async confirmKill(id, confirmed) {
@@ -147,6 +171,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       ?.term.dispose();
     const items = get().items.filter((t) => t.id !== id);
     set({ items, active: items.at(-1)?.id ?? null, pendingKill: null });
+    useExternalStore.getState().handleTerminalClosed(id);
   },
 
   rename(id, title) {
@@ -159,6 +184,85 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   },
 }));
 
+/**
+ * ADR-0017 rev.2 — the in-place session bar. All UI consequences of detection
+ * land here (badge, snapshot chip, live file counter, actions); the terminal
+ * itself never moves on detection. Ended sessions keep the bar (green state,
+ * Review entry) until the terminal closes or a new session replaces it.
+ */
+export function SessionBar({ terminalId }: { terminalId: string }): React.JSX.Element | null {
+  const taskId = useExternalStore((s) => s.taskByTerminal[terminalId]);
+  const cli = useExternalStore((s) => s.agentByTerminal[terminalId] ?? null);
+  const session = useExternalStore((s) => (taskId ? s.sessions[taskId] : undefined));
+  const promoted = useExternalStore((s) => s.promoted);
+  if (!taskId) return null;
+  const live = session ? session.status === 'active' : cli !== null;
+  const files = session?.files.length ?? 0;
+  const name = cli ?? session?.cli ?? 'agent';
+  const slotTaken = promoted !== null && promoted.terminalId !== terminalId;
+  const openRoom = (): void => useAppStore.getState().openTaskRoom(taskId);
+  return (
+    <div className={`term-session-bar ${live ? '' : 'ended'}`} data-testid="terminal-session-bar">
+      <span className="tsb-dot" />
+      <span className="tsb-cli">✳ {name}</span>
+      <span
+        className="term-agent-ext"
+        title="External agent session — unmanaged (outside the Tool Gateway); tracked & reviewable"
+      >
+        EXT · unmanaged
+      </span>
+      {session?.snapshotRef ? (
+        <span className="tsb-snap" title="Entry snapshot — rollback restores these bytes exactly">
+          snap {session.snapshotRef.slice(0, 7)}
+        </span>
+      ) : null}
+      {live ? (
+        <span key={files} className="tsb-files" data-testid="session-bar-files">
+          <b>{files}</b> file{files === 1 ? '' : 's'}
+        </span>
+      ) : (
+        <span className="tsb-ended" data-testid="session-bar-ended">
+          ✻ ended · {files} file{files === 1 ? '' : 's'}
+        </span>
+      )}
+      <span className="tsb-sp" />
+      {!live ? (
+        <button
+          className="tsb-btn review"
+          data-testid="session-bar-review"
+          title="Review this session's changes (accept or roll back byte-exactly)"
+          onClick={openRoom}
+        >
+          Review
+        </button>
+      ) : null}
+      <button
+        className="tsb-btn"
+        data-testid="session-bar-room"
+        title="Open this session's Task Room — live changes, peek and review around this terminal"
+        onClick={openRoom}
+      >
+        ⤢ Room
+      </button>
+      {live ? (
+        <button
+          className="tsb-btn primary"
+          data-testid="session-bar-promote"
+          disabled={slotTaken}
+          title={
+            slotTaken
+              ? 'The side panel already hosts another session'
+              : 'Move this session terminal to the right side panel (return anytime)'
+          }
+          onClick={() => useExternalStore.getState().promote(terminalId)}
+        >
+          ⇥ Move to side panel
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function TerminalPanel(): React.JSX.Element {
   const store = useTerminalStore();
   const workspace = useWorkspaceStore((s) => s.workspace);
@@ -167,11 +271,12 @@ export function TerminalPanel(): React.JSX.Element {
   // ADR-0017: external agent sessions decorate their terminal's tab.
   const agentByTerminal = useExternalStore((s) => s.agentByTerminal);
   const taskByTerminal = useExternalStore((s) => s.taskByTerminal);
-  // 「检测升格」(决策 4): the promoted terminal lives in the right-side column,
-  // not in the dock — its xterm belongs to the panel while the session runs.
+  // ADR-0017 rev.2「意图升格」: a terminal the user moved to the side panel is
+  // not in the dock — its xterm belongs to the panel until 归位.
   const promoted = useExternalStore((s) => s.promoted);
   const surface = useAppStore((s) => s.surface);
   const dockItems = store.items.filter((t) => t.id !== promoted?.terminalId);
+  const activeDock = dockItems.find((t) => t.id === store.active) ?? null;
 
   useEffect(() => {
     store.init();
@@ -188,25 +293,21 @@ export function TerminalPanel(): React.JSX.Element {
   }, [promoted?.terminalId, store.active]);
 
   // Mount the active terminal into the host div. The Editor surface must be
-  // in front — the room / the promoted column own their instances otherwise.
+  // in front — the room / the side panel own their instances otherwise.
   useEffect(() => {
     const host = hostRef.current;
-    const active = store.items.find((t) => t.id === store.active && t.id !== promoted?.terminalId);
-    if (!host || !active || surface !== 'workspace') return;
-    host.innerHTML = '';
-    active.term.open(host);
-    active.fit.fit();
-    active.term.focus();
+    if (!host || !activeDock || surface !== 'workspace') return;
+    mountTerminal(host, activeDock);
     const observer = new ResizeObserver(() => {
       try {
-        active.fit.fit();
+        activeDock.fit.fit();
       } catch {
         // ignore fit races during teardown
       }
     });
     observer.observe(host);
     return () => observer.disconnect();
-  }, [store.active, store.items, promoted?.terminalId, surface]);
+  }, [activeDock, surface]);
 
   if (!workspace) {
     return <div className="empty-state">Open a workspace to use terminals.</div>;
@@ -215,6 +316,7 @@ export function TerminalPanel(): React.JSX.Element {
   return (
     <div style={{ display: 'flex', height: '100%' }} data-testid="terminal-panel">
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        {activeDock ? <SessionBar terminalId={activeDock.id} /> : null}
         <div
           ref={hostRef}
           style={{ flex: 1, minHeight: 0, padding: '2px 4px' }}

@@ -3,7 +3,7 @@ import type { TaskDto } from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
 import { useAppStore } from '../store/appStore.js';
 import { useExternalStore, type ExternalSessionFile } from '../store/externalStore.js';
-import { useTerminalStore } from './TerminalPanel.js';
+import { useTerminalStore, mountTerminal } from './TerminalPanel.js';
 
 /**
  * ADR-0017 — the center column of an external CLI session's Task Room: the
@@ -39,14 +39,12 @@ export function ExternalTerminalColumn({ task }: { task: TaskDto }): React.JSX.E
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastDelta?.seq]);
 
-  // Mount the session's terminal into this room (same pattern as the dock panel).
+  // Mount the session's terminal into this room (same mount substrate as the
+  // dock / side panel — ADR-0017 rev.2: xterm re-mounts move the live element).
   useEffect(() => {
     const host = hostRef.current;
     if (!host || !item) return;
-    host.innerHTML = '';
-    item.term.open(host);
-    item.fit.fit();
-    item.term.focus();
+    mountTerminal(host, item);
     const observer = new ResizeObserver(() => {
       try {
         item.fit.fit();

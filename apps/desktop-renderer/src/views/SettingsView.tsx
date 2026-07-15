@@ -694,6 +694,15 @@ export function SettingsView(): React.JSX.Element {
                 onChange={(e) => set({ terminal: { scrollback: Number(e.target.value) } })}
               />
             </Row>
+            <Row
+              label="Auto-move external agent sessions to the side panel"
+              hint="Off = a detected claude/codex session only decorates its terminal in place; moving it is your click"
+            >
+              <Toggle
+                checked={settings.terminal.autoPromoteExternal}
+                onChange={(v) => set({ terminal: { autoPromoteExternal: v } })}
+              />
+            </Row>
           </div>
         ) : null}
 

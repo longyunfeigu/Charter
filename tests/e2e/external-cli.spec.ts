@@ -36,7 +36,8 @@ function createFakeAgentBin(fixture: string): string {
       "  fs.writeFileSync(target, src + 'export const externalTouch = 1;\\n');",
       "  console.log('✏ edited src/util.ts');",
       '}, 1500);',
-      'setTimeout(() => process.exit(0), 4000);',
+      // Long enough to promote the pane and type into the live PTY mid-session.
+      'setTimeout(() => process.exit(0), 12000);',
       '',
     ].join('\n'),
   );
@@ -70,61 +71,88 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await page.keyboard.type('fakeagent');
       await page.keyboard.press('Enter');
 
-      // Detection: the agent badge appears, the room entry appears.
+      // Detection = decoration in place (ADR-0017 rev.2): badge + session bar
+      // appear, but NOTHING moves — no side panel, the dock stays put.
       await expect(page.locator('[data-testid^="terminal-agent-"]')).toContainText('fakeagent', {
         timeout: 15000,
       });
-      const openRoom = page.locator('[data-testid^="terminal-open-room-"]');
-      await expect(openRoom).toBeVisible({ timeout: 15000 });
+      const bar = page.getByTestId('terminal-session-bar');
+      await expect(bar).toBeVisible();
+      await expect(bar).toContainText('fakeagent');
+      await expect(bar).toContainText('EXT');
+      await expect(page.getByTestId('external-panel')).toHaveCount(0);
+      await expect(page.getByTestId('bottom-panel')).toBeVisible();
+      await expect(page.locator('[data-testid^="terminal-open-room-"]')).toBeVisible({
+        timeout: 15000,
+      });
 
-      // ADR-0017 决策 4「检测升格」: the pane promotes to a right-side vertical
-      // column (same xterm/PTY) and the dock — whose only terminal it was —
-      // collapses out of the way.
+      // The CLI's edit lands in the bar's live counter.
+      await expect(page.getByTestId('session-bar-files')).toContainText('1 file', {
+        timeout: 15000,
+      });
+
+      // 「意图升格」: moving to the side panel is the user's click. Same
+      // xterm/PTY — the scrollback must actually render in the panel, and the
+      // dock (whose only terminal this was) collapses as a consequence of the
+      // user's own action.
+      await page.getByTestId('session-bar-promote').click();
       const panel = page.getByTestId('external-panel');
-      await expect(panel).toBeVisible({ timeout: 15000 });
+      await expect(panel).toBeVisible();
       await expect(panel).toContainText('fakeagent');
-      await expect(page.getByTestId('external-panel-terminal')).toBeVisible();
-      // The SAME xterm moved — its scrollback (the CLI's banner) must actually
-      // render in the promoted column, not stay behind in a detached host.
       await expect(page.getByTestId('external-panel-terminal')).toContainText(
         'fake agent session started',
         { timeout: 10000 },
       );
       await expect(page.getByTestId('bottom-panel')).toHaveCount(0);
 
-      // The panel carries a live "session changes" strip; the CLI's edit
-      // lands there with a diffstat.
+      // The promoted terminal is ALIVE: keystrokes reach the PTY and echo back
+      // (the exact failure of the original 决策 4 implementation).
+      await page.getByTestId('external-panel-terminal').click();
+      await page.keyboard.type('promoted-echo-ok');
+      await expect(page.getByTestId('external-panel-terminal')).toContainText('promoted-echo-ok', {
+        timeout: 10000,
+      });
+
+      // The panel carries the live "session changes" strip with a diffstat.
       const stripRow = page.getByTestId('external-strip-file-src/util.ts');
       await expect(stripRow).toBeVisible({ timeout: 15000 });
       await expect(stripRow).toContainText('+1');
 
-      // Clicking a change row zooms into the session room, landing directly
-      // on that file's diff peek (the peek is a room facility, ADR-0014).
-      await stripRow.click();
+      // Session end: the pane STAYS where the user put it (no auto-return);
+      // the panel header flips to the ended state with a Review entry.
+      await expect(page.getByTestId('external-panel-ended')).toBeVisible({ timeout: 25000 });
+      await expect(page.getByTestId('external-panel')).toBeVisible();
+      await expect(page.getByTestId('external-panel-review')).toBeVisible();
+
+      // 「归位」is the user's click too: the dock comes back, the SAME terminal
+      // returns with its scrollback (banner + the echo we typed), and the bar
+      // keeps its ended state with the Review entry.
+      await page.getByTestId('external-return-dock').click();
+      await expect(page.getByTestId('external-panel')).toHaveCount(0);
+      await expect(page.getByTestId('bottom-panel')).toBeVisible();
+      await expect(page.getByTestId('terminal-host')).toContainText('fake agent session started', {
+        timeout: 10000,
+      });
+      await expect(page.getByTestId('terminal-host')).toContainText('promoted-echo-ok');
+      await expect(page.getByTestId('session-bar-ended')).toContainText('1 file');
+
+      // Review from the bar opens the session room: terminal column (content
+      // follows the instance), rail row, review entry; rail row click peeks.
+      await page.getByTestId('session-bar-review').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
       await expect(page.getByTestId('task-room-external-chip')).toContainText('fakeagent');
       await expect(page.getByTestId('external-terminal-column')).toBeVisible();
-      await expect(page.getByTestId('external-terminal-host')).toBeVisible();
-      // Room takes the xterm over — content must follow it here too.
       await expect(page.getByTestId('external-terminal-host')).toContainText(
         'fake agent session started',
         { timeout: 10000 },
       );
-      await expect(page.getByTestId('file-peek')).toBeVisible();
-      await expect(page.getByTestId('peek-tab-src/util.ts')).toBeVisible();
-
-      // Session end: never auto-accepted — REVIEW_READY with a live review entry.
-      await expect(page.getByTestId('external-ended')).toBeVisible({ timeout: 20000 });
-
-      // 退出归位: the promoted pane returns to the dock, the dock comes back.
-      await expect(page.getByTestId('external-panel')).toHaveCount(0);
-      await expect(page.getByTestId('bottom-panel')).toBeVisible();
-      await expect(page.locator('[data-testid^="terminal-tab-"]')).toBeVisible();
-      // Close the peek: the rail (and its decision panel) comes back (ADR-0014),
-      // carrying the same accounted row the strip showed.
-      await page.getByTestId('peek-close').click();
+      await expect(page.getByTestId('external-ended')).toBeVisible();
       await expect(page.getByTestId('task-room-file-src/util.ts')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId('review-open').first()).toBeVisible({ timeout: 15000 });
+      await page.getByTestId('task-room-file-src/util.ts').click();
+      await expect(page.getByTestId('file-peek')).toBeVisible();
+      await expect(page.getByTestId('peek-tab-src/util.ts')).toBeVisible();
+      await page.getByTestId('peek-close').click();
 
       // The accounted baseline is the PRE-session content: the diff must show
       // exactly the line the fake agent appended.
@@ -167,25 +195,31 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
   });
 
   test('detects the native-installer shape: version-named binary behind a CLI symlink', async () => {
-    // The native claude/codex installers link `claude → …/versions/2.1.209`,
-    // so the kernel short name node-pty reports is the version string, never
-    // the CLI name. Only the argv process-tree fallback can see the session.
+    // Installer shapes hide the CLI name from the foreground title: the native
+    // installer links `claude → …/versions/2.1.209`, the npm install links
+    // `claude → …/bin/claude.exe` (Bun-compiled) — either way the kernel short
+    // name is not `claude`, and only the argv process-tree fallback sees the
+    // session. The fixture binary is a copy of the running node executable:
+    // copying /bin/zsh looks simpler but macOS AMFI SIGKILLs copies of Apple
+    // platform binaries, so that shape can never run.
     test.skip(process.platform !== 'darwin', 'kernel comm shape under test is darwin-specific');
     const fixture = createGitFixture();
     const bin = mkdtempSync(join(tmpdir(), 'pi-ide-fakebin-'));
     mkdirSync(join(bin, 'versions'));
-    copyFileSync('/bin/zsh', join(bin, 'versions', '9.9.9'));
+    copyFileSync(process.execPath, join(bin, 'versions', '9.9.9'));
     chmodSync(join(bin, 'versions', '9.9.9'), 0o755);
     symlinkSync(join(bin, 'versions', '9.9.9'), join(bin, 'fakeclaude'));
     const target = join(fixture, 'src/util.ts').replace(/\\/g, '/');
     writeFileSync(
-      join(bin, 'agent.zsh'),
+      join(bin, 'agent.js'),
       [
-        "echo '✳ fake versioned agent started'",
-        'sleep 2',
-        `echo 'export const externalTouch = 1;' >> ${JSON.stringify(target)}`,
-        "echo '✏ edited src/util.ts'",
-        'sleep 1',
+        "const fs = require('fs');",
+        "console.log('✳ fake versioned agent started');",
+        'setTimeout(() => {',
+        `  fs.appendFileSync(${JSON.stringify(target)}, 'export const externalTouch = 1;\\n');`,
+        "  console.log('✏ edited src/util.ts');",
+        '}, 2000);',
+        'setTimeout(() => process.exit(0), 3500);',
         '',
       ].join('\n'),
     );
@@ -207,7 +241,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await expect(page.getByTestId('terminal-panel')).toContainText('ready-marker', {
         timeout: 15000,
       });
-      await page.keyboard.type(`fakeclaude ${join(bin, 'agent.zsh')}`);
+      await page.keyboard.type(`fakeclaude ${join(bin, 'agent.js')}`);
       await page.keyboard.press('Enter');
 
       // Detection despite the foreground title reading "9.9.9".
