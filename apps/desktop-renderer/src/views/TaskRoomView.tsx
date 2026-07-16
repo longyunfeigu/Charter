@@ -28,6 +28,7 @@ import { buildPreviewFeedbackText } from './LivePreview.js';
 import { openTaskInEditor } from './openInEditor.js';
 import { ExternalTerminalColumn, useExternalFiles } from './ExternalRoom.js';
 import { useExternalStore } from '../store/externalStore.js';
+import { roomCopyFor } from './roomCopy.js';
 
 const EMPTY_TERMINAL_REFS: TerminalOutputRef[] = [];
 
@@ -209,7 +210,9 @@ export function TaskRoomView(): React.JSX.Element {
           {/* ADR-0016 (direction B): the completion report is STATE — a review
               bar docked above the composer while the decision is pending. */}
           {task.state === 'REVIEW_READY' && !answered ? <ReviewBar task={task} /> : null}
-          {running && !task.external ? <ActivityStrip taskId={task.id} /> : null}
+          {running && !task.external ? (
+            <ActivityStrip taskId={task.id} taskText={`${task.title}\n${task.goalMd}`} />
+          ) : null}
           {task.external ? null : <RoomComposer key={task.id} task={task} running={running} />}
         </div>
 
@@ -501,11 +504,13 @@ function ReviewBar({
 }: {
   task: {
     id: string;
+    goalMd: string;
     worktree: { branch: string } | null;
     verification: Array<{ label: string }>;
   };
 }): React.JSX.Element | null {
   const store = useTaskStore();
+  const copy = roomCopyFor(task.goalMd);
   const [menuOpen, setMenuOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -569,7 +574,7 @@ function ReviewBar({
     <div className="tr-reviewbar" data-testid="review-bar">
       <div className="tr-rb-main">
         <span className="tr-rb-dot" aria-hidden />
-        <b>Ready to review</b>
+        <b>{copy.reviewReady}</b>
         {changed && changed.files > 0 ? (
           <span className="tr-rb-meta" data-testid="report-changed">
             {changed.files} file{changed.files === 1 ? '' : 's'}{' '}
@@ -581,8 +586,10 @@ function ReviewBar({
         ) : null}
         {effectiveVerification && effectiveVerification.runs.length > 0 ? (
           <span className="tr-rb-meta" data-testid="report-verification">
-            checks: {effectiveVerification.passed} passed
-            {effectiveVerification.failed > 0 ? `, ${effectiveVerification.failed} failed` : ''}
+            {copy.checks}: {effectiveVerification.passed} {copy.passed}
+            {effectiveVerification.failed > 0
+              ? `, ${effectiveVerification.failed} ${copy.failed}`
+              : ''}
             {superseded > 0 ? ` · ${superseded} superseded${stale ? ' (stale)' : ''}` : ''}
           </span>
         ) : null}
@@ -592,13 +599,20 @@ function ReviewBar({
           data-testid="review-bar-open"
           onClick={() => void store.openReview()}
         >
-          Review changes
+          {copy.reviewChanges}
+        </button>
+        <button
+          className="btn"
+          data-testid="review-bar-accept"
+          onClick={() => void store.acceptTask()}
+        >
+          {copy.accept}
         </button>
         <div className="tr-rb-morewrap" ref={menuRef}>
           <button
             className="tr-rb-more"
             data-testid="review-bar-more"
-            title="Agent summary · Roll back"
+            title={`${copy.agentSummary} · ${task.worktree ? copy.discardWorktree : copy.rollbackAll}`}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen(!menuOpen)}
@@ -616,15 +630,13 @@ function ReviewBar({
                     setMenuOpen(false);
                   }}
                 >
-                  {summaryOpen ? 'Hide agent summary' : "Agent's own summary"}
+                  {summaryOpen ? copy.hideAgentSummary : copy.agentSummary}
                 </button>
               ) : null}
-              <div className="tr-rb-menucap">
-                Evidence comes from the recorded change/verification records, not from the agent.
-              </div>
+              <div className="tr-rb-menucap">{copy.evidenceNote}</div>
               <hr />
               <ConfirmDangerButton
-                label={task.worktree ? 'Discard worktree…' : 'Roll back all…'}
+                label={task.worktree ? copy.discardWorktree : copy.rollbackAll}
                 confirmLabel={task.worktree ? 'Confirm — discard' : 'Confirm — roll back all'}
                 testid="report-rollback"
                 quiet
@@ -643,8 +655,8 @@ function ReviewBar({
         <div className="tr-rb-warn" data-testid="report-unverified">
           <span>
             {task.verification.length > 0
-              ? `${task.verification.length} configured check${task.verification.length === 1 ? '' : 's'} ${task.verification.length === 1 ? 'has' : 'have'} not run.`
-              : 'Unverified — no verification commands were run.'}
+              ? copy.configuredChecksNotRun(task.verification.length)
+              : copy.noVerification}
           </span>
           {task.verification.length > 0 ? (
             <button
@@ -652,15 +664,19 @@ function ReviewBar({
               data-testid="review-bar-run-verification"
               onClick={() => void store.runVerification()}
             >
-              Run checks
+              {copy.runChecks}
             </button>
           ) : null}
         </div>
       ) : null}
-      {risks.length > 0 ? <div className="tr-rb-warn">Risks: {risks.join('; ')}</div> : null}
+      {risks.length > 0 ? (
+        <div className="tr-rb-warn">
+          {copy.risks}: {risks.join('; ')}
+        </div>
+      ) : null}
       {summaryOpen && agentSummary ? (
         <div className="tr-rb-summary" data-testid="review-bar-summary">
-          <div className="tr-rb-menucap">Agent's own summary (unverified narrative)</div>
+          <div className="tr-rb-menucap">{copy.agentSummary}</div>
           <Markdown text={agentSummary} />
         </div>
       ) : null}
@@ -670,10 +686,17 @@ function ReviewBar({
 
 /**
  * Live activity strip (ADR-0011): what the agent is DOING right now — current
- * tool + target, elapsed time and token spend — replacing the bare "Working".
+ * tool + target and elapsed time — usage totals live in the run-details fold.
  */
-function ActivityStrip({ taskId }: { taskId: string }): React.JSX.Element {
+function ActivityStrip({
+  taskId,
+  taskText,
+}: {
+  taskId: string;
+  taskText: string;
+}): React.JSX.Element {
   const store = useTaskStore();
+  const copy = roomCopyFor(taskText);
   const activity = useActivityStore((s) => s.perTask[taskId]);
   const streamingThinking = useTaskStore((s) => s.streamingThinking);
   const [, setTick] = useState(0);
@@ -688,30 +711,17 @@ function ActivityStrip({ taskId }: { taskId: string }): React.JSX.Element {
     ? Math.max(0, Math.round((Date.now() - Date.parse(current.at)) / 1000))
     : null;
 
-  // Token spend so far: sum the recorded usage events for this task.
-  const tokens = useMemo(() => {
-    let input = 0;
-    let output = 0;
-    for (const event of store.timeline) {
-      if (event.type !== 'agent.usage') continue;
-      const usage = (event.payload as { usage?: { inputTokens?: number; outputTokens?: number } })
-        .usage;
-      input += usage?.inputTokens ?? 0;
-      output += usage?.outputTokens ?? 0;
-    }
-    return { input, output };
-  }, [store.timeline]);
-
   const label = streamingThinking
-    ? 'Thinking…'
+    ? `${copy.thinking}…`
     : store.streaming
-      ? 'Writing a reply…'
+      ? copy.locale === 'zh'
+        ? '正在回复…'
+        : 'Writing a reply…'
       : action
         ? actionLine(action.kind, action.label)
-        : 'Working…';
-
-  const fmt = (n: number): string =>
-    n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n);
+        : copy.locale === 'zh'
+          ? '处理中…'
+          : 'Working…';
 
   return (
     <div className="tr-activity" data-testid="task-room-activity">
@@ -721,11 +731,6 @@ function ActivityStrip({ taskId }: { taskId: string }): React.JSX.Element {
       </span>
       <span className="tr-activity-meta">
         {current && elapsed !== null && elapsed > 1 ? <span>{elapsed}s</span> : null}
-        {tokens.input + tokens.output > 0 ? (
-          <span title="Tokens so far (in · out)">
-            ↑{fmt(tokens.input)} ↓{fmt(tokens.output)}
-          </span>
-        ) : null}
       </span>
     </div>
   );
@@ -904,9 +909,7 @@ function RoomComposer({
     // ADR-0022 am.2: a preview selection made after the task closed seeds the
     // follow-up — the screenshot rides the new task's first run.
     const seed = previewRef;
-    const goal = seed
-      ? `${buildPreviewFeedbackText(seed, text)}\n\n(Follow-up to “${task.title}” — that task's changes are already applied in this project.)`
-      : `${text}\n\n(Follow-up to “${task.title}” — that task's changes are already applied in this project.)`;
+    const goal = seed ? buildPreviewFeedbackText(seed, text) : text;
     const ok = await store.createAndStart({
       title: titleFromIntent(
         text || (seed?.selector ? `Fix ${seed.selector}` : 'Preview feedback'),
@@ -917,6 +920,9 @@ function RoomComposer({
       model: { providerId, modelId, thinkingLevel: thinking },
       projectPath: task.projectPath,
       isolation: 'none',
+      // Carry the prior task as structured context instead of appending a
+      // system-authored sentence to the user's visible message.
+      conversationRefTaskIds: [task.id],
       ...(seed?.dataBase64
         ? {
             preview: {

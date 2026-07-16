@@ -182,50 +182,33 @@
   min-height: 0;
   padding: 14px 24px 18px;
 }
-/* ADR-0018: one centered 640px column carrying a time spine on its left. */
+/* A calm reading column: conversation first, activity on demand. */
 .rt-col {
   position: relative;
-  width: min(640px, 100%);
+  width: min(760px, 100%);
   margin: 0 auto;
-  padding-left: 30px;
-}
-.rt-col::before {
-  content: '';
-  position: absolute;
-  left: 9px;
-  top: 6px;
-  bottom: 6px;
-  width: 1px;
-  background: var(--border);
 }
 
-/* Milestones anchor their glyph onto the spine; the label runs mono
-   uppercase with a trailing hairline (preset E = spine + console). */
+/* Only exceptional/outcome milestones remain in the main reading flow. */
 .rt-milestone {
-  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 20px 0 12px;
-  font-size: 11.5px;
-  color: var(--fg-faint);
+  margin: 12px 0;
+  min-height: 32px;
+  font-size: 12.5px;
+  color: var(--fg-muted);
 }
 .rt-milestone b {
-  color: var(--fg-muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  font-weight: 650;
 }
 .rt-ms-ic {
-  position: absolute;
-  left: -30px;
-  width: 19px;
+  width: 20px;
   text-align: center;
   flex: none;
-  background: var(--bg-editor);
-  padding: 3px 0;
 }
 .rt-milestone.ok .rt-ms-ic {
   color: var(--success);
@@ -263,38 +246,53 @@
   }
 }
 .rt-ms-meta {
-  color: var(--fg-faint);
-  font-family: var(--font-mono);
-  font-size: 10px;
+  color: var(--fg-muted);
+  font-size: 12px;
 }
 .rt-ms-line {
-  flex: 1;
-  height: 1px;
-  background: var(--border-soft);
+  display: none;
 }
 
-/* ADR-0018 (keeps ADR-0014's side-carries-the-speaker): the agent speaks in
-   serif prose, you reply as a quiet chip-bubble on the right. No role labels. */
+/* Request → response follows the page's left-to-right reading direction. */
 .rt-bubble {
-  background: none;
-  border: none;
-  box-shadow: none;
-  padding: 2px 0;
-  margin: 0 0 16px;
-  font-family: var(--font-display);
-  font-size: 15px;
-  line-height: 1.9;
-  max-width: 96%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: fit-content;
+  max-width: 86%;
+  margin: 4px 0 18px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.68;
 }
 .rt-bubble.you {
-  font-family: var(--font-ui);
-  font-size: 13.5px;
-  background: var(--bg-hover);
-  border-radius: 15px 15px 5px 15px;
-  padding: 10px 14px;
+  margin-right: auto;
+  max-width: 78%;
+}
+.rt-bubble.agent {
+  align-items: flex-end;
   margin-left: auto;
-  max-width: 76%;
-  line-height: 1.65;
+}
+.rt-speaker {
+  margin: 0 4px 5px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.rt-bubble .rt-text {
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--bg-card);
+  padding: 10px 13px;
+  text-align: left;
+}
+.rt-bubble.you .rt-text {
+  border-color: transparent;
+  border-radius: 14px 14px 14px 5px;
+  background: var(--bg-hover);
+}
+.rt-bubble.agent .rt-text {
+  border-radius: 14px 14px 5px 14px;
 }
 /* Serif prose keeps mono chips at worklog scale. */
 .rt-bubble .md-inlinecode {
@@ -314,14 +312,13 @@
   vertical-align: text-bottom;
 }
 .rt-kind {
-  color: var(--fg-faint);
+  color: var(--fg-muted);
 }
 .rt-conversation-refs {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 5px;
-  margin-top: 7px;
 }
 .rt-conversation-ref {
   display: inline-flex;
@@ -334,17 +331,83 @@
   background: var(--info-bg);
   color: var(--fg-muted);
   padding: 1px 7px;
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
-/* ADR-0018: contiguous tool evidence sinks into a recessed mono worklog with
-   timestamps — the log IS the evidence surface (preset E, from mock C). */
+.rt-context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: -8px 0 18px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.rt-context-label {
+  color: var(--fg);
+  font-weight: 650;
+}
+.rt-context-warning {
+  color: var(--warning);
+}
+.rt-context-acceptance summary {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.rt-context-acceptance ol {
+  margin: 4px 0 2px;
+  padding-left: 20px;
+}
+.rt-context-prior {
+  color: var(--fg-muted);
+}
+
+/* Tool evidence is available without taking over the conversation. */
 .rt-worklog {
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
   border: 1px solid var(--border-soft);
   border-radius: 10px;
-  padding: 7px 12px;
   margin: 4px 0 12px;
+  overflow: hidden;
+}
+.rt-worklog-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 7px 11px;
+  border: none;
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+  color: var(--fg);
+  font: 600 12.5px/1.3 var(--font-ui);
+  cursor: pointer;
+  text-align: left;
+}
+.rt-worklog-toggle:hover {
+  background: var(--bg-hover);
+}
+.rt-worklog-meta {
+  color: var(--fg-muted);
+  font-weight: 450;
+}
+.rt-live-status {
+  color: var(--info);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.rt-disclosure {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: 15px;
+}
+.rt-worklog-rows {
+  padding: 5px 11px 7px;
 }
 .rt-worklog .rt-tool {
   animation: rt-login 0.5s ease;
@@ -378,8 +441,8 @@
 }
 .rt-ts {
   flex: none;
-  font-size: 10px;
-  color: var(--fg-faint);
+  font-size: 11px;
+  color: var(--fg-muted);
   font-variant-numeric: tabular-nums;
 }
 .rt-tool-line {
@@ -387,11 +450,12 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 3px 0;
+  min-height: 32px;
+  padding: 4px 0;
   background: transparent;
   border: none;
   color: var(--fg-muted);
-  font-size: 11.5px;
+  font-size: 12px;
   font-family: var(--font-mono);
   cursor: pointer;
   text-align: left;
@@ -402,10 +466,10 @@
 }
 .rt-tool-verb {
   flex: none;
-  color: var(--fg-faint);
+  color: var(--fg-muted);
 }
 .rt-tool-target {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--fg);
   background: transparent;
   border: none;
@@ -485,10 +549,10 @@
 }
 
 .rt-note {
-  font-size: 11px;
-  color: var(--fg-faint);
-  padding: 1px 2px;
-  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  padding: 4px 2px;
+  margin: 0 0 8px;
 }
 .rt-note.ok {
   color: var(--success);
@@ -499,13 +563,6 @@
 .rt-note.warn {
   color: var(--warning);
 }
-.rt-usage {
-  font-size: 10.5px;
-  color: var(--fg-faint);
-  text-align: right;
-  margin: -2px 0 8px;
-}
-
 /* Plan (static) + conflict/failure cards. The completion report is no longer
    a timeline card — it presents as the review bar (ADR-0016). */
 .rt-plan {
@@ -523,6 +580,92 @@
   font-size: 13px;
   margin-bottom: 4px;
 }
+.rt-plan-static {
+  padding: 0;
+  overflow: hidden;
+}
+.rt-plan-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-ui);
+  cursor: pointer;
+  text-align: left;
+}
+.rt-plan-toggle:hover {
+  background: var(--bg-hover);
+}
+.rt-plan-title {
+  font-size: 13px;
+  font-weight: 650;
+}
+.rt-plan-content {
+  padding: 0 12px 11px;
+  border-top: 1px solid var(--border-soft);
+}
+.rt-plan-content .rt-plan-sum {
+  padding-top: 8px;
+}
+.rt-plan-toggle .rt-plan-meta {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.rt-plan-toggle .rt-disclosure {
+  margin-left: 0;
+}
+
+.rt-run-details {
+  margin: 8px 0 14px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.rt-run-details summary {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  width: fit-content;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-weight: 600;
+}
+.rt-run-details dl {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 6px;
+  padding: 0;
+}
+.rt-run-details dl > div {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.35fr) 1fr;
+  gap: 12px;
+}
+.rt-run-details dt,
+.rt-run-details dd {
+  margin: 0;
+}
+.rt-run-details dd {
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.rt-worklog-toggle:focus-visible,
+.rt-plan-toggle:focus-visible,
+.rt-think-head:focus-visible,
+.rt-tool-line:focus-visible,
+.rt-run-details summary:focus-visible,
+.rt-context-acceptance summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
 .rt-plan-v {
   font-size: 10px;
   border: 1px solid var(--border);
@@ -532,8 +675,8 @@
 }
 .rt-plan-meta {
   margin-left: auto;
-  font-size: 11px;
-  color: var(--fg-faint);
+  font-size: 12px;
+  color: var(--fg-muted);
 }
 .rt-plan-sum {
   font-size: 12.5px;
@@ -581,8 +724,8 @@
 }
 .rt-plan-hint {
   margin-top: 9px;
-  font-size: 10.5px;
-  color: var(--fg-faint);
+  font-size: 11.5px;
+  color: var(--fg-muted);
 }
 .rt-report-row {
   font-size: 12px;
@@ -606,9 +749,8 @@
 
 .tr-reviewbar {
   flex: none;
-  /* ADR-0018: the bar rides the same centered 640 column as the timeline. */
   margin: 0 auto 8px;
-  width: min(640px, calc(100% - 48px));
+  width: min(760px, calc(100% - 48px));
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 13px;
@@ -634,6 +776,7 @@
 .tr-rb-main {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   font-size: 12.3px;
   color: var(--fg-muted);
@@ -652,7 +795,7 @@
   flex: none;
 }
 .tr-rb-meta {
-  color: var(--fg-faint);
+  color: var(--fg-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -668,9 +811,11 @@
 .tr-rb-more {
   border: none;
   background: none;
-  color: var(--fg-faint);
+  color: var(--fg-muted);
   font-size: 14px;
   cursor: pointer;
+  min-width: 32px;
+  min-height: 32px;
   padding: 3px 8px;
   border-radius: 6px;
   font-family: inherit;
@@ -717,22 +862,42 @@
   background: var(--bg-hover);
 }
 .tr-rb-menucap {
-  font-size: 10px;
-  color: var(--fg-faint);
+  font-size: 11.5px;
+  color: var(--fg-muted);
   line-height: 1.45;
   padding: 2px 8px;
 }
 .tr-rb-warn {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--warning);
   padding: 5px 2px 0;
 }
 .tr-rb-summary {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--fg-muted);
   border-top: 1px dashed var(--border-soft);
   margin-top: 7px;
   padding: 6px 2px 2px;
+}
+
+@media (max-width: 720px) {
+  .rt-scroll {
+    padding-inline: 16px;
+  }
+  .rt-bubble.you,
+  .rt-bubble.agent {
+    max-width: 94%;
+  }
+  .tr-reviewbar {
+    width: calc(100% - 32px);
+  }
+  .tr-rb-meta {
+    flex-basis: calc(100% - 24px);
+    order: 2;
+  }
+  .tr-rb-sp {
+    display: none;
+  }
 }
 
 /* ---------- room composer ---------- */
@@ -749,7 +914,7 @@
 .tr-ccard {
   position: relative;
   flex: 1;
-  max-width: 640px;
+  max-width: 760px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -794,8 +959,8 @@
   min-width: 0;
 }
 .tr-cfoot .tr-mode {
-  font-size: 11px;
-  color: var(--fg-faint);
+  font-size: 11.5px;
+  color: var(--fg-muted);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -811,7 +976,7 @@
 }
 .tr-input {
   flex: 1;
-  max-width: 640px;
+  max-width: 760px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -843,7 +1008,7 @@
 }
 .tr-fcard {
   position: relative;
-  max-width: 640px;
+  max-width: 760px;
   margin: 0 auto;
 }
 .tr-fta {
@@ -858,7 +1023,7 @@
 }
 .tr-fhint {
   font-size: 12px;
-  color: var(--fg-faint);
+  color: var(--fg-muted);
   padding: 8px 4px 0;
 }
 .tr-fhint b {
@@ -1082,10 +1247,11 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 32px;
   border: none;
   background: transparent;
-  color: var(--fg-faint);
-  font-size: 11px;
+  color: var(--fg-muted);
+  font-size: 12px;
   font-family: inherit;
   padding: 2px 4px 2px 0;
   cursor: pointer;
@@ -1126,9 +1292,9 @@
   opacity: 0.7;
 }
 .rt-think-body {
-  font-size: 11.5px;
+  font-size: 12.5px;
   line-height: 1.55;
-  color: var(--fg-faint);
+  color: var(--fg-muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   padding: 2px 0 4px;
@@ -1199,7 +1365,7 @@
 /* Collapsed thinking rows carry a one-line preview (ADR-0011 follow-up). */
 .rt-think-preview {
   font-style: italic;
-  color: var(--fg-faint);
+  color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -6,9 +6,9 @@ import { createTsSmallFixture } from './helpers/fixtures';
 
 /**
  * TEMPORARY manual verification (ADR-0018, not part of the suite): drives the
- * REAL pi runtime against the user's gateway to exercise the preset-E room
- * presentation end to end — spine column, serif agent prose, recessed worklog
- * with timestamps, review bar, composer focus. Real writes are asserted on
+ * REAL pi runtime against the user's gateway to exercise the task-room
+ * presentation end to end — separated conversation, folded worklog,
+ * review bar, composer focus. Real writes are asserted on
  * disk, not just in the UI. Requires CHARTER_TEST_KEY and CHARTER_TEST_BASEURL
  * in the environment; skips otherwise.
  */
@@ -35,7 +35,7 @@ async function waitReviewReady(page: Page, timeoutMs: number): Promise<void> {
   throw new Error('timeout waiting for REVIEW_READY');
 }
 
-test('real gateway: preset-E room — real write task, worklog evidence, serif prose, review bar', async () => {
+test('real gateway: conversation-first room — real write task, worklog evidence, review bar', async () => {
   test.skip(!KEY || !BASEURL, 'no real credentials in env');
   test.setTimeout(600000);
   const fixture = createTsSmallFixture();
@@ -84,20 +84,22 @@ test('real gateway: preset-E room — real write task, worklog evidence, serif p
 
     await waitReviewReady(page, 420000);
 
-    // 4) Preset-E presentation, computed for real: spine, serif prose, worklog.
+    // 4) Conversation-first presentation: no spine, UI prose, left→right roles.
     const style = await page.evaluate(() => {
       const col = document.querySelector('.rt-col');
+      const user = document.querySelector('[data-testid="tl-user"]');
       const agent = document.querySelector('[data-testid="tl-agent"]');
-      const ms = document.querySelector('[data-testid="tl-milestone"] b, .rt-milestone b');
       return {
         spine: col ? getComputedStyle(col, '::before').width : null,
         agentFont: agent ? getComputedStyle(agent).fontFamily : '',
-        msTransform: ms ? getComputedStyle(ms).textTransform : '',
+        userFont: user ? getComputedStyle(user).fontFamily : '',
+        userX: user?.getBoundingClientRect().x ?? 0,
+        agentX: agent?.getBoundingClientRect().x ?? 0,
       };
     });
-    expect(style.spine).toBe('1px');
-    expect(style.agentFont).toContain('Charter');
-    expect(style.msTransform).toBe('uppercase');
+    expect(style.spine).not.toBe('1px');
+    expect(style.agentFont).toBe(style.userFont);
+    expect(style.userX).toBeLessThan(style.agentX);
     await expect(page.getByTestId('review-bar')).toBeVisible();
     await page.screenshot({ path: '/tmp/ui-shots/e-2-review.png' });
 

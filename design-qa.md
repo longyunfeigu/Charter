@@ -133,3 +133,95 @@ Console errors checked: yes. The final Playwright flow collected renderer
 - [x] Verify keyboard/accessibility affordances and renderer console health.
 
 final result: passed
+
+---
+
+# Session Rail Workbench Mock — Design QA
+
+## Comparison target
+
+- Source visual truth: `/Users/edy/.codex/generated_images/019f68a6-81e9-7783-8ddf-35ffd5e32238/exec-fa30f18e-7158-4ec4-bc28-0fc4a7b7fd80.png`
+- Implementation: `docs/design/session-rail-workbench.html`
+- Native comparison viewport: 1440 × 1024 CSS pixels.
+- Captured state: `?clean=1&step=7`, with the Pi session selected and ready
+  for review while Claude and Codex remain live in the rail.
+- Capture method: the repository Playwright Electron harness with an isolated
+  temporary user-data directory. The project AGENTS.md explicitly requires
+  Electron Playwright instead of the in-app Browser for Charter UI validation.
+
+## Visual evidence
+
+- Latest implementation: `/tmp/session-rail-workbench-pi-ready.png`
+- Same-input full comparison: `/tmp/session-rail-workbench-comparison.png`
+- Same-input top-region comparison: `/tmp/session-rail-workbench-focused-top.png`
+- Claude plus Markdown state: `/tmp/session-rail-workbench-claude-markdown.png`
+- Split PTY state: `/tmp/session-rail-workbench-split.png`
+- New Session modal: `/tmp/session-rail-workbench-new-session.png`
+- Narrow state at 1180 × 820: `/tmp/session-rail-workbench-narrow.png`
+
+The source and latest implementation were both opened and inspected at the
+same normalized viewport. No actionable P0, P1 or P2 visual finding remains.
+
+## Findings
+
+- Typography: the mock preserves the reference's compact system UI hierarchy,
+  with a restrained monospace stack for paths, terminal output and diffs.
+- Layout: the centered window title, persistent 210px session rail, two-row
+  shell header, main work surface, bottom changes pane and status bar preserve
+  the reference composition and information priority.
+- Session rail: Claude, Codex and Pi remain independently visible with live,
+  paused and ready-for-review states; switching sessions does not collapse the
+  user's mental model into Home versus Editor.
+- Main surface: Pi keeps its structured, multi-run execution timeline and
+  review card. Claude and Codex keep terminal-native PTY surfaces rather than
+  being forced into Pi's task-log grammar.
+- Tools: code editing, Markdown editing/preview, Changes, Tests and Agent Log
+  stay in the same workbench and can coexist with a running session.
+- Colors: the true-white/cool-gray shell, cobalt selection, purple Pi, orange
+  Claude, green Codex and semantic success/error colors match the selected
+  reference direction.
+- Assets: this desktop workbench has no photographic or illustrative assets;
+  provider monograms and controls are rendered from product UI primitives and
+  remain sharp at device scale.
+- Copy above the fold: labels follow the selected visual truth. The final clean
+  capture removes exploratory labels such as “Session-first prototype” and
+  uses the reference-like ellipsis action in the header.
+- Responsiveness: at 1180 × 820 the review card and composer remain visible;
+  the guided cursor scrolls its target into view instead of covering or
+  clipping the primary action.
+- Accessibility and console health: buttons and session rows are keyboard
+  reachable, focus is visible, dialog semantics are present, reduced motion is
+  respected, and the Electron test asserted zero page errors and zero
+  `console.error` events.
+
+## Comparison history
+
+1. Initial comparison found a missing global window bar, undersized session
+   rows, an overly compressed Pi timeline and missing background-session
+   context in the tool pane.
+2. The mock added the reference's four-row shell geometry, restored session
+   row height and timeline rhythm, added the background Claude notice and file
+   breadcrumb, and limited the default Pi tool tabs to the useful code and
+   preview surfaces.
+3. The final comparison removed invented top-right copy, replaced the visible
+   Tools label with the reference-like overflow action, fixed split-terminal
+   contrast and centered guided-tour targets at the narrow viewport.
+
+## Primary interactions tested
+
+- Switch among Pi, Claude and Codex without losing each session's native state.
+- Open Claude's terminal plus Markdown surface and Codex's live test terminal.
+- Restore Pi's ready-for-review state after visiting external PTY sessions.
+- Open New Session and choose Pi, Claude or Codex.
+- Split Claude and Codex into a side-by-side terminal work surface.
+- Use Previous/Next session shortcuts and Meta+1–4 direct selection.
+- Send a Pi follow-up to start Run 4.
+- Step through, replay and autoplay the nine-stage product journey.
+- Verify the clean 1440 × 1024 state and the 1180 × 820 responsive state.
+
+Intentional P3 deviations: macOS traffic lights are treated as host window
+chrome, and the interactive tour controls are hidden in clean comparison mode.
+Neither deviation changes the product workflow or the approved workbench
+geometry.
+
+final result: passed

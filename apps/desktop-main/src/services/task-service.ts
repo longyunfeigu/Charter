@@ -2286,10 +2286,16 @@ export class TaskService {
         new Date().toISOString(),
       );
 
-    const userText = prompt ?? this.initialPrompt(task);
+    const initialTurn = prompt === undefined;
+    const userText = prompt ?? task.goalMd;
+    const runtimeText = prompt ?? this.initialPrompt(task);
     const priorConversations = this.priorConversations(taskId);
     this.recordEvent(taskId, 'user.message', {
       text: userText,
+      // Acceptance criteria are system/task context. Keep them attached to the
+      // event for presentation without making them look like words the user
+      // typed into the conversation.
+      ...(initialTurn ? { acceptance: task.acceptance } : {}),
       conversationRefs: priorConversations.map((context) => ({
         taskId: context.sourceTaskId,
         title: context.title,
@@ -2314,7 +2320,7 @@ export class TaskService {
         ...(refreshedSkills
           ? [`<skill_catalog_refresh>\n${refreshedSkills}\n</skill_catalog_refresh>`]
           : []),
-        this.skills.expandCommand(userText),
+        this.skills.expandCommand(runtimeText),
       ].join('\n\n'),
       ...(extras?.images?.length ? { images: extras.images } : {}),
       priorConversations,

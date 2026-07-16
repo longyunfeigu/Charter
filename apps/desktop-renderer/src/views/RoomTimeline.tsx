@@ -23,21 +23,14 @@ import {
 } from './AgentPanel.js';
 import { isAnswered, stateLabel, toolVerb } from './labels.js';
 import { Markdown } from './Markdown.js';
+import { roomCopyFor, type RoomCopy } from './roomCopy.js';
 
 /**
- * Task Room timeline (PIVOT-032): the mockup language — ✓ milestones with
- * elapsed time, quiet bubbles, single-line tool rows that expand on demand.
+ * Task Room conversation: user and agent messages stay visually distinct,
+ * while plans, tools and run metadata use quieter disclosure layers.
  * Interactive approvals (permissions / open plan / questions) reuse the tested
  * cards from the agent panel so their testids and flows stay identical.
  */
-
-function fmtDuration(ms: number): string | null {
-  if (!Number.isFinite(ms) || ms < 2500) return null;
-  const s = Math.round(ms / 1000);
-  if (s < 90) return `${s}s`;
-  const m = Math.floor(s / 60);
-  return `${m}m ${s - m * 60 < 10 ? '0' : ''}${s - m * 60}s`;
-}
 
 /** Worklog clock (ADR-0018): mm:ss.d since the room's first event. */
 function fmtClock(ms: number): string {
@@ -63,6 +56,12 @@ function isLogRow(event: TimelineEventDto): boolean {
     String(payload.state ?? '') === 'FAILED' &&
     String(payload.summary ?? '') === 'CHG_VERSION_CONFLICT'
   );
+}
+
+function isLiveLogRow(event: TimelineEventDto): boolean {
+  if (event.type !== 'tool.call') return false;
+  const state = String((event.payload as Record<string, unknown>).state ?? '');
+  return !['SUCCEEDED', 'FAILED', 'DENIED', 'CANCELLED', 'TIMED_OUT'].includes(state);
 }
 
 /** +a −d from a unified patch (honest: derived from the change itself). */
@@ -122,21 +121,108 @@ function Milestone(props: {
 function Bubble(props: {
   who: 'you' | 'agent';
   children: React.ReactNode;
+  copy: RoomCopy;
   testid?: string;
   live?: boolean;
 }): React.JSX.Element {
-  // Mockup A (ADR-0014): the side carries the speaker — you on the right as a
-  // quiet chip-bubble, the agent on the left as plain prose. No role labels.
+  const speaker = props.who === 'you' ? props.copy.you : props.copy.charter;
   return (
-    <div
+    <article
       className={`rt-bubble ${props.who}`}
+      aria-label={`${speaker} message`}
+      lang={props.copy.locale === 'zh' ? 'zh-CN' : 'en'}
       {...(props.testid ? { 'data-testid': props.testid } : {})}
     >
+      <div className="rt-speaker">{speaker}</div>
       <div className="rt-text">
         {props.children}
         {props.live ? <span className="rt-live-caret" aria-hidden /> : null}
       </div>
-    </div>
+    </article>
+  );
+}
+
+interface ConversationRef {
+  taskId: string;
+  title: string;
+  projectName: string;
+}
+
+function recordedMessageParts(text: string): {
+  message: string;
+  acceptance: string[] | null;
+  hasPriorTaskContext: boolean;
+} {
+  let message = text.trim();
+  let acceptance: string[] | null = null;
+  const noAcceptance = /\n\n\(No acceptance criteria were provided\.\)\s*$/u;
+  if (noAcceptance.test(message)) {
+    acceptance = [];
+    message = message.replace(noAcceptance, '').trim();
+  } else {
+    const criteria = /\n\nAcceptance criteria:\n([\s\S]+)$/u.exec(message);
+    if (criteria) {
+      acceptance = criteria[1]!
+        .split('\n')
+        .map((line) => line.replace(/^\d+\.\s*/u, '').trim())
+        .filter(Boolean);
+      message = message.slice(0, criteria.index).trim();
+    }
+  }
+
+  const followUp =
+    /\n\n\(Follow-up to [\s\S]+?that task's changes are already applied in this project\.\)\s*$/u;
+  const hasPriorTaskContext = followUp.test(message);
+  if (hasPriorTaskContext) message = message.replace(followUp, '').trim();
+  return { message, acceptance, hasPriorTaskContext };
+}
+
+function TaskContext({
+  acceptance,
+  conversationRefs,
+  hasPriorTaskContext,
+  copy,
+}: {
+  acceptance: string[] | null;
+  conversationRefs: ConversationRef[];
+  hasPriorTaskContext: boolean;
+  copy: RoomCopy;
+}): React.JSX.Element | null {
+  const hasAcceptance = acceptance !== null && acceptance.length > 0;
+  if (!hasAcceptance && conversationRefs.length === 0 && !hasPriorTaskContext) return null;
+  return (
+    <aside className="rt-context" data-testid="tl-task-context" aria-label={copy.taskContext}>
+      <span className="rt-context-label">{copy.taskContext}</span>
+      {hasAcceptance ? (
+        <details className="rt-context-acceptance">
+          <summary>
+            {copy.acceptanceChecks} · {acceptance.length}
+          </summary>
+          <ol>
+            {acceptance.map((item, index) => (
+              <li key={`${index}-${item}`}>{item}</li>
+            ))}
+          </ol>
+        </details>
+      ) : null}
+      {hasPriorTaskContext || conversationRefs.length > 0 ? (
+        <span className="rt-context-prior">{copy.previousConversation}</span>
+      ) : null}
+      {conversationRefs.length > 0 ? (
+        <span className="rt-conversation-refs" aria-label={copy.previousConversation}>
+          {conversationRefs.map((ref) => (
+            <span
+              key={ref.taskId}
+              className="rt-conversation-ref"
+              data-testid={`tl-conversation-ref-${ref.taskId}`}
+              title={ref.projectName ? `${ref.title} · ${ref.projectName}` : ref.title}
+            >
+              @{ref.title}
+            </span>
+          ))}
+        </span>
+      ) : null}
+    </aside>
   );
 }
 
@@ -334,28 +420,40 @@ function liveVerb(name: string): string {
   }
 }
 
-/** Historical (closed) plan — the mockup's numbered-chip presentation. */
-function PlanStatic({ plan }: { plan: TaskPlanDto }): React.JSX.Element {
+/** Historical plans keep their evidence, but no longer dominate the transcript. */
+function PlanStatic({ plan, copy }: { plan: TaskPlanDto; copy: RoomCopy }): React.JSX.Element {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="rt-plan" data-testid="plan-card-static">
-      <div className="rt-plan-head">
-        <b>Plan</b>
-        <span className="rt-plan-v">v{plan.version}</span>
-        <span className="rt-plan-meta">
-          {plan.steps.length} step{plan.steps.length === 1 ? '' : 's'}
+    <div className="rt-plan rt-plan-static" data-testid="plan-card-static">
+      <button
+        type="button"
+        className="rt-plan-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="rt-plan-title">
+          {copy.plan} v{plan.version}
         </span>
-      </div>
-      <div className="rt-plan-sum">
-        <Markdown text={plan.summary} />
-      </div>
-      <ol className="rt-plan-steps">
-        {plan.steps.map((s, i) => (
-          <li key={s.id} className={`st-${s.status}`}>
-            <span className="rt-step-n">{s.status === 'done' ? '✓' : i + 1}</span>
-            <span className="rt-step-t">{s.title}</span>
-          </li>
-        ))}
-      </ol>
+        <span className="rt-plan-meta">{copy.steps(plan.steps.length)}</span>
+        <span className="rt-disclosure" aria-hidden>
+          {open ? '−' : '+'}
+        </span>
+      </button>
+      {open ? (
+        <div className="rt-plan-content">
+          <div className="rt-plan-sum">
+            <Markdown text={plan.summary} />
+          </div>
+          <ol className="rt-plan-steps">
+            {plan.steps.map((s, i) => (
+              <li key={s.id} className={`st-${s.status}`}>
+                <span className="rt-step-n">{s.status === 'done' ? '✓' : i + 1}</span>
+                <span className="rt-step-t">{s.title}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -365,7 +463,13 @@ function PlanStatic({ plan }: { plan: TaskPlanDto }): React.JSX.Element {
  * bar above the composer (TaskRoomView) — not as a timeline card. The timeline
  * keeps a quiet Done milestone whose meta carries the headline evidence.
  */
-function DoneMilestone({ payload }: { payload: Record<string, unknown> }): React.JSX.Element {
+function DoneMilestone({
+  payload,
+  copy,
+}: {
+  payload: Record<string, unknown>;
+  copy: RoomCopy;
+}): React.JSX.Element {
   const changed = payload.changed as
     { files: number; additions: number; deletions: number } | undefined;
   const verification = payload.verification as
@@ -373,21 +477,23 @@ function DoneMilestone({ payload }: { payload: Record<string, unknown> }): React
   const parts: string[] = [];
   if (changed && changed.files > 0) {
     parts.push(
-      `${changed.files} file${changed.files === 1 ? '' : 's'} +${changed.additions} −${changed.deletions}`,
+      copy.locale === 'zh'
+        ? `${changed.files} 个文件 +${changed.additions} −${changed.deletions}`
+        : `${changed.files} file${changed.files === 1 ? '' : 's'} +${changed.additions} −${changed.deletions}`,
     );
   }
   if (verification && verification.runs.length > 0) {
     parts.push(
-      `checks ${verification.passed} passed${
-        verification.failed > 0 ? `, ${verification.failed} failed` : ''
+      `${copy.checks} ${verification.passed} ${copy.passed}${
+        verification.failed > 0 ? `, ${verification.failed} ${copy.failed}` : ''
       }`,
     );
   }
-  if (payload.unverified === true) parts.push('unverified');
+  if (payload.unverified === true) parts.push(copy.locale === 'zh' ? '未验证' : 'unverified');
   return (
     <Milestone
       tone={(verification?.failed ?? 0) > 0 ? 'warn' : 'ok'}
-      label="Done"
+      label={copy.locale === 'zh' ? '完成' : 'Done'}
       meta={parts.join(' · ') || `outcome: ${String(payload.outcome)}`}
       testid="tl-done"
     />
@@ -398,44 +504,51 @@ function eventNode(
   event: TimelineEventDto,
   context: TimelineContext,
   task: TaskDto,
-  msMeta: Map<string, string | null>,
   runStartMs: number,
+  copy: RoomCopy,
 ): React.JSX.Element | null {
   const payload = event.payload as Record<string, unknown>;
   const clock = fmtClock(Date.parse(event.at) - runStartMs);
   switch (event.type) {
     case 'task.stateChanged': {
       const to = String(payload.to);
-      const isCurrent = to === task.state;
-      const past = !isCurrent;
-      const tone = past
-        ? 'ok'
-        : ['FAILED'].includes(to)
-          ? 'err'
-          : ['AWAITING_PLAN_APPROVAL', 'AWAITING_PERMISSION', 'INTERRUPTED'].includes(to)
-            ? 'warn'
-            : ['REVIEW_READY', 'ACCEPTED'].includes(to)
-              ? 'ok'
-              : 'run';
       // Terminal "Answered" milestone replaces the review-ready ceremony.
       if (to === 'REVIEW_READY' && isAnswered(task)) {
         return (
           <Milestone
             key={event.id}
             tone="ok"
-            label="Answered"
-            meta="nothing changed on disk"
+            label={copy.locale === 'zh' ? '已回答' : 'Answered'}
+            meta={copy.locale === 'zh' ? '未改动磁盘文件' : 'nothing changed on disk'}
             testid="tl-answered"
             dataState={to}
           />
         );
       }
+      // Routine phases already have a live activity strip, a plan/permission
+      // surface, or the review bar. Repeating them as ceremony adds scroll but
+      // no new decision-making information.
+      if (
+        [
+          'EXPLORING',
+          'PLANNING',
+          'AWAITING_PLAN_APPROVAL',
+          'IN_PROGRESS',
+          'AWAITING_PERMISSION',
+          'VERIFYING',
+          'REVIEW_READY',
+          'ACCEPTED',
+          'ROLLED_BACK',
+        ].includes(to)
+      ) {
+        return null;
+      }
+      const tone = to === 'FAILED' ? 'err' : 'warn';
       return (
         <Milestone
           key={event.id}
-          tone={tone as 'ok' | 'run' | 'warn' | 'err'}
-          label={pastLabel(to, past)}
-          meta={msMeta.get(event.id) ?? undefined}
+          tone={tone}
+          label={stateLabel(to)}
           testid="tl-milestone"
           dataState={to}
         />
@@ -457,7 +570,7 @@ function eventNode(
       // The note leads; the coordinate block the agent received stays
       // inspectable but folded — it's for the agent, not for reading twice.
       const previewNote = preview && typeof preview.note === 'string' ? preview.note : null;
-      const conversationRefs = Array.isArray(payload.conversationRefs)
+      const conversationRefs: ConversationRef[] = Array.isArray(payload.conversationRefs)
         ? payload.conversationRefs.flatMap((value) => {
             if (!value || typeof value !== 'object') return [];
             const ref = value as Record<string, unknown>;
@@ -471,55 +584,53 @@ function eventNode(
             ];
           })
         : [];
+      const recorded = recordedMessageParts(String(payload.text ?? ''));
+      const acceptance = Array.isArray(payload.acceptance)
+        ? payload.acceptance.filter((item): item is string => typeof item === 'string')
+        : recorded.acceptance;
       return (
-        <Bubble key={event.id} who="you" testid="tl-user">
-          {kind === 'answer' ? <span className="rt-kind">answer · </span> : null}
-          {previewNote ? previewNote : String(payload.text ?? '')}
-          {preview && typeof preview.thumbDataUrl === 'string' ? (
-            <>
-              <img
-                className="rt-preview-thumb"
-                data-testid="tl-preview-feedback"
-                src={preview.thumbDataUrl}
-                alt="Preview screenshot with the selected region"
-              />
-              <span className="rt-preview-meta">
-                preview · {typeof preview.pageUrl === 'string' ? preview.pageUrl : ''}
-                {typeof preview.selector === 'string' ? ` · ${preview.selector}` : ''}
-                {preview.rect &&
-                typeof preview.rect.width === 'number' &&
-                typeof preview.rect.height === 'number'
-                  ? ` · ${preview.rect.width}×${preview.rect.height}`
-                  : ''}
-              </span>
-              {previewNote ? (
-                <details className="rt-preview-full">
-                  <summary>full message sent to the agent</summary>
-                  <pre>{String(payload.text ?? '')}</pre>
-                </details>
-              ) : null}
-            </>
-          ) : null}
-          {conversationRefs.length > 0 ? (
-            <span className="rt-conversation-refs" aria-label="Referenced conversations">
-              {conversationRefs.map((ref) => (
-                <span
-                  key={ref.taskId}
-                  className="rt-conversation-ref"
-                  data-testid={`tl-conversation-ref-${ref.taskId}`}
-                  title={ref.projectName ? `${ref.title} · ${ref.projectName}` : ref.title}
-                >
-                  @{ref.title}
+        <React.Fragment key={event.id}>
+          <Bubble who="you" copy={copy} testid="tl-user">
+            {kind === 'answer' ? <span className="rt-kind">answer · </span> : null}
+            {previewNote ? previewNote : recorded.message}
+            {preview && typeof preview.thumbDataUrl === 'string' ? (
+              <>
+                <img
+                  className="rt-preview-thumb"
+                  data-testid="tl-preview-feedback"
+                  src={preview.thumbDataUrl}
+                  alt="Preview screenshot with the selected region"
+                />
+                <span className="rt-preview-meta">
+                  preview · {typeof preview.pageUrl === 'string' ? preview.pageUrl : ''}
+                  {typeof preview.selector === 'string' ? ` · ${preview.selector}` : ''}
+                  {preview.rect &&
+                  typeof preview.rect.width === 'number' &&
+                  typeof preview.rect.height === 'number'
+                    ? ` · ${preview.rect.width}×${preview.rect.height}`
+                    : ''}
                 </span>
-              ))}
-            </span>
-          ) : null}
-        </Bubble>
+                {previewNote ? (
+                  <details className="rt-preview-full">
+                    <summary>full message sent to the agent</summary>
+                    <pre>{String(payload.text ?? '')}</pre>
+                  </details>
+                ) : null}
+              </>
+            ) : null}
+          </Bubble>
+          <TaskContext
+            acceptance={acceptance}
+            conversationRefs={conversationRefs}
+            hasPriorTaskContext={recorded.hasPriorTaskContext}
+            copy={copy}
+          />
+        </React.Fragment>
       );
     }
     case 'agent.message':
       return (
-        <Bubble key={event.id} who="agent" testid="tl-agent">
+        <Bubble key={event.id} who="agent" copy={copy} testid="tl-agent">
           <Markdown text={String(payload.text ?? '')} />
         </Bubble>
       );
@@ -529,6 +640,7 @@ function eventNode(
           key={event.id}
           text={String(payload.text ?? '')}
           durationMs={typeof payload.durationMs === 'number' ? payload.durationMs : null}
+          copy={copy}
         />
       );
     case 'tool.call': {
@@ -552,7 +664,7 @@ function eventNode(
       const open =
         event.sequence === context.openPlanSeq && context.taskState === 'AWAITING_PLAN_APPROVAL';
       if (open) return <PlanCard key={`plan-${event.id}`} plan={plan} open variant="room" />;
-      return <PlanStatic key={`plan-${event.id}`} plan={plan} />;
+      return <PlanStatic key={`plan-${event.id}`} plan={plan} copy={copy} />;
     }
     case 'user.planDecision': {
       const decision = String(payload.decision);
@@ -563,17 +675,24 @@ function eventNode(
           data-testid="tl-plan-decision"
         >
           {decision === 'approved'
-            ? `✓ Plan approved${payload.auto === true ? ' automatically (auto mode)' : ''}${payload.edited === true ? ' with your edits' : ''}`
+            ? copy.locale === 'zh'
+              ? `✓ 计划已批准${payload.auto === true ? '（自动模式）' : ''}${payload.edited === true ? '，包含你的修改' : ''}`
+              : `✓ Plan approved${payload.auto === true ? ' automatically (auto mode)' : ''}${payload.edited === true ? ' with your edits' : ''}`
             : decision === 'changes_requested'
-              ? `↻ You asked for plan changes${payload.reason ? ` — "${String(payload.reason)}"` : ''}`
-              : '✕ Plan rejected — task cancelled'}
+              ? copy.locale === 'zh'
+                ? `↻ 你要求修改计划${payload.reason ? ` — “${String(payload.reason)}”` : ''}`
+                : `↻ You asked for plan changes${payload.reason ? ` — "${String(payload.reason)}"` : ''}`
+              : copy.locale === 'zh'
+                ? '✕ 计划已拒绝，任务已取消'
+                : '✕ Plan rejected — task cancelled'}
         </div>
       );
     }
     case 'user.planEdited':
       return (
         <div key={event.id} className="rt-note" data-testid="tl-plan-edited">
-          You edited the plan (v{String((payload.plan as TaskPlanDto | undefined)?.version ?? '?')})
+          {copy.locale === 'zh' ? '你修改了计划' : 'You edited the plan'} (v
+          {String((payload.plan as TaskPlanDto | undefined)?.version ?? '?')})
         </div>
       );
     case 'agent.planUpdated': {
@@ -623,15 +742,9 @@ function eventNode(
       );
     }
     case 'agent.usage': {
-      const usage = payload.usage as
-        { inputTokens?: number; outputTokens?: number; costUsd?: number | null } | undefined;
-      return (
-        <div key={event.id} className="rt-usage mono" data-testid="tl-usage">
-          {usage?.inputTokens ?? '?'} in · {usage?.outputTokens ?? '?'} out
-          {/* Synthesized gateway models have no price table — hide a misleading $0. */}
-          {usage?.costUsd != null && usage.costUsd > 0 ? ` · $${usage.costUsd.toFixed(4)}` : ''}
-        </div>
-      );
+      // Usage is aggregated once in RunDetails instead of interrupting every
+      // conversational turn with token and price telemetry.
+      return null;
     }
     case 'review.decision':
       return (
@@ -689,7 +802,7 @@ function eventNode(
     }
     case 'report.final': {
       if (isAnswered(task)) return null; // the Answered milestone covers it
-      return <DoneMilestone key={event.id} payload={payload} />;
+      return <DoneMilestone key={event.id} payload={payload} copy={copy} />;
     }
     case 'task.modelChanged': {
       // ADR-0016: honest audit of a reply-time model/effort override.
@@ -872,6 +985,7 @@ function VerRow({
 function ThinkingBlock(props: {
   text: string;
   durationMs: number | null;
+  copy: RoomCopy;
   live?: boolean;
   startedAt?: number;
 }): React.JSX.Element {
@@ -902,8 +1016,14 @@ function ThinkingBlock(props: {
         </span>
         <span className={`rt-think-label ${props.live ? 'shimmer' : ''}`}>
           {props.live
-            ? `Thinking${seconds && seconds > 1 ? ` · ${seconds}s` : '…'}`
-            : `Thought${seconds && seconds > 0 ? ` for ${seconds}s` : ''}`}
+            ? `${props.copy.thinking}${seconds && seconds > 1 ? ` · ${seconds}s` : '…'}`
+            : `${props.copy.thought}${
+                seconds && seconds > 0
+                  ? props.copy.locale === 'zh'
+                    ? ` · ${seconds}s`
+                    : ` for ${seconds}s`
+                  : ''
+              }`}
         </span>
         {!props.live && !open ? (
           <span className="rt-think-preview">
@@ -962,25 +1082,104 @@ function SetupRow(props: {
   );
 }
 
-function pastLabel(state: string, past: boolean): string {
-  if (!past) return stateLabel(state);
-  // Completed phases read as achievements, mirroring the mockup.
-  switch (state) {
-    case 'EXPLORING':
-      return 'Explored the codebase';
-    case 'PLANNING':
-      return 'Wrote a plan';
-    case 'AWAITING_PLAN_APPROVAL':
-      return 'Plan reviewed';
-    case 'VERIFYING':
-      return 'Ran verification';
-    case 'IN_PROGRESS':
-      return 'Worked';
-    case 'AWAITING_PERMISSION':
-      return 'Permission decided';
-    default:
-      return stateLabel(state);
-  }
+function ActivityGroup({
+  children,
+  count,
+  live,
+  copy,
+}: {
+  children: React.ReactNode;
+  count: number;
+  live: boolean;
+  copy: RoomCopy;
+}): React.JSX.Element {
+  const [open, setOpen] = useState(live);
+  const wasLive = useRef(live);
+  useEffect(() => {
+    if (live) setOpen(true);
+    else if (wasLive.current) setOpen(false);
+    wasLive.current = live;
+  }, [live]);
+  return (
+    <section className={`rt-worklog ${open ? 'open' : ''}`} data-testid="tl-worklog">
+      <button
+        type="button"
+        className="rt-worklog-toggle"
+        data-testid="tl-worklog-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span>{copy.activity}</span>
+        <span className="rt-worklog-meta">{copy.actions(count)}</span>
+        {live ? (
+          <span className="rt-live-status">{copy.locale === 'zh' ? '进行中' : 'Live'}</span>
+        ) : null}
+        <span className="rt-disclosure" aria-hidden>
+          {open ? '−' : '+'}
+        </span>
+      </button>
+      {open ? <div className="rt-worklog-rows">{children}</div> : null}
+    </section>
+  );
+}
+
+function formatDuration(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 90) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${String(seconds - minutes * 60).padStart(2, '0')}s`;
+}
+
+function RunDetails({
+  actionCount,
+  durationMs,
+  inputTokens,
+  outputTokens,
+  costUsd,
+  copy,
+}: {
+  actionCount: number;
+  durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  copy: RoomCopy;
+}): React.JSX.Element | null {
+  if (actionCount === 0 && inputTokens + outputTokens === 0 && durationMs < 1000) return null;
+  return (
+    <details className="rt-run-details" data-testid="tl-run-details">
+      <summary>{copy.runDetails}</summary>
+      <dl>
+        {actionCount > 0 ? (
+          <div>
+            <dt>{copy.activity}</dt>
+            <dd>{copy.actions(actionCount)}</dd>
+          </div>
+        ) : null}
+        {durationMs >= 1000 ? (
+          <div>
+            <dt>{copy.duration}</dt>
+            <dd>{formatDuration(durationMs)}</dd>
+          </div>
+        ) : null}
+        {inputTokens + outputTokens > 0 ? (
+          <div>
+            <dt>{copy.tokens}</dt>
+            <dd>
+              {inputTokens.toLocaleString()} {copy.locale === 'zh' ? '输入' : 'in'} ·{' '}
+              {outputTokens.toLocaleString()} {copy.locale === 'zh' ? '输出' : 'out'}
+            </dd>
+          </div>
+        ) : null}
+        {costUsd > 0 ? (
+          <div>
+            <dt>{copy.cost}</dt>
+            <dd>${costUsd.toFixed(4)}</dd>
+          </div>
+        ) : null}
+      </dl>
+    </details>
+  );
 }
 
 export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
@@ -988,6 +1187,7 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
   const context = useTimelineContext(task.state, task.verification.length);
+  const copy = roomCopyFor(`${task.title}\n${task.goalMd}`);
 
   // PIVOT-036: restore the per-task reading position once the timeline loads —
   // the same memory the Editor agent panel uses, so ⌘E round-trips keep it.
@@ -1004,37 +1204,56 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
     if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight;
   }, [store.timeline.length, store.streaming?.text.length, store.streamingThinking?.text.length]);
 
-  // Elapsed time per milestone = distance to the next state change.
-  const msMeta = new Map<string, string | null>();
-  const stateEvents = store.timeline.filter((e) => e.type === 'task.stateChanged');
-  for (let i = 0; i < stateEvents.length; i++) {
-    const cur = stateEvents[i]!;
-    const next = stateEvents[i + 1];
-    msMeta.set(cur.id, next ? fmtDuration(Date.parse(next.at) - Date.parse(cur.at)) : null);
-  }
-
-  // ADR-0018: the worklog clock counts from the room's first event; contiguous
-  // evidence rows collapse into one recessed worklog block.
+  // Tool evidence stays available on demand, while repeated usage events are
+  // aggregated into one quiet run-details disclosure.
   const runStartMs = store.timeline.length > 0 ? Date.parse(store.timeline[0]!.at) : Date.now();
+  const runEndMs =
+    store.timeline.length > 0
+      ? Date.parse(store.timeline[store.timeline.length - 1]!.at)
+      : runStartMs;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let costUsd = 0;
+  let actionCount = 0;
+  for (const event of store.timeline) {
+    if (isLogRow(event)) actionCount += 1;
+    if (event.type !== 'agent.usage') continue;
+    const usage = (
+      event.payload as {
+        usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number | null };
+      }
+    ).usage;
+    inputTokens += usage?.inputTokens ?? 0;
+    outputTokens += usage?.outputTokens ?? 0;
+    costUsd += usage?.costUsd ?? 0;
+  }
   const grouped: React.JSX.Element[] = [];
   let logGroup: React.JSX.Element[] = [];
   let logGroupKey = '';
+  let logGroupLive = false;
   const flushLog = (): void => {
     if (logGroup.length > 0) {
       grouped.push(
-        <div className="rt-worklog" key={`wl-${logGroupKey}`} data-testid="tl-worklog">
+        <ActivityGroup
+          key={`wl-${logGroupKey}`}
+          count={logGroup.length}
+          live={logGroupLive}
+          copy={copy}
+        >
           {logGroup}
-        </div>,
+        </ActivityGroup>,
       );
       logGroup = [];
+      logGroupLive = false;
     }
   };
   for (const event of store.timeline) {
-    const node = eventNode(event, context, task, msMeta, runStartMs);
+    const node = eventNode(event, context, task, runStartMs, copy);
     if (node === null) continue; // silent events never break a worklog
     if (isLogRow(event)) {
       if (logGroup.length === 0) logGroupKey = event.id;
       logGroup.push(node);
+      logGroupLive ||= isLiveLogRow(event);
     } else {
       flushLog();
       grouped.push(node);
@@ -1065,13 +1284,22 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
                 text={store.streamingThinking.text}
                 durationMs={null}
                 startedAt={store.streamingThinking.startedAt}
+                copy={copy}
               />
             ) : null}
             {store.streaming ? (
-              <Bubble who="agent" testid="tl-streaming" live>
+              <Bubble who="agent" copy={copy} testid="tl-streaming" live>
                 <Markdown text={store.streaming.text} />
               </Bubble>
             ) : null}
+            <RunDetails
+              actionCount={actionCount}
+              durationMs={Math.max(0, runEndMs - runStartMs)}
+              inputTokens={inputTokens}
+              outputTokens={outputTokens}
+              costUsd={costUsd}
+              copy={copy}
+            />
           </>
         )}
       </div>

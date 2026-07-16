@@ -42,8 +42,11 @@ test.describe('M6 read-only agent with deterministic runtime', () => {
         timeout: 20000,
       });
       await expect(page.getByTestId('tl-report')).toBeVisible();
-      // Usage recorded (MOD-001).
-      await expect(page.getByTestId('tl-usage').last()).toContainText('tokens');
+      // Usage remains recorded but is summarized once instead of interrupting
+      // each turn in the conversation.
+      const details = page.getByTestId('tl-run-details');
+      await details.locator('summary').click();
+      await expect(details).toContainText('Tokens');
     } finally {
       await app.close();
     }
