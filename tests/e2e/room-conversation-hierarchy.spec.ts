@@ -63,8 +63,7 @@ test('task room prioritizes the conversation and folds execution metadata', asyn
     await expect(page.getByText('Wrote a plan', { exact: true })).toHaveCount(0);
     await expect(page.getByText('Worked', { exact: true })).toHaveCount(0);
 
-    const context = page.getByTestId('tl-task-context').first();
-    await expect(context).toContainText('未提供验收条件');
+    await expect(page.getByTestId('tl-task-context')).toHaveCount(0);
     await expect(user).not.toContainText('No acceptance criteria were provided');
 
     const plan = page.getByTestId('plan-card-static').first();
@@ -83,10 +82,7 @@ test('task room prioritizes the conversation and folds execution metadata', asyn
     await details.locator('summary').click();
     await expect(details).toContainText('Token');
 
-    const activityToggle = page.getByTestId('tl-worklog-toggle').first();
-    await expect(activityToggle).toHaveAttribute('aria-expanded', 'false');
-    await activityToggle.click();
-    await expect(activityToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByTestId('tl-worklog-toggle')).toHaveCount(0);
     await expect(page.locator('[data-testid^="tl-tool-"]').first()).toBeVisible();
 
     await expect(page.getByTestId('review-bar-open')).toContainText('查看改动');
@@ -96,7 +92,6 @@ test('task room prioritizes the conversation and folds execution metadata', asyn
     await page.getByTestId('review-close').click();
     await expect(page.getByTestId('review-view')).toHaveCount(0);
 
-    await activityToggle.click();
     await details.locator('summary').click();
     await planToggle.click();
 

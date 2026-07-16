@@ -46,6 +46,12 @@ interface AppStore {
   surface: 'home' | 'workspace';
   /** Task Room (ADR-0008, PIVOT-021): task page inside the Home surface. */
   taskRoomTaskId: string | null;
+  /**
+   * Session-first shell: a terminal can be selected before external-agent
+   * detection has created its accounting task. Once detection lands the shell
+   * migrates this selection to the matching Task Room without moving the PTY.
+   */
+  sessionTerminalId: string | null;
   /** True while the Home project menu is opening a workspace — suppresses the auto-switch. */
   homePick: boolean;
   /** File refs queued for the next Home charter (e.g. "attach annotated image"). */
@@ -66,13 +72,14 @@ interface AppStore {
   init(): Promise<void>;
   setSurface(surface: 'home' | 'workspace'): void;
   openTaskRoom(taskId: string): void;
+  openTerminalSession(terminalId: string): void;
   closeTaskRoom(): void;
   setHomePick(inProgress: boolean): void;
   setLens(lens: { taskId: string; path: string } | null): void;
-  openPeek(taskId: string, path: string, mode?: 'diff' | 'file'): void;
+  openPeek(taskId: string, path: string, mode?: PeekState['mode']): void;
   closePeek(): void;
   closePeekTab(path: string): void;
-  setPeekMode(mode: 'diff' | 'file'): void;
+  setPeekMode(mode: PeekState['mode']): void;
   setPeekActive(path: string): void;
   focusComposer(): void;
   addPendingRefs(refs: string[]): void;
@@ -134,6 +141,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   toasts: [],
   surface: 'home',
   taskRoomTaskId: null,
+  sessionTerminalId: null,
   homePick: false,
   pendingRefs: [],
   newProjectOpen: false,
@@ -185,13 +193,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const peek = get().peek;
     set({
       taskRoomTaskId: taskId,
+      sessionTerminalId: null,
       surface: 'home',
       ...(peek && peek.taskId !== taskId ? { peek: null } : {}),
     });
   },
 
+  openTerminalSession(terminalId) {
+    set({
+      sessionTerminalId: terminalId,
+      taskRoomTaskId: null,
+      surface: 'home',
+      peek: null,
+      previewRailTaskId: null,
+    });
+  },
+
   closeTaskRoom() {
-    set({ taskRoomTaskId: null });
+    set({ taskRoomTaskId: null, sessionTerminalId: null, peek: null, previewRailTaskId: null });
   },
 
   setHomePick(inProgress) {

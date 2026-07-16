@@ -9,6 +9,16 @@ function nameFromUrl(url: string): string {
   return (tail ?? '').replace(/\.git$/i, '');
 }
 
+/** The last segment of a path — the folder the project will open as. */
+function leafOf(path: string): string {
+  return (
+    path
+      .replace(/[/\\]+$/, '')
+      .split(/[/\\]/)
+      .pop() ?? ''
+  );
+}
+
 /**
  * Home → New project…: create an empty folder (optional git init) or clone a
  * repository, then open it as the active project (stays on the Home surface).
@@ -16,24 +26,28 @@ function nameFromUrl(url: string): string {
 export function NewProjectDialog(props: { onClose: () => void }): React.JSX.Element {
   const app = useAppStore();
   const [mode, setMode] = useState<'empty' | 'clone'>('empty');
-  const [parentDir, setParentDir] = useState('');
-  const [name, setName] = useState('');
-  const [nameTouched, setNameTouched] = useState(false);
+  const [dir, setDir] = useState('');
   const [gitInit, setGitInit] = useState(true);
   const [cloneUrl, setCloneUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const effectiveName = nameTouched || mode === 'empty' ? name : name || nameFromUrl(cloneUrl);
-  const ready =
-    parentDir.trim().length > 0 &&
-    effectiveName.trim().length > 0 &&
-    (mode === 'empty' || cloneUrl.trim().length > 0) &&
-    !busy;
+  const leaf = leafOf(dir.trim());
+  const ready = dir.trim().length > 0 && (mode === 'empty' || cloneUrl.trim().length > 0) && !busy;
 
   const browse = async (): Promise<void> => {
     const res = await rpcResult('workspace.pickParentDir', {});
-    if (res.ok && res.data.path) setParentDir(res.data.path);
+    if (!res.ok || !res.data.path) return;
+    const picked = res.data.path;
+    // Clone: the picked folder is the parent — append the repo name so the
+    // destination reads "<chosen>/repo" (still editable afterwards).
+    const repo = mode === 'clone' ? nameFromUrl(cloneUrl) : '';
+    if (repo) {
+      const sep = picked.includes('\\') && !picked.includes('/') ? '\\' : '/';
+      setDir(picked.replace(/[/\\]+$/, '') + sep + repo);
+    } else {
+      setDir(picked);
+    }
   };
 
   const submit = async (): Promise<void> => {
@@ -44,8 +58,7 @@ export function NewProjectDialog(props: { onClose: () => void }): React.JSX.Elem
     app.setHomePick(true);
     const res = await rpcResult('workspace.createProject', {
       mode,
-      parentDir: parentDir.trim(),
-      name: effectiveName.trim(),
+      dir: dir.trim(),
       gitInit: mode === 'empty' ? gitInit : false,
       ...(mode === 'clone' ? { cloneUrl: cloneUrl.trim() } : {}),
     });
@@ -55,7 +68,7 @@ export function NewProjectDialog(props: { onClose: () => void }): React.JSX.Elem
       setError(res.error.userMessage);
       return;
     }
-    app.pushToast('info', `Project “${effectiveName.trim()}” is ready.`);
+    app.pushToast('info', `Project “${leafOf(dir.trim())}” is ready.`);
     props.onClose();
   };
 
@@ -110,14 +123,18 @@ export function NewProjectDialog(props: { onClose: () => void }): React.JSX.Elem
           ) : null}
 
           <div className="hm-field">
-            <label>Location</label>
+            <label>{mode === 'clone' ? 'Clone into' : 'Project folder'}</label>
             <div style={{ display: 'flex', gap: 6 }}>
               <input
                 data-testid="new-project-parent"
                 className="mono"
-                placeholder="Choose a folder…"
-                value={parentDir}
-                onChange={(e) => setParentDir(e.target.value)}
+                placeholder={mode === 'clone' ? '/path/to/repo' : '/path/to/my-project'}
+                value={dir}
+                autoFocus={mode === 'empty'}
+                onChange={(e) => setDir(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void submit();
+                }}
                 style={{ flex: 1 }}
               />
               <button
@@ -128,23 +145,12 @@ export function NewProjectDialog(props: { onClose: () => void }): React.JSX.Elem
                 Browse…
               </button>
             </div>
-          </div>
-
-          <div className="hm-field">
-            <label>Name</label>
-            <input
-              data-testid="new-project-name"
-              placeholder={mode === 'clone' ? nameFromUrl(cloneUrl) || 'repo name' : 'my-project'}
-              value={effectiveName}
-              autoFocus={mode === 'empty'}
-              onChange={(e) => {
-                setName(e.target.value);
-                setNameTouched(true);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void submit();
-              }}
-            />
+            {leaf ? (
+              <div className="hm-sec" style={{ marginTop: 5 }} data-testid="new-project-derived">
+                Opens as “{leaf}”
+                {mode === 'empty' ? ' — created if the path doesn’t exist yet.' : '.'}
+              </div>
+            ) : null}
           </div>
 
           {mode === 'empty' ? (

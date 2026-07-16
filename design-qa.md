@@ -136,6 +136,95 @@ final result: passed
 
 ---
 
+# Session Rail Workbench Production — Design QA
+
+## Comparison target
+
+- Source visual truth: `/Users/edy/.codex/generated_images/019f68a6-81e9-7783-8ddf-35ffd5e32238/exec-fa30f18e-7158-4ec4-bc28-0fc4a7b7fd80.png`
+- Production implementation: `apps/desktop-renderer/src/views/SessionRail.tsx`,
+  `apps/desktop-renderer/src/views/SessionTerminalView.tsx` and the resident
+  Home/Task Room/Workbench surfaces.
+- Native comparison viewport: 1440 × 1024 CSS pixels; responsive validation:
+  1180 × 820 CSS pixels.
+- Capture method: the repository Playwright Electron launcher with an isolated
+  Git fixture and temporary user-data directory. This is the product's real
+  renderer and PTY integration, not the in-app Browser.
+
+## Visual evidence
+
+- Codex-style entry: `/tmp/session-workbench-production-entry.png`
+- Pi review plus live edit: `/tmp/session-workbench-production.png`
+- Session type chooser: `/tmp/session-workbench-production-modal.png`
+- Narrow state: `/tmp/session-workbench-production-narrow.png`
+- Same-input full comparison: `/tmp/session-workbench-production-comparison-final.png`
+- Old Tasks density versus production Sessions:
+  `/tmp/session-workbench-rail-comparison-final.png`
+- Original Composer versus production Composer:
+  `/tmp/session-workbench-entry-comparison-final.png`
+
+The source and production capture were combined into the same comparison
+inputs and opened at original detail. No actionable P0, P1 or P2 visual issue
+remains.
+
+## Findings
+
+- Entry hierarchy: New Session now returns directly to the existing “What
+  should we build?” Composer. Pi/Claude/Codex selection is a secondary split
+  action, so the Session shell does not replace the product's primary task
+  entry.
+- Session density: rows use the previous Tasks list's compact rhythm. Project
+  and branch share one metadata line, state stays scannable at the right edge,
+  and unselected rows do not become dashboard cards.
+- Terminology: the recent-folder domain section is labeled Project. Workspace
+  remains only the name of the full editor surface in the footer.
+- Layout: the permanent Session rail, continuous Pi surface, resident editor
+  and review Composer preserve the reference's workbench geometry while using
+  the application's existing title bar and design tokens.
+- Typography and colors: existing Charter UI tokens remain authoritative;
+  provider marks and semantic live/review states stay distinct across all four
+  application backgrounds.
+- Assets: existing product icons and provider marks are reused; no substitute
+  illustration, handcrafted SVG or placeholder asset was introduced.
+- Responsiveness: at 1180 × 820 session titles truncate before state labels,
+  the review card and reply Composer stay visible, and the editor remains
+  usable without horizontal control overlap.
+- Accessibility and health: the split New Session controls have distinct
+  accessible names, the chooser exposes dialog semantics, keyboard session
+  switching remains intact, and the Electron flow asserted zero renderer
+  `pageerror` or `console.error` events.
+
+## Comparison history
+
+1. The first production pass used 112px Session cards and made the rail feel
+   like a second dashboard. It also opened the provider chooser as the primary
+   New Session action and labeled the recent-folder section Workspace.
+2. The final pass reduced rows to a 74px list rhythm, merged project/branch
+   metadata, made the task Composer the direct entry, moved provider choice to
+   the split menu and renamed the section Project.
+3. Same-input comparison confirmed that the core rail/main/editor/review
+   composition matches the selected workbench direction while restoring the
+   existing product's original Composer and Tasks information density.
+
+## Primary interactions tested
+
+- Enter the original task Composer directly from New Session.
+- Open the secondary chooser and select Pi, Claude or Codex.
+- Run a multi-step Pi task to review-ready state.
+- Open a changed file in the real resident Monaco editor without ending the
+  session.
+- Move to the full Workspace and return to the same task, file peek and draft.
+- Keep real external PTY sessions visible and resumable in the Session rail.
+- Switch sessions with Command+[ / Command+] and direct number shortcuts.
+
+Intentional P3 deviations: the production capture uses Charter's real host
+title bar, fixture paths and actual application copy rather than the mock's
+illustrative window title and sample repository. These preserve product truth
+without changing the selected interaction model.
+
+final result: passed
+
+---
+
 # Session Rail Workbench Mock — Design QA
 
 ## Comparison target

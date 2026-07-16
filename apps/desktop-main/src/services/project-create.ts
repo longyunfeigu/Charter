@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 
 /**
  * Local project creation (Home → New project…): an empty directory (optional
- * `git init`) or a `git clone`. Runs the system git binary — clone supports
+ * `git init`) or a `git clone`. The caller supplies the full path to the
+ * project folder; missing parent folders are created and the project name is
+ * simply the path's last segment. Runs the system git binary — clone supports
  * only non-interactive auth (public repos or credentials already configured
  * for git/SSH); interactive prompts are disabled so a missing credential
  * fails fast with a clear message instead of hanging.
@@ -49,45 +51,45 @@ function runGit(
 
 export interface CreateProjectInput {
   mode: 'empty' | 'clone';
-  parentDir: string;
-  name: string;
+  /** Full path to the project folder. Missing parents are created. */
+  dir: string;
   gitInit: boolean;
   cloneUrl?: string | undefined;
 }
 
 export async function createProject(input: CreateProjectInput, logger: Logger): Promise<string> {
-  const name = input.name.trim();
-  if (!NAME_RE.test(name) || name === '.' || name === '..' || name.startsWith('..')) {
+  const target = resolve(input.dir.trim());
+  const name = basename(target);
+  // The last path segment becomes the project name — it must be a real folder
+  // name (guards against roots like "/" and stray control characters).
+  if (!name || !NAME_RE.test(name)) {
     throw new ProductFailure(
       productError('PROJECT_BAD_NAME', {
-        userMessage: 'The project name contains characters that are not allowed in a folder name.',
+        userMessage: 'The last folder in that path is not a valid folder name.',
       }),
     );
   }
-  const parent = resolve(input.parentDir);
-  const parentStat = await fs.stat(parent).catch(() => null);
-  if (!parentStat?.isDirectory()) {
-    throw new ProductFailure(
-      productError('PROJECT_PARENT_MISSING', {
-        userMessage: 'The chosen parent folder does not exist.',
-      }),
-    );
-  }
-  const target = join(parent, name);
-  if (basename(target) !== name) {
-    throw new ProductFailure(
-      productError('PROJECT_BAD_NAME', {
-        userMessage: 'The project name is not a valid folder name.',
-      }),
-    );
-  }
+  const parent = dirname(target);
+
+  // A path that already points at a non-empty folder would mix the new project
+  // into existing files — reject it. An empty folder is fine to reuse.
   const existing = await fs.stat(target).catch(() => null);
   if (existing) {
-    throw new ProductFailure(
-      productError('PROJECT_EXISTS', {
-        userMessage: `“${name}” already exists in that folder. Choose another name.`,
-      }),
-    );
+    if (!existing.isDirectory()) {
+      throw new ProductFailure(
+        productError('PROJECT_EXISTS', {
+          userMessage: `“${name}” already exists and is not a folder. Choose another path.`,
+        }),
+      );
+    }
+    const entries = await fs.readdir(target).catch(() => [] as string[]);
+    if (entries.length > 0) {
+      throw new ProductFailure(
+        productError('PROJECT_EXISTS', {
+          userMessage: `“${name}” already exists and is not empty. Choose another path.`,
+        }),
+      );
+    }
   }
 
   if (input.mode === 'clone') {
@@ -99,6 +101,8 @@ export async function createProject(input: CreateProjectInput, logger: Logger): 
         }),
       );
     }
+    // git needs its working dir to exist; create the parent path up front.
+    await fs.mkdir(parent, { recursive: true });
     logger.info('project clone starting', { url, target });
     const { code, stderr } = await runGit(['clone', '--', url, target], parent, 10 * 60 * 1000);
     if (code !== 0) {
@@ -115,7 +119,8 @@ export async function createProject(input: CreateProjectInput, logger: Logger): 
     return target;
   }
 
-  await fs.mkdir(target, { recursive: false });
+  // Create the project folder and any missing parents in the path.
+  await fs.mkdir(target, { recursive: true });
   if (input.gitInit) {
     const { code, stderr } = await runGit(['init'], target, 30 * 1000);
     if (code !== 0) {

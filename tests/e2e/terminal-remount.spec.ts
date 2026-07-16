@@ -23,6 +23,37 @@ test.describe('terminal re-mount regressions', () => {
       await expect(page.getByTestId('terminal-host')).toContainText('marker-terminal-A', {
         timeout: 15000,
       });
+
+      // Archive keeps its editorial UI, but code and PTY surfaces must use a
+      // genuine monospace stack. A proportional fallback corrupts xterm's
+      // measured cell grid, especially for mixed Chinese and Latin output.
+      await page.evaluate(() => {
+        document.documentElement.dataset.skin = 'archive';
+        document.documentElement.dataset.theme = 'light';
+      });
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim(),
+          ),
+        )
+        .toMatch(/^Menlo,/);
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            getComputedStyle(document.documentElement).getPropertyValue('--font-mono'),
+          ),
+        )
+        .not.toContain('American Typewriter');
+      await page.locator('.xterm').click();
+      await page.keyboard.type("printf '中文对齐 ABC123\\n'");
+      await page.keyboard.press('Enter');
+      await expect(page.getByTestId('terminal-host')).toContainText('中文对齐 ABC123', {
+        timeout: 15000,
+      });
+      if (process.env.PI_IDE_QA_SCREENSHOT) {
+        await page.screenshot({ path: '/tmp/archive-terminal-font-fixed.png' });
+      }
       const tabs = page.locator('[data-testid^="terminal-tab-"]');
       await expect(tabs).toHaveCount(1);
 

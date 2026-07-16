@@ -81,7 +81,7 @@ export function TaskRoomView(): React.JSX.Element {
         <div className="tr-head">
           <button className="tr-back" data-testid="task-room-back" onClick={app.closeTaskRoom}>
             <Ic name="chevron" size={13} className="tr-back-ic" />
-            Home
+            Sessions
           </button>
         </div>
         <div className="empty-state">
@@ -113,7 +113,8 @@ export function TaskRoomView(): React.JSX.Element {
   // ADR-0009/0014: shared with the room-aware ⌘E toggle (PIVOT-006r).
   const openInEditor = (): void => openTaskInEditor(task);
 
-  // Peek escape hatch (PIVOT-035): the ONLY plain-click path to the Editor.
+  // Full-workspace escape hatch remains available, but the normal edit path is
+  // now the resident Session pane opened by task-room-edit-file / FilePeek.
   const openFileInEditor = (path: string): void => {
     void editor.openFile(path);
     openInEditor();
@@ -125,7 +126,7 @@ export function TaskRoomView(): React.JSX.Element {
         <div className="tr-head-drag" />
         <button className="tr-back" data-testid="task-room-back" onClick={app.closeTaskRoom}>
           <Ic name="chevron" size={13} className="tr-back-ic" />
-          Home
+          Sessions
         </button>
         <span className="tr-title" title={task.title}>
           {task.title}
@@ -156,6 +157,17 @@ export function TaskRoomView(): React.JSX.Element {
             Stop
           </button>
         ) : null}
+        {files[0] && sameProject && !task.worktree ? (
+          <button
+            className="ghostbtn"
+            data-testid="task-room-edit-file"
+            title={`Edit ${files[0]} beside this Session`}
+            onClick={() => app.openPeek(task.id, files[0]!, 'edit')}
+          >
+            <Ic name="pencil" size={12} />
+            Edit file
+          </button>
+        ) : null}
         <button
           className="ghostbtn"
           data-testid="replay-open"
@@ -172,11 +184,11 @@ export function TaskRoomView(): React.JSX.Element {
         <button
           className="ghostbtn"
           data-testid="task-room-open-editor"
-          title="Open the full editor with this task's context"
+          title="Open the full workspace with this task's context"
           onClick={openInEditor}
         >
           <Ic name="layout" size={12} />
-          Open in editor
+          Full workspace
         </button>
         {canArchiveTask(task) ? (
           <ConfirmDangerButton
@@ -220,6 +232,7 @@ export function TaskRoomView(): React.JSX.Element {
           <FilePeek
             taskId={task.id}
             worktree={task.worktree !== null}
+            editableInWorkspace={sameProject && task.worktree === null}
             onOpenInEditor={openFileInEditor}
           />
         ) : null}

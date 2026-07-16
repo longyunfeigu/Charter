@@ -112,7 +112,9 @@
   color-scheme: light;
   --font-ui: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, 'Songti SC', serif;
   --font-display: 'Charter', 'Iowan Old Style', Georgia, 'Songti SC', serif;
-  --font-mono: 'Courier Prime', 'American Typewriter', 'SFMono-Regular', Menlo, monospace;
+  --font-mono:
+    Menlo, Monaco, 'SF Mono', 'SFMono-Regular', Consolas, 'PingFang SC', 'Microsoft YaHei UI',
+    monospace;
   --icon-stroke-width: 1.55;
   --letter-ui: 0.002em;
   --bg-app: #ded2bc;
@@ -159,7 +161,9 @@
   color-scheme: dark;
   --font-ui: 'Iowan Old Style', 'Palatino Linotype', Georgia, 'Songti SC', serif;
   --font-display: 'Charter', 'Iowan Old Style', Georgia, 'Songti SC', serif;
-  --font-mono: 'Courier Prime', 'American Typewriter', 'SFMono-Regular', Menlo, monospace;
+  --font-mono:
+    Menlo, Monaco, 'SF Mono', 'SFMono-Regular', Consolas, 'PingFang SC', 'Microsoft YaHei UI',
+    monospace;
   --icon-stroke-width: 1.55;
   --letter-ui: 0.002em;
   --bg-app: #17110e;

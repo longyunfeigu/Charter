@@ -25,7 +25,12 @@ export const SKIN_LABELS: Record<AppearanceSkin, { name: string; description: st
 const EDITOR_FONTS: Record<AppearanceSkin, string> = {
   studio: DEFAULT_EDITOR_FONT_FAMILY,
   terminal: "'Berkeley Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace",
-  archive: "'Courier Prime', 'American Typewriter', 'SFMono-Regular', Menlo, monospace",
+  // Monaco and xterm both require a genuinely monospaced primary face. The
+  // editorial Archive UI can stay serif, but American Typewriter is
+  // proportional and breaks the terminal cell grid when Courier Prime is not
+  // installed (the default on macOS).
+  archive:
+    "Menlo, Monaco, 'SF Mono', 'SFMono-Regular', Consolas, 'PingFang SC', 'Microsoft YaHei UI', monospace",
   index: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace",
 };
 

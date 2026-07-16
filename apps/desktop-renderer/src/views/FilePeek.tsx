@@ -4,7 +4,9 @@ import { rpcResult } from '../bridge.js';
 import { useAppStore } from '../store/appStore.js';
 import { useTaskStore } from '../store/taskStore.js';
 import { useActivityStore } from '../store/activityStore.js';
+import { useEditorStore } from '../store/editorStore.js';
 import { monaco, monacoFontFamily } from '../monaco-setup.js';
+import { EditorArea } from '../workbench/EditorArea.js';
 import { Ic } from './home-icons.js';
 
 /**
@@ -12,12 +14,14 @@ import { Ic } from './home-icons.js';
  * conversation — never a modal. Changes mode renders the task's recorded diff
  * for the active file; File mode shows the file's CURRENT logical content read
  * through the task's own mount (`task.peekFile` — worktree-honest, live editor
- * buffer when the mount is focused). Read-only by design (v1); the Editor stays
- * one explicit step away via the header escape hatch.
+ * buffer when the mount is focused). Edit mode reuses the real workspace
+ * document model in this resident slot. Worktree files remain read-only until
+ * accepted because the focused workspace does not own their path.
  */
 export function FilePeek(props: {
   taskId: string;
   worktree: boolean;
+  editableInWorkspace: boolean;
   onOpenInEditor: (path: string) => void;
 }): React.JSX.Element | null {
   const app = useAppStore();
@@ -85,7 +89,11 @@ export function FilePeek(props: {
   const file = changeSet?.files.find((f) => f.path === active) ?? null;
 
   return (
-    <section className="tr-peek" data-testid="file-peek" aria-label={`File peek — ${active}`}>
+    <section
+      className={`tr-peek ${mode === 'edit' ? 'editing' : ''}`}
+      data-testid="file-peek"
+      aria-label={`File peek — ${active}`}
+    >
       <div className="tr-peek-head">
         <div className="tr-peek-tabs" role="tablist">
           {peek.paths.map((path) => (
@@ -149,8 +157,25 @@ export function FilePeek(props: {
           >
             File
           </button>
+          <button
+            className={mode === 'edit' ? 'on' : ''}
+            role="radio"
+            aria-checked={mode === 'edit'}
+            data-testid="peek-mode-edit"
+            disabled={!props.editableInWorkspace}
+            title={
+              props.editableInWorkspace
+                ? 'Edit this file without leaving the Session'
+                : props.worktree
+                  ? 'Accept the isolated worktree before editing it in the focused workspace'
+                  : 'Focus this task’s project to edit here'
+            }
+            onClick={() => app.setPeekMode('edit')}
+          >
+            Edit
+          </button>
         </div>
-        <span className="tr-peek-ro">read-only</span>
+        <span className="tr-peek-ro">{mode === 'edit' ? 'live buffer' : 'read-only'}</span>
         {file ? (
           <span className="tr-peek-stat mono">
             <i className="plus">+{file.additions}</i> <i className="minus">−{file.deletions}</i>
@@ -158,15 +183,28 @@ export function FilePeek(props: {
         ) : null}
         <span className="tr-peek-sp" />
         {!props.worktree ? (
-          <button
-            className="ghostbtn"
-            data-testid="peek-open-editor"
-            title="Open this file in the full editor (⌘-click a file reference works too)"
-            onClick={() => props.onOpenInEditor(active)}
-          >
-            <Ic name="layout" size={11} />
-            Open in editor
-          </button>
+          <>
+            {props.editableInWorkspace && mode !== 'edit' ? (
+              <button
+                className="ghostbtn"
+                data-testid="peek-edit-here"
+                title="Edit this file beside the running Session"
+                onClick={() => app.setPeekMode('edit')}
+              >
+                <Ic name="pencil" size={11} />
+                Edit here
+              </button>
+            ) : null}
+            <button
+              className="ghostbtn"
+              data-testid="peek-open-editor"
+              title="Open the same buffer in the full workspace"
+              onClick={() => props.onOpenInEditor(active)}
+            >
+              <Ic name="layout" size={11} />
+              Full workspace
+            </button>
+          </>
         ) : (
           <span
             className="tr-peek-wt"
@@ -180,11 +218,28 @@ export function FilePeek(props: {
       <div className="tr-peek-body" data-testid="peek-body">
         {mode === 'diff' ? (
           <PeekDiff loading={diffLoading} file={file} />
-        ) : (
+        ) : mode === 'file' ? (
           <PeekFile taskId={props.taskId} path={active} pulseVersion={pulseVersion} />
+        ) : (
+          <PeekEditor path={active} />
         )}
       </div>
     </section>
+  );
+}
+
+/** The real shared document model, embedded in the Session instead of opening
+ * a second app surface. EditorArea retains Markdown rich/source switching,
+ * autosave, conflict handling and the normal tab model. */
+function PeekEditor({ path }: { path: string }): React.JSX.Element {
+  const openFile = useEditorStore((state) => state.openFile);
+  useEffect(() => {
+    void openFile(path);
+  }, [openFile, path]);
+  return (
+    <div className="tr-peek-editor">
+      <EditorArea />
+    </div>
   );
 }
 

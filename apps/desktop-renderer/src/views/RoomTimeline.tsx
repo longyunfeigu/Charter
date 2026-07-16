@@ -58,12 +58,6 @@ function isLogRow(event: TimelineEventDto): boolean {
   );
 }
 
-function isLiveLogRow(event: TimelineEventDto): boolean {
-  if (event.type !== 'tool.call') return false;
-  const state = String((event.payload as Record<string, unknown>).state ?? '');
-  return !['SUCCEEDED', 'FAILED', 'DENIED', 'CANCELLED', 'TIMED_OUT'].includes(state);
-}
-
 /** +a −d from a unified patch (honest: derived from the change itself). */
 function patchStat(patch: string): { additions: number; deletions: number } {
   let additions = 0;
@@ -1082,43 +1076,10 @@ function SetupRow(props: {
   );
 }
 
-function ActivityGroup({
-  children,
-  count,
-  live,
-  copy,
-}: {
-  children: React.ReactNode;
-  count: number;
-  live: boolean;
-  copy: RoomCopy;
-}): React.JSX.Element {
-  const [open, setOpen] = useState(live);
-  const wasLive = useRef(live);
-  useEffect(() => {
-    if (live) setOpen(true);
-    else if (wasLive.current) setOpen(false);
-    wasLive.current = live;
-  }, [live]);
+function ActivityGroup({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <section className={`rt-worklog ${open ? 'open' : ''}`} data-testid="tl-worklog">
-      <button
-        type="button"
-        className="rt-worklog-toggle"
-        data-testid="tl-worklog-toggle"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span>{copy.activity}</span>
-        <span className="rt-worklog-meta">{copy.actions(count)}</span>
-        {live ? (
-          <span className="rt-live-status">{copy.locale === 'zh' ? '进行中' : 'Live'}</span>
-        ) : null}
-        <span className="rt-disclosure" aria-hidden>
-          {open ? '−' : '+'}
-        </span>
-      </button>
-      {open ? <div className="rt-worklog-rows">{children}</div> : null}
+    <section className="rt-worklog" data-testid="tl-worklog" aria-label="Agent activity">
+      {children}
     </section>
   );
 }
@@ -1230,21 +1191,10 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
   const grouped: React.JSX.Element[] = [];
   let logGroup: React.JSX.Element[] = [];
   let logGroupKey = '';
-  let logGroupLive = false;
   const flushLog = (): void => {
     if (logGroup.length > 0) {
-      grouped.push(
-        <ActivityGroup
-          key={`wl-${logGroupKey}`}
-          count={logGroup.length}
-          live={logGroupLive}
-          copy={copy}
-        >
-          {logGroup}
-        </ActivityGroup>,
-      );
+      grouped.push(<ActivityGroup key={`wl-${logGroupKey}`}>{logGroup}</ActivityGroup>);
       logGroup = [];
-      logGroupLive = false;
     }
   };
   for (const event of store.timeline) {
@@ -1253,7 +1203,6 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
     if (isLogRow(event)) {
       if (logGroup.length === 0) logGroupKey = event.id;
       logGroup.push(node);
-      logGroupLive ||= isLiveLogRow(event);
     } else {
       flushLog();
       grouped.push(node);

@@ -31,7 +31,7 @@ export function registerWorkspaceHandlers(
       'workspace.pickParentDir': async () => {
         const result = await dialog.showOpenDialog({
           properties: ['openDirectory', 'createDirectory'],
-          title: 'Choose where to create the project',
+          title: 'Choose the project folder',
           buttonLabel: 'Choose',
         });
         return { path: result.canceled ? null : (result.filePaths[0] ?? null) };

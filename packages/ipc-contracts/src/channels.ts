@@ -122,8 +122,9 @@ export const CHANNELS = {
     z
       .object({
         mode: z.enum(['empty', 'clone']),
-        parentDir: z.string().min(1),
-        name: z.string().min(1).max(120),
+        // Full path to the project folder itself. Missing parents are created;
+        // the project name is the path's last segment (no separate name field).
+        dir: z.string().min(1).max(4096),
         gitInit: z.boolean().default(false),
         cloneUrl: z.string().max(2000).optional(),
       })

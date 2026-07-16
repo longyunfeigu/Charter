@@ -2,7 +2,8 @@
  * In-room file peek state (ADR-0014, PIVOT-034) — pure tab/active bookkeeping,
  * kept out of the store so it is unit-testable. The peek is a resident split
  * panel inside the Task Room: pinned tabs, one active file, one shared
- * Changes/File mode toggle.
+ * Changes/File/Edit mode toggle. Edit reuses the real workspace document
+ * model, so the session surface and full IDE never own divergent buffers.
  */
 
 export interface PeekState {
@@ -10,7 +11,7 @@ export interface PeekState {
   /** Pinned tabs in open order (capped; oldest drop first). */
   paths: string[];
   active: string;
-  mode: 'diff' | 'file';
+  mode: 'diff' | 'file' | 'edit';
 }
 
 export const MAX_PEEK_TABS = 8;
@@ -20,7 +21,7 @@ export function peekOpen(
   prev: PeekState | null,
   taskId: string,
   path: string,
-  mode?: 'diff' | 'file',
+  mode?: PeekState['mode'],
 ): PeekState {
   if (!prev || prev.taskId !== taskId) {
     return { taskId, paths: [path], active: path, mode: mode ?? 'diff' };

@@ -311,7 +311,11 @@ export function terminalAppearance(): TerminalAppearance {
     };
   }
   return {
-    fontFamily: "'Courier Prime', 'American Typewriter', 'SFMono-Regular', Menlo, monospace",
+    // Archive's surrounding UI is intentionally editorial, but a terminal
+    // still needs a real monospace cell grid. American Typewriter is
+    // proportional and becomes the fallback on stock macOS installations.
+    fontFamily:
+      "Menlo, Monaco, 'SF Mono', 'SFMono-Regular', Consolas, 'PingFang SC', 'Microsoft YaHei UI', monospace",
     theme: dark
       ? {
           background: '#291f19',

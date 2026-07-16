@@ -12,6 +12,7 @@ import { WelcomeView } from '../views/WelcomeView.js';
 import { SettingsView } from '../views/SettingsView.js';
 import { DiagnosticsView } from '../views/DiagnosticsView.js';
 import { Ic } from '../views/home-icons.js';
+import { SessionRail } from '../views/SessionRail.js';
 import type { BottomTab, SideBarView } from '@pi-ide/ipc-contracts';
 
 const SIDEBAR_VIEWS: Array<{ id: SideBarView; icon: string; label: string }> = [
@@ -357,10 +358,10 @@ export function Workbench(): React.JSX.Element {
         <button
           className="tb-chip"
           data-testid="surface-home"
-          title="Back to the task launcher"
+          title="Open the selected Session"
           onClick={() => useAppStore.getState().setSurface('home')}
         >
-          <Ic name="home" size={12} /> Home
+          <Ic name="home" size={12} /> Sessions
         </button>
         {titleBarRegistry.center.map((C, i) => (
           <C key={i} />
@@ -384,154 +385,166 @@ export function Workbench(): React.JSX.Element {
       </header>
 
       <div className="wb-main">
-        <nav className="activitybar" aria-label="Primary views">
-          {SIDEBAR_VIEWS.map((v) => (
-            <button
-              key={v.id}
-              className={`ab-btn ${layout.sideBarVisible && layout.sideBarView === v.id ? 'active' : ''}`}
-              title={v.label}
-              aria-label={v.label}
-              data-testid={`activity-${v.id}`}
-              onClick={() => {
-                if (layout.sideBarVisible && layout.sideBarView === v.id) {
-                  setLayout({ sideBarVisible: false });
-                } else {
-                  setLayout({ sideBarView: v.id, sideBarVisible: true });
-                }
-              }}
-            >
-              <Ic name={v.icon} size={19} strokeWidth={1.5} />
-            </button>
-          ))}
-          <span className="ab-spacer" />
-          <button
-            className="ab-btn"
-            title="Settings"
-            aria-label="Settings"
-            data-testid="activity-settings"
-            onClick={() => setOverlay('settings')}
-          >
-            <Ic name="sliders" size={19} strokeWidth={1.5} />
-          </button>
-        </nav>
-
-        {layout.sideBarVisible ? (
+        <SessionRail />
+        {surface === 'workspace' ? (
           <>
-            <aside
-              className="sidebar"
-              style={{ width: layout.sideBarWidth }}
-              data-testid="sidebar"
-              aria-label={`${layout.sideBarView} sidebar`}
-            >
-              <div className="sidebar-header">{layout.sideBarView}</div>
-              <div className="sidebar-body">
-                <SideBarContent view={layout.sideBarView} />
-              </div>
-            </aside>
-            <Splitter
-              direction="vertical"
-              ariaLabel="Resize sidebar"
-              onDragStart={() => {
-                sidebarStart.current = layout.sideBarWidth;
-              }}
-              onDrag={(delta) =>
-                setLayout({
-                  sideBarWidth: Math.min(800, Math.max(160, sidebarStart.current + delta)),
-                })
-              }
-            />
-          </>
-        ) : null}
-
-        <div className="wb-center">
-          <main className="editor-area" data-testid="editor-area">
-            {EditorMain ? <EditorMain /> : <WelcomeView />}
-          </main>
-          {layout.bottomPanelVisible ? (
-            <>
-              <Splitter
-                direction="horizontal"
-                ariaLabel="Resize bottom panel"
-                onDragStart={() => {
-                  bottomStart.current = layout.bottomPanelHeight;
-                }}
-                onDrag={(delta) =>
-                  setLayout({
-                    bottomPanelHeight: Math.min(1200, Math.max(100, bottomStart.current - delta)),
-                  })
-                }
-              />
-              <section
-                className="bottom-panel"
-                style={{ height: layout.bottomPanelHeight }}
-                data-testid="bottom-panel"
-                aria-label="Bottom panel"
+            <nav className="activitybar" aria-label="Primary views">
+              {SIDEBAR_VIEWS.map((v) => (
+                <button
+                  key={v.id}
+                  className={`ab-btn ${layout.sideBarVisible && layout.sideBarView === v.id ? 'active' : ''}`}
+                  title={v.label}
+                  aria-label={v.label}
+                  data-testid={`activity-${v.id}`}
+                  onClick={() => {
+                    if (layout.sideBarVisible && layout.sideBarView === v.id) {
+                      setLayout({ sideBarVisible: false });
+                    } else {
+                      setLayout({ sideBarView: v.id, sideBarVisible: true });
+                    }
+                  }}
+                >
+                  <Ic name={v.icon} size={19} strokeWidth={1.5} />
+                </button>
+              ))}
+              <span className="ab-spacer" />
+              <button
+                className="ab-btn"
+                title="Settings"
+                aria-label="Settings"
+                data-testid="activity-settings"
+                onClick={() => setOverlay('settings')}
               >
-                <div className="bp-tabs" role="tablist">
-                  {BOTTOM_TABS.map((t) => (
-                    <button
-                      key={t.id}
-                      role="tab"
-                      aria-selected={layout.bottomTab === t.id}
-                      className={`bp-tab ${layout.bottomTab === t.id ? 'active' : ''}`}
-                      onClick={() => setLayout({ bottomTab: t.id })}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                  <span style={{ flex: 1 }} />
-                  <button
-                    className="modal-close"
-                    aria-label="Close bottom panel"
-                    onClick={() => setLayout({ bottomPanelVisible: false })}
+                <Ic name="sliders" size={19} strokeWidth={1.5} />
+              </button>
+            </nav>
+
+            {layout.sideBarVisible ? (
+              <>
+                <aside
+                  className="sidebar"
+                  style={{ width: layout.sideBarWidth }}
+                  data-testid="sidebar"
+                  aria-label={`${layout.sideBarView} sidebar`}
+                >
+                  <div className="sidebar-header">{layout.sideBarView}</div>
+                  <div className="sidebar-body">
+                    <SideBarContent view={layout.sideBarView} />
+                  </div>
+                </aside>
+                <Splitter
+                  direction="vertical"
+                  ariaLabel="Resize sidebar"
+                  onDragStart={() => {
+                    sidebarStart.current = layout.sideBarWidth;
+                  }}
+                  onDrag={(delta) =>
+                    setLayout({
+                      sideBarWidth: Math.min(800, Math.max(160, sidebarStart.current + delta)),
+                    })
+                  }
+                />
+              </>
+            ) : null}
+
+            <div className="wb-center">
+              <main className="editor-area" data-testid="editor-area">
+                {EditorMain ? <EditorMain /> : <WelcomeView />}
+              </main>
+              {layout.bottomPanelVisible ? (
+                <>
+                  <Splitter
+                    direction="horizontal"
+                    ariaLabel="Resize bottom panel"
+                    onDragStart={() => {
+                      bottomStart.current = layout.bottomPanelHeight;
+                    }}
+                    onDrag={(delta) =>
+                      setLayout({
+                        bottomPanelHeight: Math.min(
+                          1200,
+                          Math.max(100, bottomStart.current - delta),
+                        ),
+                      })
+                    }
+                  />
+                  <section
+                    className="bottom-panel"
+                    style={{ height: layout.bottomPanelHeight }}
+                    data-testid="bottom-panel"
+                    aria-label="Bottom panel"
                   >
-                    ✕
-                  </button>
-                </div>
-                <div className="bp-body" role="tabpanel">
-                  <BottomPanelContent tab={layout.bottomTab} />
-                </div>
-              </section>
-            </>
-          ) : null}
-        </div>
+                    <div className="bp-tabs" role="tablist">
+                      {BOTTOM_TABS.map((t) => (
+                        <button
+                          key={t.id}
+                          role="tab"
+                          aria-selected={layout.bottomTab === t.id}
+                          className={`bp-tab ${layout.bottomTab === t.id ? 'active' : ''}`}
+                          onClick={() => setLayout({ bottomTab: t.id })}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                      <span style={{ flex: 1 }} />
+                      <button
+                        className="modal-close"
+                        aria-label="Close bottom panel"
+                        onClick={() => setLayout({ bottomPanelVisible: false })}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="bp-body" role="tabpanel">
+                      <BottomPanelContent tab={layout.bottomTab} />
+                    </div>
+                  </section>
+                </>
+              ) : null}
+            </div>
 
-        {/* ADR-0017「检测升格」: a promoted external session owns the single
+            {/* ADR-0017「检测升格」: a promoted external session owns the single
             right rail; the generic managed-task panel returns on unpromote. */}
-        {ExternalMain ? <ExternalMain /> : null}
+            {ExternalMain ? <ExternalMain /> : null}
 
-        {layout.agentPanelVisible && !externalPanelPromoted ? (
-          <>
-            <Splitter
-              direction="vertical"
-              ariaLabel="Resize agent panel"
-              onDragStart={() => {
-                agentStart.current = layout.agentPanelWidth;
-              }}
-              onDrag={(delta) =>
-                setLayout({
-                  agentPanelWidth: Math.min(1000, Math.max(240, agentStart.current - delta)),
-                })
-              }
-            />
-            <aside
-              className="agent-panel"
-              style={{ width: layout.agentPanelWidth }}
-              data-testid="agent-panel"
-              aria-label="Agent panel"
-            >
-              {/* Mounted only on the Editor surface — the Task Room owns these
+            {layout.agentPanelVisible && !externalPanelPromoted ? (
+              <>
+                <Splitter
+                  direction="vertical"
+                  ariaLabel="Resize agent panel"
+                  onDragStart={() => {
+                    agentStart.current = layout.agentPanelWidth;
+                  }}
+                  onDrag={(delta) =>
+                    setLayout({
+                      agentPanelWidth: Math.min(1000, Math.max(240, agentStart.current - delta)),
+                    })
+                  }
+                />
+                <aside
+                  className="agent-panel"
+                  style={{ width: layout.agentPanelWidth }}
+                  data-testid="agent-panel"
+                  aria-label="Agent panel"
+                >
+                  {/* Mounted only on the Editor surface — the Task Room owns these
                   testids/flows while the Home surface covers the workbench. */}
-              {AgentMain && surface === 'workspace' ? (
-                <AgentMain />
-              ) : (
-                <div className="empty-state">
-                  <div className="es-title">Agent</div>
-                  <div>Open a workspace to create your first task.</div>
-                </div>
-              )}
-            </aside>
+                  {AgentMain && surface === 'workspace' ? (
+                    <AgentMain />
+                  ) : (
+                    <div className="empty-state">
+                      <div className="es-title">Agent</div>
+                      <div>Open a workspace to create your first task.</div>
+                    </div>
+                  )}
+                </aside>
+              </>
+            ) : null}
           </>
+        ) : homeSurfaceRegistry.main ? (
+          <div className="session-home-host">
+            <homeSurfaceRegistry.main />
+          </div>
         ) : null}
       </div>
 
@@ -596,9 +609,6 @@ export function Workbench(): React.JSX.Element {
       {overlayRegistry.map((C, i) => (
         <C key={i} />
       ))}
-
-      {/* Dual-form shell (ADR-0004): the Home surface covers the workbench. */}
-      {surface === 'home' && homeSurfaceRegistry.main ? <homeSurfaceRegistry.main /> : null}
 
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (

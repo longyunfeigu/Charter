@@ -13,6 +13,11 @@ describe('peek state (ADR-0014, PIVOT-034)', () => {
     expect(s).toEqual({ taskId: 't1', paths: ['src/a.ts'], active: 'src/a.ts', mode: 'file' });
   });
 
+  it('can open the shared workspace editor in the resident session slot', () => {
+    const s = peekOpen(null, 't1', 'src/a.ts', 'edit');
+    expect(s.mode).toBe('edit');
+  });
+
   it('defaults to diff mode when none is given on a fresh peek', () => {
     expect(peekOpen(null, 't1', 'src/a.ts').mode).toBe('diff');
   });

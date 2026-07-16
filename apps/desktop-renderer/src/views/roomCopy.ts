@@ -6,7 +6,6 @@ export interface RoomCopy {
   charter: string;
   taskContext: string;
   acceptanceChecks: string;
-  noAcceptance: string;
   previousConversation: string;
   plan: string;
   steps: (count: number) => string;
@@ -41,7 +40,6 @@ const EN: RoomCopy = {
   charter: 'Charter',
   taskContext: 'Task context',
   acceptanceChecks: 'Acceptance checks',
-  noAcceptance: 'Acceptance checks were not provided',
   previousConversation: 'Previous task context attached',
   plan: 'Plan',
   steps: (count) => `${count} step${count === 1 ? '' : 's'}`,
@@ -77,7 +75,6 @@ const ZH: RoomCopy = {
   charter: 'Charter',
   taskContext: '任务上下文',
   acceptanceChecks: '验收条件',
-  noAcceptance: '未提供验收条件',
   previousConversation: '已附带上一任务的上下文',
   plan: '计划',
   steps: (count) => `${count} 步`,
