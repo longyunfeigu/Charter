@@ -57,10 +57,18 @@ export class M4Services {
     private readonly host: WorkspaceHost,
     private readonly settings: SettingsService,
     private readonly logger: Logger,
+    shellIntegrationDir: string | null = null,
   ) {
     this.terminals = new TerminalManager(
       (id, data) => broadcast('terminal.data', { id, data }),
       (id, exitCode) => broadcast('terminal.exit', { id, exitCode }),
+      {
+        // ADR-0021: resolved per spawn so a settings flip applies to the next terminal.
+        shellIntegration: () => ({
+          dir: shellIntegrationDir,
+          enabled: this.settings.effective.terminal.shellIntegration,
+        }),
+      },
     );
 
     host.onDidChangeWorkspace((ws) => {

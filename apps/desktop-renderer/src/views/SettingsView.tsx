@@ -886,6 +886,28 @@ export function SettingsView(): React.JSX.Element {
                 onChange={(v) => set({ terminal: { autoPromoteExternal: v } })}
               />
             </Row>
+            <Row
+              label="Shell integration (command blocks)"
+              hint="Injects OSC 133 marks into zsh/bash/fish: block jumps, marker rail, sourced progress, finish notifications. Off or an unknown shell = plain scrollback, nothing breaks"
+            >
+              <Toggle
+                checked={settings.terminal.shellIntegration}
+                onChange={(v) => set({ terminal: { shellIntegration: v } })}
+              />
+            </Row>
+            <Row
+              label="Notify when a long command finishes (seconds)"
+              hint="Unfocused only, one notification per command; its click lands on the command's block"
+            >
+              <input
+                className="st-input"
+                type="number"
+                min={5}
+                max={600}
+                value={settings.terminal.longCommandSeconds}
+                onChange={(e) => set({ terminal: { longCommandSeconds: Number(e.target.value) } })}
+              />
+            </Row>
           </div>
         ) : null}
 

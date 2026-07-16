@@ -14,6 +14,7 @@ import { QuickOpen, useQuickOpenStore, noteRecentFile } from '../views/QuickOpen
 import {
   TerminalContextsStatusItem,
   TerminalPanel,
+  TerminalRunStatusItem,
   useTerminalStore,
 } from '../views/TerminalPanel.js';
 import { ExternalPanel } from '../views/ExternalPanel.js';
@@ -78,6 +79,8 @@ export function registerM4(): void {
   editorBannerRegistry.push(PythonBanner);
   statusBarRegistry.left.push(ProblemsStatusItem, TsProjectStatusItem);
   statusBarRegistry.right.unshift(TerminalContextsStatusItem);
+  // ADR-0021: status-bar leg of the sourced command progress.
+  statusBarRegistry.right.unshift(TerminalRunStatusItem);
 
   initRegistry.push(() => {
     initProblems();

@@ -43,6 +43,11 @@ export const SettingsSchema = z.object({
       /** ADR-0017 rev.2: auto-move a detected external CLI session to the side
        * panel. Off = detection only decorates in place; moving is a user action. */
       autoPromoteExternal: z.boolean().default(false),
+      /** ADR-0021: inject OSC 133/9;4 shell integration (zsh/bash/fish). Off or
+       * an unknown shell degrades to today's plain scrollback — never errors. */
+      shellIntegration: z.boolean().default(true),
+      /** ADR-0021: minimum command runtime before an unfocused finish notifies. */
+      longCommandSeconds: z.number().int().min(5).max(600).default(15),
     })
     .prefault({}),
   agent: z

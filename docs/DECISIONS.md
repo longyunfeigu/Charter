@@ -9,6 +9,7 @@
 | [ADR-0003](adr/ADR-0003-runtime-choices.md) | Accepted | 运行时基础设施：node:sqlite、node-pty 预编译、ripgrep 解析链、esbuild+Vite | 2026-07-12 | REL-003、TERM-002、SRCH-005 |
 | [ADR-0019](adr/ADR-0019-external-skill-sources.md) | Accepted | 多来源 Skill 自动发现、信任策略与实时校准 | 2026-07-15 | AG-014、TOOL-001、ADR-0015 |
 | [ADR-0020](adr/ADR-0020-coordinated-application-skins.md) | Accepted | 三套整体联动皮肤：Terminal / Archive / Index | 2026-07-15 | APP-006、ED-015、TERM-002、PIVOT-024 |
+| [ADR-0021](adr/ADR-0021-legible-terminal-blocks.md) | Accepted | 读得懂的终端：shell 集成块模型、同源进度、命令级通知 | 2026-07-16 | TERM-003/005/006、PIVOT-014、VER-005/007、ADR-0017 |
 
 ## ADR 模板
 

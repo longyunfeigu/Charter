@@ -2,6 +2,14 @@ import { spawnSync } from 'node:child_process';
 import { newId } from '@pi-ide/foundation';
 import type { IPty } from 'node-pty';
 import * as nodePty from 'node-pty';
+import { shellIntegrationSpawn, type ShellIntegrationConfig } from './shell-integration.js';
+
+export {
+  SHELL_INTEGRATION_FILES,
+  shellIntegrationSpawn,
+  type ShellIntegrationConfig,
+  type ShellSpawnPlan,
+} from './shell-integration.js';
 
 export interface TerminalInfo {
   id: string;
@@ -225,6 +233,8 @@ export interface TerminalManagerOptions {
   agentClis?: readonly string[];
   /** Foreground-process poll interval; 0 disables polling (tests drive pollOnce). */
   agentPollMs?: number;
+  /** ADR-0021: resolved at spawn time so a settings flip applies to the next terminal. */
+  shellIntegration?: () => ShellIntegrationConfig | null;
   /** DI seams for deterministic tests. */
   readTitle?: (session: { pty: IPty }) => string;
   readProcessTable?: () => ProcessTableEntry[] | null;
@@ -256,6 +266,7 @@ export class TerminalManager {
   private readonly agentClis: readonly string[];
   private readonly readTitle: (session: { pty: IPty }) => string;
   private readonly readTable: () => ProcessTableEntry[] | null;
+  private readonly shellIntegration: (() => ShellIntegrationConfig | null) | null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -272,6 +283,7 @@ export class TerminalManager {
         : DEFAULT_AGENT_CLIS);
     this.readTitle = options.readTitle ?? ((s) => s.pty.process);
     this.readTable = options.readProcessTable ?? readProcessTable;
+    this.shellIntegration = options.shellIntegration ?? null;
     const pollMs = options.agentPollMs ?? 700;
     if (pollMs > 0) {
       this.pollTimer = setInterval(() => this.pollOnce(), pollMs);
@@ -347,15 +359,20 @@ export class TerminalManager {
   create(options: CreateTerminalOptions): TerminalInfo {
     const shell = options.shellPath || defaultShell();
     const id = newId('term');
-    const pty = nodePty.spawn(shell, [], {
+    // ADR-0021: known shells get OSC 133 marks injected; anything else spawns
+    // exactly as before (plan is empty), preserving TERM-003 diagnosability.
+    const plan = shellIntegrationSpawn(shell, this.shellIntegration?.() ?? null);
+    const pty = nodePty.spawn(shell, plan.args, {
       name: 'xterm-256color',
       cols: options.cols ?? 80,
       rows: options.rows ?? 24,
       cwd: options.cwd,
-      env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' } as Record<
-        string,
-        string
-      >,
+      env: {
+        ...process.env,
+        ...plan.env,
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor',
+      } as Record<string, string>,
     });
     const info: TerminalInfo = {
       id,

@@ -157,6 +157,17 @@ export class ExternalSessionService {
         captureGrade: session.captureGrade,
         ...observation,
       });
+      // ADR-0021: structured turn boundaries (Codex turn.completed / Claude
+      // result) become terminal blocks. Observed-grade sessions never get
+      // fabricated turns — their enter/exit edges are the only block marks.
+      if (observation.kind === 'report' && observation.evidenceKinds.includes('result')) {
+        broadcast('external.turn', {
+          terminalId,
+          taskId: session.taskId,
+          label: observation.label,
+          status: observation.status === 'error' ? 'error' : 'ok',
+        });
+      }
     }
 
     this.bufferTerminalText(session, parsed.terminalText);

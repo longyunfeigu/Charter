@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import type { RecentWorkspaceDto } from '@pi-ide/ipc-contracts';
-import { Terminal, type ITheme } from '@xterm/xterm';
+import { Terminal, type IMarker, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
@@ -10,8 +10,10 @@ import { useAppStore } from '../store/appStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useExternalStore } from '../store/externalStore.js';
 import { useTaskStore } from '../store/taskStore.js';
+import { useDraftStore } from '../store/draftStore.js';
 import { Ic } from './home-icons.js';
 import { useQuickConsoleStore } from '../store/quickConsoleStore.js';
+import { TerminalBlocks, type BlocksHost, type TermBlock } from './terminal-blocks.js';
 
 export type TerminalLaunch = 'shell' | 'claude' | 'codex';
 export type TerminalWorkingContext =
@@ -25,6 +27,8 @@ export interface TermInstance {
   title: string;
   term: Terminal;
   fit: FitAddon;
+  /** ADR-0021: OSC 133/9;4 block model over this terminal's buffer. */
+  blocks: TerminalBlocks;
   exited: boolean;
   cwd: string;
   projectName: string;
@@ -73,6 +77,123 @@ export interface TerminalAppearance {
 
 const QUICK_CLOSE_GRACE_MS = 5000;
 const quickCloseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// ---------- ADR-0021: terminal blocks (rail, jumps, actions, progress) ------
+
+/** Monotonic per-terminal counters so block mutations re-render React views. */
+interface BlocksVersionStore {
+  versions: Record<string, number>;
+  bump(id: string): void;
+}
+export const useBlocksVersion = create<BlocksVersionStore>((set, get) => ({
+  versions: {},
+  bump(id) {
+    set({ versions: { ...get().versions, [id]: (get().versions[id] ?? 0) + 1 } });
+  },
+}));
+
+/** Adapt a live xterm into the pure block model's host (IMarker ⊇ BlockMarker). */
+function xtermBlocksHost(term: Terminal): BlocksHost {
+  return {
+    markCursorLine: () => term.registerMarker(0) ?? null,
+    cursorColumn: () => term.buffer.active.cursorX,
+    cursorLine: () => term.buffer.active.baseY + term.buffer.active.cursorY,
+    lineText: (line) => term.buffer.active.getLine(line)?.translateToString(true) ?? '',
+    now: () => Date.now(),
+  };
+}
+
+export function selectBlock(
+  item: TermInstance,
+  block: TermBlock,
+  options: { flash?: boolean; scroll?: boolean } = {},
+): void {
+  const range = item.blocks.rangeOf(block);
+  item.blocks.selectedId = block.id;
+  item.term.selectLines(range.start, range.end);
+  if (options.scroll !== false) item.term.scrollToLine(Math.max(0, range.start - 1));
+  if (options.flash) flashBlock(item, block);
+  useBlocksVersion.getState().bump(item.id);
+}
+
+export function clearBlockSelection(item: TermInstance): void {
+  item.blocks.selectedId = null;
+  item.term.clearSelection();
+  item.term.scrollToBottom();
+  useBlocksVersion.getState().bump(item.id);
+}
+
+function flashBlock(item: TermInstance, block: TermBlock): void {
+  // Our BlockMarker facade is the live IMarker underneath (xtermBlocksHost).
+  const marker = block.marker as unknown as IMarker;
+  if (marker.isDisposed) return;
+  const decoration = item.term.registerDecoration({ marker, width: item.term.cols });
+  if (!decoration) return;
+  decoration.onRender((element) => element.classList.add('term-block-flash'));
+  setTimeout(() => decoration.dispose(), 1500);
+}
+
+/** Whole-block text (command line through last output line), clipboard-ready. */
+export function terminalBlockText(item: TermInstance, block: TermBlock): string {
+  const range = item.blocks.rangeOf(block);
+  const buffer = item.term.buffer.active;
+  const lines: string[] = [];
+  for (let line = range.start; line <= range.end; line += 1) {
+    lines.push(buffer.getLine(line)?.translateToString(true) ?? '');
+  }
+  while (lines.at(-1) === '') lines.pop();
+  return lines.join('\n').trim().slice(-16_000);
+}
+
+/** ⌘↑/⌘↓ (Ctrl elsewhere) step through blocks; below the last block = back to live. */
+function blockNavigationKey(item: TermInstance, event: KeyboardEvent): boolean {
+  if (event.type !== 'keydown') return true;
+  const isMac = window.product?.platform === 'darwin';
+  const mod = isMac
+    ? event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey
+    : event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+  if (!mod || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return true;
+  if (item.blocks.visibleBlocks().length === 0) return true;
+  const target = item.blocks.step(event.key === 'ArrowUp' ? -1 : 1);
+  event.preventDefault();
+  if (target) selectBlock(item, target);
+  else clearBlockSelection(item);
+  return false;
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
+}
+
+/** A finished long command reports to the host; PIVOT-014 hygiene lives there. */
+function reportCommandEnd(terminalId: string, block: TermBlock, durationMs: number): void {
+  // An unknown exit (lost D mark) means the prompt already returned under the
+  // user's eyes — no notification and no bell for something we cannot describe.
+  if (block.exitCode === null) return;
+  const settings = useAppStore.getState().settings;
+  const minMs = (settings?.terminal.longCommandSeconds ?? 15) * 1000;
+  if (durationMs < minMs) return;
+  void rpcResult('terminal.commandDone', {
+    id: terminalId,
+    blockId: block.id,
+    command: block.command,
+    exitCode: block.exitCode,
+    durationMs: Math.round(durationMs),
+  }).then((res) => {
+    if (!res.ok || res.data.notified) return;
+    // Focused (or notifications off): ring the row bell unless the user is
+    // already looking at this exact terminal.
+    const state = useTerminalStore.getState();
+    const looking = state.active === terminalId && useAppStore.getState().surface === 'workspace';
+    const item = state.items.find((t) => t.id === terminalId);
+    if (item && !looking) {
+      item.blocks.bell = true;
+      useBlocksVersion.getState().bump(terminalId);
+    }
+  });
+}
 
 export function terminalAppearance(): TerminalAppearance {
   const skin = document.documentElement.dataset.skin ?? 'studio';
@@ -423,9 +544,11 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       attributeFilter: ['data-theme', 'data-skin'],
     });
     onEvent('terminal.data', ({ id, data }) => {
-      get()
-        .items.find((t) => t.id === id)
-        ?.term.write(data);
+      const item = get().items.find((t) => t.id === id);
+      if (!item) return;
+      item.term.write(data);
+      // ADR-0021: plain-output progress fallback (OSC 9;4 always wins).
+      item.blocks.feedOutput(data);
     });
     onEvent('terminal.exit', ({ id, exitCode }) => {
       const item = get().items.find((t) => t.id === id);
@@ -435,16 +558,60 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       }
     });
     // ADR-0017: closing summary line when an external agent session ends —
-    // display-buffer only (never written to the PTY).
+    // display-buffer only (never written to the PTY). ADR-0021: session edges
+    // are also block marks (purple rail dots) for observed-grade sessions.
     onEvent('terminal.agentState', ({ id, agent, taskId }) => {
-      if (agent !== null || !taskId) return;
       const item = get().items.find((t) => t.id === id);
       if (!item) return;
+      if (agent !== null) {
+        item.blocks.addTurnBlock(`✳ ${agentDisplayName(agent)} 会话开始`, false);
+        return;
+      }
+      item.blocks.addTurnBlock('✳ 会话结束', false);
+      if (!taskId) return;
       const files = useExternalStore.getState().sessions[taskId]?.files.length ?? 0;
       item.term.write(
         `\r\n\x1b[90m✻ session ended — ${files} file${files === 1 ? '' : 's'} changed, tracked for review\x1b[0m\r\n`,
       );
     });
+    // ADR-0021: structured turn boundaries (Codex turn.completed / Claude
+    // result) join the same rail as command blocks.
+    onEvent('external.turn', ({ terminalId, label, status }) => {
+      const item = get().items.find((t) => t.id === terminalId);
+      item?.blocks.addTurnBlock(label, status === 'error');
+    });
+    // ADR-0021: a command notification's click lands on the block, not the app.
+    onEvent('terminal.revealBlock', ({ id, blockId }) => {
+      const item = get().items.find((t) => t.id === id);
+      const block = item?.blocks.byId(blockId);
+      if (!item || !block) return;
+      useAppStore.getState().showBottomTab('terminal');
+      set({ active: id });
+      item.blocks.bell = false;
+      // Let the terminal mount before scrolling/flashing the landing block.
+      requestAnimationFrame(() => selectBlock(item, block, { flash: true }));
+    });
+    // ADR-0021: the Dock icon paints the same number as the tab ring and the
+    // status bar — the earliest running determinate command, nothing invented.
+    let lastDockProgress: number | null = null;
+    setInterval(() => {
+      const now = Date.now();
+      let candidate: { startedAt: number; value: number } | null = null;
+      for (const item of get().items) {
+        const running = item.blocks.runningBlock();
+        if (!running || running.kind !== 'command') continue;
+        const progress = item.blocks.progressFor(now);
+        if (progress?.kind !== 'determinate') continue;
+        if (!candidate || running.startedAt < candidate.startedAt) {
+          candidate = { startedAt: running.startedAt, value: progress.percent / 100 };
+        }
+      }
+      const value = candidate ? Math.round(candidate.value * 100) / 100 : null;
+      if (value !== lastDockProgress) {
+        lastDockProgress = value;
+        void rpcResult('terminal.progress', { value });
+      }
+    }, 1000);
     // Focused-workspace changes leave global terminals intact. Their PTYs and
     // renderer xterm instances are owned by the context recorded on each row.
   },
@@ -465,6 +632,14 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       settings?.terminal.fontSize ?? 12,
       settings?.terminal.scrollback ?? 5000,
     );
+    // ADR-0021: blocks are parsed on this instance whether or not it is
+    // mounted — every terminal keeps its rail while running in the background.
+    const blocks = new TerminalBlocks(xtermBlocksHost(term), {
+      onChange: () => useBlocksVersion.getState().bump(res.data.id),
+      onCommandEnd: (block, durationMs) => reportCommandEnd(res.data.id, block, durationMs),
+    });
+    term.parser.registerOscHandler(133, (data) => blocks.handleOsc133(data));
+    term.parser.registerOscHandler(9, (data) => blocks.handleOsc9(data));
     term.onData((data) => {
       void rpcResult('terminal.write', { id: res.data.id, data });
     });
@@ -476,6 +651,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       title: options?.title ?? (options?.quick ? '⌥ quick' : res.data.title),
       term,
       fit,
+      blocks,
       exited: false,
       cwd: res.data.cwd,
       projectName: res.data.projectName,
@@ -499,6 +675,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
         item.currentInput += data;
       }
     });
+    term.attachCustomKeyEventHandler((event) => blockNavigationKey(item, event));
     set({ items: [...get().items, item], active: item.id });
     if (options?.reveal !== false) useAppStore.getState().showBottomTab('terminal');
     return item.id;
@@ -530,6 +707,12 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
 
   setActive(id) {
     set({ active: id });
+    // Looking at the terminal clears its attention bell (ADR-0021).
+    const item = get().items.find((t) => t.id === id);
+    if (item?.blocks.bell) {
+      item.blocks.bell = false;
+      useBlocksVersion.getState().bump(id);
+    }
   },
 
   async requestKill(id) {
@@ -746,6 +929,233 @@ export function SessionBar({ terminalId }: { terminalId: string }): React.JSX.El
         </button>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * ADR-0021 — the marker rail: one dot per block (green ok / red non-zero exit
+ * / blue running / purple turn), positioned by buffer fraction. Click = jump
+ * to that block and flash it. Ghostty's jump_to_prompt made this keyboard-
+ * reachable; the rail makes failures eye-reachable.
+ */
+function TerminalBlockRail({ item }: { item: TermInstance }): React.JSX.Element | null {
+  useBlocksVersion((s) => s.versions[item.id] ?? 0);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const scroll = item.term.onScroll(() => setTick((t) => t + 1));
+    const interval = setInterval(() => {
+      if (item.blocks.runningBlock()) setTick((t) => t + 1);
+    }, 1000);
+    return () => {
+      scroll.dispose();
+      clearInterval(interval);
+    };
+  }, [item]);
+  const blocks = item.blocks.visibleBlocks();
+  if (blocks.length === 0) return null;
+  const buffer = item.term.buffer.active;
+  const totalLines = Math.max(1, buffer.baseY + item.term.rows);
+  return (
+    <div className="term-block-rail" data-testid="terminal-block-rail">
+      {blocks.map((block) => {
+        const cls =
+          block.kind === 'turn'
+            ? 'turn'
+            : block.running
+              ? 'run'
+              : block.exitCode !== null && block.exitCode !== 0
+                ? 'err'
+                : 'ok';
+        const top = Math.min(97, (Math.max(0, block.marker.line) / totalLines) * 96);
+        const state = block.running
+          ? '运行中'
+          : block.exitCode === null
+            ? '已结束'
+            : block.exitCode === 0
+              ? '✓'
+              : `exit ${block.exitCode}`;
+        return (
+          <button
+            key={block.id}
+            className={`term-rail-mark ${cls} ${item.blocks.selectedId === block.id ? 'on' : ''}`}
+            style={{ top: `${top}%` }}
+            title={`${block.command || (block.kind === 'turn' ? '回合' : 'command')} · ${state}`}
+            aria-label={`跳到块:${block.command || state}`}
+            data-testid={`terminal-rail-${cls}`}
+            onClick={() => selectBlock(item, block, { flash: true })}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+/** ADR-0021 — actions for the selected block: copy / send to Room / save / rerun. */
+function TerminalBlockToolbar({ item }: { item: TermInstance }): React.JSX.Element | null {
+  useBlocksVersion((s) => s.versions[item.id] ?? 0);
+  const taskRoomTaskId = useAppStore((s) => s.taskRoomTaskId);
+  const block = item.blocks.selected();
+  if (!block) return null;
+  const busy = item.blocks.runningBlock() !== null;
+  const rerunOf = block.rerunOf ? item.blocks.byId(block.rerunOf) : null;
+  const duration = block.endedAt !== null ? formatElapsed(block.endedAt - block.startedAt) : null;
+  const copyOutput = (): void => {
+    void navigator.clipboard.writeText(terminalBlockText(item, block));
+    useAppStore.getState().pushToast('success', '块输出已复制。');
+  };
+  const sendToRoom = (): void => {
+    if (!taskRoomTaskId) return;
+    const text = terminalBlockText(item, block);
+    const lineCount = Math.max(1, text.split('\n').length);
+    useDraftStore.getState().addTerminalRef(taskRoomTaskId, {
+      id: `terminal-ref-${Date.now()}`,
+      title: `终端块 · ${block.command.slice(0, 40) || '输出'}`,
+      text,
+      cwd: item.cwd,
+      contextLabel: `${item.projectName} · ${item.contextLabel}`,
+      lineCount,
+    });
+    useAppStore.getState().pushToast('success', `已把这个块(${lineCount} 行)放进当前 Room 回复。`);
+    useAppStore.getState().focusComposer();
+  };
+  const saveAttachment = (): void => {
+    const blob = new Blob([terminalBlockText(item, block)], {
+      type: 'text/plain;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `terminal-block-${new Date().toISOString().replaceAll(':', '-')}.txt`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+  const rerun = (): void => {
+    if (busy || item.exited || !block.command) return;
+    // User-domain action (TERM-005): the recorded command goes back to the
+    // same PTY; the new block links to this one (VER-005 superseded, both stay).
+    item.blocks.markNextCommandAsRerunOf(block.id);
+    void rpcResult('terminal.write', { id: item.id, data: `${block.command}\r` });
+    clearBlockSelection(item);
+    item.term.focus();
+  };
+  return (
+    <div className="term-block-toolbar" data-testid="terminal-block-toolbar">
+      <span className="tbt-kind">{block.kind === 'turn' ? '回合' : '%'}</span>
+      <span className="tbt-cmd" title={block.command}>
+        {block.command || '(命令未记录)'}
+      </span>
+      {block.running ? (
+        <span className="tbt-state run">运行中</span>
+      ) : block.exitCode === null ? (
+        <span className="tbt-state">已结束</span>
+      ) : (
+        <span className={`tbt-state ${block.exitCode === 0 ? 'ok' : 'err'}`}>
+          {block.exitCode === 0 ? '✓' : `exit ${block.exitCode}`}
+        </span>
+      )}
+      {duration ? <span className="tbt-meta">{duration}</span> : null}
+      {rerunOf ? (
+        <button
+          className="tbt-btn link"
+          title="这是一次重跑 — 查看被取代的那次运行"
+          onClick={() => selectBlock(item, rerunOf, { flash: true })}
+        >
+          重跑 ↰
+        </button>
+      ) : null}
+      <span className="tbt-sp" />
+      <button className="tbt-btn" data-testid="block-copy" onClick={copyOutput}>
+        复制输出
+      </button>
+      <button
+        className="tbt-btn"
+        data-testid="block-send-room"
+        disabled={!taskRoomTaskId}
+        title={
+          taskRoomTaskId
+            ? '把这个块作为引用放进当前 Room 的回复框(署名 YOU)'
+            : '先进入一个 Task Room'
+        }
+        onClick={sendToRoom}
+      >
+        ⤴ 发给 Room
+      </button>
+      <button className="tbt-btn" data-testid="block-save" onClick={saveAttachment}>
+        存为附件
+      </button>
+      {block.kind === 'command' ? (
+        <button
+          className="tbt-btn"
+          data-testid="block-rerun"
+          disabled={busy || item.exited || !block.command}
+          title={
+            busy
+              ? '等当前命令结束后再重跑'
+              : item.exited
+                ? '终端已退出'
+                : '在同一个终端里重跑这条命令(用户域动作,无审批)'
+          }
+          onClick={rerun}
+        >
+          ↻ 重跑
+        </button>
+      ) : null}
+      <button
+        className="tbt-btn quiet"
+        aria-label="取消选中"
+        data-testid="block-dismiss"
+        onClick={() => {
+          clearBlockSelection(item);
+          item.term.focus();
+        }}
+      >
+        <Ic name="x" size={12} />
+      </button>
+    </div>
+  );
+}
+
+/** ADR-0021 — per-row attention: progress ring while running, bell when done unfocused. */
+function TerminalRowIndicator({ item }: { item: TermInstance }): React.JSX.Element | null {
+  useBlocksVersion((s) => s.versions[item.id] ?? 0);
+  const [now, setNow] = useState(Date.now());
+  const running = item.blocks.runningBlock();
+  useEffect(() => {
+    if (!running) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [running]);
+  if (item.blocks.bell) {
+    return (
+      <span
+        className="terminal-row-bell"
+        data-testid={`terminal-bell-${item.id}`}
+        title="命令已结束 — 点击行查看"
+      >
+        ◐
+      </span>
+    );
+  }
+  if (!running || running.kind !== 'command') return null;
+  const progress = item.blocks.progressFor(now);
+  if (progress?.kind === 'determinate') {
+    return (
+      <span
+        className={`terminal-row-ring ${progress.failed ? 'err' : ''}`}
+        data-testid={`terminal-ring-${item.id}`}
+        title={`${running.command} · ${progress.percent}%`}
+        style={{
+          background: `conic-gradient(${progress.failed ? 'var(--danger)' : 'var(--info)'} ${progress.percent}%, var(--border) 0)`,
+        }}
+      />
+    );
+  }
+  return (
+    <span
+      className="terminal-row-ring indeterminate"
+      data-testid={`terminal-ring-${item.id}`}
+      title={`${running.command} · 运行中 ${formatElapsed(now - running.startedAt)}`}
+    />
   );
 }
 
@@ -1023,7 +1433,11 @@ export function TerminalPanel(): React.JSX.Element {
     <div className="terminal-panel-layout" data-testid="terminal-panel">
       <div className="terminal-main-pane">
         {activeDock ? <SessionBar terminalId={activeDock.id} /> : null}
-        <div ref={hostRef} className="terminal-host" data-testid="terminal-host" />
+        {activeDock ? <TerminalBlockToolbar item={activeDock} /> : null}
+        <div className="terminal-host-wrap">
+          <div ref={hostRef} className="terminal-host" data-testid="terminal-host" />
+          {activeDock ? <TerminalBlockRail item={activeDock} /> : null}
+        </div>
         {dockItems.length === 0 ? (
           <div className="terminal-dock-empty">
             <Ic name="terminal" size={18} />
@@ -1172,6 +1586,7 @@ export function TerminalPanel(): React.JSX.Element {
                     </span>
                   </span>
                   <span className="terminal-row-side">
+                    <TerminalRowIndicator item={terminal} />
                     <span className={`terminal-row-place ${ended ? 'ended' : ''}`}>
                       {stateLabel}
                     </span>
@@ -1250,6 +1665,57 @@ export function TerminalPanel(): React.JSX.Element {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * ADR-0021 — status-bar leg of the three-surface progress: the earliest
+ * running command block across all terminals. Determinate = same number as
+ * the tab ring and the Dock; otherwise an honest "running · elapsed".
+ */
+export function TerminalRunStatusItem(): React.JSX.Element | null {
+  const items = useTerminalStore((s) => s.items);
+  useBlocksVersion((s) => s.versions);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+  let target: { item: TermInstance; block: TermBlock } | null = null;
+  for (const item of items) {
+    const block = item.blocks.runningBlock();
+    if (block?.kind !== 'command') continue;
+    if (!target || block.startedAt < target.block.startedAt) target = { item, block };
+  }
+  if (!target) return null;
+  const progress = target.item.blocks.progressFor(now);
+  const label = target.block.command.slice(0, 28) || 'command';
+  const reveal = (): void => {
+    useAppStore.getState().showBottomTab('terminal');
+    useTerminalStore.getState().setActive(target!.item.id);
+    selectBlock(target!.item, target!.block, { flash: true });
+  };
+  return (
+    <button
+      className="sb-item terminal-run-status"
+      data-testid="status-terminal-run"
+      title={`${target.block.command} — 点击直达这个块`}
+      onClick={reveal}
+    >
+      {progress?.kind === 'determinate' ? (
+        <>
+          <span className="trs-bar">
+            <i style={{ width: `${progress.percent}%` }} />
+          </span>
+          {progress.percent}% · {label}
+        </>
+      ) : (
+        <>
+          <span className="trs-spin" />
+          {label} · {formatElapsed(now - target.block.startedAt)}
+        </>
+      )}
+    </button>
   );
 }
 

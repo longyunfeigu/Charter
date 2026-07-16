@@ -38,6 +38,8 @@ import { ModelCatalogService } from './services/model-catalog.js';
 import { AgentHost } from './services/agent-host.js';
 import { TaskService } from './services/task-service.js';
 import { NotificationService } from './services/notification-service.js';
+import { CommandNotificationService } from './services/command-notification-service.js';
+import { writeShellIntegrationFiles } from './services/shell-integration-host.js';
 import { detectProjectKind } from './services/project-kind.js';
 import { registerActivityHandlers } from './ipc/activity-handlers.js';
 import { registerReplayHandlers } from './ipc/replay-handlers.js';
@@ -462,7 +464,12 @@ if (!gotLock) {
     let m4: M4Services | null = null;
     if (workspaceHost && state && settings) {
       registerWorkspaceHandlers(workspaceHost, state, logger.child('ipc'));
-      m4 = new M4Services(workspaceHost, settings, logger.child('m4'));
+      // ADR-0021: OSC 133/9;4 shell integration scripts, written once per launch.
+      const shellIntegrationDir = writeShellIntegrationFiles(
+        app.getPath('userData'),
+        logger.child('shell-integration'),
+      );
+      m4 = new M4Services(workspaceHost, settings, logger.child('m4'), shellIntegrationDir);
       m4Ref = m4;
       registerM4Handlers(m4, workspaceHost, logger.child('ipc'), {
         recent(projectPath) {
@@ -602,6 +609,56 @@ if (!gotLock) {
       });
       taskService.onStateChanged((info) => notifications.onTaskState(info));
       taskService.onAttention((info) => notifications.pingAttention(info));
+
+      // ADR-0021: command-finish notifications — same hygiene as PIVOT-014,
+      // finer grain: the click lands on the command's block, not just the app.
+      const terminalsForNotify = m4.terminals;
+      const commandNotifications = new CommandNotificationService({
+        enabled: () => settings.effective.notifications.enabled && !process.env.PI_IDE_E2E,
+        anyWindowFocused: () => BrowserWindow.getFocusedWindow() !== null,
+        minDurationMs: () => settings.effective.terminal.longCommandSeconds * 1000,
+        show: (n, onClick) => {
+          if (!Notification.isSupported()) return;
+          const note = new Notification({ title: n.title, body: n.body });
+          note.on('click', onClick);
+          note.show();
+        },
+        reveal: (terminalId, blockId) => {
+          const win = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null;
+          if (win) {
+            if (win.isMinimized()) win.restore();
+            win.show();
+            win.focus();
+          }
+          broadcast('terminal.revealBlock', { id: terminalId, blockId });
+        },
+      });
+      registerHandlers(
+        {
+          'terminal.commandDone': async (payload) => {
+            const info = terminalsForNotify.list().find((t) => t.id === payload.id);
+            if (!info) return { notified: false };
+            return {
+              notified: commandNotifications.onCommandDone({
+                terminalId: payload.id,
+                blockId: payload.blockId,
+                command: payload.command,
+                exitCode: payload.exitCode,
+                durationMs: payload.durationMs,
+                contextLabel: info.projectName,
+              }),
+            };
+          },
+          'terminal.progress': async ({ value }) => {
+            // Same number the tab ring and status bar show; -1 clears the
+            // macOS Dock / Windows taskbar progress.
+            const win = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null;
+            win?.setProgressBar(value === null ? -1 : Math.min(1, Math.max(0, value)));
+            return { ok: true };
+          },
+        },
+        logger.child('ipc'),
+      );
 
       // M10/E2E-022: redacted support bundle export.
       registerHandlers(

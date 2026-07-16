@@ -1480,3 +1480,210 @@ kbd {
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
 }
+
+/* ── ADR-0021: legible terminal — blocks, rail, toolbar, progress ────────── */
+.terminal-host-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.terminal-host-wrap .terminal-host {
+  flex: 1;
+  min-height: 0;
+  /* The rail owns its own gutter so xterm's scrollbar never sits under it. */
+  margin-right: 12px;
+}
+.term-block-rail {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  right: 0;
+  width: 12px;
+  z-index: 6;
+  pointer-events: none;
+}
+.term-rail-mark {
+  position: absolute;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: auto;
+  background: var(--fg-faint);
+}
+.term-rail-mark.ok {
+  background: var(--success);
+}
+.term-rail-mark.err {
+  background: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 25%, transparent);
+}
+.term-rail-mark.run {
+  background: var(--info);
+  animation: term-rail-pulse 1.4s infinite;
+}
+.term-rail-mark.turn {
+  background: #a678d4;
+}
+.term-rail-mark.on {
+  outline: 2px solid var(--fg);
+  outline-offset: 1px;
+}
+@keyframes term-rail-pulse {
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--info) 30%, transparent);
+  }
+}
+.term-block-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-sidebar) 45%, var(--bg-card));
+  font-size: 11px;
+  min-width: 0;
+}
+.term-block-toolbar .tbt-kind {
+  color: var(--fg-faint);
+  font-family: var(--mono, monospace);
+}
+.term-block-toolbar .tbt-cmd {
+  font-family: var(--mono, monospace);
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 34%;
+}
+.term-block-toolbar .tbt-state {
+  font-size: 10px;
+  border-radius: 4px;
+  padding: 0 5px;
+  background: var(--bg-hover);
+  color: var(--fg-muted);
+}
+.term-block-toolbar .tbt-state.ok {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+.term-block-toolbar .tbt-state.err {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+.term-block-toolbar .tbt-state.run {
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+  color: var(--info);
+}
+.term-block-toolbar .tbt-meta {
+  color: var(--fg-muted);
+  font-size: 10.5px;
+}
+.term-block-toolbar .tbt-sp {
+  flex: 1;
+}
+.term-block-toolbar .tbt-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--fg);
+  border-radius: 5px;
+  padding: 1px 8px;
+  font-size: 10.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.term-block-toolbar .tbt-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.term-block-toolbar .tbt-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.term-block-toolbar .tbt-btn.link {
+  border: none;
+  background: none;
+  color: var(--info);
+  padding-inline: 2px;
+}
+.term-block-toolbar .tbt-btn.quiet {
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  display: inline-flex;
+  align-items: center;
+}
+.term-block-flash {
+  background: color-mix(in srgb, var(--info) 26%, transparent);
+  animation: term-block-flash-out 1.4s ease-out forwards;
+}
+@keyframes term-block-flash-out {
+  to {
+    background: transparent;
+  }
+}
+.terminal-row-ring {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.terminal-row-ring.indeterminate {
+  background: none;
+  border: 2px solid color-mix(in srgb, var(--info) 45%, transparent);
+  border-top-color: var(--info);
+  animation: term-ring-spin 1s linear infinite;
+}
+@keyframes term-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.terminal-row-bell {
+  flex: none;
+  color: var(--warning);
+  font-size: 11px;
+  animation: term-bell-pulse 1.2s ease-in-out 2;
+}
+@keyframes term-bell-pulse {
+  30% {
+    transform: rotate(14deg);
+  }
+  60% {
+    transform: rotate(-10deg);
+  }
+}
+.terminal-run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono, monospace);
+}
+.terminal-run-status .trs-bar {
+  width: 64px;
+  height: 5px;
+  border-radius: 99px;
+  background: var(--border);
+  overflow: hidden;
+}
+.terminal-run-status .trs-bar i {
+  display: block;
+  height: 100%;
+  background: var(--info);
+  border-radius: 99px;
+  transition: width 0.3s;
+}
+.terminal-run-status .trs-spin {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--info) 45%, transparent);
+  border-top-color: var(--info);
+  animation: term-ring-spin 1s linear infinite;
+}

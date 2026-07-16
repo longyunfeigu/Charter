@@ -418,6 +418,31 @@ export const CHANNELS = {
     z.object({}).strict(),
     z.object({ items: z.array(TerminalInfoSchema) }),
   ),
+  /** ADR-0021: a command block finished (renderer-parsed OSC 133;D). The main
+   * process applies PIVOT-014 hygiene and may show a system notification whose
+   * click reveals the block. */
+  'terminal.commandDone': ch(
+    'terminal.commandDone',
+    1,
+    z
+      .object({
+        id: z.string(),
+        blockId: z.string(),
+        command: z.string().max(2000),
+        exitCode: z.number().int(),
+        durationMs: z.number().int().nonnegative(),
+      })
+      .strict(),
+    z.object({ notified: z.boolean() }),
+  ),
+  /** ADR-0021: aggregated determinate command progress for the OS task surface
+   * (macOS Dock / Windows taskbar). null clears. Throttled by the renderer. */
+  'terminal.progress': ch(
+    'terminal.progress',
+    1,
+    z.object({ value: z.number().min(0).max(1).nullable() }).strict(),
+    z.object({ ok: z.boolean() }),
+  ),
   /** ADR-0017: active external CLI sessions (renderer state restore). */
   'external.listSessions': ch(
     'external.listSessions',

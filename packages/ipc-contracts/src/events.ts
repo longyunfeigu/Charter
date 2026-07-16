@@ -82,6 +82,25 @@ export const EVENT_CHANNELS = {
       taskId: z.string().nullable(),
     }),
   ),
+  /** ADR-0021: a command-finish notification was clicked — scroll the terminal
+   * to the block start and flash it (the landing point is the block, not the app). */
+  'terminal.revealBlock': ev(
+    'terminal.revealBlock',
+    1,
+    z.object({ id: z.string(), blockId: z.string() }),
+  ),
+  /** ADR-0021: a structured external session crossed a turn boundary (Codex
+   * turn.completed / Claude result). Observed-grade sessions never fire this. */
+  'external.turn': ev(
+    'external.turn',
+    1,
+    z.object({
+      terminalId: z.string(),
+      taskId: z.string(),
+      label: z.string(),
+      status: z.enum(['ok', 'error']),
+    }),
+  ),
   /** ADR-0017: live accounting for an external CLI session (watcher-driven). */
   'external.sessionChanged': ev(
     'external.sessionChanged',
