@@ -69,6 +69,7 @@ None.
 ## Latest test evidence
 
 | Date | Commit | Command | Result | Artifact |
+| 2026-07-16 | (preview-room am.2 fix, uncommitted) | `playwright test room-preview` | 3/3 — new "one-click dev start keeps you in the Room, no surface flip to the editor" regression + existing two. Field report: starting the dev server yanked the user into the Editor terminal, then back. Root cause: `terminal.create` default `reveal:true` → `showBottomTab` → `setSurface('workspace')`. Fix: start the dev server in a background terminal (`reveal:false`); log reachable via an explicit "Dev log" button (Replit Console pattern — never a side effect of starting). | playwright |
 | 2026-07-16 | (preview-room am.2, uncommitted) | `playwright test room-preview preview-gate` + touched-surface regression | 2 + 5 + 11 passed (Full-mode rail reach, element-pick injection → composer chip → follow-up seed, console capture + manual steer, draw-region same-run fix; gate adopted shared Draw mode; p4/shell-v4/p3-full-mode/room-reviewbar green) | playwright |
 | 2026-07-16 | (preview-room am.2, uncommitted) | `npm test` + `npm run check` | 459 unit passed (9 new console-policy); prettier + boundary + tsc clean; production build clean | vitest |
 | 2026-07-16 | (preview-room am.2, uncommitted) | `CHARTER_SHOTS=1 playwright test ui-shots-room-preview` | 5-shot walk reviewed — Full-auto task shows a live preview rail + header badge (the exact blind spot the user hit), pick-armed hint, `#coupon-hint` selector chip in the composer, dark | /tmp/ui-shots/rp-\*.png |

@@ -176,6 +176,15 @@ note is `docs/design/room-live-preview-directions.html` (approved 1:1).
   never auto-send. Setting `preview.consoleToAgent` (auto | manual | off);
   `manual` collects to a ⚠ chip with one-click send; `off` counts only. This
   makes Full mode "有窗有自愈" — a window and a reflex, not blind flight.
+- **One-click start stays in place (fix).** Field report right after am.2:
+  clicking "Run npm run dev here" yanked the user into the Editor's terminal
+  panel, forcing a manual trip back to the Room. Root cause: `terminal.create`
+  defaults to `reveal:true`, which calls `showBottomTab` → `setSurface`. The
+  dev server is now started in a **background terminal** (`reveal:false`) — the
+  surface never flips, the preview appears in place. Its log stays reachable
+  through an explicit **Dev log** button (the Replit Console pattern: logs are
+  a click away, never a side effect of starting the process). TERM-005 holds —
+  the server is still a real, visible, stoppable terminal.
 - **Injection boundary (security).** The picker is the first thing Charter
   runs INSIDE a preview page, so it is fenced: only frames matching the task's
   own detected loopback port; the script is self-contained and self-cleaning;

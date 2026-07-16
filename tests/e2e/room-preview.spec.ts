@@ -174,4 +174,56 @@ test.describe('Room live preview (ADR-0022 am.2)', () => {
       await app.close();
     }
   });
+
+  test('one-click dev start from the rail keeps you in the Room — no surface flip to the editor', async () => {
+    const fixture = createTsSmallFixture();
+    // A real dev server + committed script so the rail is webish and the
+    // one-click button appears.
+    writeFileSync(
+      join(fixture, 'server.mjs'),
+      [
+        "import { createServer } from 'node:http';",
+        "const s = createServer((q, r) => { r.setHeader('content-type','text/html'); r.end('<main id=\\'app\\'>dev up</main>'); });",
+        "s.listen(0, '127.0.0.1', () => console.log('listening on', s.address().port));",
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(fixture, 'package.json'),
+      JSON.stringify(
+        { name: 'rail-oneclick', private: true, scripts: { dev: 'node server.mjs' } },
+        null,
+        2,
+      ),
+    );
+    const { app, page } = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+    });
+    try {
+      await page.getByTestId('surface-home').click();
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
+      await page.getByTestId('home-mode-full').click();
+      await page.getByTestId('home-intent').fill('[scenario:edit-basic] rail one-click');
+      await page.getByTestId('home-submit').click();
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+        timeout: 30000,
+      });
+
+      // Open the rail; no server yet → empty state with the one-click button.
+      await page.getByTestId('task-room-preview-badge').click();
+      await expect(page.getByTestId('preview-empty')).toBeVisible({ timeout: 15000 });
+      await page.getByTestId('preview-start-dev').click();
+
+      // The regression: starting the dev server must NOT flip to the editor.
+      // The Room (a Home surface) stays mounted the whole time, and the port
+      // is picked up in place.
+      await expect(page.getByTestId('task-room')).toBeVisible();
+      await expect(page.getByTestId('preview-frame')).toBeVisible({ timeout: 30000 });
+      await expect(page.getByTestId('task-room')).toBeVisible();
+      // The dev log is reachable but only on demand.
+      await expect(page.getByTestId('preview-dev-log')).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
 });

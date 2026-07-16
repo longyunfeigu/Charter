@@ -129,6 +129,9 @@ export function LivePreview({
   const [devCommand, setDevCommand] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [frameLoaded, setFrameLoaded] = useState(false);
+  // am.2: the background terminal we started the dev server in (if any), so
+  // "Dev log" can reveal exactly it on demand.
+  const [devTerminalId, setDevTerminalId] = useState<string | null>(null);
   const portCountRef = useRef(0);
   // Console (am.2)
   const [consoleEntries, setConsoleEntries] = useState<ConsoleEntry[]>([]);
@@ -180,29 +183,45 @@ export function LivePreview({
     prevUrlRef.current = frameUrl;
   }, [frameUrl]);
 
-  // ── am.1: one-click dev start ────────────────────────────────────────────
+  // ── am.1/am.2: one-click dev start, in a BACKGROUND task terminal ─────────
+  // The industry (Replit Console, Bolt, v0) never yanks you elsewhere to start
+  // a server: it's a managed background process with logs a click away. We
+  // keep TERM-005 (the server runs in a real, stoppable terminal) but create
+  // it with reveal:false so the surface never flips — you stay in the Room and
+  // the preview appears in place. The log is reachable via "Dev log", an
+  // explicit action.
   const startDevServer = async (): Promise<void> => {
     if (!devCommand || starting) return;
     setStarting(true);
     const { useTerminalStore } = await import('./TerminalPanel.js');
-    const id = await useTerminalStore.getState().create({ taskId: task.id });
+    const id = await useTerminalStore.getState().create({ taskId: task.id, reveal: false });
     if (!id) {
       setStarting(false);
       return;
     }
+    setDevTerminalId(id);
     window.setTimeout(() => {
       void rpcResult('terminal.write', { id, data: `${devCommand}\n` });
     }, 700);
     app.pushToast(
       'info',
-      `Running \`${devCommand}\` in this task's terminal — watching for the port.`,
+      `Running \`${devCommand}\` in a background terminal — the preview appears here when the port is up.`,
     );
     window.setTimeout(() => {
       setStarting(false);
       if (portCountRef.current === 0) {
-        app.pushToast('info', 'No port yet — check the dev command output in the terminal.');
+        app.pushToast('info', 'No port yet — open “Dev log” to see the dev command output.');
       }
     }, 20000);
+  };
+
+  // Explicit "show me the log": only NOW do we reveal the Editor terminal —
+  // never as a side effect of starting the server.
+  const openDevLog = async (): Promise<void> => {
+    if (!devTerminalId) return;
+    const { useTerminalStore } = await import('./TerminalPanel.js');
+    useTerminalStore.getState().setActive(devTerminalId);
+    app.showBottomTab('terminal');
   };
 
   // ── feedback: shared capture → (rail) composer chip | (gate) note popover ─
@@ -505,7 +524,8 @@ export function LivePreview({
           <div className="pv-empty-body">
             The gate watches for processes listening on localhost from inside
             <span className="mono pv-root"> {root || task.worktree?.path || task.projectPath}</span>
-            . It never owns the process — the server runs in a terminal you can see and stop.
+            . It never owns the process — the server runs in a background terminal you can inspect
+            and stop; you stay right here.
           </div>
           <div className="pv-empty-row">
             {devCommand ? (
@@ -517,6 +537,16 @@ export function LivePreview({
               >
                 <Ic name="play" size={12} />{' '}
                 {starting ? 'Starting — watching for the port…' : `Run ${devCommand} here`}
+              </button>
+            ) : null}
+            {devTerminalId ? (
+              <button
+                className="btn"
+                data-testid="preview-dev-log"
+                title="Show the dev server's terminal output (opens the terminal panel)"
+                onClick={() => void openDevLog()}
+              >
+                <Ic name="terminal" size={12} /> Dev log
               </button>
             ) : null}
             <button className="btn" data-testid="preview-refresh" onClick={() => void refresh()}>
@@ -583,6 +613,16 @@ export function LivePreview({
         >
           <Ic name="external" size={12} />
         </button>
+        {devTerminalId ? (
+          <button
+            className="btn"
+            data-testid="preview-dev-log"
+            title="Show the dev server's terminal output (opens the terminal panel)"
+            onClick={() => void openDevLog()}
+          >
+            <Ic name="terminal" size={12} /> Dev log
+          </button>
+        ) : null}
         {errorCount > 0 || hadErrors ? (
           <button
             className={`pv-errchip ${errorCount > 0 ? 'bad' : 'ok'}`}
