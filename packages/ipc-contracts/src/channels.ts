@@ -32,6 +32,27 @@ const SettingsStateSchema = z.object({
   overrideKeys: z.array(z.string()),
 });
 
+const TerminalContextSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('focused') }).strict(),
+  z.object({ kind: z.literal('recent'), projectPath: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('task'), taskId: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('scratch') }).strict(),
+]);
+
+const TerminalInfoSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  shell: z.string(),
+  pid: z.number(),
+  cwd: z.string(),
+  projectName: z.string(),
+  projectPath: z.string().nullable(),
+  contextKind: z.enum(['focused', 'recent', 'task', 'scratch']),
+  contextLabel: z.string(),
+  contextTaskId: z.string().nullable(),
+  launch: z.enum(['shell', 'claude', 'codex']),
+});
+
 export interface ChannelDef<Req extends z.ZodType = z.ZodType, Res extends z.ZodType = z.ZodType> {
   name: string;
   schemaVersion: number;
@@ -360,31 +381,18 @@ export const CHANNELS = {
         /** Legacy task shortcut; still host-resolved and never an absolute renderer path. */
         taskId: z.string().optional(),
         /** The terminal owns this context independently from the focused editor workspace. */
-        context: z
-          .discriminatedUnion('kind', [
-            z.object({ kind: z.literal('focused') }).strict(),
-            z.object({ kind: z.literal('recent'), projectPath: z.string().min(1) }).strict(),
-            z.object({ kind: z.literal('task'), taskId: z.string().min(1) }).strict(),
-            z.object({ kind: z.literal('scratch') }).strict(),
-          ])
-          .optional(),
+        context: TerminalContextSchema.optional(),
         /** Fixed host-owned launch presets; arbitrary commands still go through terminal.write. */
         launch: z.enum(['shell', 'claude', 'codex']).default('shell'),
       })
       .strict(),
-    z.object({
-      id: z.string(),
-      title: z.string(),
-      shell: z.string(),
-      pid: z.number(),
-      cwd: z.string(),
-      projectName: z.string(),
-      projectPath: z.string().nullable(),
-      contextKind: z.enum(['focused', 'recent', 'task', 'scratch']),
-      contextLabel: z.string(),
-      contextTaskId: z.string().nullable(),
-      launch: z.enum(['shell', 'claude', 'codex']),
-    }),
+    TerminalInfoSchema,
+  ),
+  'terminal.setContext': ch(
+    'terminal.setContext',
+    1,
+    z.object({ id: z.string(), context: TerminalContextSchema }).strict(),
+    TerminalInfoSchema,
   ),
   'terminal.write': ch(
     'terminal.write',
@@ -408,23 +416,7 @@ export const CHANNELS = {
     'terminal.list',
     2,
     z.object({}).strict(),
-    z.object({
-      items: z.array(
-        z.object({
-          id: z.string(),
-          title: z.string(),
-          shell: z.string(),
-          pid: z.number(),
-          cwd: z.string(),
-          projectName: z.string(),
-          projectPath: z.string().nullable(),
-          contextKind: z.enum(['focused', 'recent', 'task', 'scratch']),
-          contextLabel: z.string(),
-          contextTaskId: z.string().nullable(),
-          launch: z.enum(['shell', 'claude', 'codex']),
-        }),
-      ),
-    }),
+    z.object({ items: z.array(TerminalInfoSchema) }),
   ),
   /** ADR-0017: active external CLI sessions (renderer state restore). */
   'external.listSessions': ch(

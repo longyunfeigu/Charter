@@ -367,6 +367,14 @@ export function Workbench(): React.JSX.Element {
         ))}
         <span className="tb-spacer" />
         <button
+          className="tb-chip tb-quick-console"
+          data-testid="quick-console-chip"
+          title="Toggle the persistent quick console"
+          onClick={() => executeCommand('terminal.quickConsole')}
+        >
+          <Ic name="terminal" size={12} /> ⌥Space 速召台
+        </button>
+        <button
           className="tb-chip"
           data-testid="palette-chip"
           onClick={() => useAppStore.getState().setPaletteOpen(true)}

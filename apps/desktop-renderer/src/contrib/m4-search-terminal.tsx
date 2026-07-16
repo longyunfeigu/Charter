@@ -29,6 +29,8 @@ import { onEvent, rpcResult } from '../bridge.js';
 import { useAppStore } from '../store/appStore.js';
 import { useEditorStore } from '../store/editorStore.js';
 import { Ic } from '../views/home-icons.js';
+import { QuickConsole } from '../views/QuickConsole.js';
+import { useQuickConsoleStore } from '../store/quickConsoleStore.js';
 
 function ProblemsStatusItem(): React.JSX.Element {
   const problems = useProblems();
@@ -72,7 +74,7 @@ export function registerM4(): void {
   bottomTabRegistry.problems = ProblemsPanel;
   bottomTabRegistry.terminal = TerminalPanel;
   externalPanelRegistry.main = ExternalPanel;
-  overlayRegistry.push(QuickOpen, RenamePreviewOverlay);
+  overlayRegistry.push(QuickOpen, RenamePreviewOverlay, QuickConsole);
   editorBannerRegistry.push(PythonBanner);
   statusBarRegistry.left.push(ProblemsStatusItem, TsProjectStatusItem);
   statusBarRegistry.right.unshift(TerminalContextsStatusItem);
@@ -114,21 +116,37 @@ export function registerM4(): void {
       run: () => focusSearchView(),
     },
     {
+      id: 'terminal.quickConsole',
+      title: 'Toggle Quick Console',
+      category: 'Terminal',
+      keybinding: 'alt+space',
+      run: () => useQuickConsoleStore.getState().toggle(),
+    },
+    {
       id: 'terminal.new',
       title: 'New Terminal',
       category: 'Terminal',
       keybinding: 'ctrl+backquote',
       run: () => {
         const terminals = useTerminalStore.getState();
-        if (terminals.items.length === 0) {
+        const visible = terminals.items.filter((item) => !item.hidden);
+        if (visible.length === 0) {
           void terminals.create();
           return;
         }
         if (!terminals.active) {
-          useTerminalStore.setState({ active: terminals.items.at(-1)?.id ?? null });
+          useTerminalStore.setState({ active: visible.at(-1)?.id ?? null });
         }
         useAppStore.getState().showBottomTab('terminal');
       },
+    },
+    {
+      id: 'terminal.undoClose',
+      title: 'Undo Close Terminal',
+      category: 'Terminal',
+      keybinding: 'mod+z',
+      enabled: () => useTerminalStore.getState().undoCloseId !== null,
+      run: () => useTerminalStore.getState().undoClose(),
     },
     {
       id: 'terminal.kill',

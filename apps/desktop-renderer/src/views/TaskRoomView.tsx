@@ -22,10 +22,12 @@ import {
 } from './labels.js';
 import { hasDragRef, readDragRef } from './dragRefs.js';
 import { useSkillSlash } from './SkillSlashPicker.js';
-import { useDraftStore } from '../store/draftStore.js';
+import { useDraftStore, type TerminalOutputRef } from '../store/draftStore.js';
 import { openTaskInEditor } from './openInEditor.js';
 import { ExternalTerminalColumn, useExternalFiles } from './ExternalRoom.js';
 import { useExternalStore } from '../store/externalStore.js';
+
+const EMPTY_TERMINAL_REFS: TerminalOutputRef[] = [];
 
 /**
  * Task Room v2 (ADR-0008/0009, PIVOT-021/028): the per-task page rendered in
@@ -825,9 +827,11 @@ function RoomComposer({
   // PIVOT-036: the draft is per-task, session-scoped and shared with the
   // Editor agent panel — it survives ⌘E round-trips.
   const input = useDraftStore((s) => s.drafts[task.id] ?? '');
+  const terminalRefs = useDraftStore((s) => s.terminalRefs[task.id] ?? EMPTY_TERMINAL_REFS);
   const setInput = (text: string): void => useDraftStore.getState().setDraft(task.id, text);
   const [dropActive, setDropActive] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const composerFocusSeq = useAppStore((s) => s.composerFocusSeq);
   const planOpen = task.state === 'AWAITING_PLAN_APPROVAL';
   const closed = ['ACCEPTED', 'ROLLED_BACK', 'CANCELLED', 'ARCHIVED'].includes(task.state);
 
@@ -841,6 +845,10 @@ function RoomComposer({
   // Only a touched control sends an override — untouched replies stay silent.
   const [modelDirty, setModelDirty] = useState(false);
   const sameProject = workspacePath === task.projectPath;
+
+  useEffect(() => {
+    if (composerFocusSeq > 0) ref.current?.focus();
+  }, [composerFocusSeq]);
 
   // @ file picker (only meaningful when the task's project is the focused one —
   // search.files is scoped to the focused workspace).
@@ -897,7 +905,14 @@ function RoomComposer({
   };
 
   const send = (): void => {
-    const text = input.trim();
+    const typed = input.trim();
+    const terminalContext = terminalRefs
+      .map(
+        (terminalRef) =>
+          `终端输出引用：${terminalRef.contextLabel} · ${terminalRef.cwd}\n\n\`\`\`text\n${terminalRef.text}\n\`\`\``,
+      )
+      .join('\n\n');
+    const text = [typed, terminalContext].filter(Boolean).join('\n\n');
     if (!text) return;
     if (planOpen) {
       void store.decidePlan({ decision: 'request_changes', reason: text });
@@ -913,6 +928,7 @@ function RoomComposer({
       setModelDirty(false);
     }
     setInput('');
+    useDraftStore.getState().clearTerminalRefs(task.id);
   };
 
   // Sidebar tree drag / picker → inline "@path" at the caret (context feeding;
@@ -999,15 +1015,35 @@ function RoomComposer({
 
   const sendButton = (
     <button
-      className={`hm-send ${input.trim() ? 'ready' : ''}`}
+      className={`hm-send ${input.trim() || terminalRefs.length > 0 ? 'ready' : ''}`}
       data-testid="agent-send"
-      disabled={!input.trim()}
+      disabled={!input.trim() && terminalRefs.length === 0}
       aria-label={planOpen ? 'Request plan changes' : 'Send'}
       onClick={send}
     >
       <Ic name="arrowUp" size={15} strokeWidth={2} />
     </button>
   );
+
+  const terminalRefChips =
+    terminalRefs.length > 0 ? (
+      <div className="tr-terminal-refs" data-testid="room-terminal-refs">
+        {terminalRefs.map((terminalRef) => (
+          <span key={terminalRef.id} className="tr-terminal-ref">
+            <Ic name="terminal" size={12} />
+            <span>
+              {terminalRef.title} · {terminalRef.contextLabel}
+            </span>
+            <button
+              aria-label={`移除 ${terminalRef.title}`}
+              onClick={() => useDraftStore.getState().removeTerminalRef(task.id, terminalRef.id)}
+            >
+              <Ic name="x" size={11} />
+            </button>
+          </span>
+        ))}
+      </div>
+    ) : null;
 
   // Mid-run / plan-awaiting: the mockup-A reply card (ADR-0014) — textarea on
   // top, trust level (fixed for the session) and the model·effort control in
@@ -1022,6 +1058,7 @@ function RoomComposer({
         {...dragHandlers}
       >
         <div className="tr-ccard">
+          {terminalRefChips}
           {textarea('tr-cinput')}
           {slash.menu}
           <div className="tr-cfoot">
@@ -1067,6 +1104,7 @@ function RoomComposer({
     >
       <div className="tr-fcard">
         <div className="hm-card">
+          {terminalRefChips}
           <div className="hm-chiprow">
             <span
               className="hm-chip"

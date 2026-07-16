@@ -6,9 +6,25 @@ import {
   DEFAULT_AGENT_CLIS,
   findAgentInTable,
   TerminalManager,
+  terminalCwdCommand,
   titleMatchesAgent,
   type ProcessTableEntry,
 } from './index.js';
+
+describe('terminalCwdCommand (host-owned quick-console context)', () => {
+  it('quotes POSIX paths without allowing shell interpolation', () => {
+    expect(terminalCwdCommand('/bin/zsh', "/tmp/a b/it's-safe")).toBe(
+      "cd -- '/tmp/a b/it'\\''s-safe'",
+    );
+  });
+
+  it('uses the native literal-path form on PowerShell and drive-aware cd on cmd', () => {
+    expect(terminalCwdCommand('pwsh', "C:\\Work\\Edy's App")).toBe(
+      "Set-Location -LiteralPath 'C:\\Work\\Edy''s App'",
+    );
+    expect(terminalCwdCommand('cmd.exe', 'D:\\Work Space')).toBe('cd /d "D:\\Work Space"');
+  });
+});
 
 describe('titleMatchesAgent (ADR-0017)', () => {
   it('matches bare and path-qualified CLI names, case-insensitively', () => {

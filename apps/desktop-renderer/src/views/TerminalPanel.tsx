@@ -11,6 +11,7 @@ import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useExternalStore } from '../store/externalStore.js';
 import { useTaskStore } from '../store/taskStore.js';
 import { Ic } from './home-icons.js';
+import { useQuickConsoleStore } from '../store/quickConsoleStore.js';
 
 export type TerminalLaunch = 'shell' | 'claude' | 'codex';
 export type TerminalWorkingContext =
@@ -32,6 +33,10 @@ export interface TermInstance {
   contextLabel: string;
   contextTaskId: string | null;
   launch: TerminalLaunch;
+  quick: boolean;
+  currentInput: string;
+  lastCommand: string;
+  hidden: boolean;
 }
 
 interface CreateTerminalRequest {
@@ -39,6 +44,8 @@ interface CreateTerminalRequest {
   title?: string;
   context?: TerminalWorkingContext;
   launch?: TerminalLaunch;
+  quick?: boolean;
+  reveal?: boolean;
 }
 
 interface TerminalStore {
@@ -46,21 +53,28 @@ interface TerminalStore {
   active: string | null;
   pendingKill: string | null;
   initialized: boolean;
+  undoCloseId: string | null;
   init(): void;
   create(options?: CreateTerminalRequest): Promise<string | null>;
+  setContext(id: string, context: TerminalWorkingContext): Promise<boolean>;
   setActive(id: string): void;
   requestKill(id: string): Promise<void>;
+  finalizeHidden(id: string): Promise<void>;
+  undoClose(): void;
   confirmKill(id: string, confirmed: boolean): Promise<void>;
   rename(id: string, title: string): void;
   clearActive(): void;
 }
 
-interface TerminalAppearance {
+export interface TerminalAppearance {
   fontFamily: string;
   theme: ITheme;
 }
 
-function terminalAppearance(): TerminalAppearance {
+const QUICK_CLOSE_GRACE_MS = 5000;
+const quickCloseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+export function terminalAppearance(): TerminalAppearance {
   const skin = document.documentElement.dataset.skin ?? 'studio';
   const dark = document.documentElement.dataset.theme === 'dark';
   if (skin === 'studio') {
@@ -233,7 +247,12 @@ function terminalAppearance(): TerminalAppearance {
  * re-mount — dock tab switch, side panel, room, surface round-trip — must move
  * the live element itself (ADR-0017 rev.2 substrate fix).
  */
-export function mountTerminal(host: HTMLElement, item: Pick<TermInstance, 'term' | 'fit'>): void {
+export function mountTerminal(
+  host: HTMLElement,
+  item: Pick<TermInstance, 'term' | 'fit'>,
+  appearance: 'normal' | 'quick' = 'normal',
+): void {
+  applyTerminalAppearance(item, appearance);
   const bottomPanelBody = host.closest<HTMLElement>('.bp-body');
   const el = item.term.element;
   if (!el) {
@@ -272,6 +291,58 @@ export function mountTerminal(host: HTMLElement, item: Pick<TermInstance, 'term'
       bottomPanelBody.scrollLeft = 0;
     });
   }
+}
+
+const QUICK_TERMINAL_APPEARANCE: TerminalAppearance = {
+  fontFamily: "'SF Mono', Menlo, Monaco, Consolas, monospace",
+  theme: {
+    background: '#24231f',
+    foreground: '#dcd7cd',
+    cursor: '#dcd7cd',
+    cursorAccent: '#24231f',
+    selectionBackground: '#48566e',
+    black: '#14130f',
+    red: '#e08a80',
+    green: '#7fce9e',
+    yellow: '#e8b96b',
+    blue: '#8fb0e8',
+    magenta: '#c99ae8',
+    cyan: '#78c6c2',
+    white: '#dcd7cd',
+    brightBlack: '#8f8a7f',
+    brightRed: '#f2a69e',
+    brightGreen: '#9adbb2',
+    brightYellow: '#ffd28a',
+    brightBlue: '#acc7f4',
+    brightMagenta: '#ddb3f3',
+    brightCyan: '#9addd9',
+    brightWhite: '#f6f2e9',
+  },
+};
+
+export function applyTerminalAppearance(
+  item: Pick<TermInstance, 'term'>,
+  mode: 'normal' | 'quick',
+): void {
+  const appearance = mode === 'quick' ? QUICK_TERMINAL_APPEARANCE : terminalAppearance();
+  item.term.options.fontFamily = appearance.fontFamily;
+  item.term.options.theme = appearance.theme;
+}
+
+/** Selection wins; otherwise capture the most recent visible non-empty output. */
+export function terminalShareText(item: Pick<TermInstance, 'term'>): string {
+  const selection = item.term.getSelection().trim();
+  if (selection) return selection;
+  const buffer = item.term.buffer.active;
+  const end = Math.min(buffer.length, buffer.baseY + buffer.cursorY + 1);
+  const start = Math.max(0, end - 24);
+  const lines: string[] = [];
+  for (let index = start; index < end; index += 1) {
+    const line = buffer.getLine(index)?.translateToString(true) ?? '';
+    if (line.length > 0 || lines.length > 0) lines.push(line);
+  }
+  while (lines.at(-1) === '') lines.pop();
+  return lines.join('\n').trim().slice(-16_000);
 }
 
 /** Keep a mounted xterm fitted to its actual host, including flex/grid changes
@@ -336,15 +407,14 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   active: null,
   pendingKill: null,
   initialized: false,
+  undoCloseId: null,
 
   init() {
     if (get().initialized) return;
     set({ initialized: true });
     const appearanceObserver = new MutationObserver(() => {
-      const appearance = terminalAppearance();
       for (const item of get().items) {
-        item.term.options.fontFamily = appearance.fontFamily;
-        item.term.options.theme = appearance.theme;
+        applyTerminalAppearance(item, item.quick ? 'quick' : 'normal');
         item.term.refresh(0, item.term.rows - 1);
       }
     });
@@ -403,7 +473,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     });
     const item: TermInstance = {
       id: res.data.id,
-      title: options?.title ?? res.data.title,
+      title: options?.title ?? (options?.quick ? '⌥ quick' : res.data.title),
       term,
       fit,
       exited: false,
@@ -414,10 +484,48 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       contextLabel: res.data.contextLabel,
       contextTaskId: res.data.contextTaskId,
       launch: res.data.launch,
+      quick: options?.quick ?? false,
+      currentInput: '',
+      lastCommand: '',
+      hidden: false,
     };
+    term.onData((data) => {
+      if (data === '\r') {
+        item.lastCommand = item.currentInput.trim();
+        item.currentInput = '';
+      } else if (data === '\u007f') {
+        item.currentInput = item.currentInput.slice(0, -1);
+      } else if (!data.startsWith('\u001b') && data >= ' ') {
+        item.currentInput += data;
+      }
+    });
     set({ items: [...get().items, item], active: item.id });
-    useAppStore.getState().showBottomTab('terminal');
+    if (options?.reveal !== false) useAppStore.getState().showBottomTab('terminal');
     return item.id;
+  },
+
+  async setContext(id, context) {
+    const res = await rpcResult('terminal.setContext', { id, context });
+    if (!res.ok) {
+      useAppStore.getState().pushToast('warning', res.error.userMessage);
+      return false;
+    }
+    set({
+      items: get().items.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              cwd: res.data.cwd,
+              projectName: res.data.projectName,
+              projectPath: res.data.projectPath,
+              contextKind: res.data.contextKind,
+              contextLabel: res.data.contextLabel,
+              contextTaskId: res.data.contextTaskId,
+            }
+          : item,
+      ),
+    });
+    return true;
   },
 
   setActive(id) {
@@ -425,6 +533,31 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   },
 
   async requestKill(id) {
+    const item = get().items.find((entry) => entry.id === id);
+    if (item?.quick && !item.hidden) {
+      const previous = get().undoCloseId;
+      if (previous && previous !== id) {
+        const previousTimer = quickCloseTimers.get(previous);
+        if (previousTimer) clearTimeout(previousTimer);
+        quickCloseTimers.delete(previous);
+        void get().finalizeHidden(previous);
+      }
+      const items = get().items.map((entry) =>
+        entry.id === id ? { ...entry, hidden: true } : entry,
+      );
+      const next = items.filter((entry) => !entry.hidden).at(-1);
+      set({ items, active: next?.id ?? null, undoCloseId: id });
+      useQuickConsoleStore.setState({ terminalId: null, open: false });
+      quickCloseTimers.set(
+        id,
+        setTimeout(() => {
+          quickCloseTimers.delete(id);
+          void get().finalizeHidden(id);
+        }, QUICK_CLOSE_GRACE_MS),
+      );
+      useAppStore.getState().pushToast('info', '「⌥ quick」已关闭并保活 5 秒 · 按 ⌘Z 原样恢复');
+      return;
+    }
     const res = await rpcResult('terminal.kill', { id, force: false });
     if (!res.ok) return;
     if (res.data.needsConfirm) {
@@ -436,7 +569,54 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       ?.term.dispose();
     const items = get().items.filter((t) => t.id !== id);
     set({ items, active: items.at(-1)?.id ?? null, pendingKill: null });
+    if (useQuickConsoleStore.getState().terminalId === id) {
+      useQuickConsoleStore.setState({ terminalId: null, open: false });
+    }
     useExternalStore.getState().handleTerminalClosed(id);
+  },
+
+  async finalizeHidden(id) {
+    const item = get().items.find((entry) => entry.id === id);
+    if (!item?.hidden) return;
+    const res = await rpcResult('terminal.kill', { id, force: false });
+    if (!res.ok) return;
+    const stillUndoable = get().undoCloseId === id;
+    if (res.data.needsConfirm) {
+      set({
+        items: get().items.map((entry) => (entry.id === id ? { ...entry, hidden: false } : entry)),
+        active: id,
+        pendingKill: id,
+        ...(stillUndoable ? { undoCloseId: null } : {}),
+      });
+      useAppStore.getState().showBottomTab('terminal');
+      return;
+    }
+    item.term.dispose();
+    useExternalStore.getState().handleTerminalClosed(id);
+    set({
+      items: get().items.filter((entry) => entry.id !== id),
+      ...(stillUndoable ? { undoCloseId: null } : {}),
+    });
+  },
+
+  undoClose() {
+    const id = get().undoCloseId;
+    if (!id) return;
+    const timer = quickCloseTimers.get(id);
+    if (timer) clearTimeout(timer);
+    quickCloseTimers.delete(id);
+    const item = get().items.find((entry) => entry.id === id && entry.hidden);
+    if (!item) {
+      set({ undoCloseId: null });
+      return;
+    }
+    set({
+      items: get().items.map((entry) => (entry.id === id ? { ...entry, hidden: false } : entry)),
+      active: id,
+      undoCloseId: null,
+    });
+    useQuickConsoleStore.getState().setTerminalId(id);
+    useAppStore.getState().pushToast('success', '「⌥ quick」已恢复 · 会话与滚动缓冲保持不变');
   },
 
   async confirmKill(id, confirmed) {
@@ -450,6 +630,9 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       ?.term.dispose();
     const items = get().items.filter((t) => t.id !== id);
     set({ items, active: items.at(-1)?.id ?? null, pendingKill: null });
+    if (useQuickConsoleStore.getState().terminalId === id) {
+      useQuickConsoleStore.setState({ terminalId: null, open: false });
+    }
     useExternalStore.getState().handleTerminalClosed(id);
   },
 
@@ -808,7 +991,8 @@ export function TerminalPanel(): React.JSX.Element {
   // not in the dock — its xterm belongs to the panel until 归位.
   const promoted = useExternalStore((s) => s.promoted);
   const surface = useAppStore((s) => s.surface);
-  const dockItems = store.items.filter((t) => t.id !== promoted?.terminalId);
+  const quickConsoleOpen = useQuickConsoleStore((s) => s.open);
+  const dockItems = store.items.filter((t) => !t.hidden && t.id !== promoted?.terminalId);
   const activeDock = dockItems.find((t) => t.id === store.active) ?? null;
 
   useEffect(() => {
@@ -820,7 +1004,7 @@ export function TerminalPanel(): React.JSX.Element {
   // A promoted terminal cannot stay dock-active; hand the slot to a neighbour.
   useEffect(() => {
     if (!promoted || store.active !== promoted.terminalId) return;
-    const next = store.items.filter((t) => t.id !== promoted.terminalId).at(-1);
+    const next = store.items.filter((t) => !t.hidden && t.id !== promoted.terminalId).at(-1);
     useTerminalStore.setState({ active: next?.id ?? null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promoted?.terminalId, store.active]);
@@ -829,10 +1013,11 @@ export function TerminalPanel(): React.JSX.Element {
   // in front — the room / the side panel own their instances otherwise.
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !activeDock || surface !== 'workspace') return;
+    if (!host || !activeDock || surface !== 'workspace' || (activeDock.quick && quickConsoleOpen))
+      return;
     mountTerminal(host, activeDock);
     return observeTerminalFit(host, activeDock);
-  }, [activeDock, surface]);
+  }, [activeDock, quickConsoleOpen, surface]);
 
   return (
     <div className="terminal-panel-layout" data-testid="terminal-panel">
@@ -876,145 +1061,164 @@ export function TerminalPanel(): React.JSX.Element {
           </button>
         </div>
         <div className="terminal-list-scroll">
-          {store.items.map((terminal) => {
-            const taskId = taskByTerminal[terminal.id];
-            const task = taskId ? tasks.find((entry) => entry.id === taskId) : null;
-            const session = taskId ? sessions[taskId] : undefined;
-            const agent = agentByTerminal[terminal.id] ?? session?.cli ?? null;
-            const inSide = promoted?.terminalId === terminal.id;
-            const live = Boolean(agentByTerminal[terminal.id]) || session?.status === 'active';
-            const ended = Boolean(session && session.status === 'ended');
-            const stateLabel = inSide ? 'IN SIDE' : live ? 'LIVE' : ended ? 'ENDED' : 'IDLE';
-            const dockActive = store.active === terminal.id && !inSide;
-            // With a side focus slot, the strong selected color must describe
-            // the terminal the user is actually looking at on the right.
-            const selected = inSide || (!promoted && dockActive);
-            const taskLabel = task?.title ?? terminal.contextLabel;
-            const activate = (): void => {
-              // When the focus slot is already in use, the session list is a
-              // real switcher: clicking another live Agent atomically swaps
-              // the two existing PTYs. No tiny secondary action is required.
-              if (promoted && agent && live) {
-                useExternalStore.getState().promote(terminal.id);
-                return;
-              }
-              store.setActive(terminal.id);
-            };
-            const rowTitle = agent
-              ? `${agentDisplayName(agent)} — ${inSide ? 'focus the side terminal' : promoted ? 'switch into the side slot' : 'open in the terminal dock'}`
-              : `${terminal.title} — open in the terminal dock`;
-            return (
-              <div
-                key={terminal.id}
-                className={`terminal-list-row ${selected ? 'selected' : ''} ${inSide ? 'promoted' : ''} ${promoted && dockActive ? 'dock-active' : ''}`}
-                role="button"
-                tabIndex={0}
-                aria-pressed={inSide}
-                data-testid={`terminal-tab-${terminal.id}`}
-                title={rowTitle}
-                onClick={activate}
-                onDoubleClick={() => !agent && !inSide && setRenaming(terminal.id)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    activate();
-                  }
-                }}
-              >
-                <span
-                  className={`terminal-row-dot ${agent ? '' : 'shell'} ${terminal.exited || ended ? 'ended' : ''}`}
-                />
-                <span className="terminal-row-main">
-                  {renaming === terminal.id ? (
-                    <input
-                      autoFocus
-                      className="terminal-rename-input"
-                      defaultValue={terminal.title}
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => {
-                        event.stopPropagation();
-                        if (event.key === 'Enter') {
-                          store.rename(
-                            terminal.id,
-                            (event.target as HTMLInputElement).value || terminal.title,
-                          );
-                          setRenaming(null);
-                        }
-                        if (event.key === 'Escape') setRenaming(null);
-                      }}
-                      onBlur={() => setRenaming(null)}
-                    />
-                  ) : (
-                    <span className="terminal-row-title">
-                      {agent ? (
-                        <span
-                          className="term-agent"
-                          data-testid={
-                            agentByTerminal[terminal.id]
-                              ? `terminal-agent-${terminal.id}`
-                              : undefined
+          {store.items
+            .filter((terminal) => !terminal.hidden)
+            .map((terminal) => {
+              const taskId = taskByTerminal[terminal.id];
+              const task = taskId ? tasks.find((entry) => entry.id === taskId) : null;
+              const session = taskId ? sessions[taskId] : undefined;
+              const agent = agentByTerminal[terminal.id] ?? session?.cli ?? null;
+              const inSide = promoted?.terminalId === terminal.id;
+              const live = Boolean(agentByTerminal[terminal.id]) || session?.status === 'active';
+              const ended = Boolean(session && session.status === 'ended');
+              const stateLabel = inSide
+                ? 'IN SIDE'
+                : terminal.quick
+                  ? quickConsoleOpen
+                    ? 'QUICK · OPEN'
+                    : 'QUICK'
+                  : live
+                    ? 'LIVE'
+                    : ended
+                      ? 'ENDED'
+                      : 'IDLE';
+              const dockActive = store.active === terminal.id && !inSide;
+              // With a side focus slot, the strong selected color must describe
+              // the terminal the user is actually looking at on the right.
+              const selected = inSide || (!promoted && dockActive);
+              const taskLabel = task?.title ?? terminal.contextLabel;
+              const activate = (): void => {
+                // When the focus slot is already in use, the session list is a
+                // real switcher: clicking another live Agent atomically swaps
+                // the two existing PTYs. No tiny secondary action is required.
+                if (promoted && agent && live) {
+                  useExternalStore.getState().promote(terminal.id);
+                  return;
+                }
+                store.setActive(terminal.id);
+              };
+              const rowTitle = agent
+                ? `${agentDisplayName(agent)} — ${inSide ? 'focus the side terminal' : promoted ? 'switch into the side slot' : 'open in the terminal dock'}`
+                : `${terminal.title} — open in the terminal dock`;
+              return (
+                <div
+                  key={terminal.id}
+                  className={`terminal-list-row ${selected ? 'selected' : ''} ${inSide ? 'promoted' : ''} ${promoted && dockActive ? 'dock-active' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={inSide}
+                  data-testid={`terminal-tab-${terminal.id}`}
+                  title={rowTitle}
+                  onClick={activate}
+                  onDoubleClick={() => !agent && !inSide && setRenaming(terminal.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      activate();
+                    }
+                  }}
+                >
+                  <span
+                    className={`terminal-row-dot ${agent ? '' : 'shell'} ${terminal.exited || ended ? 'ended' : ''}`}
+                  />
+                  <span className="terminal-row-main">
+                    {renaming === terminal.id ? (
+                      <input
+                        autoFocus
+                        className="terminal-rename-input"
+                        defaultValue={terminal.title}
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                          event.stopPropagation();
+                          if (event.key === 'Enter') {
+                            store.rename(
+                              terminal.id,
+                              (event.target as HTMLInputElement).value || terminal.title,
+                            );
+                            setRenaming(null);
                           }
-                        >
-                          ✳ {agentDisplayName(agent)} <span className="term-agent-ext">EXT</span>
-                        </span>
-                      ) : (
-                        terminal.title
-                      )}
+                          if (event.key === 'Escape') setRenaming(null);
+                        }}
+                        onBlur={() => setRenaming(null)}
+                      />
+                    ) : (
+                      <span className="terminal-row-title">
+                        {agent ? (
+                          <span
+                            className="term-agent"
+                            data-testid={
+                              agentByTerminal[terminal.id]
+                                ? `terminal-agent-${terminal.id}`
+                                : undefined
+                            }
+                          >
+                            ✳ {agentDisplayName(agent)} <span className="term-agent-ext">EXT</span>
+                          </span>
+                        ) : (
+                          <>
+                            {terminal.title}
+                            {terminal.quick ? (
+                              <span className="terminal-quick-badge">速召台</span>
+                            ) : null}
+                          </>
+                        )}
+                      </span>
+                    )}
+                    <span className="terminal-row-context">
+                      {terminal.projectName} · {taskLabel}
                     </span>
-                  )}
-                  <span className="terminal-row-context">
-                    {terminal.projectName} · {taskLabel}
+                    <span className="terminal-row-cwd" title={terminal.cwd}>
+                      {compactTerminalPath(terminal.cwd)}
+                    </span>
                   </span>
-                  <span className="terminal-row-cwd" title={terminal.cwd}>
-                    {compactTerminalPath(terminal.cwd)}
-                  </span>
-                </span>
-                <span className="terminal-row-side">
-                  <span className={`terminal-row-place ${ended ? 'ended' : ''}`}>{stateLabel}</span>
-                  <button
-                    className="terminal-icon-button terminal-row-close"
-                    aria-label={`Close ${terminal.title}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void store.requestKill(terminal.id);
-                    }}
-                  >
-                    <Ic name="x" size={13} />
-                  </button>
-                </span>
-                {taskId ? (
-                  <span className="terminal-row-actions">
+                  <span className="terminal-row-side">
+                    <span className={`terminal-row-place ${ended ? 'ended' : ''}`}>
+                      {stateLabel}
+                    </span>
                     <button
-                      className="terminal-row-action"
-                      data-testid={`terminal-open-room-${terminal.id}`}
+                      className="terminal-icon-button terminal-row-close"
+                      aria-label={`Close ${terminal.title}`}
                       onClick={(event) => {
                         event.stopPropagation();
-                        useAppStore.getState().openTaskRoom(taskId);
+                        void store.requestKill(terminal.id);
                       }}
                     >
-                      ⤢ Room
+                      <Ic name="x" size={13} />
                     </button>
-                    {live ? (
+                  </span>
+                  {taskId ? (
+                    <span className="terminal-row-actions">
                       <button
-                        className="terminal-row-action move"
-                        data-testid={`terminal-row-promote-${terminal.id}`}
+                        className="terminal-row-action"
+                        data-testid={`terminal-open-room-${terminal.id}`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          useExternalStore.getState().promote(terminal.id);
+                          useAppStore.getState().openTaskRoom(taskId);
                         }}
                       >
-                        {inSide
-                          ? '↗ Focus side'
-                          : promoted
-                            ? '⇄ Replace in side'
-                            : '⇥ Move to side'}
+                        ⤢ Room
                       </button>
-                    ) : null}
-                  </span>
-                ) : null}
-              </div>
-            );
-          })}
+                      {live ? (
+                        <button
+                          className="terminal-row-action move"
+                          data-testid={`terminal-row-promote-${terminal.id}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            useExternalStore.getState().promote(terminal.id);
+                          }}
+                        >
+                          {inSide
+                            ? '↗ Focus side'
+                            : promoted
+                              ? '⇄ Replace in side'
+                              : '⇥ Move to side'}
+                        </button>
+                      ) : null}
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })}
         </div>
       </aside>
 

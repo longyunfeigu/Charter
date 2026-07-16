@@ -7,12 +7,26 @@ import { create } from 'zustand';
  */
 interface DraftStore {
   drafts: Record<string, string>;
+  terminalRefs: Record<string, TerminalOutputRef[]>;
   setDraft(taskId: string, text: string): void;
   clearDraft(taskId: string): void;
+  addTerminalRef(taskId: string, ref: TerminalOutputRef): void;
+  removeTerminalRef(taskId: string, refId: string): void;
+  clearTerminalRefs(taskId: string): void;
+}
+
+export interface TerminalOutputRef {
+  id: string;
+  title: string;
+  text: string;
+  cwd: string;
+  contextLabel: string;
+  lineCount: number;
 }
 
 export const useDraftStore = create<DraftStore>((set, get) => ({
   drafts: {},
+  terminalRefs: {},
   setDraft(taskId, text) {
     set({ drafts: { ...get().drafts, [taskId]: text } });
   },
@@ -20,5 +34,22 @@ export const useDraftStore = create<DraftStore>((set, get) => ({
     const drafts = { ...get().drafts };
     delete drafts[taskId];
     set({ drafts });
+  },
+  addTerminalRef(taskId, ref) {
+    const current = get().terminalRefs[taskId] ?? [];
+    set({ terminalRefs: { ...get().terminalRefs, [taskId]: [...current, ref].slice(-4) } });
+  },
+  removeTerminalRef(taskId, refId) {
+    set({
+      terminalRefs: {
+        ...get().terminalRefs,
+        [taskId]: (get().terminalRefs[taskId] ?? []).filter((ref) => ref.id !== refId),
+      },
+    });
+  },
+  clearTerminalRefs(taskId) {
+    const terminalRefs = { ...get().terminalRefs };
+    delete terminalRefs[taskId];
+    set({ terminalRefs });
   },
 }));

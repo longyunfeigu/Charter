@@ -31,6 +31,15 @@ export interface CreateTerminalOptions {
   launch?: 'shell' | 'claude' | 'codex';
 }
 
+export interface TerminalContextUpdate {
+  cwd: string;
+  projectName: string;
+  projectPath: string | null;
+  contextKind: 'focused' | 'recent' | 'task' | 'scratch';
+  contextLabel: string;
+  contextTaskId: string | null;
+}
+
 interface Session {
   info: TerminalInfo;
   pty: IPty;
@@ -81,6 +90,23 @@ function isShellTitle(title: string, sessionShell: string): boolean {
 function basename(p: string): string {
   const clean = p.split('\\').join('/');
   return clean.slice(clean.lastIndexOf('/') + 1);
+}
+
+/**
+ * Build the shell-native command used by host-owned working-context changes.
+ * The renderer submits only a project/task/scratch identity; the resolved path
+ * is quoted here, next to the PTY, so it can never become renderer-authored
+ * shell text.
+ */
+export function terminalCwdCommand(shell: string, cwd: string): string {
+  const name = basename(shell).toLowerCase();
+  if (name === 'cmd' || name === 'cmd.exe') {
+    return `cd /d "${cwd.replaceAll('"', '""')}"`;
+  }
+  if (name === 'pwsh' || name === 'powershell' || name === 'powershell.exe') {
+    return `Set-Location -LiteralPath '${cwd.replaceAll("'", "''")}'`;
+  }
+  return `cd -- '${cwd.replaceAll("'", "'\\''")}'`;
 }
 
 /** `claude` / `/usr/local/bin/claude` → 'claude'; anything else → null. */
@@ -357,6 +383,15 @@ export class TerminalManager {
 
   write(id: string, data: string): void {
     this.sessions.get(id)?.pty.write(data);
+  }
+
+  /** Retarget an idle persistent PTY without replacing its scrollback/session. */
+  changeContext(id: string, context: TerminalContextUpdate): TerminalInfo | null {
+    const session = this.sessions.get(id);
+    if (!session) return null;
+    session.pty.write(`${terminalCwdCommand(session.info.shell, context.cwd)}\r`);
+    Object.assign(session.info, context);
+    return { ...session.info };
   }
 
   resize(id: string, cols: number, rows: number): void {

@@ -228,6 +228,50 @@ export function registerM4Handlers(
   /** Lazy because TaskService is constructed after handler registration. */
   contextResolvers?: TerminalContextResolvers,
 ): void {
+  const resolveTerminalContext = (
+    requested:
+      | { kind: 'focused' }
+      | { kind: 'recent'; projectPath: string }
+      | { kind: 'task'; taskId: string }
+      | { kind: 'scratch' },
+  ): TerminalContextResolution => {
+    if (requested.kind === 'focused') {
+      const ws = host.mustActive();
+      return {
+        cwd: ws.canonicalPath,
+        projectName: ws.displayName,
+        projectPath: ws.canonicalPath,
+        contextKind: 'focused',
+        contextLabel: ws.displayName,
+        contextTaskId: null,
+      };
+    }
+    if (requested.kind === 'recent') {
+      const recent = contextResolvers?.recent(requested.projectPath) ?? null;
+      if (recent) return recent;
+      throw new ProductFailure(
+        productError('TERMINAL_CONTEXT_UNKNOWN', {
+          userMessage: 'That recent project is no longer available. Refresh and try again.',
+        }),
+      );
+    }
+    if (requested.kind === 'task') {
+      const taskContext = contextResolvers?.task(requested.taskId) ?? null;
+      if (taskContext) return taskContext;
+      throw new ProductFailure(
+        productError('TERMINAL_CONTEXT_UNKNOWN', {
+          userMessage: 'That task context is no longer available.',
+        }),
+      );
+    }
+    if (contextResolvers) return contextResolvers.scratch();
+    throw new ProductFailure(
+      productError('TERMINAL_CONTEXT_UNKNOWN', {
+        userMessage: 'Scratch terminals are unavailable right now.',
+      }),
+    );
+  };
+
   registerHandlers(
     {
       'search.files': async ({ query }) => {
@@ -262,47 +306,7 @@ export function registerM4Handlers(
       'terminal.create': async ({ taskId, context, launch }) => {
         const requested =
           context ?? (taskId ? { kind: 'task' as const, taskId } : { kind: 'focused' as const });
-        let resolved: TerminalContextResolution;
-        if (requested.kind === 'focused') {
-          const ws = host.mustActive();
-          resolved = {
-            cwd: ws.canonicalPath,
-            projectName: ws.displayName,
-            projectPath: ws.canonicalPath,
-            contextKind: 'focused',
-            contextLabel: ws.displayName,
-            contextTaskId: null,
-          };
-        } else if (requested.kind === 'recent') {
-          const recent = contextResolvers?.recent(requested.projectPath) ?? null;
-          if (!recent) {
-            throw new ProductFailure(
-              productError('TERMINAL_CONTEXT_UNKNOWN', {
-                userMessage: 'That recent project is no longer available. Refresh and try again.',
-              }),
-            );
-          }
-          resolved = recent;
-        } else if (requested.kind === 'task') {
-          const taskContext = contextResolvers?.task(requested.taskId) ?? null;
-          if (!taskContext) {
-            throw new ProductFailure(
-              productError('TERMINAL_CONTEXT_UNKNOWN', {
-                userMessage: 'That task context is no longer available.',
-              }),
-            );
-          }
-          resolved = taskContext;
-        } else {
-          if (!contextResolvers) {
-            throw new ProductFailure(
-              productError('TERMINAL_CONTEXT_UNKNOWN', {
-                userMessage: 'Scratch terminals are unavailable right now.',
-              }),
-            );
-          }
-          resolved = contextResolvers.scratch();
-        }
+        const resolved = resolveTerminalContext(requested);
         const info = services.terminals.create({
           ...resolved,
           shellPath: undefined,
@@ -312,6 +316,24 @@ export function registerM4Handlers(
         if (command) {
           // Let the renderer attach the xterm before the first TUI repaint.
           setTimeout(() => services.terminals.write(info.id, `${command}\r`), 350).unref();
+        }
+        return info;
+      },
+      'terminal.setContext': async ({ id, context }) => {
+        if (services.terminals.hasRunningChildren(id)) {
+          throw new ProductFailure(
+            productError('TERMINAL_CONTEXT_BUSY', {
+              userMessage: 'Finish the running command before changing this terminal context.',
+            }),
+          );
+        }
+        const info = services.terminals.changeContext(id, resolveTerminalContext(context));
+        if (!info) {
+          throw new ProductFailure(
+            productError('TERMINAL_NOT_FOUND', {
+              userMessage: 'That terminal session is no longer available.',
+            }),
+          );
         }
         return info;
       },

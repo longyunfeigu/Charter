@@ -11,6 +11,47 @@
   flex-direction: column;
   background: var(--bg-editor);
 }
+
+.tr-terminal-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 0 8px;
+}
+.tr-terminal-ref {
+  max-width: 100%;
+  min-height: 25px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 5px 3px 8px;
+  border: 1px solid #45423b;
+  border-radius: 7px;
+  background: #24231f;
+  color: #dcd7cd;
+  font: 10.5px var(--font-mono, 'SF Mono', Menlo, monospace);
+}
+.tr-terminal-ref > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tr-terminal-ref > button {
+  width: 19px;
+  height: 19px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8f8a7f;
+  cursor: pointer;
+}
+.tr-terminal-ref > button:hover {
+  background: #3a3833;
+  color: #dcd7cd;
+}
 .tr-head {
   position: relative;
   display: flex;

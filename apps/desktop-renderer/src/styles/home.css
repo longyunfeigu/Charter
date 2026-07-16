@@ -49,6 +49,23 @@
 .hm-brand .hm-sp {
   flex: 1;
 }
+.hm-quick-console {
+  height: 25px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  font: 9.5px var(--font-mono, monospace);
+  cursor: pointer;
+}
+.hm-quick-console:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
 
 .hm-nav-item,
 .hm-row {

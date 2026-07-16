@@ -52,6 +52,10 @@
 .tb-chip:hover {
   background: var(--bg-hover);
 }
+.tb-quick-console {
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+}
 
 /* ---------- main row ---------- */
 .wb-main {
@@ -678,6 +682,17 @@ html.xp-resizing * {
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.terminal-quick-badge {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--info) 44%, var(--border));
+  border-radius: 4px;
+  color: var(--info);
+  font-size: 8.5px;
+  font-weight: 650;
+  vertical-align: 1px;
 }
 .terminal-row-context,
 .terminal-row-cwd {

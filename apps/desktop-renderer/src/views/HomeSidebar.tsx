@@ -10,6 +10,7 @@ import { HomeProjectTree } from './HomeProjectTree.js';
 import { Ic } from './home-icons.js';
 import { canArchiveTask, isAnswered, presentedMeta, stateTone } from './labels.js';
 import { ArmedIconButton } from './ui.js';
+import { useQuickConsoleStore } from '../store/quickConsoleStore.js';
 
 /** Attention = the amber Inbox: states that block on the user (ADR-0009:
  * zero-change "Answered" tasks are excluded — they ask for nothing). */
@@ -160,6 +161,16 @@ export function HomeSidebar(): React.JSX.Element {
         <Ic name="flag" size={17} />
         <b>Charter</b>
         <span className="hm-sp" />
+        <button
+          className="hm-quick-console"
+          data-testid="home-quick-console"
+          title="⌥Space · 速召台"
+          aria-label="打开速召台"
+          onClick={() => useQuickConsoleStore.getState().toggle()}
+        >
+          <Ic name="terminal" size={13} />
+          <span>⌥Space</span>
+        </button>
       </div>
 
       <button
