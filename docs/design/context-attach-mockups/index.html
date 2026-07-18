@@ -4,7 +4,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Charter · 上下文附件 · 4 个方向</title>
+    <title>Charter · 上下文附件 · 方案 D 终案 + 来源方向</title>
     <link rel="stylesheet" href="./shared.css" />
     <style>
       html,
@@ -81,6 +81,48 @@
         background: var(--fg);
         color: var(--fg-inverse);
         font: 700 14px var(--font-display);
+      }
+
+      .card.featured {
+        grid-column: 1 / -1;
+        border: 1.5px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+        background: color-mix(in srgb, var(--accent) 3%, var(--bg-card));
+      }
+
+      .card.featured .kicker .letter {
+        background: var(--accent);
+        color: var(--accent-fg);
+      }
+
+      .reco-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        margin-left: auto;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: var(--accent-fg);
+        font-size: 10.5px;
+      }
+
+      .status-note {
+        display: inline-flex;
+        margin-left: auto;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--bg-chip);
+        color: var(--fg-muted);
+        font-size: 10px;
+      }
+
+      .card.featured ul {
+        columns: 2;
+        column-gap: 28px;
+      }
+
+      .card.featured ul li {
+        break-inside: avoid;
       }
 
       .card h2 {
@@ -175,10 +217,11 @@
   <body>
     <div class="gallery">
       <header>
-        <h1>Session 上下文附件 · 4 个方向</h1>
+        <h1>Session 上下文附件 · 方案 D 终案 + 4 个来源方向</h1>
         <p>
           目标:在 Session 视图里能把<strong>文件、文件夹、图片</strong>作为上下文交给代理 ——
-          既支持拖拽,也要能看到项目里有什么。四款是本质不同的交互模型,可任选其一,也可组合(例如 A+D、C+D)。
+          既支持拖拽,也要能看到项目里有什么。<strong>方案 D 是拍板中的混合终案</strong>(A 的抽屉 +
+          C 的落点机制,置顶);A / B / C / E 是它的四个来源方向,保留备查。
         </p>
       </header>
 
@@ -192,10 +235,41 @@
       </div>
 
       <div class="cards">
+        <article class="card featured">
+          <div class="kicker">
+            <span class="letter">D</span>
+            <h2>混合终案 — A 的抽屉 + C 的落点</h2>
+            <span class="reco-badge">推荐 · 待拍板</span>
+          </div>
+          <p class="essence">
+            第一期终案:<strong>@ 打开文件抽屉</strong>(树 + 搜索 + 会话改动,拖或点 ＋),
+            <strong>输入框与对话区整体是拖放区</strong>(Finder 文件 / 文件夹 / 图片 + 粘贴截图),
+            引用一律落 chips;<strong>项目外文件自动复制进任务附件</strong>;发送后引用随消息进时间线
+            —— 本页可点「发送」看完整闭环。
+          </p>
+          <ul>
+            <li>拖放:对话列整体是靶区,不用瞄准输入框;拖进来立即变 chip</li>
+            <li>@ = 文件抽屉:浏览、搜索、会话改动分组,行内 ＋ 一键加入</li>
+            <li>图片一等:拖 / 粘贴 → 缩略图 chip;项目外自动复制进 attachments/&lt;taskId&gt;/</li>
+            <li>统一:@ 与拖拽同落 chips,Room 不再插行内 @path 纯文本</li>
+            <li>发送闭环:引用卡随消息进时间线(对齐 SentCodeContext 已确认样式)</li>
+            <li>第二期(不在本页):固定为项目上下文 + Context 页签,见方案 C</li>
+          </ul>
+          <div class="tradeoff">
+            <span class="good">✓ 布局零改动;拖、看、搜三个需求一次覆盖;全部复用既有链路(@ 拾取器 / Home 拖放 / previewRefs 缩略图)</span>
+            <span class="cost">△ "一直看着目录"仍需 Files 视图(活动栏文件夹图标);固定上下文延后</span>
+          </div>
+          <div class="open-row">
+            <a class="open-link" href="./d-hybrid.html">打开方案 D</a>
+            <small>d-hybrid.html</small>
+          </div>
+        </article>
+
         <article class="card">
           <div class="kicker">
             <span class="letter">A</span>
             <h2>文件抽屉 — 挂在输入框上的目录树</h2>
+            <span class="status-note">已并入 D</span>
           </div>
           <p class="essence">
             上下文属于输入框,浏览也发生在输入框旁:📎 打开一个悬浮抽屉(树 + 搜索 +
@@ -220,6 +294,7 @@
           <div class="kicker">
             <span class="letter">B</span>
             <h2>会话内文件面板 — Sessions / Files 双页签</h2>
+            <span class="status-note">建议不采用</span>
           </div>
           <p class="essence">
             左侧栏本身分成 Sessions 和 Files 两个页签:文件树<strong>常驻</strong>在会话旁边,任何行都能长途拖进输入框或对话区。
@@ -243,6 +318,7 @@
           <div class="kicker">
             <span class="letter">C</span>
             <h2>全窗拖放 + Context 页签 — 上下文一等公民</h2>
+            <span class="status-note">落点并入 D · 作用域=第二期</span>
           </div>
           <p class="essence">
             不放树:文件从它们所在的地方(Finder / 截图)来。拖进窗口任意位置,浮层给两个投放目标 ——
@@ -265,8 +341,9 @@
 
         <article class="card">
           <div class="kicker">
-            <span class="letter">D</span>
+            <span class="letter">E</span>
             <h2>@ 内联引用 — 引用长在句子里</h2>
+            <span class="status-note">缓议</span>
           </div>
           <p class="essence">
             零新面板:输入 <strong>@</strong> 在光标处唤起模糊搜索,引用作为
@@ -280,11 +357,11 @@
           </ul>
           <div class="tradeoff">
             <span class="good">✓ 最快的键盘路径、零 UI 成本;心智与 Cursor/Claude Code 一致</span>
-            <span class="cost">△ 只能搜不能浏览;引用多了句子会变长(适合与 A 或 C 组合)</span>
+            <span class="cost">△ 缓议原因:输入框需改 contenteditable,中文 IME × 原子 token 实现风险高;且只能搜不能浏览。D 落地后如仍想要句中语义再单独立项</span>
           </div>
           <div class="open-row">
-            <a class="open-link" href="./d-inline-mentions.html">打开方案 D</a>
-            <small>d-inline-mentions.html</small>
+            <a class="open-link" href="./e-inline-mentions.html">打开方案 E</a>
+            <small>e-inline-mentions.html</small>
           </div>
         </article>
       </div>
@@ -299,8 +376,8 @@
         把 Room 现有的行内 @path 纯文本升级为原子富 token。内部拖拽 MIME 与产品一致
         (application/x-charter-ref)。<br />
         <b>与既有决策的关系:</b>引用条样式沿用 CodeContextRef mock 已确认的「结构化引用位于正文之上」;方案
-        B 触碰了 unified mock 里"会话视图不引入第二 Explorer"的约束,若选 B 需在 ADR
-        里正式修订。无论选谁,都要回答:Home 的 chips 与 Room 的行内引用统一成哪一种?四款均避免出现引擎品牌字样。
+        B 触碰"会话视图不引入第二 Explorer"约束(也是建议不采用的原因之一)。终案 D 对统一命题的回答:<b>@
+        与拖拽一律落 chips</b>,Room 不再插行内 @path 纯文本。所有页面均避免出现引擎品牌字样。
       </div>
     </div>
   </body>

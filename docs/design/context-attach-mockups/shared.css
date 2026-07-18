@@ -159,8 +159,10 @@ input:focus-visible,
 }
 
 .mock-controls strong {
+  flex: none;
   margin-right: 5px;
   font-size: 12.5px;
+  white-space: nowrap;
 }
 
 .mock-controls .explain {

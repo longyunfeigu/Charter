@@ -1,90 +1,24 @@
 <!doctype html>
-<!-- Charter · 上下文附件 方案 D「@ 内联引用」。NOT product code. -->
+<!-- Charter · 上下文附件 方案 D「混合终案」= A 文件抽屉 + C 落点机制。NOT product code. -->
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Charter · 方案 D @ 内联引用</title>
+    <title>Charter · 方案 D 混合终案</title>
     <link rel="stylesheet" href="./shared.css" />
     <style>
       .composer-wrap {
         position: relative;
       }
 
-      .inline-ref {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        margin: 0 2px;
-        padding: 1.5px 7px 1.5px 6px;
-        border: 1px solid var(--border);
-        border-radius: 7px;
-        background: var(--bg-chip);
-        font: 11px var(--font-mono);
-        line-height: 1.5;
-        vertical-align: baseline;
-        white-space: nowrap;
-        user-select: none;
-      }
+      /* ---------------------------------------------- 文件抽屉(来自方案 A) */
 
-      .inline-ref .ci {
-        font-size: 11px;
-        color: var(--fg-muted);
-      }
-
-      .inline-ref.is-folder .ci {
-        color: var(--warning);
-      }
-
-      .inline-ref.is-image .ci {
-        color: var(--info);
-      }
-
-      .inline-ref img {
-        width: 16px;
-        height: 16px;
-        border-radius: 3px;
-        object-fit: cover;
-      }
-
-      .inline-ref .x {
-        display: inline-grid;
-        place-items: center;
-        width: 13px;
-        height: 13px;
-        border-radius: 3px;
-        color: var(--fg-faint);
-        cursor: pointer;
-      }
-
-      .inline-ref .x:hover {
-        background: var(--danger-bg);
-        color: var(--danger);
-      }
-
-      .inline-ref .x .ci {
-        font-size: 8px;
-        color: inherit;
-      }
-
-      .user-bubble .inline-ref {
-        border-color: rgba(255, 250, 240, 0.35);
-        background: rgba(255, 250, 240, 0.16);
-        color: var(--accent-fg);
-      }
-
-      .user-bubble .inline-ref .ci {
-        color: rgba(255, 250, 240, 0.85);
-      }
-
-      /* mention menu */
-
-      .mention-menu {
+      .attach-popover {
         position: absolute;
         z-index: 60;
         left: 50%;
         bottom: calc(100% - 4px);
-        width: min(430px, calc(100% - 52px));
+        width: min(480px, calc(100% - 52px));
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -93,158 +27,173 @@
         background: var(--bg-card);
         box-shadow: var(--shadow-menu);
         transform: translateX(-50%);
-        animation: menu-in 130ms ease;
+        animation: popover-in 140ms ease;
       }
 
-      @keyframes menu-in {
+      @keyframes popover-in {
         from {
           opacity: 0;
           transform: translateX(-50%) translateY(6px);
         }
       }
 
-      .mention-menu > header {
+      .attach-popover > header {
         flex: none;
-        display: flex;
-        align-items: center;
-        gap: 7px;
-        min-height: 38px;
-        padding: 0 13px;
-        border-bottom: 1px solid var(--border-soft);
-        font: 12px var(--font-mono);
-      }
-
-      .mention-menu > header .at {
-        color: var(--accent);
-        font-weight: 700;
-      }
-
-      .mention-menu > header .q {
-        color: var(--fg);
-      }
-
-      .mention-menu > header .caret {
-        width: 1px;
-        height: 14px;
-        background: var(--fg);
-        animation: caret-blink 1s steps(1) infinite;
-      }
-
-      @keyframes caret-blink {
-        50% {
-          opacity: 0;
-        }
-      }
-
-      .mention-menu > header small {
-        margin-left: auto;
-        color: var(--fg-faint);
-        font: 10px var(--font-ui);
-      }
-
-      .menu-scroll {
-        min-height: 0;
-        max-height: 264px;
-        overflow: auto;
-        padding: 4px 6px 8px;
-      }
-
-      .menu-group {
-        margin: 6px 6px 2px;
-        color: var(--fg-faint);
-        font-size: 9.5px;
-        letter-spacing: 0.08em;
-      }
-
-      .menu-option {
         display: flex;
         align-items: center;
         gap: 8px;
-        min-height: 30px;
-        padding: 0 8px;
-        border-radius: 7px;
-        cursor: pointer;
+        min-height: 42px;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--border-soft);
+        color: var(--fg-faint);
       }
 
-      .menu-option.selected {
-        background: var(--bg-selected);
-      }
-
-      .menu-option > .ci {
+      .attach-popover > header .ci {
         font-size: 13px;
-        color: var(--fg-muted);
       }
 
-      .menu-option.kind-folder > .ci {
-        color: var(--warning);
-      }
-
-      .menu-option.kind-image > .ci {
-        color: var(--info);
-      }
-
-      .menu-option .name {
-        font: 12px var(--font-mono);
-      }
-
-      .menu-option .path {
+      .attach-popover > header input {
         min-width: 0;
         flex: 1;
-        overflow: hidden;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--fg);
+        font-size: 12.5px;
+      }
+
+      .attach-popover > header input::placeholder {
         color: var(--fg-faint);
-        font-size: 10px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
       }
 
-      .menu-option .badge-changed {
+      .esc-hint {
         flex: none;
-        padding: 1px 6px;
-        border-radius: 999px;
-        background: var(--success-bg);
-        color: var(--success);
-        font: 9px var(--font-mono);
+        padding: 2px 6px;
+        border: 1px solid var(--border-soft);
+        border-radius: 5px;
+        color: var(--fg-faint);
+        font: 9.5px var(--font-mono);
       }
 
-      .menu-empty {
-        padding: 18px 12px;
+      .popover-scroll {
+        min-height: 0;
+        max-height: 296px;
+        overflow: auto;
+        padding: 4px 8px 10px;
+      }
+
+      .attach-popover > footer {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 36px;
+        padding: 0 13px;
+        border-top: 1px solid var(--border-soft);
+        background: var(--bg-editor);
+        color: var(--fg-faint);
+        font-size: 10.5px;
+      }
+
+      .attach-popover > footer .ci {
+        font-size: 11px;
+      }
+
+      .popover-empty {
+        padding: 22px 12px;
         color: var(--fg-faint);
         font-size: 11.5px;
         text-align: center;
       }
 
-      .mention-menu > footer {
-        flex: none;
+      /* ------------------------------- 全区落点(来自方案 B/C 的落点机制) */
+
+      .conversation .conv-dropveil {
+        position: absolute;
+        z-index: 30;
+        inset: 12px 14px 14px;
+        display: none;
+        align-items: flex-end;
+        justify-content: center;
+        padding-bottom: 30px;
+        border: 1.5px dashed var(--accent);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--accent) 5%, transparent);
+        color: var(--accent);
+        font-size: 12.5px;
+        pointer-events: none;
+      }
+
+      .conversation.drag-over .conv-dropveil {
+        display: flex;
+      }
+
+      .conv-dropveil span {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        max-width: 88%;
+        padding: 8px 14px;
+        border-radius: 999px;
+        background: var(--bg-input);
+        box-shadow: var(--shadow-card);
+      }
+
+      /* ------------------------------------------- 发送后的时间线引用卡片 */
+
+      .sent-entry {
+        animation: chip-in 180ms ease;
+      }
+
+      .sent-refs {
+        width: fit-content;
+        max-width: 82%;
+        margin: -8px 0 16px auto;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 10px 4px 10px 10px;
+        background: var(--bg-card);
+      }
+
+      .sent-refs-caption {
         display: flex;
         align-items: center;
-        gap: 12px;
-        min-height: 33px;
-        padding: 0 13px;
-        border-top: 1px solid var(--border-soft);
-        background: var(--bg-editor);
+        gap: 6px;
+        margin-bottom: 6px;
         color: var(--fg-faint);
+        font-size: 9.5px;
+      }
+
+      .sent-refs-caption .ci {
         font-size: 10px;
       }
 
-      .mention-menu > footer b {
-        padding: 1px 5px;
-        border: 1px solid var(--border-soft);
-        border-radius: 4px;
-        font: 9px var(--font-mono);
+      .sent-refs .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        justify-content: flex-end;
+      }
+
+      .sent-refs .ref-chip {
+        min-height: 24px;
+        background: var(--bg-editor);
       }
     </style>
   </head>
   <body>
     <div class="mock-shell">
       <header class="mock-controls">
-        <strong>方案 D · @ 内联引用</strong>
+        <strong>方案 D · 混合终案</strong>
         <span class="explain"
-          >不加任何新面板:输入 @ 直接在光标处引用文件/文件夹/图片,引用长在句子里;拖拽落点也变成句中
-        token。</span
+          >= A 抽屉 + C 落点:@ 打开文件抽屉;输入框与对话区整体接 Finder 拖放和粘贴截图;引用一律落
+          chips,项目外文件复制进任务附件;点发送看时间线闭环。</span
         >
         <span class="spacer"></span>
-        <button type="button" data-act="menu">弹出 @ 菜单</button>
-        <button type="button" data-act="demo">插入示例引用</button>
+        <button type="button" data-act="open-drawer">打开文件抽屉</button>
+        <button type="button" data-act="demo">演示:拖入 3 项</button>
+        <button type="button" data-act="paste">演示:粘贴截图</button>
+        <button type="button" data-act="send">演示:发送</button>
         <button type="button" data-act="reset">重置</button>
         <a href="./index.html">方案总览</a>
       </header>
@@ -316,6 +265,17 @@
                 <time>54m</time>
               </div>
             </div>
+            <div class="session-row">
+              <span class="dot"></span>
+              <div class="session-copy">
+                <strong>Session 4ed53b65-…</strong>
+                <span>Answered · no file changes</span>
+              </div>
+              <div class="session-side">
+                <span class="state-pill ok">Answered</span>
+                <time>12h</time>
+              </div>
+            </div>
             <div class="rail-rule"></div>
             <div class="rail-group-label">
               <span class="ci ci-history"></span>
@@ -345,6 +305,28 @@
                 <time>15h</time>
               </div>
             </div>
+            <div class="session-row">
+              <span class="dot"></span>
+              <div class="session-copy">
+                <strong>Session 4ed53b6…</strong>
+                <span>fable5 · Rolled back</span>
+              </div>
+              <div class="session-side">
+                <span class="state-pill neutral">Rolled back</span>
+                <time>17h</time>
+              </div>
+            </div>
+            <div class="session-row">
+              <span class="dot"></span>
+              <div class="session-copy">
+                <strong>写太阳自转的html</strong>
+                <span>charter · Accepted</span>
+              </div>
+              <div class="session-side">
+                <span class="state-pill ok">Accepted</span>
+                <time>18h</time>
+              </div>
+            </div>
           </div>
         </aside>
 
@@ -362,9 +344,15 @@
           <button type="button" class="quiet-icon"><span class="ci ci-kebab"></span></button>
         </header>
 
-        <main class="conversation">
-          <div class="conversation-scroll">
-            <div class="thread">
+        <main class="conversation" id="conversation">
+          <div class="conv-dropveil">
+            <span>
+              <span class="ci ci-attach"></span>
+              松开,加入这条 follow-up 的上下文 · 项目外文件会复制进任务附件
+            </span>
+          </div>
+          <div class="conversation-scroll" id="conversationScroll">
+            <div class="thread" id="thread">
               <p>
                 也就是说,这是一个纯前端样式微调任务:改一个按钮颜色 +
                 给一个提示加边框,且改动范围锁定在
@@ -375,20 +363,12 @@
                 <strong>完成</strong>
                 <span>1 个文件 +5 −2 · 未验证</span>
               </div>
-              <div class="user-bubble">
-                对照
-                <span class="inline-ref is-image"
-                  ><span class="ci ci-file-media"></span>设计稿-结算页.png</span
-                >
-                检查
-                <span class="inline-ref"
-                  ><span class="ci ci-file-code"></span>public/index.html</span
-                >
-                的按钮间距
-              </div>
+              <div class="user-bubble">hi</div>
               <p>
-                好的——发送时,句中的引用会连同文件快照一起提交,我会按
-                <span class="code-token">设计稿-结算页.png</span> 核对按钮间距。
+                Hi! 之前你问的"提交订单"按钮改绿色 +
+                优惠券过期提示加红色左边框的任务,要现在开始吗?我可以先看一下
+                <span class="code-token">public/index.html</span>
+                的相关代码,然后提出修改计划。
               </p>
               <div class="done-line">
                 <span class="ci ci-check-all"></span>
@@ -400,37 +380,43 @@
           </div>
 
           <div class="composer-wrap">
-            <div class="mention-menu hidden" id="mentionMenu">
+            <div class="attach-popover hidden" id="attachPopover">
               <header>
-                <span class="at">@</span>
-                <span class="q" id="menuQuery"></span>
-                <span class="caret"></span>
-                <small>继续输入以过滤 fable5 的文件</small>
+                <span class="ci ci-search"></span>
+                <input id="drawerSearch" placeholder="搜索 fable5 的文件与文件夹…" />
+                <span class="esc-hint">esc</span>
               </header>
-              <div class="menu-scroll" id="menuScroll"></div>
+              <div class="popover-scroll" id="drawerScroll"></div>
               <footer>
-                <span><b>↑↓</b> 选择</span>
-                <span><b>⏎</b> 插入引用</span>
-                <span><b>esc</b> 关闭</span>
-                <span style="margin-left: auto">也可以直接拖文件进来</span>
+                <span class="ci ci-attach"></span>
+                <span>拖到输入框或对话区,或点行内 ＋ · 文件夹连同目录一起引用</span>
               </footer>
             </div>
 
             <div class="composer" id="composer">
-              <div class="drop-veil">
-                <span class="ci ci-attach"></span>松开,在光标处插入引用 — 文件 / 文件夹 / 图片
-              </div>
               <div class="composer-top">
                 <span class="project-chip"><span class="ci ci-folder"></span>fable5</span>
               </div>
-              <div
-                class="composer-input"
+              <div class="context-shelf" id="shelf">
+                <div class="shelf-caption">
+                  <span class="ci ci-references"></span>
+                  <span id="shelfCount">0 项引用 · 随这条消息一起发送</span>
+                  <span class="spacer"></span>
+                  <button type="button" id="shelfClear">清空</button>
+                </div>
+              </div>
+              <textarea
                 id="draft"
-                contenteditable="true"
-                data-placeholder="Follow up — 输入 @ 引用文件、文件夹或图片…"
-              ></div>
+                rows="2"
+                placeholder="Follow up — starts a new Session in this project…"
+              ></textarea>
               <div class="composer-footer">
-                <button type="button" class="tool-button" id="mentionButton" title="引用项目文件(@)">
+                <button
+                  type="button"
+                  class="tool-button"
+                  id="drawerButton"
+                  title="引用文件、文件夹或图片(@ / 拖拽 / 粘贴)"
+                >
                   <span class="ci ci-mention"></span>
                 </button>
                 <div class="mode-track">
@@ -489,6 +475,6 @@
 
     <div class="toast" id="toast" role="status"></div>
     <script src="./shared.js"></script>
-    <script src="./d-inline-mentions.js"></script>
+    <script src="./d-hybrid.js"></script>
   </body>
 </html>
