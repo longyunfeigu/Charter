@@ -12,7 +12,7 @@ import type {
   TimelineEventDto,
 } from '@pi-ide/ipc-contracts';
 import { onEvent, rpcResult } from '../bridge.js';
-import { useAppStore } from './appStore.js';
+import { okOrToast, useAppStore } from './appStore.js';
 
 export interface StreamingMessage {
   runId: string;
@@ -365,10 +365,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       ...(input.worktreeSetup?.trim() ? { worktreeSetup: input.worktreeSetup.trim() } : {}),
       conversationRefTaskIds: input.conversationRefTaskIds ?? [],
     });
-    if (!create.ok) {
-      useAppStore.getState().pushToast('error', create.error.userMessage);
-      return false;
-    }
+    if (!okOrToast(create)) return false;
     const task = create.data.task;
     set({ newTaskOpen: false });
     await get().openTask(task.id);
@@ -379,10 +376,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       codeRefs: input.codeRefs ?? [],
       fileRefs: input.fileRefs ?? [],
     });
-    if (!start.ok) {
-      useAppStore.getState().pushToast('error', start.error.userMessage);
-      return false;
-    }
+    if (!okOrToast(start)) return false;
     if (start.data.queued) {
       useAppStore.getState().pushToast('info', 'Queued: another agent run is active.');
     }
@@ -400,10 +394,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       codeRefs,
       fileRefs,
     });
-    if (!res.ok) {
-      useAppStore.getState().pushToast('error', res.error.userMessage);
-      return false;
-    }
+    if (!okOrToast(res)) return false;
     // ADR-0016: an override updates the task's model — refresh so the composer
     // pill and task lists reflect the model serving the next turn.
     if (model) void get().refreshTasks();
@@ -478,10 +469,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       codeRefs,
       fileRefs,
     });
-    if (!res.ok) {
-      useAppStore.getState().pushToast('error', res.error.userMessage);
-      return false;
-    }
+    if (!okOrToast(res)) return false;
     return true;
   },
 
@@ -512,10 +500,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       codeRefs: input.codeRefs ?? [],
       confirmRemovedDone: input.confirmRemovedDone ?? false,
     });
-    if (!res.ok) {
-      useAppStore.getState().pushToast('error', res.error.userMessage);
-      return false;
-    }
+    if (!okOrToast(res)) return false;
     await get().refreshTasks();
     return true;
   },
@@ -553,10 +538,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       ...(input.hunkKey ? { hunkKey: input.hunkKey } : {}),
       ...(input.expectedCurrentHash ? { expectedCurrentHash: input.expectedCurrentHash } : {}),
     });
-    if (!res.ok) {
-      useAppStore.getState().pushToast('error', res.error.userMessage);
-      return;
-    }
+    if (!okOrToast(res)) return;
     if (res.data.status === 'stale') {
       useAppStore
         .getState()
@@ -637,10 +619,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       if (!override) return false;
       res = await rpcResult('task.rollback', { taskId, force: true });
     }
-    if (!res.ok) {
-      useAppStore.getState().pushToast('error', res.error.userMessage);
-      return false;
-    }
+    if (!okOrToast(res)) return false;
     set({ reviewOpen: false });
     await get().refreshTasks();
     useAppStore

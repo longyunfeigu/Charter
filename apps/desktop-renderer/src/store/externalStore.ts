@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { onEvent, rpcResult } from '../bridge.js';
-import { useAppStore } from './appStore.js';
+import { okOrToast, useAppStore } from './appStore.js';
 import { useTaskStore } from './taskStore.js';
 import { useActivityStore } from './activityStore.js';
 // Runtime-only access (inside handlers), so the module cycle with
@@ -253,10 +253,7 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
       if (!terminalId) return;
       useTerminalStore.setState({ active: terminalId });
       const result = await rpcResult('external.resumeSession', { taskId: task.id, terminalId });
-      if (!result.ok) {
-        useAppStore.getState().pushToast('error', result.error.userMessage);
-        return;
-      }
+      if (!okOrToast(result)) return;
       useAppStore.getState().pushToast('success', `Resumed the previous ${external.cli} session.`);
       await useTaskStore.getState().refreshTasks();
     } finally {

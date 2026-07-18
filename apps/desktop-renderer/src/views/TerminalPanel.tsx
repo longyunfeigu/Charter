@@ -6,7 +6,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { onEvent, rpcResult } from '../bridge.js';
-import { useAppStore } from '../store/appStore.js';
+import { okOrToast, useAppStore } from '../store/appStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useExternalStore } from '../store/externalStore.js';
 import { useTaskStore } from '../store/taskStore.js';
@@ -631,10 +631,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       ...(options?.context ? { context: options.context } : {}),
       launch,
     });
-    if (!res.ok) {
-      useAppStore.getState().pushToast('error', res.error.userMessage);
-      return null;
-    }
+    if (!okOrToast(res)) return null;
     const { term, fit } = makeTerm(
       settings?.terminal.fontSize ?? 12,
       settings?.terminal.scrollback ?? 5000,

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { DocumentDto, OpenTabsState } from '@pi-ide/ipc-contracts';
 import { monaco, modelUri } from '../monaco-setup.js';
 import { onEvent, rpc, rpcResult } from '../bridge.js';
-import { useAppStore } from './appStore.js';
+import { okOrToast, useAppStore } from './appStore.js';
 import { useWorkspaceStore } from './workspaceStore.js';
 
 export interface DocMeta {
@@ -414,10 +414,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       }
     }
     const result = await rpcResult('doc.resolveExternal', { path, choice });
-    if (!result.ok) {
-      useAppStore.getState().pushToast('error', result.error.userMessage);
-      return;
-    }
+    if (!okOrToast(result)) return;
     const doc = result.data.doc;
     const model = getModel(path);
     if (model && choice === 'reload') {

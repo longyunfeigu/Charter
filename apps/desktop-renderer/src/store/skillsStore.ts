@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { SkillDto, SkillSourceDto } from '@pi-ide/ipc-contracts';
 import { onEvent, rpcResult } from '../bridge.js';
-import { useAppStore } from './appStore.js';
+import { okOrToast, useAppStore } from './appStore.js';
 
 /**
  * Skills manager state (ADR-0015): the managed store as Settings and the
@@ -54,10 +54,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 
   async importSkill(dir) {
     const res = await rpcResult('skills.import', dir ? { dir } : {});
-    if (!res.ok) {
-      useAppStore.getState().pushToast('error', res.error.userMessage);
-      return null;
-    }
+    if (!okOrToast(res)) return null;
     if (res.data.skill) {
       await get().refresh();
       useAppStore.getState().pushToast('success', `Skill "${res.data.skill.name}" imported.`);
@@ -67,10 +64,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 
   async addSource(dir) {
     const res = await rpcResult('skills.addSource', dir ? { dir } : {});
-    if (!res.ok) {
-      useAppStore.getState().pushToast('error', res.error.userMessage);
-      return null;
-    }
+    if (!okOrToast(res)) return null;
     if (res.data.source) {
       await get().refresh();
       useAppStore.getState().pushToast('success', `${res.data.source.label} connected.`);
@@ -80,10 +74,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 
   async removeSource(id) {
     const res = await rpcResult('skills.removeSource', { id });
-    if (!res.ok) {
-      useAppStore.getState().pushToast('error', res.error.userMessage);
-      return;
-    }
+    if (!okOrToast(res)) return;
     await get().refresh();
   },
 
@@ -99,10 +90,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
 
   async remove(id) {
     const res = await rpcResult('skills.remove', { id });
-    if (!res.ok) {
-      useAppStore.getState().pushToast('error', res.error.userMessage);
-      return;
-    }
+    if (!okOrToast(res)) return;
     await get().refresh();
   },
 
@@ -121,10 +109,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
       id,
       ...(relPath !== undefined ? { relPath } : {}),
     });
-    if (!res.ok) {
-      useAppStore.getState().pushToast('error', res.error.userMessage);
-      return null;
-    }
+    if (!okOrToast(res)) return null;
     if (res.data.binary) return { path: res.data.path, content: '(binary file)' };
     return { path: res.data.path, content: res.data.content };
   },

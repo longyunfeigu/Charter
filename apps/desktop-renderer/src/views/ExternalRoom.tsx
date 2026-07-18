@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { TaskDto } from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
-import { useAppStore } from '../store/appStore.js';
+import { okOrToast, useAppStore } from '../store/appStore.js';
 import { useExternalStore, type ExternalSessionFile } from '../store/externalStore.js';
 import { useTerminalStore, mountTerminal } from './TerminalPanel.js';
 import { EMPTY_CODE_CONTEXT_REFS, useDraftStore } from '../store/draftStore.js';
@@ -154,10 +154,7 @@ function ExternalContextComposer(props: { task: TaskDto; live: boolean }): React
       codeRefs,
     });
     setSending(false);
-    if (!result.ok) {
-      useAppStore.getState().pushToast('error', result.error.userMessage);
-      return;
-    }
+    if (!okOrToast(result)) return;
     useDraftStore.getState().clearDraft(props.task.id);
     useDraftStore.getState().clearCodeRefs(props.task.id);
   };

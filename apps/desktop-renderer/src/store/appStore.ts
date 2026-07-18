@@ -8,7 +8,7 @@ import type {
   TaskDto,
 } from '@pi-ide/ipc-contracts';
 import { LayoutStateSchema } from '@pi-ide/ipc-contracts';
-import { newId } from '@pi-ide/foundation';
+import { newId, type ProductError } from '@pi-ide/foundation';
 import { onEvent, rpc, rpcResult } from '../bridge.js';
 import { peekOpen, peekCloseTab, type PeekState } from '../views/peek.js';
 import { applyAppearance } from '../appearance.js';
@@ -634,6 +634,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ sessionNotices: get().sessionNotices.filter((notice) => notice.id !== id) });
   },
 }));
+
+/** Toast a failed rpcResult's user message; narrows to the success shape. */
+export function okOrToast<T>(
+  res: { ok: true; data: T } | { ok: false; error: ProductError },
+): res is { ok: true; data: T } {
+  if (!res.ok) useAppStore.getState().pushToast('error', res.error.userMessage);
+  return res.ok;
+}
 
 export async function reportClientError(
   code: string,
