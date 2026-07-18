@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChangeSetDto } from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
 import { useAppStore } from '../store/appStore.js';
@@ -9,6 +9,7 @@ import { monaco, monacoFontFamily } from '../monaco-setup.js';
 import { EditorArea } from '../workbench/EditorArea.js';
 import { Ic } from './home-icons.js';
 import { addCodeContext } from '../codeContext.js';
+import { CodeContextFloat, codeContextFloatRange } from './CodeContextFloat.js';
 
 /**
  * In-room file peek (ADR-0014, PIVOT-034): a resident split panel beside the
@@ -303,6 +304,7 @@ function PeekFile({
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const pathRef = useRef(path);
+  const floatRef = useRef<HTMLDivElement>(null);
   const [meta, setMeta] = useState<PeekFileDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<{
@@ -312,6 +314,30 @@ function PeekFile({
     endColumn: number;
     text: string;
   } | null>(null);
+  const selectionRef = useRef(selection);
+
+  // Anchor the floating action to the end of the selection, mock-style:
+  // bubble bottom sits on the selected range, caret points down, right: 18px.
+  // Clamped so the action stays reachable while the selection is scrolled out.
+  const positionFloat = useCallback((): void => {
+    const editor = editorRef.current;
+    const bubble = floatRef.current;
+    const sel = selectionRef.current;
+    if (!editor || !bubble || !sel) return;
+    const pos = editor.getScrolledVisiblePosition({
+      lineNumber: sel.endLine,
+      column: sel.endColumn,
+    });
+    if (!pos) return;
+    const height = editor.getLayoutInfo().height;
+    const top = Math.min(Math.max(pos.top + pos.height - 36, 6), Math.max(6, height - 42));
+    bubble.style.top = `${top}px`;
+  }, []);
+
+  useLayoutEffect(() => {
+    selectionRef.current = selection;
+    positionFloat();
+  }, [selection, positionFloat]);
 
   useEffect(() => {
     pathRef.current = path;
@@ -370,6 +396,8 @@ function PeekFile({
         wordWrap: 'off',
       });
       editorRef.current = editor;
+      editor.onDidScrollChange(() => positionFloat());
+      editor.onDidLayoutChange(() => positionFloat());
       editor.onDidChangeCursorSelection(({ selection: range }) => {
         const model = editor.getModel();
         if (!model || range.isEmpty()) {
@@ -392,7 +420,7 @@ function PeekFile({
     } else if (editorRef.current.getModel() !== model) {
       editorRef.current.setModel(model);
     }
-  }, [text, taskId, path]);
+  }, [text, taskId, path, positionFloat]);
 
   // Theme flips repaint the whole app, but the editor's composited layer can
   // hold stale pixels in Electron — nudge a re-layout when data-theme changes.
@@ -436,21 +464,15 @@ function PeekFile({
       {meta?.fromBuffer ? (
         <div className="tr-peek-banner info">Showing the unsaved editor buffer.</div>
       ) : null}
-      {selection ? (
-        <div
-          className="code-context-selection-bar monaco-selection"
-          data-testid="peek-code-selection-bar"
-        >
-          <span className="mono">
-            Selected L{selection.startLine}
-            {selection.endLine === selection.startLine ? '' : `–${selection.endLine}`}
-          </span>
-          <span>File Peek · working tree</span>
-          <button
-            type="button"
-            data-testid="peek-add-code-context"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
+      <div className="tr-peek-monaco-wrap">
+        <div ref={hostRef} className="tr-peek-monaco" data-testid="peek-monaco" />
+        {selection ? (
+          <CodeContextFloat
+            ref={floatRef}
+            testid="peek-code-selection-bar"
+            buttonTestid="peek-add-code-context"
+            label={`当前文件 · ${codeContextFloatRange(selection.startLine, selection.endLine)}`}
+            onAttach={() => {
               void addCodeContext(taskId, {
                 path: pathRef.current,
                 origin: 'file-peek',
@@ -461,12 +483,9 @@ function PeekFile({
                 if (ref) editorRef.current?.setSelection(new monaco.Selection(1, 1, 1, 1));
               });
             }}
-          >
-            Add to context
-          </button>
-        </div>
-      ) : null}
-      <div ref={hostRef} className="tr-peek-monaco" data-testid="peek-monaco" />
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

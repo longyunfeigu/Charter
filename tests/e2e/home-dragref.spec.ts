@@ -16,6 +16,7 @@ test.describe('Projects — project actions without a duplicate file tree', () =
     try {
       await page.getByTestId('surface-home').click();
       await page.getByTestId('rail-context').click();
+      await page.getByTestId('rail-add-project').click();
       await page.getByTestId('home-new-project').click();
       await expect(page.getByTestId('new-project-dialog')).toBeVisible();
       await page.getByLabel('Close').click();
@@ -30,6 +31,7 @@ test.describe('Projects — project actions without a duplicate file tree', () =
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
       await page.getByTestId('rail-context').click();
+      await page.getByTestId('rail-add-project').click();
       await page.getByTestId('home-new-project').click();
       await expect(page.getByTestId('new-project-dialog')).toBeVisible();
       await page.getByLabel('Close').click();

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { RecentWorkspaceDto, TaskDto } from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
 import { useActivityStore, currentActionLine } from '../store/activityStore.js';
@@ -273,6 +273,8 @@ export function SessionRail(): React.JSX.Element {
   const [query, setQuery] = useState('');
   const [needsOnly, setNeedsOnly] = useState(false);
   const [projectQuery, setProjectQuery] = useState('');
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [visibleCount, setVisibleCount] = useState(SESSION_PAGE_SIZE);
 
@@ -280,6 +282,7 @@ export function SessionRail(): React.JSX.Element {
     saveRailView(next);
     setViewState(next);
     if (next !== 'projects') setProjectsPanelOpen(false);
+    setAddMenuOpen(false);
   };
 
   const showProjects = (): void => {
@@ -302,6 +305,24 @@ export function SessionRail(): React.JSX.Element {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const close = (event: MouseEvent): void => {
+      if (addMenuRef.current && !addMenuRef.current.contains(event.target as Node)) {
+        setAddMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setAddMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [addMenuOpen]);
 
   const allEntries = useMemo<SessionEntry[]>(() => {
     const taskEntries: SessionEntry[] = taskStore.tasks
@@ -660,6 +681,50 @@ export function SessionRail(): React.JSX.Element {
     )
     .slice(0, 8);
 
+  const openFolderAction = (): void => {
+    setAddMenuOpen(false);
+    void workspaceStore.openViaDialog();
+  };
+  const newProjectAction = (): void => {
+    setAddMenuOpen(false);
+    app.setNewProjectOpen(true);
+  };
+
+  // Shared by the "+" dropdown and the empty state (distinct testids so both
+  // may render at once without ambiguity).
+  const addProjectItems = (idSuffix: '' | '-empty'): React.JSX.Element => (
+    <>
+      <button
+        className="sr-add-item"
+        role="menuitem"
+        data-testid={`home-open-folder${idSuffix}`}
+        onClick={openFolderAction}
+      >
+        <span className="sr-add-ic">
+          <Ic name="folder-open" size={14} />
+        </span>
+        <span className="sr-add-copy">
+          <strong>Open folder…</strong>
+          <small>Use an existing folder on disk</small>
+        </span>
+      </button>
+      <button
+        className="sr-add-item"
+        role="menuitem"
+        data-testid={`home-new-project${idSuffix}`}
+        onClick={newProjectAction}
+      >
+        <span className="sr-add-ic">
+          <Ic name="folder-plus" size={14} />
+        </span>
+        <span className="sr-add-copy">
+          <strong>New project…</strong>
+          <small>Create empty, or clone a repository</small>
+        </span>
+      </button>
+    </>
+  );
+
   const projectsPanel = (
     <>
       <header className="sr-head">
@@ -667,17 +732,46 @@ export function SessionRail(): React.JSX.Element {
           <strong>Projects</strong>
           <small>working context</small>
         </div>
-        <label className="sr-search-box sr-project-search">
-          <Ic name="search" size={13} />
-          <input
-            value={projectQuery}
-            placeholder="Search projects…"
-            aria-label="Search projects"
-            onChange={(event) => setProjectQuery(event.currentTarget.value)}
-          />
-        </label>
+        <div className="sr-search-row">
+          <label className="sr-search-box sr-project-search">
+            <Ic name="search" size={13} />
+            <input
+              value={projectQuery}
+              placeholder="Search projects…"
+              aria-label="Search projects"
+              onChange={(event) => setProjectQuery(event.currentTarget.value)}
+            />
+          </label>
+          <div className="sr-add-wrap" ref={addMenuRef}>
+            <button
+              className={`sr-filter ${addMenuOpen ? 'active' : ''}`}
+              data-testid="rail-add-project"
+              title="Add project"
+              aria-label="Add project"
+              aria-haspopup="menu"
+              aria-expanded={addMenuOpen}
+              onClick={() => setAddMenuOpen((open) => !open)}
+            >
+              <Ic name="plus" size={13} />
+            </button>
+            {addMenuOpen ? (
+              <div className="sr-add-menu" role="menu" data-testid="rail-add-menu">
+                {addProjectItems('')}
+              </div>
+            ) : null}
+          </div>
+        </div>
       </header>
       <div className="sr-scroll" data-testid="rail-projects-panel">
+        {recent.length === 0 ? (
+          <div className="sr-project-empty" data-testid="rail-projects-empty">
+            <p>No projects yet</p>
+            <small>Add one to give sessions a working context</small>
+            {addProjectItems('-empty')}
+          </div>
+        ) : filteredRecent.length === 0 ? (
+          <div className="sr-empty">No projects match this search.</div>
+        ) : null}
         {filteredRecent.map((project) => {
           const active = workspaceStore.workspace?.path === project.path;
           const sessionCount =
@@ -724,22 +818,6 @@ export function SessionRail(): React.JSX.Element {
           );
         })}
       </div>
-      <footer className="sr-project-footer">
-        <button
-          className="sr-secondary-action"
-          data-testid="home-open-folder"
-          onClick={() => void workspaceStore.openViaDialog()}
-        >
-          <Ic name="folder" size={13} /> Open folder…
-        </button>
-        <button
-          className="sr-secondary-action"
-          data-testid="home-new-project"
-          onClick={() => app.setNewProjectOpen(true)}
-        >
-          <Ic name="plus" size={13} /> New project…
-        </button>
-      </footer>
     </>
   );
 

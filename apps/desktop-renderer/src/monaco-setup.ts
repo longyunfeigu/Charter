@@ -161,7 +161,9 @@ defineAppearanceTheme('charter-archive-light', 'vs', {
   number: '#9a602d',
   type: '#81513c',
   fn: '#315c68',
-  selection: '#e8cbb2',
+  /* Mock-blue text selection from the code-context design mocks (design-qa:
+   * "the new blue text selection" is a deliberate feature of this skin). */
+  selection: '#9fc6f3',
   line: '#f4e7cf',
   added: '#5e8158',
   removed: '#bd5138',

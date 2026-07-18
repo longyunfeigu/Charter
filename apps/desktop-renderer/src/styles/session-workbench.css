@@ -755,11 +755,95 @@
   flex: none;
   color: var(--success);
 }
-.sr-project-footer {
+/* "+" beside the project search opens the add-project menu; the same rich
+ * items double as the empty-state call to action. */
+.sr-add-wrap {
+  position: relative;
+}
+.sr-add-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  width: 240px;
   display: grid;
-  gap: 7px;
-  padding: 9px;
-  border-top: 1px solid var(--border-soft);
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-menu);
+}
+.sr-add-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.sr-add-item:hover {
+  background: var(--bg-hover);
+}
+.sr-add-ic {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: var(--bg-input);
+  color: var(--fg-muted);
+}
+.sr-add-item:hover .sr-add-ic {
+  color: var(--accent);
+}
+.sr-add-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.sr-add-copy strong {
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.sr-add-copy small {
+  color: var(--fg-faint);
+  font-size: 9.5px;
+}
+.sr-project-empty {
+  display: grid;
+  gap: 5px;
+  margin: 18px 2px 0;
+  padding: 18px 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  text-align: center;
+}
+.sr-project-empty p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+}
+.sr-project-empty small {
+  margin-bottom: 8px;
+  color: var(--fg-faint);
+  font-size: 9.5px;
+}
+.sr-project-empty .sr-add-item {
+  border: 1px solid var(--border-soft);
+  background: var(--bg-card);
+}
+.sr-project-empty .sr-add-item:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
 }
 .sr-project-use {
   width: 26px;
@@ -786,25 +870,6 @@
   background: var(--bg-card);
   color: var(--accent);
 }
-.sr-secondary-action {
-  width: 100%;
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 5px;
-  padding: 0 9px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-card);
-  color: var(--fg-muted);
-  cursor: pointer;
-}
-.sr-secondary-action:hover {
-  border-color: var(--border-strong);
-  color: var(--fg);
-}
-
 /* A raw external PTY before accounting-task detection. */
 .stv-root {
   flex: 1;
@@ -888,10 +953,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sr-project-footer .sr-secondary-action {
-  margin-top: 0;
-}
-
 .project-tool-title span {
   max-width: 340px;
   color: var(--fg-faint);

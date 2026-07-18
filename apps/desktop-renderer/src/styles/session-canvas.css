@@ -741,6 +741,8 @@ button.hm-board-now:hover {
 }
 
 .session-inline-diff {
+  /* Anchors the floating .code-context-float against the whole code frame. */
+  position: relative;
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -793,9 +795,23 @@ button.hm-board-now:hover {
   padding-bottom: 8px;
 }
 
+/* Mock-blue selection (--selection in the design mocks); the drag highlight
+ * and the settled full-width band share one color so they read as one state. */
 .session-inline-diff-body ::selection {
+  background: #9fc6f3;
+}
+[data-theme='dark'] .session-inline-diff-body ::selection {
   background: color-mix(in srgb, var(--info) 34%, transparent);
   color: var(--fg);
+}
+
+.session-inline-line.ctx-selected code {
+  background: #9fc6f3;
+  box-shadow: inset 0 0 0 1px rgba(110, 159, 207, 0.24);
+}
+[data-theme='dark'] .session-inline-line.ctx-selected code {
+  background: color-mix(in srgb, var(--info) 30%, transparent);
+  box-shadow: none;
 }
 
 .session-inline-hunk {

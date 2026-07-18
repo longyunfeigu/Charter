@@ -14,6 +14,7 @@ import { roomCopyFor } from './roomCopy.js';
 import { LiveBoard } from './LiveBoard.js';
 import { monaco } from '../monaco-setup.js';
 import { addCodeContext } from '../codeContext.js';
+import { CodeContextFloat } from './CodeContextFloat.js';
 
 export interface SessionVerification {
   label: string;
@@ -272,6 +273,12 @@ function ColorizedDiffCode(props: { path: string; code: string }): React.JSX.Ele
   );
 }
 
+const DIFF_VERSION_LABEL: Record<'working-tree' | 'baseline' | 'diff-patch', string> = {
+  'working-tree': '新版本',
+  baseline: '旧版本',
+  'diff-patch': 'diff 片段',
+};
+
 function SessionDiffReview(props: {
   task: TaskDto;
   files: string[];
@@ -282,12 +289,18 @@ function SessionDiffReview(props: {
   const app = useAppStore();
   const peek = useAppStore((state) => state.peek);
   const diffBodyRef = useRef<HTMLDivElement>(null);
+  const diffCardRef = useRef<HTMLElement>(null);
   const [contextSelection, setContextSelection] = useState<{
     startLine: number;
     endLine: number;
     text: string;
     version: 'working-tree' | 'baseline' | 'diff-patch';
     hunkHeader?: string;
+    /** Flat indices of the selected data rows — drives the mock's full-width band. */
+    rowStart: number;
+    rowEnd: number;
+    /** Bubble top inside `.session-inline-diff`, anchored to the selection end. */
+    anchorTop: number;
   } | null>(null);
 
   useEffect(() => {
@@ -303,6 +316,18 @@ function SessionDiffReview(props: {
     changeFiles.find((file) => file.path === requestedPath) ?? changeFiles[0] ?? null;
 
   useEffect(() => setContextSelection(null), [selected?.path]);
+
+  // Flat row offsets so the mouseup selection (indexed over data rows) can be
+  // painted back onto the rendered rows as the mock's full-width band.
+  const hunkRows = useMemo(() => {
+    let offset = 0;
+    return (selected?.hunks ?? []).map((hunk) => {
+      const entry = { hunk, lines: inlineLines(hunk), offset };
+      offset += entry.lines.length;
+      return entry;
+    });
+  }, [selected]);
+
   const additions =
     changeSet?.totalAdditions ??
     Object.values(props.fileStats).reduce((sum, stat) => sum + stat.additions, 0);
@@ -365,12 +390,20 @@ function SessionDiffReview(props: {
       .filter((line) => Number.isFinite(line) && line > 0);
     const headers = [...new Set(picked.map((row) => row.dataset.hunkHeader).filter(Boolean))];
     if (!text.trim() || lineNumbers.length === 0) return;
+    const card = diffCardRef.current;
+    const lastRow = picked[picked.length - 1]!;
+    const anchorTop = card
+      ? Math.max(6, lastRow.getBoundingClientRect().bottom - card.getBoundingClientRect().top - 36)
+      : 0;
     setContextSelection({
       startLine: Math.min(...lineNumbers),
       endLine: Math.max(...lineNumbers),
       text,
       version,
       ...(headers.length === 1 ? { hunkHeader: headers[0] } : {}),
+      rowStart: Math.min(anchorIndex, focusIndex),
+      rowEnd: Math.max(anchorIndex, focusIndex),
+      anchorTop,
     });
   };
 
@@ -440,7 +473,11 @@ function SessionDiffReview(props: {
       {store.loadingChangeSet && !selected ? (
         <div className="session-diff-loading">Computing the review diff…</div>
       ) : selected ? (
-        <section className="session-inline-diff" data-testid="session-inline-diff">
+        <section
+          ref={diffCardRef}
+          className="session-inline-diff"
+          data-testid="session-inline-diff"
+        >
           <header>
             <strong className="mono">{selected.path}</strong>
             <span />
@@ -456,25 +493,6 @@ function SessionDiffReview(props: {
               <Ic name="sliders" size={15} />
             </button>
           </header>
-          {contextSelection ? (
-            <div className="code-context-selection-bar" data-testid="diff-code-selection-bar">
-              <span className="mono">
-                Selected L{contextSelection.startLine}
-                {contextSelection.endLine === contextSelection.startLine
-                  ? ''
-                  : `–${contextSelection.endLine}`}
-              </span>
-              <span>{contextSelection.version.replace('-', ' ')}</span>
-              <button
-                type="button"
-                data-testid="diff-add-code-context"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => void attachDiffSelection()}
-              >
-                Add to context
-              </button>
-            </div>
-          ) : null}
           {selected.binary ? (
             <div className="session-diff-loading">Binary file — no inline text diff.</div>
           ) : selected.hunks.length === 0 ? (
@@ -488,33 +506,48 @@ function SessionDiffReview(props: {
               onMouseUp={readDiffSelection}
               onKeyUp={readDiffSelection}
             >
-              {selected.hunks.map((hunk) => (
+              {hunkRows.map(({ hunk, lines, offset }) => (
                 <React.Fragment key={hunk.key}>
                   <div className="session-inline-hunk mono" role="row">
                     {hunk.header}
                   </div>
-                  {inlineLines(hunk).map((line) => (
-                    <div
-                      key={line.key}
-                      className={`session-inline-line ${line.kind}`}
-                      role="row"
-                      data-code-context-row
-                      data-kind={line.kind}
-                      data-code={line.text}
-                      data-line-number={line.lineNumber ?? ''}
-                      data-hunk-header={hunk.header}
-                    >
-                      <span className="session-inline-number mono">{line.lineNumber ?? ''}</span>
-                      <span className="session-inline-marker mono">
-                        {line.kind === 'addition' ? '+' : line.kind === 'deletion' ? '−' : ''}
-                      </span>
-                      <ColorizedDiffCode path={selected.path} code={line.text} />
-                    </div>
-                  ))}
+                  {lines.map((line, index) => {
+                    const banded =
+                      contextSelection !== null &&
+                      offset + index >= contextSelection.rowStart &&
+                      offset + index <= contextSelection.rowEnd;
+                    return (
+                      <div
+                        key={line.key}
+                        className={`session-inline-line ${line.kind}${banded ? ' ctx-selected' : ''}`}
+                        role="row"
+                        data-code-context-row
+                        data-kind={line.kind}
+                        data-code={line.text}
+                        data-line-number={line.lineNumber ?? ''}
+                        data-hunk-header={hunk.header}
+                      >
+                        <span className="session-inline-number mono">{line.lineNumber ?? ''}</span>
+                        <span className="session-inline-marker mono">
+                          {line.kind === 'addition' ? '+' : line.kind === 'deletion' ? '−' : ''}
+                        </span>
+                        <ColorizedDiffCode path={selected.path} code={line.text} />
+                      </div>
+                    );
+                  })}
                 </React.Fragment>
               ))}
             </div>
           )}
+          {contextSelection ? (
+            <CodeContextFloat
+              testid="diff-code-selection-bar"
+              buttonTestid="diff-add-code-context"
+              label={`已选 ${contextSelection.rowEnd - contextSelection.rowStart + 1} 行 · ${DIFF_VERSION_LABEL[contextSelection.version]}`}
+              style={{ top: contextSelection.anchorTop }}
+              onAttach={() => void attachDiffSelection()}
+            />
+          ) : null}
         </section>
       ) : (
         <div className="session-diff-loading">No reviewable text changes were recorded.</div>

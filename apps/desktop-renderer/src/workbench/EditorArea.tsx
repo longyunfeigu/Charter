@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { monaco, modelUri, monacoFontFamily, monacoThemeName } from '../monaco-setup.js';
 import { useEditorStore, isMdRich, type EditorGroup } from '../store/editorStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
@@ -9,6 +9,7 @@ import { WelcomeView } from '../views/WelcomeView.js';
 import { ImageView } from '../views/ImageView.js';
 import { editorFontFamily } from '../appearance.js';
 import { addCodeContext } from '../codeContext.js';
+import { CodeContextFloat, codeContextFloatRange } from '../views/CodeContextFloat.js';
 
 // Rich markdown pulls lexical/mdast (ADR-0007) — loaded only when first used.
 const MarkdownEditor = React.lazy(() =>
@@ -100,6 +101,32 @@ function MonacoPane({
     endColumn: number;
     text: string;
   } | null>(null);
+  const floatRef = useRef<HTMLDivElement>(null);
+  const codeSelectionRef = useRef(codeSelection);
+  const floatMinTopRef = useRef(6);
+
+  // Anchor the floating action to the end of the selection, mock-style:
+  // bubble bottom sits on the selected range, caret points down, right: 18px.
+  // Clamped inside the pane so the action stays reachable after scrolling;
+  // the minimum top drops below the md Rich/Source toggle when it is shown.
+  const positionFloat = useCallback((): void => {
+    const editor = editorRef.current;
+    const bubble = floatRef.current;
+    const sel = codeSelectionRef.current;
+    if (!editor || !bubble || !sel) return;
+    const pos = editor.getScrolledVisiblePosition({
+      lineNumber: sel.endLine,
+      column: sel.endColumn,
+    });
+    if (!pos) return;
+    const height = editor.getLayoutInfo().height;
+    const minTop = floatMinTopRef.current;
+    const top = Math.min(
+      Math.max(pos.top + pos.height - 36, minTop),
+      Math.max(minTop, height - 42),
+    );
+    bubble.style.top = `${top}px`;
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current || editorRef.current) return;
@@ -121,6 +148,8 @@ function MonacoPane({
       theme: monacoThemeName(),
     });
     editorRef.current = editor;
+    editor.onDidScrollChange(() => positionFloat());
+    editor.onDidLayoutChange(() => positionFloat());
     // Product rename flow (preview + version checks) replaces Monaco's inline rename.
     editor.addCommand(monaco.KeyCode.F2, () => {
       void triggerRename();
@@ -222,6 +251,13 @@ function MonacoPane({
   }, [active, meta?.editable, meta?.readonly, setActiveLanguage]);
 
   const richActive = Boolean(active && meta?.editable && isMdRich({ mdRich }, active));
+  const mdToggleShown = Boolean(active && meta?.editable && active.toLowerCase().endsWith('.md'));
+
+  useLayoutEffect(() => {
+    codeSelectionRef.current = codeSelection;
+    floatMinTopRef.current = mdToggleShown ? 46 : 6;
+    positionFloat();
+  }, [codeSelection, mdToggleShown, positionFloat]);
 
   return (
     <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
@@ -231,33 +267,22 @@ function MonacoPane({
         data-testid={`monaco-pane-${groupIndex}`}
       />
       {taskRoomTaskId && codeSelection && !richActive ? (
-        <div
-          className={`code-context-selection-bar editor-selection ${active?.toLowerCase().endsWith('.md') ? 'with-md-mode' : ''}`}
-          data-testid={`editor-code-selection-bar-${groupIndex}`}
-        >
-          <span className="mono">
-            Selected L{codeSelection.startLine}
-            {codeSelection.endLine === codeSelection.startLine ? '' : `–${codeSelection.endLine}`}
-          </span>
-          <span>Editor · live buffer</span>
-          <button
-            type="button"
-            data-testid={`editor-add-code-context-${groupIndex}`}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              void addCodeContext(taskRoomTaskId, {
-                ...codeSelection,
-                origin: 'editor',
-                version: 'working-tree',
-                contentHash: null,
-              }).then((ref) => {
-                if (ref) editorRef.current?.setSelection(new monaco.Selection(1, 1, 1, 1));
-              });
-            }}
-          >
-            Add to context
-          </button>
-        </div>
+        <CodeContextFloat
+          ref={floatRef}
+          testid={`editor-code-selection-bar-${groupIndex}`}
+          buttonTestid={`editor-add-code-context-${groupIndex}`}
+          label={`Editor · ${codeContextFloatRange(codeSelection.startLine, codeSelection.endLine)}`}
+          onAttach={() => {
+            void addCodeContext(taskRoomTaskId, {
+              ...codeSelection,
+              origin: 'editor',
+              version: 'working-tree',
+              contentHash: null,
+            }).then((ref) => {
+              if (ref) editorRef.current?.setSelection(new monaco.Selection(1, 1, 1, 1));
+            });
+          }}
+        />
       ) : null}
       {/* PIVOT-019: Notion-style editing for .md, one toggle away. */}
       {active && meta?.editable && active.toLowerCase().endsWith('.md') ? (

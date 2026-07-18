@@ -1810,45 +1810,63 @@
   color: var(--fg);
 }
 
-.code-context-selection-bar {
-  min-height: 34px;
+/* Floating "添加到上下文" action — 1:1 with the approved selection-action mock
+ * (docs/design/code-context-ref-mockups/shared.css). The dark-bark chrome is
+ * intentionally fixed across skins, like .tr-terminal-ref above. */
+.code-context-float {
+  position: absolute;
+  z-index: 20;
+  right: 18px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px 5px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--info) 24%, var(--border));
-  background: color-mix(in srgb, var(--info) 7%, var(--bg-card));
-  color: var(--fg-muted);
-  font-size: 10.5px;
-}
-.code-context-selection-bar > span:first-child {
-  color: var(--fg);
-  font-weight: 620;
-}
-.code-context-selection-bar > button {
-  margin-left: auto;
-  padding: 4px 9px;
-  border: 1px solid color-mix(in srgb, var(--info) 45%, var(--border));
-  border-radius: 6px;
-  background: var(--bg-editor);
-  color: var(--info);
-  font: 600 10.5px var(--font-ui);
-}
-.code-context-selection-bar > button:hover {
-  background: color-mix(in srgb, var(--info) 10%, var(--bg-editor));
-}
-.code-context-selection-bar.editor-selection {
-  position: absolute;
-  z-index: 5;
-  top: 8px;
-  right: 18px;
-  min-width: 300px;
-  border: 1px solid color-mix(in srgb, var(--info) 28%, var(--border));
+  min-height: 34px;
+  padding: 4px 5px 4px 11px;
+  border: 1px solid #1b1512;
   border-radius: 8px;
-  box-shadow: 0 7px 20px color-mix(in srgb, var(--fg) 12%, transparent);
+  background: #2d211b;
+  color: #f9ead2;
+  box-shadow: 0 10px 28px rgba(45, 33, 27, 0.28);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+  font-size: 11px;
+  white-space: nowrap;
 }
-.code-context-selection-bar.editor-selection.with-md-mode {
-  right: 170px;
+.code-context-float::after {
+  position: absolute;
+  right: 22px;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  border-right: 1px solid #1b1512;
+  border-bottom: 1px solid #1b1512;
+  background: #2d211b;
+  content: '';
+  transform: rotate(45deg);
+}
+.code-context-float > button {
+  position: relative;
+  z-index: 1;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid #7a6554;
+  border-radius: 5px;
+  background: #f5e7ce;
+  color: #392a21;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.code-context-float > button:hover {
+  background: #fff8e9;
+}
+
+.tr-peek-monaco-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .tr-external-composer {
