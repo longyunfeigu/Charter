@@ -29,12 +29,3 @@ export function createLargeTreeFixture(options: LargeFixtureOptions = {}): strin
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'large-fixture' }));
   return root;
 }
-
-/** Small non-git fixture. */
-export function createNonGitFixture(): string {
-  const root = mkdtempSync(join(tmpdir(), 'pi-ide-nongit-'));
-  writeFileSync(join(root, 'notes.txt'), 'plain notes\n');
-  mkdirSync(join(root, 'data'));
-  writeFileSync(join(root, 'data/values.csv'), 'a,b\n1,2\n');
-  return root;
-}

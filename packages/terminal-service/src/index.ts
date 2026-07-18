@@ -222,12 +222,6 @@ export function findAgentInTable(
   return null;
 }
 
-/** Walks the live process tree below `rootPid` looking for an agent CLI. */
-export function scanDescendantsForAgent(rootPid: number, clis: readonly string[]): string | null {
-  const table = readProcessTable();
-  return table ? findAgentInTable(table, rootPid, clis) : null;
-}
-
 export interface TerminalManagerOptions {
   /** Agent CLI names to detect (ADR-0017); default claude/codex. */
   agentClis?: readonly string[];

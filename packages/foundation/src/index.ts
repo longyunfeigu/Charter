@@ -4,7 +4,6 @@ export * from './redact.js';
 export * from './bytes.js';
 export * from './sequence.js';
 export * from './ids.js';
-export * from './clock.js';
 export * from './logger.js';
 export * from './async.js';
 export * from './fuzzy.js';

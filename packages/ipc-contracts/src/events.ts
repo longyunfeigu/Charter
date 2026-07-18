@@ -211,7 +211,3 @@ export type EventChannelName = keyof typeof EVENT_CHANNELS;
 export type EventPayload<N extends EventChannelName> = z.infer<
   (typeof EVENT_CHANNELS)[N]['payload']
 >;
-
-export function isKnownEventChannel(name: string): name is EventChannelName {
-  return Object.prototype.hasOwnProperty.call(EVENT_CHANNELS, name);
-}

@@ -75,7 +75,3 @@ export function assertTransition(from: TaskState, to: TaskState): void {
 export function isRunningState(state: TaskState): boolean {
   return RUNNING_STATES.includes(state);
 }
-
-export function isTerminalState(state: TaskState): boolean {
-  return state === 'ARCHIVED';
-}

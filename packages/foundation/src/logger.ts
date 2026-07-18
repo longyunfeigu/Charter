@@ -54,24 +54,3 @@ export function createLogger(component: string, sink: LogSink, opts: LoggerOptio
     child: (sub) => createLogger(`${component}.${sub}`, sink, opts),
   };
 }
-
-export function memorySink(): LogSink & { entries: LogEntry[] } {
-  const entries: LogEntry[] = [];
-  return {
-    entries,
-    write(entry) {
-      entries.push(entry);
-    },
-  };
-}
-
-export function consoleSink(): LogSink {
-  return {
-    write(entry) {
-      const line = `[${entry.at}] ${entry.level.toUpperCase()} ${entry.component}: ${entry.message}`;
-      if (entry.level === 'error') console.error(line, entry.context ?? '');
-      else if (entry.level === 'warn') console.warn(line, entry.context ?? '');
-      else console.log(line, entry.context ?? '');
-    },
-  };
-}
