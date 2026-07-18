@@ -10,6 +10,12 @@
 | [ADR-0019](adr/ADR-0019-external-skill-sources.md) | Accepted | 多来源 Skill 自动发现、信任策略与实时校准 | 2026-07-15 | AG-014、TOOL-001、ADR-0015 |
 | [ADR-0020](adr/ADR-0020-coordinated-application-skins.md) | Accepted | 三套整体联动皮肤：Terminal / Archive / Index | 2026-07-15 | APP-006、ED-015、TERM-002、PIVOT-024 |
 | [ADR-0021](adr/ADR-0021-legible-terminal-blocks.md) | Accepted | 读得懂的终端：shell 集成块模型、同源进度、命令级通知 | 2026-07-16 | TERM-003/005/006、PIVOT-014、VER-005/007、ADR-0017 |
+| [ADR-0022](adr/ADR-0022-preview-gate-and-pr-draft.md) | Accepted | 可见的验收：预览 tab、圈选反馈、PR 草稿（补录索引） | 2026-07-16 | VER-005/007/008、GIT-007、ADR-0012 |
+| [ADR-0023](adr/ADR-0023-grouped-activity-rail.md) | Accepted | Session Rail 方向 D：分组活动栏（补录索引） | 2026-07-16 | PIVOT-038/039、PIVOT-011r/013r2/027r2 |
+| [ADR-0024](adr/ADR-0024-room-context-feeding-parity.md) | Accepted | Room 上下文投喂对齐：常驻 Files 树、统一引用 chips、任务附件图片（补录索引） | 2026-07-18 | PIVOT-015/020、ADR-0014/0022 |
+| [ADR-0025](adr/ADR-0025-m11-rescope.md) | Accepted | M11 任务清单重定义：差距收口式改写、pivot 新增面纳入、新增 M11-07 隐私任务 | 2026-07-18 | §14 M11、§16.4/16.5、A11Y-001..005、PRIV-001..003 |
+| [ADR-0026](adr/ADR-0026-boundary-checker-aliased-requires.md) | Accepted | 边界检查器覆盖别名 require；Pi package.json 元数据读取为显式豁免（补录索引） | 2026-07-18 | CLAUDE.md 边界规则、§9.5、M1-06 |
+| [ADR-0027](adr/ADR-0027-m11-hardening-implementation.md) | Accepted | M11 硬化实现：fuses、四路秘密验证、Room 窗口化、真窗口缩放、无障碍 Diff、诚实隐私 | 2026-07-18 | §16.4/16.5、A11Y-001..005、PRIV-001..003、ADR-0025 |
 
 ## ADR 模板
 

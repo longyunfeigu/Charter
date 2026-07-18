@@ -6,6 +6,7 @@ import { useTaskStore } from '../store/taskStore.js';
 import { useSkillsStore } from '../store/skillsStore.js';
 import { Ic } from './home-icons.js';
 import { SKIN_LABELS, type AppearanceSkin } from '../appearance.js';
+import { ZOOM_STEPS, zoomPercentLabel } from './ui-zoom.js';
 import '../styles/settings.css';
 
 const API_LABEL: Record<string, string> = {
@@ -620,6 +621,321 @@ function Toggle(props: {
   );
 }
 
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+const ANALYTICS_SENT = [
+  'Event name (e.g. task_completed, review_opened)',
+  'App version / OS version / UI language',
+  'Coarse durations and counts (task-length buckets, event magnitudes)',
+  'A random install id (not linked to any account)',
+];
+const ANALYTICS_NEVER = [
+  'Code, prompts, diffs, terminal output',
+  'File paths, project names, repository URLs',
+  'API keys, provider config, model responses',
+];
+
+/** PRIV-001..003: honest local-data controls (no upload transport in this build). */
+function PrivacySection(props: {
+  telemetryEnabled: boolean;
+  crashReportsEnabled: boolean;
+  set: (patch: Record<string, unknown>) => void;
+}): React.JSX.Element {
+  const pushToast = useAppStore((s) => s.pushToast);
+  const [summary, setSummary] = useState<{
+    dataDir: string;
+    totalBytes: number;
+    history: number;
+    attachments: number;
+    logs: number;
+    logRetentionDays: number;
+    taskCount: number;
+  } | null>(null);
+  const [modal, setModal] = useState<'none' | 'fields' | 'crash' | 'delete'>('none');
+  const [crashText, setCrashText] = useState('');
+  const [transportAvailable, setTransportAvailable] = useState(false);
+  const [deleteArmed, setDeleteArmed] = useState(false);
+
+  const loadSummary = async (): Promise<void> => {
+    const res = await rpcResult('privacy.dataSummary', {});
+    if (res.ok) setSummary(res.data);
+  };
+  useEffect(() => {
+    void loadSummary();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openCrash = async (): Promise<void> => {
+    const res = await rpcResult('privacy.crashPreview', {});
+    if (res.ok) {
+      setCrashText(res.data.text);
+      setTransportAvailable(res.data.transportAvailable);
+    }
+    setModal('crash');
+  };
+
+  const confirmDelete = async (): Promise<void> => {
+    if (!deleteArmed) {
+      setDeleteArmed(true);
+      return;
+    }
+    const res = await rpcResult('privacy.clearHistory', {});
+    setDeleteArmed(false);
+    setModal('none');
+    if (res.ok) {
+      pushToast(
+        'success',
+        `Deleted ${res.data.clearedTasks} task${res.data.clearedTasks === 1 ? '' : 's'}, ${res.data.clearedLogFiles} log file(s) and ${res.data.clearedAttachmentDirs} attachment folder(s).`,
+      );
+      await loadSummary();
+    } else {
+      pushToast('error', res.error.userMessage);
+    }
+  };
+
+  const closeModal = (): void => {
+    setDeleteArmed(false);
+    setModal('none');
+  };
+
+  return (
+    <div className="st-card" data-testid="privacy-section">
+      <div className="st-card-head">
+        <Ic name="eye" size={14} />
+        <div>
+          <div className="st-card-title">Telemetry & reporting</div>
+          <div className="st-card-sub">
+            This build ships no telemetry or crash-report transport — nothing is ever sent. The
+            switches record your preference for a future networked build.
+          </div>
+        </div>
+      </div>
+
+      <Row label="Product analytics" hint="Default off. Never includes code, prompts or paths.">
+        <span className="st-privacy-controls">
+          <button
+            type="button"
+            className="btn ghost"
+            data-testid="privacy-view-fields"
+            onClick={() => setModal('fields')}
+          >
+            View fields
+          </button>
+          <Toggle
+            testid="privacy-analytics"
+            checked={props.telemetryEnabled}
+            onChange={(v) => {
+              if (v) setModal('fields');
+              else props.set({ privacy: { telemetryEnabled: false } });
+            }}
+          />
+        </span>
+      </Row>
+
+      <Row
+        label="Crash reports"
+        hint="Separate opt-in. Each report is redacted; preview before enabling."
+      >
+        <span className="st-privacy-controls">
+          <button
+            type="button"
+            className="btn ghost"
+            data-testid="privacy-crash-preview"
+            onClick={() => void openCrash()}
+          >
+            Preview
+          </button>
+          <Toggle
+            testid="privacy-crash"
+            checked={props.crashReportsEnabled}
+            onChange={(v) => {
+              if (v) void openCrash();
+              else props.set({ privacy: { crashReportsEnabled: false } });
+            }}
+          />
+        </span>
+      </Row>
+
+      <div className="st-card-head" style={{ marginTop: 18 }}>
+        <Ic name="folder" size={14} />
+        <div>
+          <div className="st-card-title">Local data</div>
+          <div className="st-card-sub">
+            All code, tasks, timelines and diffs stay on this machine. Model requests go directly to
+            your configured provider.
+          </div>
+        </div>
+      </div>
+
+      {summary ? (
+        <div className="st-privacy-data" data-testid="privacy-data">
+          <div className="st-kv">
+            <span className="k">Location</span>
+            <span className="v mono" data-testid="privacy-data-dir">
+              {summary.dataDir}
+            </span>
+          </div>
+          <div className="st-kv">
+            <span className="k">Retention</span>
+            <span className="v">
+              Logs roll off after {summary.logRetentionDays} days; task history and attachments are
+              kept until you delete them.
+            </span>
+          </div>
+          <div className="st-privacy-usage">
+            <b>
+              {summary.taskCount} task{summary.taskCount === 1 ? '' : 's'} ·{' '}
+              {formatBytes(summary.totalBytes)}
+            </b>
+            <div className="st-usage-legend">
+              <span>History {formatBytes(summary.history)}</span>
+              <span>Attachments {formatBytes(summary.attachments)}</span>
+              <span>Logs {formatBytes(summary.logs)}</span>
+            </div>
+          </div>
+          <Row
+            label="Delete history & cache"
+            hint="Removes every task, timeline, replay and attachment. Settings and API keys are kept."
+          >
+            <button
+              type="button"
+              className="btn danger"
+              data-testid="privacy-delete"
+              onClick={() => setModal('delete')}
+            >
+              Delete history & cache…
+            </button>
+          </Row>
+        </div>
+      ) : (
+        <div className="st-hint">Reading local data…</div>
+      )}
+
+      {modal === 'fields' ? (
+        <PrivacyModal
+          title="Before enabling analytics, this is everything that would be sent"
+          onClose={closeModal}
+        >
+          <div className="st-fields">
+            <div className="send">
+              <div className="fh">Would send</div>
+              <ul>
+                {ANALYTICS_SENT.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="never">
+              <div className="fh">Never sent</div>
+              <ul>
+                {ANALYTICS_NEVER.map((f) => (
+                  <li key={f}>{f}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <p className="st-modal-note">
+            This build has no analytics endpoint — enabling records your preference only.
+          </p>
+          <div className="st-modal-actions">
+            <button type="button" className="btn" onClick={closeModal}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn primary"
+              data-testid="privacy-fields-confirm"
+              onClick={() => {
+                props.set({ privacy: { telemetryEnabled: true } });
+                closeModal();
+              }}
+            >
+              Enable analytics
+            </button>
+          </div>
+        </PrivacyModal>
+      ) : null}
+
+      {modal === 'crash' ? (
+        <PrivacyModal title="Crash report — redacted preview" onClose={closeModal}>
+          <pre className="st-crash-pre" data-testid="privacy-crash-text">
+            {crashText}
+          </pre>
+          <p className="st-modal-note">
+            {transportAvailable
+              ? 'Reports are redacted with the same rules as the support bundle before sending.'
+              : 'This build has no crash-report upload; enabling records your preference. The redaction shown above is real.'}
+          </p>
+          <div className="st-modal-actions">
+            <button type="button" className="btn" onClick={closeModal}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn primary"
+              data-testid="privacy-crash-confirm"
+              onClick={() => {
+                props.set({ privacy: { crashReportsEnabled: true } });
+                closeModal();
+              }}
+            >
+              Enable crash reports
+            </button>
+          </div>
+        </PrivacyModal>
+      ) : null}
+
+      {modal === 'delete' ? (
+        <PrivacyModal title="Delete history & cache?" onClose={closeModal}>
+          <p className="st-modal-note">
+            This is immediate and cannot be undone. Every task, timeline, replay and attachment is
+            removed. Settings, provider keys, skins and layout are kept.
+          </p>
+          <div className="st-modal-actions">
+            <button type="button" className="btn" onClick={closeModal}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={`btn danger ${deleteArmed ? 'confirming' : ''}`}
+              data-testid="privacy-delete-confirm"
+              onClick={() => void confirmDelete()}
+            >
+              {deleteArmed ? 'Click again to delete' : 'Delete history & cache'}
+            </button>
+          </div>
+        </PrivacyModal>
+      ) : null}
+    </div>
+  );
+}
+
+function PrivacyModal(props: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div
+      className="st-modal-veil"
+      data-testid="privacy-modal"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) props.onClose();
+      }}
+    >
+      <div className="st-modal" role="dialog" aria-modal="true" aria-label={props.title}>
+        <h3>{props.title}</h3>
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
 const APPEARANCE_SKINS: AppearanceSkin[] = ['studio', 'terminal', 'archive', 'index'];
 
 function SkinPicker(props: {
@@ -731,16 +1047,30 @@ export function SettingsView(): React.JSX.Element {
                 <option value="dark">Dark</option>
               </select>
             </Row>
-            <Row label="UI scale" hint="0.8 – 2.0">
-              <input
-                className="st-input"
-                type="number"
-                step="0.05"
-                min={0.8}
-                max={2}
-                value={settings.general.uiScale}
-                onChange={(e) => set({ general: { uiScale: Number(e.target.value) } })}
-              />
+            <Row label="UI zoom" hint="Whole window, editor and terminal included · ⌘+ / ⌘− / ⌘0">
+              <div
+                className="st-zoom-seg"
+                role="radiogroup"
+                aria-label="UI zoom"
+                data-testid="settings-zoom"
+              >
+                {ZOOM_STEPS.map((z) => {
+                  const active = Math.abs(settings.general.uiScale - z) < 0.001;
+                  return (
+                    <button
+                      key={z}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={`st-zoom-step${active ? ' on' : ''}`}
+                      data-testid={`settings-zoom-${Math.round(z * 100)}`}
+                      onClick={() => set({ general: { uiScale: z } })}
+                    >
+                      {zoomPercentLabel(z).replace('%', '')}
+                    </button>
+                  );
+                })}
+              </div>
             </Row>
             <Row
               label="Rich Markdown by default"
@@ -1028,27 +1358,11 @@ export function SettingsView(): React.JSX.Element {
         ) : null}
 
         {section === 'privacy' ? (
-          <div className="st-card">
-            <Row
-              label="Product analytics"
-              hint="Default off. Never includes code, prompts or paths."
-            >
-              <Toggle
-                checked={settings.privacy.telemetryEnabled}
-                onChange={(v) => set({ privacy: { telemetryEnabled: v } })}
-              />
-            </Row>
-            <Row label="Crash reports" hint="Separate opt-in with redacted preview">
-              <Toggle
-                checked={settings.privacy.crashReportsEnabled}
-                onChange={(v) => set({ privacy: { crashReportsEnabled: v } })}
-              />
-            </Row>
-            <div className="st-hint" style={{ padding: '10px 2px 2px' }}>
-              All code, tasks, timelines and diffs stay on this machine. Model requests go directly
-              to your configured provider.
-            </div>
-          </div>
+          <PrivacySection
+            telemetryEnabled={settings.privacy.telemetryEnabled}
+            crashReportsEnabled={settings.privacy.crashReportsEnabled}
+            set={set}
+          />
         ) : null}
 
         {section === 'updates' ? (

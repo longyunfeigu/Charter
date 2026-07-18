@@ -10,6 +10,7 @@ import { Ic } from '../views/home-icons.js';
 import { SessionRail } from '../views/SessionRail.js';
 import type { BottomTab, SideBarView } from '@pi-ide/ipc-contracts';
 import { useTaskStore } from '../store/taskStore.js';
+import { stepZoom, ZOOM_DEFAULT } from '../views/ui-zoom.js';
 
 function useRegisterCoreCommands(): void {
   const store = useAppStore;
@@ -148,6 +149,31 @@ function useRegisterCoreCommands(): void {
         title: 'Skin: Index',
         category: 'Preferences',
         run: () => void store.getState().updateSettings('global', { general: { skin: 'index' } }),
+      },
+      {
+        id: 'view.zoomIn',
+        title: 'Zoom In',
+        category: 'View',
+        run: () => {
+          const s = store.getState().settings?.general.uiScale ?? ZOOM_DEFAULT;
+          void store.getState().updateSettings('global', { general: { uiScale: stepZoom(s, 1) } });
+        },
+      },
+      {
+        id: 'view.zoomOut',
+        title: 'Zoom Out',
+        category: 'View',
+        run: () => {
+          const s = store.getState().settings?.general.uiScale ?? ZOOM_DEFAULT;
+          void store.getState().updateSettings('global', { general: { uiScale: stepZoom(s, -1) } });
+        },
+      },
+      {
+        id: 'view.zoomReset',
+        title: 'Reset Zoom',
+        category: 'View',
+        run: () =>
+          void store.getState().updateSettings('global', { general: { uiScale: ZOOM_DEFAULT } }),
       },
     ]);
   }, [store]);

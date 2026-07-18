@@ -15,6 +15,13 @@ import { LiveBoard } from './LiveBoard.js';
 import { monaco } from '../monaco-setup.js';
 import { addCodeContext } from '../codeContext.js';
 import { CodeContextFloat } from './CodeContextFloat.js';
+import {
+  announceChange,
+  changeKindLabel,
+  groupChanges,
+  nextChangeIndex,
+  type DiffLine,
+} from './accessible-diff.js';
 
 export interface SessionVerification {
   label: string;
@@ -295,6 +302,11 @@ function SessionDiffReview(props: {
   const peek = useAppStore((state) => state.peek);
   const diffBodyRef = useRef<HTMLDivElement>(null);
   const diffCardRef = useRef<HTMLElement>(null);
+  // A11Y-005: an accessible text mode linearizes the diff into focusable
+  // changes with F7/⇧F7 navigation and a live-region announcer.
+  const [diffMode, setDiffMode] = useState<'inline' | 'text'>('inline');
+  const [announce, setAnnounce] = useState('');
+  const changeCardRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [contextSelection, setContextSelection] = useState<{
     startLine: number;
     endLine: number;
@@ -332,6 +344,47 @@ function SessionDiffReview(props: {
       return entry;
     });
   }, [selected]);
+
+  // Accessible-text-mode changes: every changed-line run in the selected file.
+  const textChanges = useMemo(() => {
+    const flat: DiffLine[] = hunkRows.flatMap(({ lines }) =>
+      lines.map((line) => ({ kind: line.kind, lineNumber: line.lineNumber, text: line.text })),
+    );
+    return groupChanges(flat);
+  }, [hunkRows]);
+
+  const focusChange = (index: number): void => {
+    const target = changeCardRefs.current[index];
+    if (!target || !selected) return;
+    target.focus();
+    target.scrollIntoView({ block: 'nearest' });
+    setAnnounce(announceChange(selected.path, textChanges[index]!, textChanges.length));
+  };
+  const stepChange = (dir: 1 | -1): void => {
+    if (textChanges.length === 0) return;
+    const currentIndex = changeCardRefs.current.findIndex((el) => el === document.activeElement);
+    focusChange(nextChangeIndex(currentIndex, textChanges.length, dir));
+  };
+
+  // A11Y-005: F7 / ⇧F7 step between changes from anywhere while text mode is on
+  // (a change card need not already hold focus). Ignored while typing.
+  useEffect(() => {
+    if (diffMode !== 'text') return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'F7') return;
+      const el = document.activeElement;
+      if (
+        el instanceof HTMLElement &&
+        (el.isContentEditable || /^(INPUT|TEXTAREA)$/.test(el.tagName))
+      )
+        return;
+      event.preventDefault();
+      stepChange(event.shiftKey ? -1 : 1);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diffMode, textChanges, selected?.path]);
 
   const additions =
     changeSet?.totalAdditions ??
@@ -486,6 +539,38 @@ function SessionDiffReview(props: {
           <header>
             <strong className="mono">{selected.path}</strong>
             <span />
+            <div
+              className="session-diff-viewmode"
+              role="radiogroup"
+              aria-label="Diff view"
+              data-testid="diff-viewmode"
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={diffMode === 'inline'}
+                className={diffMode === 'inline' ? 'on' : ''}
+                data-testid="diff-viewmode-inline"
+                onClick={() => setDiffMode('inline')}
+              >
+                Inline
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={diffMode === 'text'}
+                className={diffMode === 'text' ? 'on' : ''}
+                data-testid="diff-viewmode-text"
+                onClick={() => {
+                  setDiffMode('text');
+                  setAnnounce(
+                    `Text mode. ${textChanges.length} ${textChanges.length === 1 ? 'change' : 'changes'} in ${selected.path}. Press F7 to move to the first change.`,
+                  );
+                }}
+              >
+                Text mode
+              </button>
+            </div>
             <button type="button" aria-label="Copy diff" title="Copy diff" onClick={copyPatch}>
               <Ic name="clipboard" size={15} />
             </button>
@@ -502,6 +587,15 @@ function SessionDiffReview(props: {
             <div className="session-diff-loading">Binary file — no inline text diff.</div>
           ) : selected.hunks.length === 0 ? (
             <div className="session-diff-loading">No text hunks recorded for this file.</div>
+          ) : diffMode === 'text' ? (
+            <AccessibleDiffText
+              path={selected.path}
+              changes={textChanges}
+              cardRefs={changeCardRefs}
+              onFocusChange={(index) => {
+                setAnnounce(announceChange(selected.path, textChanges[index]!, textChanges.length));
+              }}
+            />
           ) : (
             <div
               ref={diffBodyRef}
@@ -558,7 +652,68 @@ function SessionDiffReview(props: {
         <div className="session-diff-loading">No reviewable text changes were recorded.</div>
       )}
 
+      <div className="visually-hidden" role="status" aria-live="polite" data-testid="diff-live">
+        {announce}
+      </div>
+
       <SessionDiffVerification task={props.task} verifications={props.verifications} />
+    </div>
+  );
+}
+
+/** A11Y-005: linear, screen-reader-friendly change list with F7/⇧F7 navigation. */
+function AccessibleDiffText(props: {
+  path: string;
+  changes: ReturnType<typeof groupChanges>;
+  cardRefs: React.MutableRefObject<Array<HTMLDivElement | null>>;
+  onFocusChange: (index: number) => void;
+}): React.JSX.Element {
+  if (props.changes.length === 0) {
+    return <div className="session-diff-loading">No line changes to read.</div>;
+  }
+
+  return (
+    <div
+      className="session-diff-text"
+      data-testid="session-diff-text"
+      aria-label={`${props.path}: ${props.changes.length} changes. Press F7 and Shift+F7 to move between changes.`}
+    >
+      {props.changes.map((change, index) => {
+        const kind = changeKindLabel(change);
+        return (
+          <div
+            key={`${change.index}-${change.line ?? 'x'}`}
+            ref={(el) => {
+              props.cardRefs.current[index] = el;
+            }}
+            className="session-diff-change"
+            data-testid={`diff-change-${index}`}
+            tabIndex={0}
+            role="group"
+            aria-label={`Change ${index + 1} of ${props.changes.length}`}
+            onFocus={() => props.onFocusChange(index)}
+          >
+            <div className="session-diff-change-meta">
+              <span className="idx mono">
+                {index + 1}/{props.changes.length}
+              </span>
+              <span className="where mono">
+                {props.path}
+                {change.line !== null ? ` · line ${change.line}` : ''}
+              </span>
+              <span className={`kind ${kind}`}>{kind}</span>
+            </div>
+            <div className="session-diff-change-lines mono">
+              {change.lines.map((line, i) => (
+                <span key={i} className={`cl ${line.kind}`}>
+                  {line.kind === 'addition' ? '+ ' : line.kind === 'deletion' ? '− ' : '  '}
+                  {line.text}
+                </span>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -195,6 +195,40 @@ export const CHANNELS = {
     z.object({}).strict(),
     z.object({ path: z.string() }),
   ),
+  // PRIV-003: local data location, storage breakdown and retention.
+  'privacy.dataSummary': ch(
+    'privacy.dataSummary',
+    1,
+    z.object({}).strict(),
+    z.object({
+      dataDir: z.string(),
+      totalBytes: z.number(),
+      history: z.number(),
+      attachments: z.number(),
+      logs: z.number(),
+      logRetentionDays: z.number(),
+      taskCount: z.number(),
+    }),
+  ),
+  // PRIV-002: a redacted crash-report sample built from real app state.
+  'privacy.crashPreview': ch(
+    'privacy.crashPreview',
+    1,
+    z.object({}).strict(),
+    z.object({ text: z.string(), transportAvailable: z.boolean() }),
+  ),
+  // PRIV-003: one-click delete of history + caches (settings and keys kept).
+  'privacy.clearHistory': ch(
+    'privacy.clearHistory',
+    1,
+    z.object({}).strict(),
+    z.object({
+      clearedTasks: z.number(),
+      clearedBlobs: z.number(),
+      clearedAttachmentDirs: z.number(),
+      clearedLogFiles: z.number(),
+    }),
+  ),
   'app.reportClientError': ch(
     'app.reportClientError',
     1,

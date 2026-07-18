@@ -1,17 +1,8 @@
 import { app, shell, type WebContents } from 'electron';
 import type { Logger } from '@pi-ide/foundation';
+import { allowedNavigation, isAllowedExternalUrl } from './security-policy.js';
 
-/** Origins the renderer may navigate to (dev server only, and only in dev). */
-function allowedNavigation(devServerUrl: string | undefined, url: string): boolean {
-  if (!devServerUrl) return url.startsWith('app://');
-  return url.startsWith(devServerUrl) || url.startsWith('app://');
-}
-
-const EXTERNAL_URL_ALLOWLIST = [/^https:\/\//i];
-
-export function isAllowedExternalUrl(url: string): boolean {
-  return EXTERNAL_URL_ALLOWLIST.some((re) => re.test(url));
-}
+export { isAllowedExternalUrl } from './security-policy.js';
 
 /** APP-010 / §12.3: deny arbitrary navigation, window.open and permission grants. */
 export function hardenWebContents(

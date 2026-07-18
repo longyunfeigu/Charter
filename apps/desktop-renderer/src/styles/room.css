@@ -544,6 +544,37 @@
   padding: 4px 2px;
   margin: 0 0 8px;
 }
+/* M11-04: reveal older events when the timeline is windowed for scale. */
+.rt-load-earlier {
+  display: block;
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg-muted);
+  background: var(--bg-inset, rgba(0, 0, 0, 0.03));
+  border: 1px dashed var(--border, rgba(0, 0, 0, 0.15));
+  border-radius: 8px;
+  cursor: pointer;
+}
+.rt-load-earlier:hover {
+  color: var(--fg);
+  border-style: solid;
+}
+.rt-load-earlier:focus-visible {
+  outline: 2px solid var(--focus-ring, #3f7bd9);
+  outline-offset: 1px;
+}
+/* M11-04 freeze guard: plain-text tail for very large live output. */
+.rt-stream-raw {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.55;
+}
 .rt-note.ok {
   color: var(--success);
 }

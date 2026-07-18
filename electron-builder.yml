@@ -21,6 +21,10 @@ asarUnpack:
 
 npmRebuild: false
 
+# M11-01: flip Electron fuses (runAsNode off, NODE_OPTIONS/inspect dead,
+# asar integrity + onlyLoadAppFromAsar on) on every packed binary.
+afterPack: scripts/after-pack.cjs
+
 mac:
   category: public.app-category.developer-tools
   target:

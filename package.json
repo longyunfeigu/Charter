@@ -2,7 +2,7 @@
   "name": "pi-ide",
   "version": "1.0.0",
   "private": true,
-  "description": "Pi-powered Agentic IDE \u2014 local-first, task-native, observable, reviewable, revertible desktop IDE",
+  "description": "Pi-powered Agentic IDE — local-first, task-native, observable, reviewable, revertible desktop IDE",
   "license": "MIT",
   "type": "module",
   "main": "apps/desktop-main/dist/main.cjs",
@@ -20,7 +20,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test --config tests/e2e/playwright.config.ts",
-    "test:security": "vitest run --config vitest.security.config.ts && playwright test --config tests/security/playwright.config.ts",
+    "test:security": "node scripts/secret-scan.mjs --repo && vitest run --config vitest.security.config.ts && npm run build && playwright test --config tests/security/playwright.config.ts",
     "test:perf": "vitest run --config vitest.perf.config.ts",
     "package": "node scripts/package.mjs",
     "release:verify": "node scripts/release-verify.mjs",
@@ -33,6 +33,7 @@
     "node-pty": "1.1.0"
   },
   "devDependencies": {
+    "@electron/fuses": "2.1.3",
     "@playwright/test": "1.61.1",
     "@types/node": "22.20.1",
     "electron": "43.1.0",

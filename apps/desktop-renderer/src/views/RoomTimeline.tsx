@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   AskUserPromptDto,
   PermissionCardDto,
@@ -26,6 +26,13 @@ import { Markdown } from './Markdown.js';
 import { roomCopyFor, type RoomCopy } from './roomCopy.js';
 import { SentCodeContext } from './CodeContextAttachments.js';
 import { SentFileRefs, type SentFileRefPayload } from './FileContextAttachments.js';
+import {
+  computeWindow,
+  growWindow,
+  initialWindow,
+  STREAM_MARKDOWN_LIMIT,
+  TIMELINE_CHUNK,
+} from './timeline-window.js';
 
 /**
  * Task Room conversation: user and agent messages stay visually distinct,
@@ -1188,6 +1195,31 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
   const context = useTimelineContext(task.state, task.verification.length);
   const copy = roomCopyFor(`${task.title}\n${task.goalMd}`);
 
+  // M11-04: bound the rendered node count. Only the tail is built; older events
+  // are revealed in chunks. Reset when the room changes so a huge window from
+  // one task never carries into another.
+  const [visibleCount, setVisibleCount] = useState(initialWindow);
+  useEffect(() => {
+    setVisibleCount(initialWindow());
+  }, [task.id]);
+
+  // "Load earlier" prepends nodes, which would jump the viewport; capture the
+  // pre-grow scroll geometry and restore the reading anchor after layout.
+  const growAnchor = useRef<{ height: number; top: number } | null>(null);
+  const loadEarlier = (): void => {
+    const el = scrollRef.current;
+    if (el) growAnchor.current = { height: el.scrollHeight, top: el.scrollTop };
+    setVisibleCount((n) => growWindow(n, store.timeline.length));
+  };
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const anchor = growAnchor.current;
+    if (el && anchor) {
+      el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
+      growAnchor.current = null;
+    }
+  });
+
   // PIVOT-036: restore the per-task reading position once the timeline loads —
   // the same memory the Editor agent panel uses, so ⌘E round-trips keep it.
   useEffect(() => {
@@ -1208,13 +1240,13 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
   // change, not per render: streaming deltas re-render this component many
   // times a second and must not rebuild every event node (the streaming tail
   // itself renders below, outside this memo).
-  const { grouped, runDurationMs, inputTokens, outputTokens, costUsd, actionCount } =
+  const { grouped, runDurationMs, inputTokens, outputTokens, costUsd, actionCount, olderCount } =
     useMemo(() => {
-      const runStartMs = store.timeline.length > 0 ? Date.parse(store.timeline[0]!.at) : Date.now();
-      const runEndMs =
-        store.timeline.length > 0
-          ? Date.parse(store.timeline[store.timeline.length - 1]!.at)
-          : runStartMs;
+      const total = store.timeline.length;
+      const runStartMs = total > 0 ? Date.parse(store.timeline[0]!.at) : Date.now();
+      const runEndMs = total > 0 ? Date.parse(store.timeline[total - 1]!.at) : runStartMs;
+      // Summary stats reflect the WHOLE run (cheap numeric loop), independent of
+      // the render window — a folded older event still counts toward totals.
       let inputTokens = 0;
       let outputTokens = 0;
       let costUsd = 0;
@@ -1231,6 +1263,9 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
         outputTokens += usage?.outputTokens ?? 0;
         costUsd += usage?.costUsd ?? 0;
       }
+      // Only the tail is turned into React nodes — this is the expensive part.
+      const { startIndex, olderCount } = computeWindow(total, visibleCount);
+      const windowed = startIndex > 0 ? store.timeline.slice(startIndex) : store.timeline;
       const grouped: React.JSX.Element[] = [];
       let logGroup: React.JSX.Element[] = [];
       let logGroupKey = '';
@@ -1240,7 +1275,7 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
           logGroup = [];
         }
       };
-      for (const event of store.timeline) {
+      for (const event of windowed) {
         const node = eventNode(event, context, task, runStartMs, copy);
         if (node === null) continue; // silent events never break a worklog
         if (isLogRow(event)) {
@@ -1259,8 +1294,9 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
         outputTokens,
         costUsd,
         actionCount,
+        olderCount,
       };
-    }, [store.timeline, context, task, copy]);
+    }, [store.timeline, context, task, copy, visibleCount]);
 
   return (
     <div
@@ -1278,6 +1314,16 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
           <div className="rt-note">Loading timeline…</div>
         ) : (
           <>
+            {olderCount > 0 ? (
+              <button
+                type="button"
+                className="rt-load-earlier"
+                data-testid="timeline-load-earlier"
+                onClick={loadEarlier}
+              >
+                Load {Math.min(olderCount, TIMELINE_CHUNK)} earlier of {olderCount} hidden
+              </button>
+            ) : null}
             {grouped}
             {store.streamingThinking ? (
               <ThinkingBlock
@@ -1290,7 +1336,16 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
             ) : null}
             {store.streaming ? (
               <Bubble who="agent" copy={copy} testid="tl-streaming" live>
-                <Markdown text={store.streaming.text} />
+                {store.streaming.text.length > STREAM_MARKDOWN_LIMIT ? (
+                  // Freeze guard (§16.5): don't re-parse a huge markdown string
+                  // every token — show the plain tail live; the completed
+                  // message settles into full markdown.
+                  <pre className="rt-stream-raw" data-testid="tl-streaming-raw">
+                    {store.streaming.text.slice(-STREAM_MARKDOWN_LIMIT)}
+                  </pre>
+                ) : (
+                  <Markdown text={store.streaming.text} />
+                )}
               </Bubble>
             ) : null}
             <RunDetails

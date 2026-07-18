@@ -14,6 +14,17 @@ import type {
 } from '@pi-ide/ipc-contracts';
 import { onEvent, rpcResult } from '../bridge.js';
 import { okOrToast, useAppStore } from './appStore.js';
+import { STREAM_BUFFER_CAP } from '../views/timeline-window.js';
+
+/**
+ * Append a streaming delta, keeping only the last STREAM_BUFFER_CAP characters
+ * (§16.5 memory bound). The completed agent/thinking event carries the full
+ * text, so trimming the live preview loses nothing durable.
+ */
+function appendStreamDelta(text: string, delta: string): string {
+  const next = text + delta;
+  return next.length > STREAM_BUFFER_CAP ? next.slice(next.length - STREAM_BUFFER_CAP) : next;
+}
 
 export interface StreamingMessage {
   runId: string;
@@ -225,7 +236,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       set({
         streamingThinking:
           current && current.messageId === messageId
-            ? { ...current, text: current.text + delta }
+            ? { ...current, text: appendStreamDelta(current.text, delta) }
             : { runId, messageId, text: delta, startedAt: Date.now() },
       });
     });
@@ -235,7 +246,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       set({
         streaming:
           current && current.messageId === messageId
-            ? { ...current, text: current.text + delta }
+            ? { ...current, text: appendStreamDelta(current.text, delta) }
             : { runId, messageId, text: delta },
       });
     });

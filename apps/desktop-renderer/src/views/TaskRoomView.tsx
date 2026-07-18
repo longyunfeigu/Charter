@@ -392,7 +392,9 @@ function ActivityStrip({
           : 'Working…';
 
   return (
-    <div className="tr-activity" data-testid="task-room-activity">
+    // A11Y-004: announce the agent's current action politely (action-level, not
+    // per token — the label only changes when the tool/phase changes).
+    <div className="tr-activity" data-testid="task-room-activity" role="status" aria-live="polite">
       <span className="tr-activity-dot" aria-hidden />
       <span className="tr-activity-label" data-testid="task-room-action">
         {label}

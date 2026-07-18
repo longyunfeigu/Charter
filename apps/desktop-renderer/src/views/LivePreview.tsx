@@ -13,6 +13,7 @@ import {
   type ConsoleEntry,
 } from './preview-console.js';
 import { Ic } from './home-icons.js';
+import { PREVIEW_SANDBOX, pickMessageOrigins } from './preview-security.js';
 
 /**
  * The task's live window (ADR-0022 am.2): the SAME preview surface serves the
@@ -349,7 +350,7 @@ export function LivePreview({
 
   useEffect(() => {
     if (mode !== 'pick' || !active) return;
-    const origins = new Set([`http://localhost:${active.port}`, `http://127.0.0.1:${active.port}`]);
+    const origins = pickMessageOrigins(active.port);
     const onMessage = (event: MessageEvent): void => {
       if (!origins.has(event.origin)) return;
       const data = event.data as
@@ -702,7 +703,7 @@ export function LivePreview({
           className="pv-frame"
           data-testid="preview-frame"
           src={frameUrl ?? undefined}
-          sandbox="allow-scripts allow-same-origin allow-forms"
+          sandbox={PREVIEW_SANDBOX}
           title="Task preview"
           onLoad={() => setFrameLoaded(true)}
         />

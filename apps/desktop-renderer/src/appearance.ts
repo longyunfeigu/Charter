@@ -46,8 +46,9 @@ export function applyAppearance(settings: Settings | null): void {
   root.dataset.skin = settings?.general.skin ?? 'studio';
   root.dataset.theme = resolveEffectiveTheme(settings);
   root.style.setProperty('--font-editor', editorFontFamily(settings?.editor.fontFamily));
-  const scale = settings?.general.uiScale ?? 1;
-  root.style.fontSize = `${Math.round(13 * scale)}px`;
+  // general.uiScale is applied as true window zoom in the main process
+  // (webContents.setZoomFactor) so Monaco and the terminal scale too (A11Y-003).
+  // No rem hack here — it would compound with the real zoom.
 }
 
 export function currentSkin(): AppearanceSkin {

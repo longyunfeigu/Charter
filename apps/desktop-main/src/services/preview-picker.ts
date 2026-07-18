@@ -9,6 +9,24 @@
  * up, Escape posts `{__charterPickCancel}` and cleans up. Re-injection first
  * runs any previous cleanup, so arming twice never stacks listeners.
  */
+/**
+ * The ONLY frame URLs the picker may be injected into: plain-http loopback on
+ * the task's own detected port (matches the CSP frame-src grant exactly).
+ * Pure so the security suite pins it (M11-01).
+ */
+export function isLoopbackPreviewUrl(rawUrl: string, port: number): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return (
+      url.protocol === 'http:' &&
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1') &&
+      Number(url.port) === port
+    );
+  } catch {
+    return false; // frames without a URL (about:blank etc.) are never pick targets
+  }
+}
+
 export const PICKER_JS = `(() => {
   if (window.__charterPickCleanup) window.__charterPickCleanup();
   const halo = document.createElement('div');

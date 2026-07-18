@@ -79,6 +79,22 @@ export function installApplicationMenu(opts: { isDev: boolean }): void {
         },
         { label: 'Quick Open…', accelerator: 'CmdOrCtrl+P', click: send('quickopen.open') },
         { type: 'separator' },
+        {
+          label: 'Zoom In',
+          accelerator: 'CmdOrCtrl+Plus',
+          click: send('view.zoomIn'),
+        },
+        {
+          label: 'Zoom Out',
+          accelerator: 'CmdOrCtrl+-',
+          click: send('view.zoomOut'),
+        },
+        {
+          label: 'Reset Zoom',
+          accelerator: 'CmdOrCtrl+0',
+          click: send('view.zoomReset'),
+        },
+        { type: 'separator' },
         { label: 'Explorer', accelerator: 'CmdOrCtrl+Shift+E', click: send('view.explorer') },
         { label: 'Search', click: send('view.search') },
         { label: 'Source Control', accelerator: 'Ctrl+Shift+G', click: send('view.scm') },

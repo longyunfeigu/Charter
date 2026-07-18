@@ -129,13 +129,13 @@
 
 | 任务 | 交付 | 依赖 | 状态 | 证据 |
 | --- | --- | --- | --- | --- |
-| M11-01 | Electron 硬化收口：接入 @electron/fuses（runAsNode/nodeCliInspect 关闭、asar 完整性、onlyLoadAppFromAsar）；立起 `npm run test:security` 双入口（vitest.security.config.ts + tests/security/playwright.config.ts），归拢散落于普通套件的遍历/符号链接/越界用例；CSP、外部导航、未知协议、恶意 Markdown 链接 e2e 矩阵（§16.4）；预览 iframe sandbox 与 element-picker 注入边界审计（ADR-0022）。已有底座：security.ts（will-navigate/webview/permission 拦截 + 外链 allowlist）、csp.ts 单测钉定、sandbox 三开关自 M1 | M2 | NOT_STARTED |  |
-| M11-02 | 秘密不可检出四路验收（§16.4：renderer heap snapshot、localStorage、普通日志、支持包中 API Key 均不可检出）；secret scanning 覆盖 pivot 新增秘密路径：Provider keychain + 非敏感 meta（ADR-0009 am.1）、外部 CLI 转录读取（ADR-0017）、预览截图与任务附件（ADR-0022/0024）；repo/CI 层扫描。已有底座：foundation/redact.ts 默认接入 logger、M10-04 脱敏支持包 | M6-03,M10-04,M11-01 | NOT_STARTED |  |
-| M11-03 | 性能 fixture 与 `test:perf` 入口：50k 文件 / 1GB 文本生成器（§16.5 参考负载）；vitest.perf.config.ts 使命令可运行并收拢已有 10k 用例；§16.5 harness：冷启动 p95、输入→绘制 p95、Quick Open/全局搜索首批、Timeline 新事件 p95、空闲内存基线。已有底座：10k 文件懒加载树（M3）、REPLAY-V3 10k-fact perf gate + 10k-event ledger e2e | M3,M6 | NOT_STARTED |  |
-| M11-04 | Room 壳虚拟化与背压：RoomTimeline 10k 事件窗口化（PIVOT-037 后唯一主表面，现无虚拟化；repo-clean `7421d2e` 的 memo 化只消除了逐 token 重建，不是窗口化）；常驻 Session Rail ticker / Live Board 事件背压；Agent/搜索/LSP 大输出 renderer 冻结 ≤500ms 门与取消路径复核（§16.5）。已有底座：Replay Explore 虚拟化、终端 scrollback 裁剪、gateway/搜索输出截断、流式 memo 化 | M11-03 | NOT_STARTED |  |
-| M11-05 | 新壳可访问性：核心流程 Home→Room→Session Canvas→审查 Dock 仅键盘完成（A11Y-001）；UI 缩放 80–200%（A11Y-003，现零实现）；流式 live region 审计（A11Y-004）；accessible diff 文本模式 + 逐变更导航（A11Y-005，现缺失）；颜色非唯一信号复核（A11Y-002）。已有底座：aria-\* 55 文件、aria-live 5 处、⌘1-9/⌘[⌘]、splitter ARIA range。依赖 M11-04：窗口化改变 timeline DOM/焦点语义，先虚拟化再审计 | M11-04 | NOT_STARTED |  |
-| M11-06 | 安全与性能门槛报告：§16.4/16.5 全项对照矩阵 + 依赖/许可证扫描（无未处置 Critical/High）+ 未达项分析与发布评审记录（如内存单项）；作为 M11 退出证据汇总 | M11-01..05,M11-07 | NOT_STARTED |  |
-| M11-07 | 隐私设置落地（PRIV-001..003，原清单缺失项，spec §14 M11 交付明确包含）：Privacy 开关接真实语义或诚实降级——现状 settings.privacy 两开关（默认 false）在 schema 与 SettingsView 之外零消费者，Crash reports 文案描述了不存在的 redacted preview（规则 9 挂账，见 ADR-0025）；开启分析前字段列表；崩溃上报独立 opt-in + 脱敏预览（复用 M10-04 脱敏）；本地数据位置展示、保留策略、一键删除历史/缓存 | M2-04,M10-04 | NOT_STARTED |  |
+| M11-01 | Electron 硬化收口：@electron/fuses（afterPack）+ security-policy/preview-security 纯策略钉死 + `test:security` 双入口恢复 + CSP/导航/未知协议/恶意链接 e2e 矩阵 + 预览注入审计 | M2 | DONE | fuse-plan.cjs + after-pack.cjs；vitest.security.config.ts（14 文件 137 例）+ tests/security/{shell-hardening,secret-not-detectable}.spec + unit/{shell-policy,preview-boundary}；`npm run test:security` 全绿 |
+| M11-02 | 秘密不可检出四路验收（heap snapshot/localStorage/日志/支持包）+ secret scanning（provider keychain、外部 CLI 转录、附件路径）+ repo/CI 扫描闸 | M6-03,M10-04,M11-01 | DONE | secret-not-detectable.spec（CDP 堆快照 + reload 不水合）；foundation `findSecrets` + scripts/secret-scan.mjs（进 test:security）；unit secret-scan 8 例 |
+| M11-03 | 性能 fixture 与 `test:perf` 入口：50k 文件 / 1GiB 文本生成器 + vitest.perf.config.ts + §16.5 算法 harness | M3,M6 | DONE | createLargeTreeFixture(50k)/createLargeTextFixture(1GiB stream)；tests/perf/{tree-scan,search,timeline-projection}.perf；6 例全绿，PI_IDE_PERF_FULL 50k 验证 |
+| M11-04 | RoomTimeline 万级事件窗口化（400 尾 + load-earlier）+ 流式 buffer 背压 + 大输出冻结门 | M11-03 | DONE | timeline-window.ts（computeWindow/growWindow/initialWindow + STREAM_*）；unit 9 例 + timeline-window.spec e2e；store append 封顶 256KB + 渲染 16KB plain-tail |
+| M11-05 | 可访问性：真窗口缩放 80–200%（Monaco/终端）+ 无障碍 Diff 文本模式（F7/⇧F7 + aria-live）+ 键盘流 + A11Y-004 live region | M11-04 | DONE | ui-zoom.ts（webContents.setZoomFactor，菜单 ⌘±/⌘0，Settings 段）；accessible-diff.ts + SessionToolCanvas 文本模式；活动条 role=status；unit 10 + a11y-zoom-diff.spec |
+| M11-06 | 安全与性能门槛报告：§16.4/16.5/A11Y/PRIV 全项对照 + npm audit + 未达项分析 | M11-01..05,M11-07 | DONE | docs/M11_SECURITY_PERFORMANCE_REPORT.md；ADR-0027；npm audit 1 low+1 moderate（DOMPurify/monaco，已缓解，无 Critical/High） |
+| M11-07 | 隐私设置落地（PRIV-001..003）：诚实降级（无传输 banner，规则 9）+ 字段先行 + 真实脱敏崩溃预览 + 本地数据面板 + 一键删除历史/缓存 | M2-04,M10-04 | DONE | privacy-service.ts（dataSummary/crashPreview/clearHistory 三通道）+ SettingsView PrivacySection；unit 3 例 + privacy-settings.spec；impl-shots 三张 |
 
 ## Milestone 12: 安装、更新与 Stable
 

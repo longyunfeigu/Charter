@@ -5,7 +5,7 @@ import { registerHandlers } from './router.js';
 import { broadcast } from '../broadcast.js';
 import type { PreviewFeedbackMeta, TaskService } from '../services/task-service.js';
 import { devCommandForRoot, isWebishRoot, PreviewService } from '../services/preview-service.js';
-import { PICKER_CANCEL_JS, PICKER_JS } from '../services/preview-picker.js';
+import { PICKER_CANCEL_JS, PICKER_JS, isLoopbackPreviewUrl } from '../services/preview-picker.js';
 
 const THUMB_WIDTH = 320;
 const PNG_MAGIC = 0x89504e47;
@@ -13,17 +13,7 @@ const PNG_MAGIC = 0x89504e47;
 /** Loopback preview frame lookup: the ONLY frames the picker may enter. */
 function loopbackFrame(wc: WebContents, port: number): WebFrameMain | null {
   for (const frame of wc.mainFrame.framesInSubtree) {
-    try {
-      const url = new URL(frame.url);
-      if (
-        (url.hostname === 'localhost' || url.hostname === '127.0.0.1') &&
-        Number(url.port) === port
-      ) {
-        return frame;
-      }
-    } catch {
-      // frames without a URL (about:blank etc.) are never pick targets
-    }
+    if (isLoopbackPreviewUrl(frame.url, port)) return frame;
   }
   return null;
 }

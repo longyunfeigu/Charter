@@ -27,6 +27,31 @@ export function redactText(text: string): string {
   return out;
 }
 
+export interface SecretFinding {
+  label: string;
+  match: string;
+}
+
+/**
+ * Detect secret material in text (M11-02). Same pattern set as {@link redactText},
+ * but returns the hits instead of masking — used by the artifact/repo secret
+ * scanner and by the four-path "not detectable" verification. Returns [] when
+ * clean.
+ */
+export function findSecrets(text: string): SecretFinding[] {
+  const found: SecretFinding[] = [];
+  for (const { re, label } of TEXT_PATTERNS) {
+    for (const m of text.matchAll(re)) found.push({ label, match: m[0] });
+  }
+  for (const m of text.matchAll(KEY_VALUE_RE)) {
+    // group 3 is the value; skip already-masked assignments
+    if (m[3] && m[3] !== MASK && !m[3].startsWith('[REDACTED')) {
+      found.push({ label: 'key-value', match: m[0] });
+    }
+  }
+  return found;
+}
+
 export function redactObject(value: unknown, seen = new WeakSet<object>()): unknown {
   if (typeof value === 'string') return redactText(value);
   if (value === null || typeof value !== 'object') return value;

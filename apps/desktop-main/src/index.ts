@@ -58,6 +58,12 @@ import { PreviewService } from './services/preview-service.js';
 import { ExternalSessionService } from './services/external-session-service.js';
 import { registerExternalHandlers } from './ipc/external-handlers.js';
 import { buildSupportBundle } from './services/support-bundle.js';
+import {
+  clearHistory,
+  crashPreview,
+  dataSummary,
+  TELEMETRY_TRANSPORT_AVAILABLE,
+} from './services/privacy-service.js';
 import { join as joinPath } from 'node:path';
 
 const DEV_SERVER_URL = process.env.PI_IDE_DEV_SERVER_URL;
@@ -218,6 +224,15 @@ function createMainWindow(bootstrap: Bootstrap): BrowserWindow {
     if (initial.maximized) win.maximize();
   });
 
+  // A11Y-003: restore the persisted UI zoom (true window zoom — Monaco and the
+  // terminal scale with it). Applied after the frame loads so it sticks; pinch/
+  // ctrl-scroll zoom is disabled so zoom is only ever the explicit setting.
+  win.webContents.on('did-finish-load', () => {
+    const scale = bootstrap.settings?.effective.general.uiScale ?? 1;
+    win.webContents.setZoomFactor(scale);
+    void win.webContents.setVisualZoomLevelLimits(1, 1).catch(() => undefined);
+  });
+
   const startHash = bootstrap.startupError
     ? `/startup-error?code=${encodeURIComponent(bootstrap.startupError.code)}&msg=${encodeURIComponent(bootstrap.startupError.userMessage)}`
     : '';
@@ -364,6 +379,13 @@ function registerCoreHandlers(bootstrap: Bootstrap): void {
         'settings.get': async () => settings.state,
         'settings.update': async ({ scope, patch }) => {
           const result = settings.update(scope, patch);
+          // A11Y-003: general.uiScale drives real window zoom (Monaco/terminal
+          // included) — apply the moment it changes so the setting is live.
+          const scale = settings.effective.general.uiScale;
+          const win = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null;
+          if (win && win.webContents.getZoomFactor() !== scale) {
+            win.webContents.setZoomFactor(scale);
+          }
           return result;
         },
         'settings.reset': async ({ scope }) => settings.reset(scope),
@@ -710,6 +732,29 @@ if (!gotLock) {
             writeFileSync(file, json, 'utf8');
             if (!process.env.PI_IDE_E2E) shell.showItemInFolder(file);
             return { path: file };
+          },
+          // PRIV-003: local data transparency.
+          'privacy.dataSummary': async () => dataSummary(paths, state.db),
+          // PRIV-002: redacted crash-report sample from real state.
+          'privacy.crashPreview': async () => {
+            const info = getAppInfo();
+            return {
+              text: crashPreview({
+                appVersion: info.appVersion,
+                platform: info.platform,
+                arch: info.arch,
+                updateChannel: info.updateChannel,
+                logsDir: paths.logsDir,
+              }),
+              transportAvailable: TELEMETRY_TRANSPORT_AVAILABLE,
+            };
+          },
+          // PRIV-003: one-click delete of history + caches.
+          'privacy.clearHistory': async () => {
+            const result = clearHistory(paths, state.db);
+            // Nudge the renderer to re-read the (now-empty) task list.
+            broadcast('workspace.changed', { workspace: workspaceHost.dto() });
+            return result;
           },
         },
         logger.child('ipc'),
