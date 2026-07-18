@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { ProjectTool } from '../store/appStore.js';
 import { useAppStore } from '../store/appStore.js';
 import { useEditorStore } from '../store/editorStore.js';
@@ -29,8 +29,10 @@ export function ProjectToolView({ tool }: { tool: ProjectTool }): React.JSX.Elem
   const editorGroups = useEditorStore((state) => state.groups.length);
   const splitEditor = useEditorStore((state) => state.split);
   const joinEditors = useEditorStore((state) => state.unsplit);
+  const [contextCollapsed, setContextCollapsed] = useState(false);
 
   const choose = (next: ProjectTool): void => {
+    setContextCollapsed(false);
     app.setProjectTool(next);
     if (next === 'search') window.setTimeout(focusSearchView, 0);
   };
@@ -64,21 +66,32 @@ export function ProjectToolView({ tool }: { tool: ProjectTool }): React.JSX.Elem
           title={editorGroups > 1 ? 'Join editor groups' : 'Split editor'}
           onClick={() => (editorGroups > 1 ? joinEditors() : splitEditor())}
         >
-          <Ic name="layout" size={12} /> {editorGroups > 1 ? 'Join' : 'Split'}
+          <i className="project-codicon project-codicon-split" aria-hidden />
+          <span>{editorGroups > 1 ? 'Join' : 'Split'}</span>
         </button>
         <button
-          data-testid="project-tool-new-session"
-          onClick={() => {
-            app.setProjectTool(null);
-            app.focusComposer();
-          }}
+          data-testid="project-context-toggle"
+          aria-label={contextCollapsed ? 'Show project context' : 'Hide project context'}
+          aria-pressed={!contextCollapsed}
+          title={contextCollapsed ? 'Show Files, Search or Changes' : 'Hide project context'}
+          onClick={() => setContextCollapsed((collapsed) => !collapsed)}
         >
-          <Ic name="plus" size={12} /> New Session
+          <i
+            className={`project-codicon ${contextCollapsed ? 'project-codicon-sidebar' : 'project-codicon-sidebar-off'}`}
+            aria-hidden
+          />
+          <span>{contextCollapsed ? 'Show context' : 'Hide context'}</span>
         </button>
       </header>
 
-      <div className="project-tool-body">
-        <aside className="project-tool-context" aria-label={`${tool} context`}>
+      <div className={`project-tool-body ${contextCollapsed ? 'context-collapsed' : ''}`}>
+        <aside
+          className="project-tool-context"
+          data-testid="project-tool-context"
+          aria-label={`${tool} context`}
+          aria-hidden={contextCollapsed}
+          inert={contextCollapsed}
+        >
           {tool === 'files' ? <ExplorerView /> : tool === 'search' ? <SearchView /> : <ScmView />}
         </aside>
         <div className={`project-tool-stage ${bottomTab ? 'with-bottom' : ''}`}>

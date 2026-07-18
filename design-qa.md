@@ -1,3 +1,196 @@
+# Project Files Restructure — Production Design QA
+
+## Comparison target
+
+- Approved interactive target: `docs/design/project-files-restructure-mock/index.html`.
+- Approved desktop target screenshot: `/tmp/charter-project-files-mock-1320.png`.
+- Real Electron implementation: `/tmp/charter-project-files-production-1320.png`.
+- Approved narrow target screenshot: `/tmp/charter-project-files-mock-900.png`.
+- Real Electron narrow implementation: `/tmp/charter-project-files-production-900.png`.
+- State: Archive light, Projects selected, Files context visible, a source file open.
+
+The approved target and real Electron implementation were opened together at
+1320 × 760 and 900 × 900. The production capture uses the real persistent app
+toolbar/status bar, Explorer, Monaco editor, workspace data, project switching,
+Search and SCM stores rather than the mock's static substitutes.
+
+## Findings
+
+No actionable P0, P1, or P2 findings remain.
+
+- Information architecture: the Projects panel now contains projects, Session
+  counts, the current-project indicator, New Session actions, Open Folder and
+  New Project only. The nested `HomeProjectTree` is no longer mounted there.
+- Canonical context: Files, Search and Changes replace one another in the same
+  278px contextual column. The real Explorer is the only visible file tree and
+  keeps its existing create, refresh, ignored-file, git-decoration and file-open
+  behavior.
+- Space and hierarchy: Projects uses a compact 244px content panel on desktop;
+  its footer actions stay pinned to the bottom. Context can collapse to zero
+  width and immediately returns that space to Monaco.
+- Responsive behavior: at 900px the global activity rail remains 44px, Projects
+  is closed by default and opens as a 290px overlay. Selecting a project closes
+  the overlay while Files and the editor remain mounted; no horizontal document
+  overflow is introduced.
+- Assets and visual language: production reuses Archive tokens, the existing
+  icon system and Monaco's installed Codicon font for the distinct split/context
+  controls. No placeholder image, emoji, handcrafted SVG or CSS-drawn asset was
+  added.
+- Accessibility and runtime health: tabs retain `aria-selected`; the context
+  toggle reports `aria-pressed`, `aria-hidden` and `inert`; both desktop and
+  narrow Electron runs report no page error, console error, framework overlay,
+  blank surface or horizontal clipping.
+
+## Comparison history
+
+1. Initial production pass — blocked by P2 layout/detail mismatches.
+   - Projects still consumed the shared 320px rail width, footer actions floated
+     directly below the project list, and Split/Context reused an indistinguish-
+     able layout icon at narrow width.
+   - Fix: give the Projects view a 244px panel, pin its actions to a footer and
+     use the real Codicon split/sidebar glyphs from the installed Monaco asset.
+2. Final desktop and narrow comparison — no remaining P0/P1/P2 mismatch.
+   - Production intentionally includes the real Charter window toolbar, status
+     bar and Monaco chrome absent from the focused mock.
+
+## Primary interactions tested
+
+- Select and switch projects without rendering a second project file tree.
+- Start a project-bound Session from the explicit project action.
+- Open folders and files from the canonical Explorer into Monaco.
+- Switch Files, Search and Changes in the same context column.
+- Collapse context, restore it by selecting a tool, split and rejoin the editor.
+- Open and close Projects as a 900px overlay while preserving the workbench.
+- Preserve an active task while switching project context.
+- Run 23 affected Electron regression tests, the production build, type/boundary
+  checks and 479 unit tests.
+
+final result: passed
+
+---
+
+# External Agent Reply Notifications — Design QA
+
+## Comparison target
+
+- Source visual truth:
+  `/var/folders/23/z96fd00x791_2j0k757hsnjw0000gn/T/codex-clipboard-fc7w2f.png`
+  (2736 × 1474 Retina pixels). The user's red annotation identifies the
+  existing top-right Pi completion card as the notification surface Claude Code
+  and Codex should share.
+- Normalized source truth:
+  `/tmp/charter-source-notice-normalized.png` at the source's 1368 × 737 logical
+  viewport.
+- Real Electron Claude implementation:
+  `/tmp/charter-observed-claude-reply-notice.png` at 1368 × 737 CSS pixels.
+- Real Electron Codex implementation:
+  `/tmp/charter-observed-codex-reply-notice.png` at 1368 × 737 CSS pixels.
+- Narrow evidence:
+  `/tmp/charter-observed-claude-reply-notice-narrow.png` and
+  `/tmp/charter-observed-codex-reply-notice-narrow.png` at 820 × 720.
+- Installed vendor evidence:
+  `/tmp/live-e2e/claude-observed-reply-shake.png` (Claude Code 2.1.212 local
+  `/help`) and `/tmp/live-e2e/codex-observed-reply-notice.png` (Codex CLI
+  0.144.5 local `/status`). Neither path sends a model prompt.
+- State: a long-lived external-agent Session remains `IN_PROGRESS`; after a
+  prompt submitted through the Session composer produces visible terminal
+  output and that output stays quiet for 1.8 seconds, the corresponding
+  provider reply notification and Session-row presence animation are visible.
+
+## Visual evidence
+
+- Focused source notification:
+  `/tmp/charter-source-notice-focus.png`.
+- Focused implementation notification:
+  `/tmp/charter-implementation-notice-focus.png`.
+
+The normalized full source and implementation, followed by both focused notice
+crops, were opened together in one comparison input. The source's red outline
+is a user annotation and is not treated as product chrome. The source and final
+implementation share the same logical viewport, Archive light skin, top-right
+placement, width, internal grid, typography hierarchy, icon slot, close target,
+elevation, and five-second lifetime indicator.
+
+## Findings
+
+No actionable P0, P1, or P2 findings remain.
+
+- Fonts and typography: the implementation reuses the existing
+  `.session-notice` component without changing its 9.5/10.5/12.5px hierarchy,
+  weights, line spacing, ellipsis rules, or Archive font stack. Provider label,
+  project, stable Session identity, and evidence-aware body remain legible at
+  both viewports.
+- Spacing and layout rhythm: the notification retains the source component's
+  360px desktop width, 14px right inset, title-bar-relative top inset, 10px
+  radius, 28px icon track, and compact three-line copy grid. At 820px its full
+  bounding box remains inside the renderer and does not obscure the Session
+  rail's primary controls.
+- Colors and visual tokens: card background, border, shadow, foregrounds, and
+  hover state all resolve from the active Archive shell tokens. The source Pi
+  card is amber because it means “Ready for review”; the external reply card is
+  intentionally green because a reply completed successfully while the
+  long-lived task is still active. A failed structured reply uses the existing
+  error tone.
+- Image quality and asset fidelity: no raster asset is required. The shared
+  icon-library check-circle is reused at the same size and optical alignment;
+  no placeholder, emoji, handcrafted SVG, or new CSS-art asset was introduced.
+- Copy and content: Claude and Codex are named explicitly. Structured streams
+  say the latest reply finished; observed TUIs say terminal output settled, so
+  the banner does not fabricate a semantic turn or claim the task is ready for
+  review. The title uses the same stable Session identity as the left rail.
+- Interaction and identity: the whole notice remains clickable, dismisses
+  itself after five seconds, honors the global notification preference, and
+  opens the exact `data-task-id` Session. A later terminal task-state completion
+  atomically replaces the reply notice with “Ready for review” instead of
+  stacking a duplicate card.
+- Responsiveness and accessibility: the notification region retains
+  `aria-live="polite"`, both open and dismiss buttons have accessible names, and
+  desktop/narrow runs report no page errors, console errors, framework overlay,
+  blank renderer, or viewport clipping.
+
+## Comparison history
+
+1. Initial behavior pass — blocked by P1 missing feedback.
+   - Finding: Pi task-state completion entered the shared notification store,
+     but Claude/Codex reply boundaries only drove the left-row animation, so no
+     top-right card could render for long-lived external sessions.
+   - Fix: connect both structured provider turns and the observed PTY
+     output-settled edge to a provider-specific reply notice while preserving
+     the distinction from task completion.
+2. Initial full-view comparison — blocked by P2 state-normalization noise.
+   - Finding: the first implementation capture still showed the earlier
+     external-session detection toast at bottom right, while the source capture
+     represented a settled Session state.
+   - Fix: dismiss the unrelated detection toast before capturing the reply
+     boundary; no product visual styling changed.
+3. Final same-viewport full and focused comparison — no remaining P0/P1/P2
+   mismatch. The semantic green tone and external Session content are
+   intentional state differences; component geometry and visual language match
+   the selected Pi notification surface.
+4. Narrow pass — no clipping or loss of either notification action at
+   820 × 720.
+
+## Primary interactions tested
+
+- Claude and Codex each launch as a genuine long-lived process in the embedded
+  PTY, are detected into separate accounting Sessions, accept input through the
+  Session composer, emit visible output, and settle through the host timer.
+- Each provider produces its own reply label, evidence-aware body, exact task
+  identity, whole-card diagonal Session shake, and water-wave presence.
+- Clicking each banner opens the exact external Session.
+- Two simultaneous structured Claude Sessions retain distinct right panes;
+  the correct replying Session gets the structured notice, and its later
+  `REVIEW_READY` task notification replaces rather than duplicates it.
+- The original managed Pi completion notification regression remains covered at
+  desktop and narrow viewports.
+- Installed Claude Code 2.1.212 and Codex CLI 0.144.5 each traverse their native
+  TUI and produce the same notification using local slash commands only; the
+  Codex smoke also covers its fresh-directory trust prompt.
+
+final result: passed
+
+---
+
 # Session Reply Diagonal Shake — Design QA
 
 ## Comparison target

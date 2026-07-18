@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskDto } from '@pi-ide/ipc-contracts';
 import {
+  externalSessionReplyInfo,
   sessionCompletionInfo,
   sessionDisplayTitle,
 } from '../../apps/desktop-renderer/src/store/sessionAttention.js';
@@ -34,6 +35,41 @@ describe('sessionCompletionInfo', () => {
     expect(sessionDisplayTitle(task({ title: '[scenario:edit-basic] Refactor the parser' }))).toBe(
       'Refactor the parser',
     );
+  });
+
+  it('keeps external reply notices provider-specific and evidence-honest', () => {
+    const claude = task({
+      state: 'IN_PROGRESS',
+      external: {
+        cli: 'claude',
+        terminalId: 'terminal-1',
+        snapshotRef: null,
+        status: 'active',
+        sessionId: 'claude-session-1',
+        captureGrade: 'observed',
+      },
+    });
+    expect(externalSessionReplyInfo(claude, 'observed')).toEqual({
+      label: 'Claude reply complete',
+      body: 'Terminal output settled · Session is ready for you.',
+      tone: 'success',
+    });
+    expect(
+      externalSessionReplyInfo(
+        {
+          ...claude,
+          external: { ...claude.external!, cli: 'codex', captureGrade: 'structured' },
+        },
+        'structured',
+      ),
+    ).toMatchObject({
+      label: 'Codex reply complete',
+      body: 'The latest reply finished · Session is ready for you.',
+    });
+    expect(externalSessionReplyInfo(claude, 'structured', 'error')).toMatchObject({
+      label: 'Claude reply failed',
+      tone: 'error',
+    });
   });
 
   it('distinguishes an answer from a reviewable result using the live snapshot', () => {

@@ -3,13 +3,11 @@ import { launchApp } from './helpers/launch';
 import { createTsSmallFixture } from './helpers/fixtures';
 
 /**
- * Sidebar context feeding + New project entry:
- *  - the Projects section has a "New project…" row opening the (global)
- *    NewProjectDialog from any surface, and
- *  - tree rows drag onto composers as @refs (PIVOT-015 drag source): the Home
- *    composer collects chips, the Task Room reply inlines "@path" text.
+ * Projects remains global navigation, while Files/Search/Changes own the
+ * contextual middle column. Starting work for a project is an explicit action
+ * and never requires a second nested project tree.
  */
-test.describe('Sidebar — New project entry and drag-to-@ context feeding', () => {
+test.describe('Projects — project actions without a duplicate file tree', () => {
   test('sidebar New project… opens the dialog (also from a Task Room)', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
@@ -40,7 +38,7 @@ test.describe('Sidebar — New project entry and drag-to-@ context feeding', () 
     }
   });
 
-  test('dragging tree files/dirs onto the Home composer adds @ref chips', async () => {
+  test('the project New Session action binds the shared Composer', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
@@ -48,51 +46,19 @@ test.describe('Sidebar — New project entry and drag-to-@ context feeding', () 
     try {
       await page.getByTestId('surface-home').click();
       await page.getByTestId('rail-context').click();
-      await page.locator('[data-testid^="home-recent-"].active').click();
-      await expect(page.getByTestId('home-project-tree')).toBeVisible();
-      await page.getByTestId('home-tree-src').click();
-      await expect(page.getByTestId('home-tree-src/index.ts')).toBeVisible();
-
-      // HTML5 drag: dragstart on the tree row fills the DataTransfer, drop on
-      // the composer card consumes it (same object across both events).
-      const dt = await page.evaluateHandle(() => new DataTransfer());
-      await page.dispatchEvent('[data-testid="home-tree-src/index.ts"]', 'dragstart', {
-        dataTransfer: dt,
-      });
-      await page.dispatchEvent('[data-testid="home-view"] .hm-card', 'drop', {
-        dataTransfer: dt,
-      });
-      await expect(page.getByTestId('home-ref-src/index.ts')).toBeVisible();
-
-      // Directories ref with a trailing slash and survive dedupe.
-      const dtDir = await page.evaluateHandle(() => new DataTransfer());
-      await page.dispatchEvent('[data-testid="home-tree-src"]', 'dragstart', {
-        dataTransfer: dtDir,
-      });
-      await page.dispatchEvent('[data-testid="home-view"] .hm-card', 'drop', {
-        dataTransfer: dtDir,
-      });
-      await expect(page.getByTestId('home-ref-src/')).toBeVisible();
-      await page.dispatchEvent('[data-testid="home-view"] .hm-card', 'drop', {
-        dataTransfer: dtDir,
-      });
-      await expect(page.locator('[data-testid="home-ref-src/"]')).toHaveCount(1);
-
-      // The refs land in the charter exactly like picker-added ones.
-      await page.getByTestId('home-mode-auto').click();
-      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
-      await page.getByTestId('home-intent').fill('[scenario:edit-basic] drag refs into charter');
-      await page.getByTestId('home-submit').click();
-      await expect(page.getByTestId('task-room')).toBeVisible();
-      const userCard = page.getByTestId('tl-user').first();
-      await expect(userCard).toContainText('@src/index.ts');
-      await expect(userCard).toContainText('@src/');
+      await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
+      await page.locator('[data-testid^="project-spawn-pi-"]').first().click();
+      await expect(page.getByTestId('home-view')).toBeVisible();
+      await expect(page.getByTestId('home-intent')).toBeFocused();
+      await expect(page.getByTestId('home-project')).toContainText(
+        fixture.split('/').pop() ?? 'fixture',
+      );
     } finally {
       await app.close();
     }
   });
 
-  test('dragging a tree file onto the Task Room reply inlines @path at the caret', async () => {
+  test('clicking a project opens the one canonical Files context', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
@@ -101,23 +67,13 @@ test.describe('Sidebar — New project entry and drag-to-@ context feeding', () 
       await page.getByTestId('surface-home').click();
       await page.getByTestId('rail-context').click();
       await page.locator('[data-testid^="home-recent-"].active').click();
-      await page.getByTestId('home-tree-src').click();
-      await expect(page.getByTestId('home-tree-src/index.ts')).toBeVisible();
-
-      await page.getByTestId('home-mode-auto').click();
-      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
-      await page.getByTestId('home-intent').fill('[scenario:edit-basic] drag into room reply');
-      await page.getByTestId('home-submit').click();
-      await expect(page.getByTestId('task-room')).toBeVisible();
-
-      // The sidebar (and its tree) stays mounted next to the room.
-      await page.getByTestId('agent-input').fill('also look at');
-      const dt = await page.evaluateHandle(() => new DataTransfer());
-      await page.dispatchEvent('[data-testid="home-tree-src/index.ts"]', 'dragstart', {
-        dataTransfer: dt,
-      });
-      await page.dispatchEvent('[data-testid="room-composer"]', 'drop', { dataTransfer: dt });
-      await expect(page.getByTestId('agent-input')).toHaveValue('also look at @src/index.ts ');
+      await expect(page.getByTestId('project-tool-view')).toBeVisible();
+      await expect(page.getByTestId('explorer')).toBeVisible();
+      await expect(page.getByRole('tree', { name: 'Files' })).toHaveCount(1);
+      await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
+      await page.getByTestId('tree-item-src').click();
+      await page.getByTestId('tree-item-src/index.ts').click();
+      await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
     } finally {
       await app.close();
     }

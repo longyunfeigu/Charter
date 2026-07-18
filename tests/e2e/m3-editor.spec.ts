@@ -111,7 +111,7 @@ test.describe('M3 workspace and editor', () => {
       await page.getByTestId('tree-item-src/index.ts').click();
       await expect(page.locator('.monaco-editor').first()).toContainText('add(2, 3)');
 
-      await page.getByTestId('project-tool-new-session').click();
+      await page.getByTestId('home-new-task').click();
       await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] update the call');
       await page.getByTestId('home-submit').click();

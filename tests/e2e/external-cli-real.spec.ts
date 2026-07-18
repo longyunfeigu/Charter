@@ -125,6 +125,12 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
       await expect(row).toHaveAttribute('data-reply', 'true', { timeout: 15000 });
       await expect(row).toHaveClass(/reply-shake/);
       await expect(row).toHaveCSS('animation-duration', '2.2s');
+      const replyNotice = page.locator(
+        `[data-testid="session-completion-notice"][data-kind="reply"][data-task-id="${taskId}"]`,
+      );
+      await expect(replyNotice).toBeVisible();
+      await expect(replyNotice).toContainText('Claude reply complete');
+      await expect(replyNotice).toContainText('Terminal output settled');
       await page.screenshot({ path: join(SHOTS, 'claude-observed-reply-shake.png') });
       await page.keyboard.press('Escape');
 
@@ -264,7 +270,7 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
       await page.getByTestId('session-bar-promote').click();
       await expect(page.getByTestId('external-panel')).toBeVisible();
       const panelTerm = page.getByTestId('external-panel-terminal');
-      await expect(panelTerm).toContainText(/codex|Codex|OpenAI|Update available/, {
+      await expect(panelTerm).toContainText(/codex|Codex|OpenAI|Update available|Do you trust/, {
         timeout: 20000,
       });
       await panelTerm.click();
@@ -295,6 +301,36 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
         await page.waitForTimeout(500);
       }
       await page.waitForTimeout(1500);
+
+      const taskId = await page.evaluate(async () => {
+        const bridge = (
+          window as never as {
+            product: { rpc: Record<string, (p: unknown) => Promise<{ ok: boolean; data?: any }>> };
+          }
+        ).product;
+        const tasks = await bridge.rpc['task.list']!({
+          filter: 'all',
+          includeArchived: false,
+          scope: 'all',
+        });
+        return tasks.data.tasks.find(
+          (task: { external?: { cli?: string } }) => task.external?.cli === 'codex',
+        ).id as string;
+      });
+
+      // `/status` is a local Codex TUI command, so this exercises the actual
+      // installed client without sending a prompt or consuming model tokens.
+      await page.keyboard.type('/status');
+      await page.keyboard.press('Enter');
+      const replyNotice = page.locator(
+        `[data-testid="session-completion-notice"][data-kind="reply"][data-task-id="${taskId}"]`,
+      );
+      await expect(replyNotice).toBeVisible({ timeout: 20000 });
+      await expect(replyNotice).toContainText('Codex reply complete');
+      await expect(replyNotice).toContainText('Terminal output settled');
+      await page.screenshot({ path: join(SHOTS, 'codex-observed-reply-notice.png') });
+      await page.keyboard.press('Escape');
+
       await page.keyboard.type('typing-probe');
       await expect(panelTerm).toContainText('typing-probe', {
         timeout: 10000,

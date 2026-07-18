@@ -7,7 +7,6 @@ import { useExternalStore } from '../store/externalStore.js';
 import { RUNNING_TASK_STATES, useTaskStore } from '../store/taskStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useTerminalStore } from './TerminalPanel.js';
-import { HomeProjectTree } from './HomeProjectTree.js';
 import { Ic, ProviderMark } from './home-icons.js';
 import { canArchiveTask, isAnswered, presentedMeta } from './labels.js';
 import { ArmedIconButton } from './ui.js';
@@ -46,7 +45,6 @@ const SETTLED_STATES = new Set(['ACCEPTED', 'ROLLED_BACK', 'CANCELLED']);
 
 const COLLAPSED_KEY = 'charter.rail.collapsed.v1';
 const VIEW_KEY = 'charter.rail.view.v1';
-const EXPANDED_PROJECT_KEY = 'charter.rail.expanded-project.v1';
 const SESSION_PAGE_SIZE = 20;
 
 function loadCollapsed(): Set<string> {
@@ -84,23 +82,6 @@ function loadRailView(): RailView {
 function saveRailView(view: RailView): void {
   try {
     window.sessionStorage.setItem(VIEW_KEY, view);
-  } catch {
-    // Session-local navigation persistence is best effort.
-  }
-}
-
-function loadExpandedProject(): string | null {
-  try {
-    return window.sessionStorage.getItem(EXPANDED_PROJECT_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function saveExpandedProject(path: string | null): void {
-  try {
-    if (path) window.sessionStorage.setItem(EXPANDED_PROJECT_KEY, path);
-    else window.sessionStorage.removeItem(EXPANDED_PROJECT_KEY);
   } catch {
     // Session-local navigation persistence is best effort.
   }
@@ -287,9 +268,7 @@ export function SessionRail(): React.JSX.Element {
   const inbox = taskStore.tasks.filter((task) => !task.archived && needsAttention(task));
   const [recent, setRecent] = useState<RecentWorkspaceDto[]>([]);
   const [view, setViewState] = useState<RailView>(loadRailView);
-  const [expandedProjectPath, setExpandedProjectPathState] = useState<string | null>(
-    loadExpandedProject,
-  );
+  const [projectsPanelOpen, setProjectsPanelOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(loadCollapsed);
   const [query, setQuery] = useState('');
   const [needsOnly, setNeedsOnly] = useState(false);
@@ -300,11 +279,12 @@ export function SessionRail(): React.JSX.Element {
   const setView = (next: RailView): void => {
     saveRailView(next);
     setViewState(next);
+    if (next !== 'projects') setProjectsPanelOpen(false);
   };
 
-  const setExpandedProjectPath = (path: string | null): void => {
-    saveExpandedProject(path);
-    setExpandedProjectPathState(path);
+  const showProjects = (): void => {
+    setView('projects');
+    setProjectsPanelOpen(true);
   };
 
   useEffect(() => {
@@ -556,7 +536,7 @@ export function SessionRail(): React.JSX.Element {
                 ? `${workspaceStore.workspace.path} — new sessions bind here`
                 : 'Pick the project new sessions bind to'
             }
-            onClick={() => setView('projects')}
+            onClick={showProjects}
           >
             <Ic name="folder" size={12} />
             <span>{workspaceStore.workspace?.displayName ?? 'Project'}</span>
@@ -703,52 +683,48 @@ export function SessionRail(): React.JSX.Element {
           const sessionCount =
             groups.find((group) => group.path === project.path)?.entries.length ?? 0;
           return (
-            <React.Fragment key={project.path}>
-              <div className={`sr-project-wrap ${active ? 'active' : ''}`}>
-                <button
-                  className={`sr-project ${active ? 'active' : ''}`}
-                  data-testid={`home-recent-${project.path}`}
-                  title={project.path}
-                  onClick={() => {
-                    if (active) {
-                      setExpandedProjectPath(
-                        expandedProjectPath === project.path ? null : project.path,
-                      );
-                    } else {
-                      setView('projects');
-                      setExpandedProjectPath(project.path);
-                      app.setHomePick(true);
-                      void workspaceStore.openPath(project.path);
-                    }
-                  }}
-                >
-                  <Ic name="folder" size={14} />
-                  <span className="sr-project-copy">
-                    <strong>{project.displayName}</strong>
-                    <small>{sessionCount} sessions</small>
+            <div className={`sr-project-wrap ${active ? 'active' : ''}`} key={project.path}>
+              <button
+                className={`sr-project ${active ? 'active' : ''}`}
+                data-testid={`home-recent-${project.path}`}
+                title={`${project.path} — open project files`}
+                onClick={() => {
+                  setProjectsPanelOpen(false);
+                  if (active) {
+                    app.setProjectTool('files');
+                    return;
+                  }
+                  app.setHomePick(true);
+                  void workspaceStore
+                    .openPath(project.path)
+                    .then(() => app.setProjectTool('files'));
+                }}
+              >
+                <Ic name="folder" size={14} />
+                <span className="sr-project-copy">
+                  <strong>{project.displayName}</strong>
+                  <small>{sessionCount} sessions</small>
+                </span>
+                {active ? (
+                  <span className="sr-project-current" title="Current project">
+                    <Ic name="check" size={12} />
                   </span>
-                  {active ? (
-                    <Ic
-                      name="chevron"
-                      size={12}
-                      className={expandedProjectPath === project.path ? 'sr-chevron-open' : ''}
-                    />
-                  ) : null}
-                </button>
-                <button
-                  className="sr-project-use"
-                  data-testid={`project-spawn-pi-${project.path}`}
-                  title={`New session in ${project.displayName}`}
-                  aria-label={`New session in ${project.displayName}`}
-                  onClick={() => startSession(project.path)}
-                >
-                  <Ic name="plus" size={13} />
-                </button>
-              </div>
-              {active && expandedProjectPath === project.path ? <HomeProjectTree /> : null}
-            </React.Fragment>
+                ) : null}
+              </button>
+              <button
+                className="sr-project-use"
+                data-testid={`project-spawn-pi-${project.path}`}
+                title={`New session in ${project.displayName}`}
+                aria-label={`New session in ${project.displayName}`}
+                onClick={() => startSession(project.path)}
+              >
+                <Ic name="plus" size={13} />
+              </button>
+            </div>
           );
         })}
+      </div>
+      <footer className="sr-project-footer">
         <button
           className="sr-secondary-action"
           data-testid="home-open-folder"
@@ -763,12 +739,16 @@ export function SessionRail(): React.JSX.Element {
         >
           <Ic name="plus" size={13} /> New project…
         </button>
-      </div>
+      </footer>
     </>
   );
 
   return (
-    <aside className="sr-rail" data-testid="home-sidebar" aria-label="Sessions">
+    <aside
+      className={`sr-rail view-${view} ${projectsPanelOpen ? 'projects-panel-open' : ''}`}
+      data-testid="home-sidebar"
+      aria-label="Sessions"
+    >
       <nav className="sr-activity" aria-label="Application">
         <div className="sr-activity-brand" aria-label="Charter">
           <Ic name="flag" size={15} />
@@ -797,7 +777,11 @@ export function SessionRail(): React.JSX.Element {
           data-testid="rail-view-projects"
           aria-label="Projects"
           title="Projects"
-          onClick={() => setView('projects')}
+          aria-pressed={view === 'projects' && projectsPanelOpen}
+          onClick={() => {
+            if (view === 'projects') setProjectsPanelOpen((open) => !open);
+            else showProjects();
+          }}
         >
           <Ic name="folder" size={16} />
         </button>

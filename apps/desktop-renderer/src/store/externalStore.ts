@@ -75,6 +75,26 @@ interface ExternalStore {
 
 let seq = 0;
 
+async function signalExternalReply(
+  taskId: string,
+  edgeKey: string,
+  boundary: 'structured' | 'observed',
+  status: 'ok' | 'error' = 'ok',
+): Promise<void> {
+  const app = useAppStore.getState();
+  app.signalSessionReply(taskId, edgeKey);
+
+  // Session detection normally hydrated the renderer long before a reply
+  // finishes. Fall back to the authoritative task read so an unusually fast
+  // CLI cannot lose its notification to a renderer-store race.
+  let task = useTaskStore.getState().tasks.find((candidate) => candidate.id === taskId);
+  if (!task) {
+    const result = await rpcResult('task.get', { taskId, eventsAfter: 0 });
+    if (result.ok) task = result.data.task;
+  }
+  if (task) app.signalExternalSessionNotice(task, edgeKey, boundary, status);
+}
+
 export const PANEL_MIN_WIDTH = 480;
 export const PANEL_MAX_WIDTH = 900;
 export const PANEL_DEFAULT_WIDTH = 600;
@@ -323,9 +343,10 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
     // Structured Claude/Codex streams expose a real reply/turn boundary.
     // Reflect it on the exact Session row instead of animating whichever room
     // happens to be selected at the time.
-    onEvent('external.turn', ({ terminalId, taskId }) => {
+    onEvent('external.turn', ({ terminalId, taskId, status }) => {
       seq += 1;
-      useAppStore.getState().signalSessionReply(taskId, `external-turn:${terminalId}:${seq}`);
+      const edgeKey = `external-turn:${terminalId}:${seq}`;
+      void signalExternalReply(taskId, edgeKey, 'structured', status);
     });
 
     // Interactive Claude/Codex TUIs do not expose structured result events.
@@ -333,7 +354,8 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
     // submitted prompt; it must never be promoted into semantic Replay data.
     onEvent('external.activitySettled', ({ terminalId, taskId }) => {
       seq += 1;
-      useAppStore.getState().signalSessionReply(taskId, `external-settled:${terminalId}:${seq}`);
+      const edgeKey = `external-settled:${terminalId}:${seq}`;
+      void signalExternalReply(taskId, edgeKey, 'observed');
     });
 
     // Focused-workspace changes intentionally do not clear terminal/session

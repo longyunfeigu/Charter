@@ -121,21 +121,22 @@ test.describe('Shell v3 — layered live supervision (PIVOT-025)', () => {
 });
 
 test.describe('Shell v3 — Home refinements (PIVOT-027, PIVOT-012 title)', () => {
-  test('the active project row expands into a file tree; files open in the Editor', async () => {
+  test('the active project row opens the canonical Files context and Editor', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
     });
     try {
       await page.getByTestId('surface-home').click();
-      // The active row toggles its lazy tree in place.
+      // Projects are global navigation only; the contextual Explorer is the
+      // one file tree and lives next to the Editor.
       await page.getByTestId('rail-context').click();
       await page.locator('[data-testid^="home-recent-"].active').click();
-      await expect(page.getByTestId('home-project-tree')).toBeVisible();
-      await page.getByTestId('home-tree-src').click();
-      await expect(page.getByTestId('home-tree-src/index.ts')).toBeVisible();
-      await page.getByTestId('home-tree-src/index.ts').click();
       await expect(page.getByTestId('project-tool-view')).toBeVisible();
+      await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
+      await page.getByTestId('tree-item-src').click();
+      await expect(page.getByTestId('tree-item-src/index.ts')).toBeVisible();
+      await page.getByTestId('tree-item-src/index.ts').click();
       await expect(page.getByTestId('home-view')).toHaveCount(0);
       await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
       await expect(page.getByTestId('agent-panel-main')).toHaveCount(0);

@@ -49,14 +49,14 @@ function createDualClaudeBin(alphaFixture: string, betaFixture: string): string 
   return bin;
 }
 
-function createObservedClaudeBin(): string {
-  const bin = mkdtempSync(join(tmpdir(), 'charter-observed-claude-'));
+function createObservedAgentBin(provider: 'claude' | 'codex'): string {
+  const bin = mkdtempSync(join(tmpdir(), `charter-observed-${provider}-`));
   writeFileSync(
-    join(bin, 'claude'),
+    join(bin, provider),
     [
       '#!/usr/bin/env node',
       "process.stdin.setEncoding('utf8');",
-      "console.log('observed-claude-ready');",
+      `console.log(${JSON.stringify(`observed-${provider}-ready`)});`,
       'let replying = false;',
       "process.stdin.on('data', (input) => {",
       '  if (replying || !/[\\r\\n]/.test(input)) return;',
@@ -76,7 +76,7 @@ function createObservedClaudeBin(): string {
       '',
     ].join('\n'),
   );
-  chmodSync(join(bin, 'claude'), 0o755);
+  chmodSync(join(bin, provider), 0o755);
   return bin;
 }
 
@@ -90,90 +90,125 @@ async function terminalItems(page: Page): Promise<TerminalInfo[]> {
   });
 }
 
-async function externalTasks(page: Page): Promise<ExternalTaskInfo[]> {
-  return page.evaluate(async () => {
+async function externalTasks(
+  page: Page,
+  provider: 'claude' | 'codex' = 'claude',
+): Promise<ExternalTaskInfo[]> {
+  return page.evaluate(async (nextProvider) => {
     const result = (await window.product.rpc['task.list']!({
       filter: 'all',
       includeArchived: false,
       scope: 'all',
     })) as { ok: boolean; data?: { tasks: ExternalTaskInfo[] } };
     return result.ok
-      ? (result.data?.tasks ?? []).filter((task) => task.external?.cli === 'claude')
+      ? (result.data?.tasks ?? []).filter((task) => task.external?.cli === nextProvider)
       : [];
-  });
+  }, provider);
 }
 
-test.describe('Claude Session identity and presence', () => {
-  test('observed Claude TUI settles into a visible whole-card reply shake', async () => {
-    const fixture = createGitFixture();
-    const bin = createObservedClaudeBin();
-    const { app, page } = await launchApp({
-      env: {
-        PI_IDE_OPEN_WORKSPACE: fixture,
-        PI_IDE_EXTERNAL_CLIS: 'claude',
-        PATH: `${bin}:${process.env.PATH ?? ''}`,
-      },
-    });
-    const errors: string[] = [];
-    page.on('pageerror', (error) => errors.push(error.message));
-    page.on('console', (message) => {
-      if (message.type() === 'error') errors.push(message.text());
-    });
-    try {
-      await page.setViewportSize({ width: 1440, height: 900 });
-      await page.keyboard.press('Control+`');
-      await expect(page.locator('.xterm')).toBeVisible({ timeout: 15_000 });
-      await page.getByTestId('terminal-host').locator('.xterm').click();
-      await page.keyboard.type(join(bin, 'claude'));
-      await page.keyboard.press('Enter');
-      await expect(page.getByTestId('terminal-host')).toContainText('observed-claude-ready', {
-        timeout: 15_000,
+test.describe('External Session identity and presence', () => {
+  for (const provider of ['claude', 'codex'] as const) {
+    test(`observed ${provider} TUI shows a reply notice and whole-card shake`, async () => {
+      const fixture = createGitFixture();
+      const bin = createObservedAgentBin(provider);
+      const { app, page } = await launchApp({
+        env: {
+          PI_IDE_OPEN_WORKSPACE: fixture,
+          PI_IDE_EXTERNAL_CLIS: provider,
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+        },
       });
-      await expect.poll(async () => (await externalTasks(page)).length).toBe(1);
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      page.on('console', (message) => {
+        if (message.type() === 'error') errors.push(message.text());
+      });
+      try {
+        // The user's Retina capture is 2736×1474 physical pixels, i.e. a
+        // 1368×737 logical viewport. Match that frame for design comparison.
+        await page.setViewportSize({ width: 1368, height: 737 });
+        await page.keyboard.press('Control+`');
+        await expect(page.locator('.xterm')).toBeVisible({ timeout: 15_000 });
+        await page.getByTestId('terminal-host').locator('.xterm').click();
+        await page.keyboard.type(join(bin, provider));
+        await page.keyboard.press('Enter');
+        await expect(page.getByTestId('terminal-host')).toContainText(
+          `observed-${provider}-ready`,
+          { timeout: 15_000 },
+        );
+        await expect.poll(async () => (await externalTasks(page, provider)).length).toBe(1);
 
-      const task = (await externalTasks(page))[0]!;
-      const row = page.getByTestId(`home-task-${task.id}`);
-      await expect(row).toBeVisible();
-      await expect(row).not.toHaveAttribute('data-reply', 'true');
-      await row.click();
-      await expect(row).toHaveClass(/selected/);
-      await expect(page.getByTestId('external-agent-input')).toBeEnabled();
+        const task = (await externalTasks(page, provider))[0]!;
+        const row = page.getByTestId(`home-task-${task.id}`);
+        await expect(row).toBeVisible();
+        await expect(row).not.toHaveAttribute('data-reply', 'true');
+        await row.click();
+        await expect(row).toHaveClass(/selected/);
+        await expect(page.getByTestId('external-agent-input')).toBeEnabled();
+        await page.locator('.toast button[aria-label="Dismiss"]').evaluateAll((buttons) => {
+          for (const button of buttons) (button as HTMLButtonElement).click();
+        });
 
-      // Exercise the exact in-Session path from the report: the host sees the
-      // submitted Enter, observes non-structured PTY output, then emits only a
-      // presence edge after 1.8s of quiet.
-      await page.getByTestId('external-agent-input').fill('finish this observed turn');
-      await page.getByTestId('external-agent-send').click();
-      await expect(page.getByTestId('external-terminal-host')).toContainText(
-        'observed-reply-complete',
-        { timeout: 10_000 },
-      );
-      await expect(row).toHaveAttribute('data-reply', 'true', { timeout: 8_000 });
-      await expect(row).toHaveClass(/reply-shake/);
-      await expect(row).toHaveCSS('animation-name', 'srSessionReplyShake');
-      await expect(row).toHaveCSS('animation-duration', '2.2s');
-      const cardWave = await row.evaluate(
-        (element) => getComputedStyle(element, '::after').animationName,
-      );
-      expect(cardWave).toBe('srSessionCardWave');
-      await expect
-        .poll(async () => {
-          const transform = await row.evaluate((element) => {
-            const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
-            return { rotation: Math.abs(matrix.b), vertical: Math.abs(matrix.m42) };
-          });
-          return transform.rotation > 0.025 && transform.vertical > 0.5;
-        })
-        .toBe(true);
+        // Exercise the exact in-Session path from the report: the host sees the
+        // submitted Enter, observes non-structured PTY output, then emits only a
+        // presence edge after 1.8s of quiet.
+        await page.getByTestId('external-agent-input').fill('finish this observed turn');
+        await page.getByTestId('external-agent-send').click();
+        await expect(page.getByTestId('external-terminal-host')).toContainText(
+          'observed-reply-complete',
+          { timeout: 10_000 },
+        );
 
-      await page.screenshot({ path: '/tmp/charter-observed-claude-reply-shake.png' });
-      await row.screenshot({ path: '/tmp/charter-observed-claude-reply-card.png' });
-      expect(errors, errors.join('\n')).toEqual([]);
-      await expect(page.locator('vite-error-overlay')).toHaveCount(0);
-    } finally {
-      await app.close();
-    }
-  });
+        const notice = page.locator(
+          `[data-testid="session-completion-notice"][data-kind="reply"][data-task-id="${task.id}"]`,
+        );
+        await expect(notice).toBeVisible({ timeout: 8_000 });
+        await expect(notice).toContainText(
+          `${provider === 'claude' ? 'Claude' : 'Codex'} reply complete`,
+        );
+        await expect(notice).toContainText('Terminal output settled');
+
+        await expect(row).toHaveAttribute('data-reply', 'true', { timeout: 8_000 });
+        await expect(row).toHaveClass(/reply-shake/);
+        await expect(row).toHaveCSS('animation-name', 'srSessionReplyShake');
+        await expect(row).toHaveCSS('animation-duration', '2.2s');
+        const cardWave = await row.evaluate(
+          (element) => getComputedStyle(element, '::after').animationName,
+        );
+        expect(cardWave).toBe('srSessionCardWave');
+
+        // Match the reported Archive surface and retain a desktop artifact of
+        // both pieces of completion presence in one real Electron frame.
+        await page.evaluate(() => {
+          document.documentElement.dataset.skin = 'archive';
+          document.documentElement.dataset.theme = 'light';
+        });
+        await page.screenshot({
+          path: `/tmp/charter-observed-${provider}-reply-notice.png`,
+        });
+        await row.screenshot({ path: `/tmp/charter-observed-${provider}-reply-card.png` });
+
+        await page.setViewportSize({ width: 820, height: 720 });
+        const noticeBox = await notice.boundingBox();
+        expect(noticeBox).not.toBeNull();
+        expect(noticeBox!.x).toBeGreaterThanOrEqual(0);
+        expect(noticeBox!.x + noticeBox!.width).toBeLessThanOrEqual(820);
+        await page.screenshot({
+          path: `/tmp/charter-observed-${provider}-reply-notice-narrow.png`,
+        });
+
+        // The banner carries the exact accounting task identity and reopens
+        // that Session through the same route as the Pi completion card.
+        await notice.getByRole('button', { name: /Open Session/i }).click();
+        await expect(page.getByTestId('task-room')).toHaveAttribute('data-task-id', task.id);
+        await expect(row).toHaveClass(/selected/);
+        expect(errors, errors.join('\n')).toEqual([]);
+        await expect(page.locator('vite-error-overlay')).toHaveCount(0);
+      } finally {
+        await app.close();
+      }
+    });
+  }
 
   test('two Claude Sessions keep distinct right panes and pulse the replying row', async () => {
     const alphaFixture = createGitFixture();
@@ -248,6 +283,12 @@ test.describe('Claude Session identity and presence', () => {
       await expect(betaRow).toHaveClass(/reply-shake/);
       await expect(betaRow).toHaveCSS('animation-name', 'srSessionReplyShake');
       await expect(betaRow.locator('.sr-provider')).toHaveClass(/session-wave/);
+      const betaReplyNotice = page.locator(
+        `[data-testid="session-completion-notice"][data-kind="reply"][data-task-id="${betaTask.id}"]`,
+      );
+      await expect(betaReplyNotice).toBeVisible();
+      await expect(betaReplyNotice).toContainText('Claude reply complete');
+      await expect(betaReplyNotice).toContainText('The latest reply finished');
 
       // Freeze the genuine running animation on its first diagonal peak so
       // the visual artifact proves the card rotates and moves vertically — a
@@ -295,6 +336,12 @@ test.describe('Claude Session identity and presence', () => {
         .toBe(true);
       await expect(alphaRow).toHaveAttribute('data-state', 'REVIEW_READY');
       await expect(betaRow).toHaveAttribute('data-state', 'REVIEW_READY');
+      const betaCompletionNotice = page.locator(
+        `[data-testid="session-completion-notice"][data-kind="completion"][data-task-id="${betaTask.id}"]`,
+      );
+      await expect(betaCompletionNotice).toBeVisible();
+      await expect(betaCompletionNotice).toContainText('Ready for review');
+      await expect(betaReplyNotice).toHaveCount(0);
       const alphaTitle = await alphaRow.locator('.sr-session-title b').innerText();
       const betaTitle = await betaRow.locator('.sr-session-title b').innerText();
       expect(alphaTitle).toMatch(/^Session /);

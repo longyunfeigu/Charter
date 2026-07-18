@@ -1,11 +1,43 @@
 import type { TaskDto } from '@pi-ide/ipc-contracts';
 
 export type SessionNoticeTone = 'success' | 'review' | 'error' | 'warning';
+export type ExternalReplyBoundary = 'structured' | 'observed';
 
 export interface SessionCompletionInfo {
   label: string;
   body: string;
   tone: SessionNoticeTone;
+}
+
+/**
+ * Interactive external agents stay in one running task across many replies, so their
+ * useful attention edge is not a task-state completion. Keep the copy honest
+ * about the evidence: structured streams expose a real turn boundary, while
+ * observed TUIs only prove that submitted-prompt output became quiet.
+ */
+export function externalSessionReplyInfo(
+  task: TaskDto,
+  boundary: ExternalReplyBoundary,
+  status: 'ok' | 'error' = 'ok',
+): SessionCompletionInfo | null {
+  const cli = task.external?.cli.toLowerCase();
+  if (cli !== 'claude' && cli !== 'codex') return null;
+  const provider = cli === 'claude' ? 'Claude' : 'Codex';
+  if (status === 'error') {
+    return {
+      label: `${provider} reply failed`,
+      body: 'The latest reply ended with an error. Open the Session for details.',
+      tone: 'error',
+    };
+  }
+  return {
+    label: `${provider} reply complete`,
+    body:
+      boundary === 'observed'
+        ? 'Terminal output settled · Session is ready for you.'
+        : 'The latest reply finished · Session is ready for you.',
+    tone: 'success',
+  };
 }
 
 function compactSessionIdentity(value: string): string {

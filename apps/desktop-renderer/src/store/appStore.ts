@@ -13,8 +13,10 @@ import { onEvent, rpc, rpcResult } from '../bridge.js';
 import { peekOpen, peekCloseTab, type PeekState } from '../views/peek.js';
 import { applyAppearance } from '../appearance.js';
 import {
+  externalSessionReplyInfo,
   sessionCompletionInfo,
   sessionDisplayTitle,
+  type ExternalReplyBoundary,
   type SessionNoticeTone,
 } from './sessionAttention.js';
 
@@ -57,6 +59,7 @@ export interface SessionReplySignal {
 }
 
 export interface SessionNotice extends SessionCompletionSignal {
+  kind: 'completion' | 'reply';
   title: string;
   projectName: string;
   label: string;
@@ -153,6 +156,12 @@ interface AppStore {
   pushToast(kind: Toast['kind'], message: string): void;
   dismissToast(id: string): void;
   signalSessionReply(taskId: string, edgeKey: string): void;
+  signalExternalSessionNotice(
+    task: TaskDto,
+    edgeKey: string,
+    boundary: ExternalReplyBoundary,
+    status?: 'ok' | 'error',
+  ): void;
   signalSessionCompletion(task: TaskDto): void;
   dismissSessionNotice(id: string): void;
   revealTaskSession(taskId: string): void;
@@ -500,6 +509,37 @@ export const useAppStore = create<AppStore>((set, get) => ({
       });
     }, 4_200);
   },
+  signalExternalSessionNotice(task, edgeKey, boundary, status = 'ok') {
+    const info = externalSessionReplyInfo(task, boundary, status);
+    if (!info || get().settings?.notifications.enabled === false) return;
+    // If the process already crossed a terminal task-state edge, that stronger
+    // task notification owns the banner. The row presence signal still runs.
+    if (sessionCompletionInfo(task)) return;
+    if (get().sessionNotices.some((notice) => notice.edgeKey === edgeKey)) return;
+
+    const id = newId('session-reply-notice');
+    const notice: SessionNotice = {
+      id,
+      edgeKey,
+      taskId: task.id,
+      state: task.state,
+      tone: info.tone,
+      kind: 'reply',
+      title: sessionDisplayTitle(task),
+      projectName: task.projectName,
+      label: info.label,
+      body: info.body,
+    };
+    // A later reply for this Session replaces the earlier one instead of
+    // stacking repeated cards for the same long-lived interactive process.
+    set({
+      sessionNotices: [
+        ...get().sessionNotices.filter((candidate) => candidate.taskId !== task.id),
+        notice,
+      ].slice(-3),
+    });
+    setTimeout(() => get().dismissSessionNotice(id), 5_000);
+  },
   signalSessionCompletion(task) {
     const info = sessionCompletionInfo(task);
     if (!info) return;
@@ -530,12 +570,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (get().settings?.notifications.enabled === false) return;
     const notice: SessionNotice = {
       ...signal,
+      kind: 'completion',
       title: sessionDisplayTitle(task),
       projectName: task.projectName,
       label: info.label,
       body: info.body,
     };
-    set({ sessionNotices: [...get().sessionNotices, notice].slice(-3) });
+    // A task-state completion is stronger than a preceding external reply
+    // edge, so it atomically replaces that Session's transient reply card.
+    set({
+      sessionNotices: [
+        ...get().sessionNotices.filter((candidate) => candidate.taskId !== task.id),
+        notice,
+      ].slice(-3),
+    });
     setTimeout(() => get().dismissSessionNotice(id), 5_000);
   },
   dismissSessionNotice(id) {

@@ -78,13 +78,13 @@ test.describe('Shell v4 — global tasks on a multi-mount engine (ADR-0009)', ()
       await expect(page.getByTestId('plan-card')).toBeVisible({ timeout: 20000 });
 
       // Back home, focus project B — the pending task must NOT be cancelled.
-      // The Projects panel stays open and expands B's file tree in place.
+      // Its Files context replaces the former duplicate tree in Projects.
       await page.getByTestId('task-room-back').click();
       await page.getByTestId('rail-context').click();
       await page.getByTestId(`home-recent-${projectB}`).click();
-      await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
-      await expect(page.getByTestId('home-project-tree')).toBeVisible({ timeout: 15000 });
-      await expect(page.getByTestId('home-project')).toContainText(
+      await expect(page.getByTestId('project-tool-view')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
+      await expect(page.locator('.project-tool-title')).toContainText(
         projectB.split('/').pop() ?? 'fixture',
         { timeout: 15000 },
       );

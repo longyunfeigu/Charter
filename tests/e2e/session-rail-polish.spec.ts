@@ -126,7 +126,7 @@ test.describe('Session rail and conversation role polish', () => {
     }
   });
 
-  test('switches project context and expands its tree without leaving Projects', async () => {
+  test('switches project context into the one canonical Files tool', async () => {
     const projectA = realpathSync(createGitFixture());
     const projectB = realpathSync(createGitFixture());
     const first = await launchApp({
@@ -147,12 +147,13 @@ test.describe('Session rail and conversation role polish', () => {
       await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
 
       await page.getByTestId(`home-recent-${projectA}`).click();
-      await expect(page.getByTestId('rail-projects-panel')).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId('project-tool-view')).toBeVisible({ timeout: 15_000 });
       await expect(page.getByTestId('rail-view-projects')).toHaveClass(/active/);
       await expect(page.getByTestId(`home-recent-${projectA}`)).toHaveClass(/active/);
-      await expect(page.getByTestId('home-project-tree')).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId('explorer')).toBeVisible();
+      await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
       await page.screenshot({
-        path: join(tmpdir(), 'charter-project-tree-expanded.png'),
+        path: join(tmpdir(), 'charter-project-files-canonical.png'),
         fullPage: true,
       });
     } finally {

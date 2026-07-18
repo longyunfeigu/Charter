@@ -328,6 +328,7 @@ export function Workbench(): React.JSX.Element {
             key={notice.id}
             className={`session-notice ${notice.tone}`}
             data-testid="session-completion-notice"
+            data-kind={notice.kind}
             data-task-id={notice.taskId}
             data-state={notice.state}
           >
