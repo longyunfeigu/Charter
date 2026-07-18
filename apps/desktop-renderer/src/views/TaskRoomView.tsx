@@ -36,6 +36,7 @@ import { buildPreviewFeedbackText } from './LivePreview.js';
 import { ExternalTerminalColumn, useExternalFiles } from './ExternalRoom.js';
 import { roomCopyFor } from './roomCopy.js';
 import { SessionToolCanvas, type SessionFileStat } from './SessionToolCanvas.js';
+import { SessionSplitHandle } from './SessionSplitHandle.js';
 import { CodeContextAttachments } from './CodeContextAttachments.js';
 import { sessionDisplayTitle } from '../store/sessionAttention.js';
 
@@ -73,6 +74,22 @@ export function TaskRoomView(): React.JSX.Element {
   const canvasBodyRef = useRef<HTMLDivElement>(null);
   // ADR-0024: the whole Session room is one drop target for context feeding.
   const [roomDrop, setRoomDrop] = useState(false);
+
+  // Hydrate this Session's remembered split before first paint.
+  React.useLayoutEffect(() => {
+    if (taskId) useAppStore.getState().ensureSessionSplit(taskId);
+  }, [taskId]);
+
+  // Resting split sync — lives here (not in SessionSplitHandle) because this
+  // component owns the container ref: a child's layout effect would run before
+  // the parent host ref is attached on mount, losing the remembered ratio.
+  const manualSplit = useAppStore((s) => (taskId ? s.sessionSplit[taskId] : undefined));
+  React.useLayoutEffect(() => {
+    const el = canvasBodyRef.current;
+    if (!el) return;
+    if (manualSplit !== undefined) el.style.setProperty('--session-split', `${manualSplit}%`);
+    else el.style.removeProperty('--session-split');
+  }, [manualSplit, taskId]);
 
   useEffect(() => {
     store.init();
@@ -290,7 +307,9 @@ export function TaskRoomView(): React.JSX.Element {
 
       <div
         ref={canvasBodyRef}
-        className={`tr-body session-canvas-body ${app.sessionToolExpanded ? 'tool-expanded' : ''}`}
+        className={`tr-body session-canvas-body ${app.sessionToolExpanded ? 'tool-expanded' : ''} ${
+          app.sessionSplit[task.id] !== undefined || app.sessionSplitDragging ? 'split-manual' : ''
+        } ${app.sessionSplitDragging ? 'splitting' : ''}`}
       >
         <div className="tr-main">
           {task.external ? (
@@ -309,6 +328,7 @@ export function TaskRoomView(): React.JSX.Element {
           ) : null}
           {task.external ? null : <RoomComposer key={task.id} task={task} running={running} />}
         </div>
+        <SessionSplitHandle taskId={task.id} containerRef={canvasBodyRef} />
         <SessionToolCanvas
           key={task.id}
           task={task}

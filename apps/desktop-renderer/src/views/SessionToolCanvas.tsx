@@ -120,7 +120,12 @@ export function SessionToolCanvas(props: {
           data-testid="session-tool-expand"
           aria-pressed={expanded}
           title={expanded ? 'Restore balanced Session view' : 'Give the tool canvas more room'}
-          onClick={() => app.setSessionToolExpanded(!expanded)}
+          onClick={() => {
+            // Explicit stop jump: a hand-dragged ratio yields to the button,
+            // while the Diff auto-expand never overrides a manual ratio.
+            app.setSessionSplit(task.id, null);
+            app.setSessionToolExpanded(!expanded);
+          }}
         >
           <Ic name="layout" size={13} />
           <span>{expanded ? 'Balance' : 'Expand'}</span>

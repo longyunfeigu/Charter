@@ -112,6 +112,12 @@ interface AppStore {
    * second application shell. */
   sessionTool: SessionTool;
   sessionToolExpanded: boolean;
+  /** Manual conversation/tool split (% of the canvas given to the conversation)
+   * per Session — set by the drag handle (design mock A). While present it
+   * overrides the two-stop expanded model, so the Diff auto-expand no longer
+   * shrinks a conversation the user widened by hand. */
+  sessionSplit: Record<string, number>;
+  sessionSplitDragging: boolean;
   projectTool: ProjectTool | null;
   /** Contextual lower panel for project diagnostics. It belongs to Project
    * Tools and does not resurrect the retired global workspace shell. */
@@ -120,6 +126,11 @@ interface AppStore {
   closePreviewRail(): void;
   setSessionTool(tool: SessionTool): void;
   setSessionToolExpanded(expanded: boolean): void;
+  /** pct = conversation share (20–80); null returns the Session to the stops. */
+  setSessionSplit(taskId: string, pct: number | null): void;
+  setSessionSplitDragging(dragging: boolean): void;
+  /** Hydrate a Session's remembered split from localStorage once. */
+  ensureSessionSplit(taskId: string): void;
   setProjectTool(tool: ProjectTool | null): void;
   setProjectBottomTab(tab: BottomTab | null): void;
   /** Bumped when a control asks the launcher composer to take focus. */
@@ -195,6 +206,15 @@ if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', flushPendingLayout);
 }
 
+function sessionSplitKey(taskId: string): string {
+  return `charter.sessionSplit.${taskId}`;
+}
+
+function readStoredSessionSplit(taskId: string): number | null {
+  const raw = Number(window.localStorage.getItem(sessionSplitKey(taskId)));
+  return Number.isFinite(raw) && raw >= 20 && raw <= 80 ? raw : null;
+}
+
 export const useAppStore = create<AppStore>((set, get) => ({
   ready: false,
   appInfo: null,
@@ -221,6 +241,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   previewRailTaskId: null,
   sessionTool: 'summary',
   sessionToolExpanded: false,
+  sessionSplit: {},
+  sessionSplitDragging: false,
   projectTool: null,
   projectBottomTab: null,
   composerFocusSeq: 0,
@@ -273,6 +295,28 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   setSessionToolExpanded(sessionToolExpanded) {
     set({ sessionToolExpanded });
+  },
+  setSessionSplit(taskId, pct) {
+    const sessionSplit = { ...get().sessionSplit };
+    if (pct === null) {
+      delete sessionSplit[taskId];
+      window.localStorage.removeItem(sessionSplitKey(taskId));
+    } else {
+      const clamped = Math.min(Math.max(pct, 20), 80);
+      sessionSplit[taskId] = clamped;
+      window.localStorage.setItem(sessionSplitKey(taskId), String(Math.round(clamped * 10) / 10));
+    }
+    set({ sessionSplit });
+  },
+  setSessionSplitDragging(sessionSplitDragging) {
+    set({ sessionSplitDragging });
+  },
+  ensureSessionSplit(taskId) {
+    if (taskId in get().sessionSplit) return;
+    const stored = readStoredSessionSplit(taskId);
+    if (stored !== null) {
+      set({ sessionSplit: { ...get().sessionSplit, [taskId]: stored } });
+    }
   },
   setProjectTool(projectTool) {
     set({

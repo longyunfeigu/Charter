@@ -160,6 +160,97 @@ test.describe('Unified Session Canvas', () => {
     }
   });
 
+  test('the conversation/tool boundary drags, survives Diff auto-expand, and resets', async () => {
+    test.setTimeout(90000);
+    const fixture = createGitFixture();
+    const { app, page } = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+      home: 'keep',
+    });
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+    });
+
+    try {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.getByTestId('project-tool-back').click();
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
+      await page.getByTestId('home-mode-auto').click();
+      await page
+        .getByTestId('home-intent')
+        .fill('[scenario:edit-multifile] drag the session split');
+      await page.getByTestId('home-submit').click();
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+        timeout: 30000,
+      });
+      await expect(page.getByTestId('task-room')).toBeVisible();
+      await settleLayout(page);
+
+      const mainWidth = (): Promise<number> =>
+        page
+          .locator('.session-canvas-body > .tr-main')
+          .evaluate((el) => el.getBoundingClientRect().width);
+
+      const handle = page.getByTestId('session-split-handle');
+      await expect(handle).toBeVisible();
+      const before = await mainWidth();
+
+      // Drag the boundary 160px right: the conversation widens live with the
+      // readout chip visible, and the ratio is persisted for this Session.
+      const box = (await handle.boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + 300);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 160, box.y + 300, { steps: 8 });
+      await expect(page.getByTestId('session-split-chip')).toBeVisible();
+      await page.mouse.up();
+      const dragged = await mainWidth();
+      expect(dragged - before).toBeGreaterThan(100);
+      expect(
+        await page.evaluate(() =>
+          Object.keys(window.localStorage).some((key) => key.startsWith('charter.sessionSplit.')),
+        ),
+      ).toBe(true);
+
+      // Opening Diff auto-expands the stops model — it must NOT override a
+      // hand-dragged ratio anymore.
+      await page.getByTestId('session-tool-diff').click();
+      await expect(page.getByTestId('session-diff-review')).toBeVisible();
+      await settleLayout(page);
+      expect(Math.abs((await mainWidth()) - dragged)).toBeLessThan(8);
+
+      // The ratio survives leaving and reopening the room.
+      await page.getByTestId('task-room-back').click();
+      await page.locator('[data-testid^="home-task-"]').first().click();
+      await expect(page.getByTestId('task-room')).toBeVisible();
+      await settleLayout(page);
+      expect(Math.abs((await mainWidth()) - dragged)).toBeLessThan(8);
+
+      // The Expand button is an explicit stop jump: it clears the manual ratio
+      // and lands on the expanded 38/62 stop.
+      await page.getByTestId('session-tool-expand').click();
+      await settleLayout(page);
+      expect(before - (await mainWidth())).toBeGreaterThan(100);
+
+      // Double-click resets to the balanced 56/44 default.
+      await handle.dblclick();
+      await settleLayout(page);
+      expect(Math.abs((await mainWidth()) - before)).toBeLessThan(10);
+
+      // Keyboard nudges create a manual ratio again (2% per arrow).
+      await handle.focus();
+      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('ArrowRight');
+      await settleLayout(page);
+      expect((await mainWidth()) - before).toBeGreaterThan(30);
+
+      expect(errors).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
   test('dispatches a native agent from the same Composer and keeps the Session rail', async () => {
     test.setTimeout(60000);
     const fixture = createGitFixture();
