@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:chil
 import { existsSync } from 'node:fs';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import type { Logger } from '@pi-ide/foundation';
+import { errorMessage, type Logger } from '@pi-ide/foundation';
 
 export interface PythonDiagnostic {
   message: string;
@@ -271,7 +271,7 @@ export class PythonLspClient {
         this.handleMessage(JSON.parse(body) as Record<string, unknown>);
       } catch (e) {
         this.logger.warn('lsp message parse failed', {
-          error: e instanceof Error ? e.message : String(e),
+          error: errorMessage(e),
         });
       }
     }

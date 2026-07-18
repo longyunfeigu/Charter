@@ -6,7 +6,7 @@ import type {
   EventPayload,
   IpcResponse,
 } from '@pi-ide/ipc-contracts';
-import { productError, ProductFailure, type ProductError } from '@pi-ide/foundation';
+import { errorMessage, productError, ProductFailure, type ProductError } from '@pi-ide/foundation';
 
 interface ProductBridgeShape {
   protocolVersion: number;
@@ -59,7 +59,7 @@ export async function rpcResult<N extends ChannelName>(
       ok: false,
       error: productError('APP_UNEXPECTED', {
         userMessage: 'An unexpected error occurred.',
-        technicalMessage: e instanceof Error ? e.message : String(e),
+        technicalMessage: errorMessage(e),
       }),
     };
   }

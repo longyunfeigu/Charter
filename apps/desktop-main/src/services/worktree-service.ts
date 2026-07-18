@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { basename, dirname, join } from 'node:path';
-import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
+import { errorMessage, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import { GitService } from '@pi-ide/git-service';
 import { resolveInsideRoot } from '@pi-ide/workspace-service';
 import type { ChangeSet } from '@pi-ide/change-service';
@@ -163,14 +163,14 @@ export class WorktreeService {
       throw new ProductFailure(
         productError('WT_CREATE_FAILED', {
           userMessage: 'Could not create the isolated worktree for this task.',
-          technicalMessage: e instanceof Error ? e.message : String(e),
+          technicalMessage: errorMessage(e),
         }),
       );
     }
     const copied = await this.copyIncludes(projectRoot, path).catch((e) => {
       this.logger.warn('worktreeinclude copy failed', {
         taskId,
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
       return [] as string[];
     });
@@ -205,7 +205,7 @@ export class WorktreeService {
       } catch (e) {
         this.logger.warn('worktreeinclude copy skipped', {
           rel,
-          error: e instanceof Error ? e.message : String(e),
+          error: errorMessage(e),
         });
       }
     }
@@ -304,7 +304,7 @@ export class WorktreeService {
     } catch (e) {
       this.logger.warn('worktree remove failed', {
         path: worktree.path,
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
     }
     await fs.rm(worktree.path, { recursive: true, force: true }).catch(() => undefined);
@@ -380,7 +380,7 @@ export class WorktreeService {
         throw new ProductFailure(
           productError('WT_MERGE_READ_FAILED', {
             userMessage: `Could not read ${file.path} from the task worktree.`,
-            technicalMessage: e instanceof Error ? e.message : String(e),
+            technicalMessage: errorMessage(e),
           }),
         );
       }

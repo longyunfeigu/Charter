@@ -1,4 +1,4 @@
-import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
+import { errorMessage, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import { GitService } from '@pi-ide/git-service';
 import type { TerminalManager } from '@pi-ide/terminal-service';
 import { openWorkspaceInfo, WorkspaceWatcher, type FsChange } from '@pi-ide/workspace-service';
@@ -403,7 +403,7 @@ export class ExternalSessionService {
       this.logger.warn('external session context disappeared before accounting', {
         terminalId,
         root,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
       return;
     }
@@ -415,7 +415,7 @@ export class ExternalSessionService {
       } catch (e) {
         this.logger.warn('external session snapshot failed; degrading to first-seen baselines', {
           terminalId,
-          error: e instanceof Error ? e.message : String(e),
+          error: errorMessage(e),
         });
       }
     }
@@ -434,7 +434,7 @@ export class ExternalSessionService {
     } catch (e) {
       this.logger.warn('external session task creation failed', {
         terminalId,
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
       broadcast('terminal.agentState', { id: terminalId, agent: cli, taskId: null });
       return;
@@ -535,7 +535,7 @@ export class ExternalSessionService {
           this.logger.warn('external accounting skipped a path', {
             taskId: session.taskId,
             path: change.relativePath,
-            error: e instanceof Error ? e.message : String(e),
+            error: errorMessage(e),
           });
         }
       }
@@ -572,7 +572,7 @@ export class ExternalSessionService {
     } catch (e) {
       this.logger.warn('external session publish failed', {
         taskId: session.taskId,
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
     }
   }
@@ -617,7 +617,7 @@ export class ExternalSessionService {
     } catch (e) {
       this.logger.warn('external session finish failed', {
         taskId: session.taskId,
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
     }
     broadcast('terminal.agentState', { id: terminalId, agent: null, taskId: session.taskId });

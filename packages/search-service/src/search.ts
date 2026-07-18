@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import ignoreFactory from 'ignore';
 import { DEFAULT_IGNORES, resolveInsideRoot } from '@pi-ide/workspace-service';
-import { detectBinary } from '@pi-ide/foundation';
+import { errorMessage, detectBinary } from '@pi-ide/foundation';
 
 export interface TextSearchOptions {
   query: string;
@@ -202,7 +202,7 @@ export class SearchService {
       const wrapped = options.wholeWord ? `\\b(?:${source})\\b` : source;
       regex = new RegExp(wrapped, options.caseSensitive ? 'g' : 'gi');
     } catch (e) {
-      throw new Error(`Invalid search pattern: ${e instanceof Error ? e.message : String(e)}`);
+      throw new Error(`Invalid search pattern: ${errorMessage(e)}`);
     }
 
     const groups: SearchGroup[] = [];
@@ -332,7 +332,7 @@ export class SearchService {
         outcomes.push({
           path: request.path,
           status: 'error',
-          detail: e instanceof Error ? e.message : String(e),
+          detail: errorMessage(e),
         });
       }
     }

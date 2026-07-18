@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promises as fs, realpathSync } from 'node:fs';
 import { join, sep } from 'node:path';
-import type { Logger } from '@pi-ide/foundation';
+import { errorMessage, type Logger } from '@pi-ide/foundation';
 
 /**
  * Preview-gate port detection (ADR-0022). Read-only: enumerate loopback TCP
@@ -155,7 +155,7 @@ export class PreviewService {
       return attributeListeners(listeners, parseLsofCwds(cwdOut), realRoot);
     } catch (e) {
       this.logger.warn('preview port detection failed', {
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
       return [];
     }

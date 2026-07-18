@@ -4,7 +4,7 @@ import {
   type LayoutState,
   type RecentWorkspaceDto,
 } from '@pi-ide/ipc-contracts';
-import { newId, type Logger, type ProductError } from '@pi-ide/foundation';
+import { errorMessage, newId, type Logger, type ProductError } from '@pi-ide/foundation';
 import { existsSync } from 'node:fs';
 
 const APP_SCOPE = '__app__';
@@ -108,7 +108,7 @@ export class StateService {
           new Date().toISOString(),
         );
     } catch (e) {
-      this.logger.warn('failed to record error', { e: e instanceof Error ? e.message : String(e) });
+      this.logger.warn('failed to record error', { e: errorMessage(e) });
     }
   }
 

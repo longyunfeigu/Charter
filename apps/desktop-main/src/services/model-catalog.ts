@@ -1,4 +1,4 @@
-import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
+import { errorMessage, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import type { ModelDescriptor } from '@pi-ide/agent-contract';
 import type { ProviderApi } from '@pi-ide/ipc-contracts';
 
@@ -175,7 +175,7 @@ export class ModelCatalogService {
       throw new ProductFailure(
         productError('MODELS_FETCH_FAILED', {
           userMessage: `Could not reach ${provider.displayName} to list models (network error or timeout).`,
-          technicalMessage: e instanceof Error ? e.message : String(e),
+          technicalMessage: errorMessage(e),
           retryable: true,
         }),
       );

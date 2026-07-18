@@ -56,6 +56,11 @@ export class ProductFailure extends Error {
   }
 }
 
+/** Plain message of any thrown value — the repo-wide catch-block idiom. */
+export function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 /** Convert any thrown value into a ProductError, preserving structure when present. */
 export function toProductError(value: unknown, fallbackCode: string): ProductError {
   if (value instanceof ProductFailure) return value.error;

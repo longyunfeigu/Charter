@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { resolveSettings, type ResolvedSettings } from '@pi-ide/app-domain';
 import type { Settings } from '@pi-ide/ipc-contracts';
 import { WORKSPACE_OVERRIDABLE_SECTIONS } from '@pi-ide/ipc-contracts';
-import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
+import { errorMessage, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 
 type PlainObject = Record<string, unknown>;
 
@@ -41,7 +41,7 @@ export class SettingsService {
       return typeof parsed === 'object' && parsed !== null ? (parsed as PlainObject) : {};
     } catch (e) {
       this.logger.error('settings.json unreadable, using defaults', {
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
       return {};
     }

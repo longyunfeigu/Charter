@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { Logger } from '@pi-ide/foundation';
+import { errorMessage, type Logger } from '@pi-ide/foundation';
 import { SHELL_INTEGRATION_FILES } from '@pi-ide/terminal-service';
 
 /**
@@ -20,7 +20,7 @@ export function writeShellIntegrationFiles(userDataDir: string, logger: Logger):
     return dir;
   } catch (e) {
     logger.warn('shell integration scripts unavailable — terminals stay plain', {
-      error: e instanceof Error ? e.message : String(e),
+      error: errorMessage(e),
     });
     return null;
   }

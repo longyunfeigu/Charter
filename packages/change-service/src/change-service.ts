@@ -2,7 +2,13 @@ import { promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { applyPatch as applyUnifiedPatch, createTwoFilesPatch, structuredPatch } from 'diff';
-import { detectBinary, newId, productError, ProductFailure } from '@pi-ide/foundation';
+import {
+  errorMessage,
+  detectBinary,
+  newId,
+  productError,
+  ProductFailure,
+} from '@pi-ide/foundation';
 import { resolveInsideRoot } from '@pi-ide/workspace-service';
 import type { DocumentSnapshot, DocumentStore } from '@pi-ide/document-service';
 import { BlobStore } from './blob-store.js';
@@ -740,7 +746,7 @@ export class ChangeService {
           await this.documents.handleExternalChange(path);
         }
       } catch (e) {
-        verified.push({ path, ok: false, detail: e instanceof Error ? e.message : String(e) });
+        verified.push({ path, ok: false, detail: errorMessage(e) });
       }
     }
 

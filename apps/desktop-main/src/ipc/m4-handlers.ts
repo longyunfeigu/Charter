@@ -1,4 +1,11 @@
-import { fuzzyFilter, newId, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
+import {
+  errorMessage,
+  fuzzyFilter,
+  newId,
+  productError,
+  ProductFailure,
+  type Logger,
+} from '@pi-ide/foundation';
 import { SearchService } from '@pi-ide/search-service';
 import { TerminalManager } from '@pi-ide/terminal-service';
 import {
@@ -147,7 +154,7 @@ export class M4Services {
           available: true,
           serverPath: server.path,
           running: false,
-          hint: `The Python language server failed to start: ${e instanceof Error ? e.message : String(e)}`,
+          hint: `The Python language server failed to start: ${errorMessage(e)}`,
         };
       });
   }
@@ -201,7 +208,7 @@ export class M4Services {
         });
       })
       .catch((e) => {
-        this.logger.warn('search failed', { error: e instanceof Error ? e.message : String(e) });
+        this.logger.warn('search failed', { error: errorMessage(e) });
         broadcast('search.results', {
           searchId,
           groups: [],

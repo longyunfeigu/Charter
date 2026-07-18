@@ -1,6 +1,7 @@
 import {
   createSequenceAllocator,
   detectBinary,
+  errorMessage,
   newId,
   productError,
   ProductFailure,
@@ -745,7 +746,7 @@ export class TaskService {
         this.logger.warn('state hop skipped', {
           taskId,
           to: state,
-          error: e instanceof Error ? e.message : String(e),
+          error: errorMessage(e),
         });
       }
     }
@@ -1040,7 +1041,7 @@ export class TaskService {
     } catch (e) {
       this.logger.warn('pr draft generation failed', {
         taskId,
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
     }
     return { task: accepted, status: 'accepted', prDraft };
@@ -1724,7 +1725,7 @@ export class TaskService {
         });
       } catch (e) {
         this.logger.warn('state listener failed', {
-          error: e instanceof Error ? e.message : String(e),
+          error: errorMessage(e),
         });
       }
     }
@@ -1815,7 +1816,7 @@ export class TaskService {
           // longer readable. Keep the reference and record the omission.
           this.logger.warn('referenced task diff unavailable', {
             sourceTaskId,
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMessage(error),
           });
         }
 
@@ -2229,7 +2230,7 @@ export class TaskService {
       } catch (e) {
         this.logger.warn('external session recovery failed', {
           taskId: row.id,
-          error: e instanceof Error ? e.message : String(e),
+          error: errorMessage(e),
         });
       }
     }
@@ -2321,7 +2322,7 @@ export class TaskService {
       } catch (e) {
         this.logger.warn('session model re-assert failed; recreating session', {
           taskId,
-          error: e instanceof Error ? e.message : String(e),
+          error: errorMessage(e),
         });
         this.sessionRefs.delete(taskId);
         ref = undefined;
@@ -2522,7 +2523,7 @@ export class TaskService {
     void this.startTask(taskId, text, attachments).catch((e) => {
       this.logger.warn('reply-start failed', {
         taskId,
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
       this.attention(taskId, 'Your reply could not start a run — open the task and retry.');
     });
@@ -2716,7 +2717,7 @@ export class TaskService {
         this.logger.warn('state transition fallback failed', {
           taskId,
           to,
-          error: e instanceof Error ? e.message : String(e),
+          error: errorMessage(e),
         });
       }
     }
@@ -2748,7 +2749,7 @@ export class TaskService {
     } catch (e) {
       this.logger.error('finalize run failed', {
         taskId,
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
       this.safeTransition(taskId, 'REVIEW_READY');
     }
@@ -2782,7 +2783,7 @@ export class TaskService {
     } catch (e) {
       this.logger.warn('full-auto accept failed; task stays in review', {
         taskId,
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
       this.attention(taskId, 'Auto-apply failed — review the changes.');
     }
@@ -2943,7 +2944,7 @@ export class TaskService {
         .catch((e) => {
           this.logger.error('queued task launch failed', {
             taskId: next.taskId,
-            error: e instanceof Error ? e.message : String(e),
+            error: errorMessage(e),
           });
         })
         .finally(() => {
@@ -3059,7 +3060,7 @@ export class TaskService {
       }
     } catch (e) {
       this.logger.warn('tool audit persist failed', {
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
     }
   }
@@ -3105,7 +3106,7 @@ export class TaskService {
     const roots = new Map(wsRows.map((r) => [r.id, r.canonical_path]));
     await this.worktrees.sweepOrphans(roots, keep).catch((e) => {
       this.logger.warn('worktree orphan sweep failed', {
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
     });
   }

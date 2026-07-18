@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import {
   detectBinary,
   detectEol,
+  errorMessage,
   normalizeToEol,
   productError,
   ProductFailure,
@@ -116,7 +117,7 @@ export class DocumentStore {
     } catch (e) {
       throw docError('DOC_READ_FAILED', 'The file could not be read.', {
         relativePath,
-        cause: e instanceof Error ? e.message : String(e),
+        cause: errorMessage(e),
       });
     }
     try {
@@ -249,7 +250,7 @@ export class DocumentStore {
         'The file could not be saved. The original file is unchanged.',
         {
           relativePath,
-          cause: e instanceof Error ? e.message : String(e),
+          cause: errorMessage(e),
         },
       );
     }
@@ -395,7 +396,7 @@ export class DocumentStore {
     } catch (e) {
       throw docError('DOC_READ_FAILED', 'The file could not be read.', {
         relativePath,
-        cause: e instanceof Error ? e.message : String(e),
+        cause: errorMessage(e),
       });
     }
     const binary = detectBinary(buffer);

@@ -13,7 +13,13 @@ import { join, normalize } from 'node:path';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
-import { productError, toProductError, type Logger, type ProductError } from '@pi-ide/foundation';
+import {
+  errorMessage,
+  productError,
+  toProductError,
+  type Logger,
+  type ProductError,
+} from '@pi-ide/foundation';
 import { createAppPaths, type AppPaths } from './app-paths.js';
 import { CSP, DEV_CSP } from './csp.js';
 import { installGlobalSecurityHandlers, openExternalChecked } from './security.js';
@@ -715,7 +721,7 @@ if (!gotLock) {
     if (autoOpen && workspaceHost) {
       workspaceHost.open(autoOpen).catch((e) => {
         logger.error('auto-open workspace failed', {
-          error: e instanceof Error ? e.message : String(e),
+          error: errorMessage(e),
         });
       });
     }

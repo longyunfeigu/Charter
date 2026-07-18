@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { errorMessage } from '@pi-ide/foundation';
 import { monaco, modelUri, monacoFontFamily, monacoThemeName } from '../monaco-setup.js';
 import { useEditorStore, isMdRich, type EditorGroup } from '../store/editorStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
@@ -27,7 +28,7 @@ class RichEditorBoundary extends React.Component<
   }
   override componentDidCatch(error: unknown): void {
     void import('../store/appStore.js').then(({ reportClientError }) =>
-      reportClientError('MD_RICH_CRASH', error instanceof Error ? error.message : String(error)),
+      reportClientError('MD_RICH_CRASH', errorMessage(error)),
     );
   }
   override render(): React.ReactNode {

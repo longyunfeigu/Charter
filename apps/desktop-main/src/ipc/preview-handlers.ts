@@ -1,5 +1,5 @@
 import { nativeImage, shell, webContents, type WebContents, type WebFrameMain } from 'electron';
-import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
+import { errorMessage, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import type { PreviewAttachmentDto } from '@pi-ide/ipc-contracts';
 import { registerHandlers } from './router.js';
 import { broadcast } from '../broadcast.js';
@@ -183,7 +183,7 @@ export function registerPreviewHandlers(
           logger.warn('preview picker injection failed', {
             taskId,
             port,
-            error: e instanceof Error ? e.message : String(e),
+            error: errorMessage(e),
           });
           return { injected: false };
         }

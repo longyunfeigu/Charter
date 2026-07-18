@@ -10,7 +10,7 @@ import {
   type DirEntry,
 } from '@pi-ide/workspace-service';
 import type { WorkspaceDto } from '@pi-ide/ipc-contracts';
-import { newId, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
+import { errorMessage, newId, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import type { StateService } from './state-service.js';
 import type { SettingsService } from './settings-service.js';
 import { broadcast } from '../broadcast.js';
@@ -133,7 +133,7 @@ export class WorkspaceHost {
           .catch((e) => {
             this.logger.warn('external change handling failed', {
               path: change.relativePath,
-              error: e instanceof Error ? e.message : String(e),
+              error: errorMessage(e),
             });
           });
       }
@@ -203,7 +203,7 @@ export class WorkspaceHost {
       throw new ProductFailure(
         productError('WS_CREATE_FAILED', {
           userMessage: `Could not create ${kind === 'dir' ? 'folder' : 'file'} "${name}" (it may already exist).`,
-          technicalMessage: e instanceof Error ? e.message : String(e),
+          technicalMessage: errorMessage(e),
         }),
       );
     }
@@ -230,7 +230,7 @@ export class WorkspaceHost {
       throw new ProductFailure(
         productError('WS_RENAME_FAILED', {
           userMessage: `Could not rename to "${newName}".`,
-          technicalMessage: e instanceof Error ? e.message : String(e),
+          technicalMessage: errorMessage(e),
         }),
       );
     }
@@ -252,7 +252,7 @@ export class WorkspaceHost {
       throw new ProductFailure(
         productError('WS_TRASH_FAILED', {
           userMessage: `Could not move "${basename(path)}" to the trash.`,
-          technicalMessage: e instanceof Error ? e.message : String(e),
+          technicalMessage: errorMessage(e),
         }),
       );
     }

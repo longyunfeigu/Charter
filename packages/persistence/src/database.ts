@@ -2,7 +2,7 @@ import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { productError, ProductFailure } from '@pi-ide/foundation';
+import { errorMessage, productError, ProductFailure } from '@pi-ide/foundation';
 
 export interface Migration {
   version: number;
@@ -190,7 +190,7 @@ export function openDatabase(opts: OpenDatabaseOptions): OpenDatabaseResult {
             userMessage:
               'A database upgrade failed. Your previous data was restored from the automatic backup.',
             severity: 'fatal',
-            technicalMessage: e instanceof Error ? e.message : String(e),
+            technicalMessage: errorMessage(e),
             context: { backupRestored: Boolean(backupFile) },
           }),
         );

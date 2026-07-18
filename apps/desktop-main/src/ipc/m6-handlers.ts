@@ -1,4 +1,4 @@
-import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
+import { errorMessage, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import { providerPreset } from '@pi-ide/ipc-contracts';
 import { registerHandlers } from './router.js';
 import { processPreviewAttachment } from './preview-handlers.js';
@@ -117,7 +117,7 @@ export function registerM6Handlers(
           };
         } catch (e) {
           logger.error('models.list failed', {
-            error: e instanceof Error ? e.message : String(e),
+            error: errorMessage(e),
           });
           return { models: [], workerAlive: host.alive };
         }

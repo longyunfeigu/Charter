@@ -1,7 +1,7 @@
 import { safeStorage } from 'electron';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
+import { errorMessage, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import type { WorkerCredential } from '@pi-ide/agent-contract';
 import {
   effectiveBaseUrl,
@@ -138,7 +138,7 @@ export class SecretService {
     } catch (e) {
       this.logger.warn('credential unreadable', {
         providerId,
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
       return null;
     }

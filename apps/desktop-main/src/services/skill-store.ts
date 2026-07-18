@@ -15,7 +15,7 @@ import {
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
-import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
+import { errorMessage, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import type { SkillDto, SkillSourceDto, SkillSourceKind } from '@pi-ide/ipc-contracts';
 
 /**
@@ -412,7 +412,7 @@ export class SkillStore {
         } catch (error) {
           this.logger.warn('skill source watcher unavailable', {
             source: source.id,
-            error: error instanceof Error ? error.message : String(error),
+            error: errorMessage(error),
           });
           continue;
         }

@@ -17,7 +17,7 @@ import type {
   VisibleMessage,
 } from '@pi-ide/agent-contract';
 import { AGENT_EVENT_SCHEMA_VERSION } from '@pi-ide/agent-contract';
-import { delay, newId, productError, ProductFailure } from '@pi-ide/foundation';
+import { errorMessage, delay, newId, productError, ProductFailure } from '@pi-ide/foundation';
 import { resolveScenario, type ScenarioStep } from './scenarios.js';
 
 interface RunHandle {
@@ -319,7 +319,7 @@ export class MockAgentRuntime implements AgentRuntime {
             callId,
             ok: false,
             code: 'TOOL_EXECUTOR_ERROR',
-            summary: e instanceof Error ? e.message : String(e),
+            summary: errorMessage(e),
             data: {},
           };
         }
