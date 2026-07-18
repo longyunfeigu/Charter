@@ -1,3 +1,4 @@
+import type { AgentMode } from '@pi-ide/agent-contract';
 import React, { useEffect, useMemo, useState } from 'react';
 import { rpcResult } from '../bridge.js';
 import { useTaskStore } from '../store/taskStore.js';
@@ -9,9 +10,7 @@ export function NewTaskDialog(): React.JSX.Element {
   const [title, setTitle] = useState('');
   const [goal, setGoal] = useState('');
   const [acceptance, setAcceptance] = useState<string[]>(['']);
-  const [mode, setMode] = useState<'ask' | 'edit' | 'auto' | 'full'>(
-    settings?.agent.defaultMode ?? 'edit',
-  );
+  const [mode, setMode] = useState<AgentMode>(settings?.agent.defaultMode ?? 'edit');
   const [modelKey, setModelKey] = useState<string>('');
   const [providerForKey, setProviderForKey] = useState('anthropic');
   const [apiKey, setApiKey] = useState('');

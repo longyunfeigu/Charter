@@ -1,6 +1,6 @@
+import type { AgentMode } from '@pi-ide/agent-contract';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { RecentWorkspaceDto, TaskDto, VerificationCommandSchema } from '@pi-ide/ipc-contracts';
-import type { z } from 'zod';
+import type { RecentWorkspaceDto, TaskDto, VerificationCommand } from '@pi-ide/ipc-contracts';
 import { onEvent, pathForDroppedFile, rpcResult } from '../bridge.js';
 import { useAppStore } from '../store/appStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
@@ -12,8 +12,6 @@ import { ModelEffortControl } from './ui.js';
 import { readDragRef } from './dragRefs.js';
 import { useSkillSlash } from './SkillSlashPicker.js';
 import { useTerminalStore } from './TerminalPanel.js';
-
-type VerificationCommand = z.infer<typeof VerificationCommandSchema>;
 
 const MAX_CONVERSATION_REFS = 3;
 
@@ -52,7 +50,7 @@ export function HomeView(): React.JSX.Element {
   const [agent, setAgent] = useState<ComposerAgent>('pi');
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   // Settings → Agent → default mode seeds the composer (it loads before mount).
-  const [mode, setMode] = useState<'ask' | 'edit' | 'auto' | 'full'>(
+  const [mode, setMode] = useState<AgentMode>(
     () => useAppStore.getState().settings?.agent.defaultMode ?? 'edit',
   );
   const [modelKey, setModelKey] = useState('');

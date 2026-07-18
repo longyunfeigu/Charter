@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { xmlAttribute } from './code-context.js';
 
 /**
  * File / folder / image references attached to a prompt turn (ADR-0024).
@@ -71,14 +72,6 @@ export const FileContextRefsSchema = z
     }
   });
 
-function xmlAttributeValue(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('"', '&quot;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
-}
-
 /**
  * Appends the explicit file-context data block to a user prompt. Same framing
  * contract as formatPromptWithCodeContext: provenance is structured, contents
@@ -93,8 +86,8 @@ export function formatPromptWithFileContext(
     const attributes = [
       `index="${index + 1}"`,
       `kind="${ref.kind}"`,
-      ...(ref.path ? [`path="${xmlAttributeValue(ref.path)}"`] : []),
-      ...(ref.attachmentId ? [`name="${xmlAttributeValue(ref.name)}"`, 'source="attachment"'] : []),
+      ...(ref.path ? [`path="${xmlAttribute(ref.path)}"`] : []),
+      ...(ref.attachmentId ? [`name="${xmlAttribute(ref.name)}"`, 'source="attachment"'] : []),
     ].join(' ');
     return `<ref ${attributes} />`;
   });

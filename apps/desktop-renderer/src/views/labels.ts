@@ -1,3 +1,4 @@
+import type { AgentMode } from '@pi-ide/agent-contract';
 import { TaskStateSchema } from '@pi-ide/ipc-contracts';
 import type { z } from 'zod';
 
@@ -93,7 +94,7 @@ export const TONE_COLOR: Record<StateTone, string> = {
 
 /** Trust levels (approval modes) — shared by Home composer and task headers. */
 export const MODE_META: Array<{
-  id: 'ask' | 'edit' | 'auto' | 'full';
+  id: AgentMode;
   label: string;
   /** Compact segment label — the full label lives in the hint line/tooltips. */
   seg: string;

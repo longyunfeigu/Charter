@@ -32,7 +32,7 @@ import type {
   PreviewRectDto,
   TaskDto,
   TimelineEventDto,
-  VerificationCommandSchema,
+  VerificationCommand,
 } from '@pi-ide/ipc-contracts';
 import {
   fileRefsForEventPayload,
@@ -41,7 +41,6 @@ import {
   projectActivity,
   type FileContextRefDto,
 } from '@pi-ide/ipc-contracts';
-import type { z } from 'zod';
 import type { SqlDatabase } from '@pi-ide/persistence';
 import {
   normalizeProposedPlan,
@@ -76,8 +75,6 @@ import { ProjectContexts, type ProjectContext } from './project-contexts.js';
 import { WorktreeService, type TaskWorktree } from './worktree-service.js';
 import { buildPrCommands, buildPrDraft } from './pr-draft.js';
 import { broadcast } from '../broadcast.js';
-
-type VerificationCommand = z.infer<typeof VerificationCommandSchema>;
 
 /** ADR-0022: preview-feedback metadata recorded on the user.message event. */
 export interface PreviewFeedbackMeta {

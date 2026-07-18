@@ -1,3 +1,4 @@
+import type { AgentMode } from '@pi-ide/agent-contract';
 import { create } from 'zustand';
 import type {
   ChangeSetDto,
@@ -51,7 +52,7 @@ interface TaskStore {
     title: string;
     goalMd: string;
     acceptance: string[];
-    mode: 'ask' | 'edit' | 'auto' | 'full';
+    mode: AgentMode;
     model: {
       providerId: string;
       modelId: string;
@@ -150,7 +151,7 @@ interface TaskStore {
   // PIVOT-005: Home fast path — one-line intent charters a task.
   createFromIntent(input: {
     intent: string;
-    mode: 'ask' | 'edit' | 'auto';
+    mode: Exclude<AgentMode, 'full'>;
     model: { providerId: string; modelId: string };
   }): Promise<boolean>;
 }

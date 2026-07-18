@@ -37,6 +37,7 @@ export const VerificationCommandSchema = z.object({
     .max(30 * 60 * 1000)
     .default(300000),
 });
+export type VerificationCommand = z.infer<typeof VerificationCommandSchema>;
 
 /** Worktree isolation metadata (ADR-0009): the task runs in its own git worktree. */
 export const TaskWorktreeSchema = z.object({

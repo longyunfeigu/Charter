@@ -68,7 +68,8 @@ export const CodeContextRefsSchema = z
     }
   });
 
-function xmlAttribute(value: string): string {
+/** Escape a value for use inside a double-quoted XML attribute (shared with file-context). */
+export function xmlAttribute(value: string): string {
   return value
     .replaceAll('&', '&amp;')
     .replaceAll('"', '&quot;')

@@ -3,18 +3,10 @@ import { basename, dirname, extname, join } from 'node:path';
 import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import { resolveInsideRoot } from '@pi-ide/workspace-service';
 import { registerHandlers } from './router.js';
+import { imageMimeForPath } from './context-attachment-handlers.js';
 import type { WorkspaceHost } from '../services/workspace-host.js';
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-
-const MIME: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.bmp': 'image/bmp',
-};
 
 /** Image preview + annotation persistence (PIVOT-020). Workspace-bounded. */
 export function registerImageHandlers(workspace: WorkspaceHost, logger: Logger): void {
@@ -23,7 +15,7 @@ export function registerImageHandlers(workspace: WorkspaceHost, logger: Logger):
       'fs.readImage': async ({ path }) => {
         const ws = workspace.mustActive();
         const abs = await resolveInsideRoot(ws.canonicalPath, path);
-        const mime = MIME[extname(path).toLowerCase()];
+        const mime = imageMimeForPath(path);
         if (!mime) {
           throw new ProductFailure(
             productError('IMG_UNSUPPORTED', { userMessage: 'This is not a supported image file.' }),

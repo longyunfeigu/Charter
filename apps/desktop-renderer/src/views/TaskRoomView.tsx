@@ -1,3 +1,4 @@
+import type { AgentMode } from '@pi-ide/agent-contract';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { rpcResult } from '../bridge.js';
 import { useTaskStore, RUNNING_TASK_STATES, titleFromIntent } from '../store/taskStore.js';
@@ -500,7 +501,7 @@ function RoomComposer({
     title: string;
     projectPath: string;
     projectName: string;
-    mode: 'ask' | 'edit' | 'auto' | 'full';
+    mode: AgentMode;
     model: {
       providerId: string;
       modelId: string;
