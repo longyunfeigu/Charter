@@ -519,12 +519,15 @@ function eventNode(
     case 'task.stateChanged': {
       const to = String(payload.to);
       // Terminal "Answered" milestone replaces the review-ready ceremony.
+      // For external CLIs the edge is the process exit, not an answer.
       if (to === 'REVIEW_READY' && isAnswered(task)) {
+        const endedLabel = copy.locale === 'zh' ? '会话已结束' : 'Session ended';
+        const answeredLabel = copy.locale === 'zh' ? '已回答' : 'Answered';
         return (
           <Milestone
             key={event.id}
             tone="ok"
-            label={copy.locale === 'zh' ? '已回答' : 'Answered'}
+            label={task.external ? endedLabel : answeredLabel}
             meta={copy.locale === 'zh' ? '未改动磁盘文件' : 'nothing changed on disk'}
             testid="tl-answered"
             dataState={to}

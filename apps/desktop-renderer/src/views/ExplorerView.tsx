@@ -134,6 +134,17 @@ export function ExplorerView(): React.JSX.Element {
         label: 'New Folder…',
         run: () => setEditing({ kind: 'create-dir', parentDir: targetDir, initial: '' }),
       },
+      ...(row && row.kind === 'file' && /\.html?$/i.test(row.name)
+        ? [
+            {
+              label: 'Open in Browser',
+              run: async () => {
+                const res = await rpcResult('fs.openInBrowser', { path: row.path });
+                if (!res.ok) pushToast('error', res.error.userMessage);
+              },
+            },
+          ]
+        : []),
       ...(row
         ? [
             {

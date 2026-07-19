@@ -397,3 +397,98 @@ Honest limits: discovery is best-effort mtime-window matching (no id when the
 CLI wrote no transcript — e.g. the e2e fake agents); two sessions ending inside
 the same window could mis-attribute (not observed in practice; the window is
 one session's lifetime); custom CLIs still have no resume command at all.
+
+## Amendment (2026-07-19) — launch intents: pre-assigned ids, host-delivered first prompt, honest end state
+
+Field report (user test drive, three defects in one flow): ① composer-launched
+Claude sessions were listed as `Session <id>` instead of what the user asked;
+② the composer's first message appeared inside Claude's input box but was
+never sent — the renderer blind-wrote `paste + \r` 350 ms after create, racing
+the TUI startup (early: the escapes echo as garbage; late enough to paste but
+the CR inside the paste chunk reads as pasted text, so the message just sits
+there); ③ resume ran `claude --continue` and failed with "No conversation
+found" — the aborted first message meant no transcript ever existed, so
+discovery had nothing to find, and the ended session read as green "Answered".
+
+Decisions:
+
+1. **Launch intents.** `terminal.create` (v3) accepts `initialPrompt`. Product
+   launches register a one-shot, TTL-bounded intent (`ExternalLaunchIntents`)
+   keyed by terminal: the CLI, a pre-assigned conversation id, and the prompt.
+   `ExternalSessionService` consumes it on the detection edge — an aborted
+   launch can never leak a prompt or id into a later session on that terminal.
+2. **Pre-assigned conversation ids.** Claude launches run
+   `claude --session-id <uuid>` (host-generated, strict-UUID-guarded like every
+   PTY-written id). The task is resumable by exact id from its first moment —
+   no transcript discovery needed on the golden path. Codex has no equivalent
+   flag and keeps rollout discovery. Correction to the 2026-07-16 amendment:
+   `claude --resume <id>` continues the SAME conversation id (no fork unless
+   `--fork-session`), so resume now seeds the live session with the recorded id
+   instead of re-discovering it.
+3. **Host-delivered first prompt.** The renderer never writes launch PTY bytes.
+   The main process delivers the prompt after the TUI's first paint settles
+   (600 ms quiet, 8 s deadline), as a bracketed paste followed by a *separate*
+   Enter write (`sendMessage` now does the same). The delivery records the
+   same `user.message` ledger event as in-room sends.
+4. **Sessions are named by the user.** The external task title is the first
+   user message (composer prompt at creation; first in-room send as fallback),
+   exactly like Pi sessions. `Session <id>` remains only for hand-typed
+   sessions that never received a product-path message.
+5. **Ended, not Answered.** A zero-change external session that exits presents
+   as "Session ended" (rail badge `Ended`, neutral tone) across rail, room
+   dock, timeline milestone and completion notice. "Answered" remains the
+   Pi-run veneer; external REVIEW_READY with changes keeps the review weight.
+
+Honest limits: a session whose only message was never submitted (pre-fix
+strandings) still has no transcript — resume by id then fails inside the CLI
+itself, same end state as `--continue`, now with a precise cause. Hand-typed
+first messages are not captured for titles (keystroke reconstruction is not
+attempted; transcripts are read for names/mtimes only, never content).
+First-run TUI dialogs (claude folder trust, codex onboarding) can swallow the
+delivered prompt — the Enter may answer the dialog instead; the message is in
+the ledger but must be retyped in that rare case (observed-grade capture
+cannot distinguish a dialog from a ready input box). Real-CLI verification
+(claude 2.1.214): `--session-id <uuid>` names the transcript exactly
+`<uuid>.jsonl` under the realpath-munged project dir, and `--resume <uuid>`
+continues it; print-mode (`-p`) resumes fork a new transcript id, interactive
+resumes keep it — the product path is interactive.
+
+## Amendment (2026-07-19, second) — PTY environment hygiene; reply notices name the message they answer
+
+Field report, same test drive: resume STILL failed ("No conversation found
+with session ID …") even though the launch carried `--session-id`. Root cause
+established by controlled PTY experiments on the user's machine: the Charter
+dev app had been started from inside a Claude Code session, so the Electron
+process — and therefore every Charter PTY — inherited that session's markers
+(`CLAUDECODE=1`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION`,
+`CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_PID`, …). An interactive claude that sees
+those markers treats itself as a nested/child agent session and writes NO
+transcript at all (print mode still writes one, which is why the earlier
+`-p` verification passed). No transcript → nothing to resume, by any flag.
+
+Decision: user terminals get a sanitized environment.
+`sanitizedTerminalEnv()` in terminal-service strips ambient agent-session
+markers (prefix `CLAUDE*` minus an explicit `CLAUDE_CONFIG_DIR` allowlist,
+plus `AI_AGENT`, `CODEX_SANDBOX`) from the PTY env. Deliberate configuration
+(`ANTHROPIC_*` auth/base-url, `CLAUDE_CONFIG_DIR`) passes through, and
+anything a user exports in their own shell profile is restored by the login
+shell the PTY spawns. Verified on the user's machine: with markers stripped,
+the same interactive session writes its transcript LIVE (during the session,
+not at exit) under exactly the pre-assigned `--session-id` uuid.
+
+Also in this amendment, two reply-notice fixes from the same session:
+
+1. **Notices name the message they answer.** The reply banner titled itself
+   with the session title (the FIRST message — "hi") even when the settled
+   reply answered "who are you". Sessions now track the last submitted user
+   line: product-path sends record their exact text; TUI-typed input is
+   reconstructed best-effort from raw PTY bytes (`TypedLineTracker`:
+   printables, backspace, kill-line, bracketed paste; escape sequences
+   skipped) — notification copy only, never Replay evidence or a persisted
+   message. `external.turn` / `external.activitySettled` (v2) carry
+   `lastUserMessage`; the renderer titles the notice with it and falls back
+   to the session title when unknown. Product-owned PTY writes (prompt
+   injection, resume command) are invisible to the tracker.
+2. **Settle window 1.8s → 1s.** Interactive TUIs animate a spinner while
+   working, so output only goes quiet when the reply is really done; 1.8s of
+   mandatory quiet read as "the notification lags the agent".

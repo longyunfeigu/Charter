@@ -80,6 +80,35 @@ function createResumableClaudeBin(initialDurationMs = 3500): string {
   return bin;
 }
 
+function createComposerClaudeBin(): { bin: string; probe: string } {
+  const bin = mkdtempSync(join(tmpdir(), 'pi-ide-composer-bin-'));
+  const probe = join(bin, 'probe.log');
+  writeFileSync(
+    join(bin, 'claude'),
+    [
+      '#!/usr/bin/env node',
+      "const fs = require('fs');",
+      `const probe = ${JSON.stringify(probe)};`,
+      "fs.appendFileSync(probe, 'argv=' + process.argv.slice(2).join(' ') + '\\n');",
+      "console.log('fake-claude-tui-ready');",
+      "process.stdin.on('data', (chunk) => {",
+      "  if (chunk.toString().includes('hi from composer')) {",
+      '    // Canonical-mode PTY stdin only releases a line once Enter arrives —',
+      '    // seeing the prompt here proves the paste AND the separate Enter.',
+      "    fs.appendFileSync(probe, 'got-prompt-line\\n');",
+      '    setTimeout(() => process.exit(0), 1500);',
+      '  }',
+      '});',
+      'process.stdin.resume();',
+      'setTimeout(() => process.exit(0), 30000);',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(join(bin, 'claude'), 0o755);
+  pinFixtureCliPath(bin);
+  return { bin, probe };
+}
+
 function createParallelAgentBin(): string {
   const bin = mkdtempSync(join(tmpdir(), 'pi-ide-parallel-bin-'));
   for (const cli of ['claude', 'codex']) {
@@ -354,6 +383,108 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
         });
       }
       expect(rendererErrors).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('composer launch: pre-assigned id, auto-sent first message, named session, exact resume', async () => {
+    const fixture = createGitFixture();
+    const { bin, probe } = createComposerClaudeBin();
+    const readProbe = (): string => {
+      try {
+        return readFileSync(probe, 'utf8');
+      } catch {
+        return '';
+      }
+    };
+    const { app, page } = await launchApp({
+      env: {
+        PI_IDE_OPEN_WORKSPACE: fixture,
+        PI_IDE_EXTERNAL_CLIS: 'claude',
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        ZDOTDIR: bin,
+      },
+    });
+    try {
+      // Product launch path (Home composer → Claude backend): the first
+      // message rides terminal.create; the renderer writes no PTY bytes.
+      const terminalId = await page.evaluate(async () => {
+        const bridge = (
+          window as never as {
+            product: {
+              rpc: Record<string, (p: unknown) => Promise<{ ok: boolean; data?: { id: string } }>>;
+            };
+          }
+        ).product;
+        const res = await bridge.rpc['terminal.create']!({
+          context: { kind: 'focused' },
+          launch: 'claude',
+          initialPrompt: 'hi from composer',
+        });
+        return res.ok ? (res.data?.id ?? null) : null;
+      });
+      expect(terminalId).not.toBeNull();
+
+      // The launch pre-assigns the conversation id (`--session-id <uuid>`).
+      await expect
+        .poll(readProbe, { timeout: 20000 })
+        .toMatch(/argv=--session-id [0-9a-f][0-9a-f-]{34}[0-9a-f]/);
+      const sessionId = /argv=--session-id ([0-9a-f-]{36})/.exec(readProbe())![1]!;
+
+      // The first message is delivered by the host and actually submitted.
+      await expect.poll(readProbe, { timeout: 20000 }).toContain('got-prompt-line');
+
+      // The Session is named by the user's message and resumable by exact id.
+      const task = await page.evaluate(async () => {
+        const bridge = (
+          window as never as {
+            product: {
+              rpc: Record<
+                string,
+                (p: unknown) => Promise<{
+                  data?: {
+                    tasks?: Array<{
+                      id: string;
+                      title: string;
+                      external: { sessionId: string | null } | null;
+                    }>;
+                  };
+                }>
+              >;
+            };
+          }
+        ).product;
+        const result = await bridge.rpc['task.list']!({ filter: 'all', includeArchived: false });
+        return result.data?.tasks?.find((candidate) => candidate.external) ?? null;
+      });
+      expect(task).not.toBeNull();
+      expect(task!.title).toBe('hi from composer');
+      expect(task!.external?.sessionId).toBe(sessionId);
+
+      const row = page.getByTestId(`home-task-${task!.id}`);
+      await expect(row).toContainText('hi from composer');
+
+      // CLI exit closes the session as "Ended", never "Answered".
+      await expect(row).toHaveAttribute('data-state', 'REVIEW_READY', { timeout: 25000 });
+      await expect(row).toContainText('Ended');
+      await expect(row).toContainText('Session ended · no file changes');
+
+      // Resume targets THIS conversation, not "whatever ran here last".
+      const resumeOk = await page.evaluate(
+        async (payload) => {
+          const bridge = (
+            window as never as {
+              product: { rpc: Record<string, (p: unknown) => Promise<{ ok: boolean }>> };
+            }
+          ).product;
+          const res = await bridge.rpc['external.resumeSession']!(payload);
+          return res.ok;
+        },
+        { taskId: task!.id, terminalId: terminalId! },
+      );
+      expect(resumeOk).toBe(true);
+      await expect.poll(readProbe, { timeout: 20000 }).toContain(`argv=--resume ${sessionId}`);
     } finally {
       await app.close();
     }

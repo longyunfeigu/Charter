@@ -78,6 +78,14 @@ export function sessionCompletionInfo(task: TaskDto): SessionCompletionInfo | nu
   if (task.state === 'REVIEW_READY') {
     if (task.mode === 'full') return null;
     if (task.changedFiles === 0) {
+      if (task.external) {
+        // The CLI process exited — that, not "answered", is the honest edge.
+        return {
+          label: 'Session ended',
+          body: `The ${task.external.cli} session ended with no file changes.`,
+          tone: 'success',
+        };
+      }
       return {
         label: 'Answered',
         body: 'The agent answered with no file changes.',

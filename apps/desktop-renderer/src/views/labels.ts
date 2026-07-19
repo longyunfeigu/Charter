@@ -60,13 +60,23 @@ export function canArchiveTask(task: { state: string; changedFiles?: number | nu
 }
 
 /** Presentation meta for a task — the only place the "Answered" veneer exists. */
-export function presentedMeta(task: { state: string; changedFiles?: number | null }): {
+export function presentedMeta(task: {
+  state: string;
+  changedFiles?: number | null;
+  external?: unknown;
+}): {
   label: string;
   short: string;
   tone: StateTone;
 } {
-  if (isAnswered(task))
+  if (isAnswered(task)) {
+    // An external CLI reaching this state means the process exited — say so.
+    // "Answered" describes Pi runs, not a session the user (or the CLI) closed.
+    if (task.external) {
+      return { label: 'Session ended — nothing changed on disk', short: 'Ended', tone: 'idle' };
+    }
     return { label: 'Answered — nothing changed on disk', short: 'Answered', tone: 'ok' };
+  }
   return (
     TASK_STATE_META[task.state as TaskState] ?? {
       label: task.state,

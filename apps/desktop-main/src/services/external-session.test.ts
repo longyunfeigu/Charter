@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { externalResumeCommand, isAccountablePath } from './external-session-service.js';
+import {
+  externalResumeCommand,
+  externalTitleFromPrompt,
+  isAccountablePath,
+} from './external-session-service.js';
+import { ExternalLaunchIntents } from './external-launch-intents.js';
 
 describe('isAccountablePath (ADR-0017)', () => {
   it('accepts ordinary project files', () => {
@@ -43,5 +48,68 @@ describe('externalResumeCommand', () => {
   it('does not turn an arbitrary detected program name into shell input', () => {
     expect(externalResumeCommand('fakeagent')).toBeNull();
     expect(externalResumeCommand('claude; rm -rf .')).toBeNull();
+  });
+});
+
+describe('externalTitleFromPrompt (session named by the first user message)', () => {
+  it('uses the first non-empty line, whitespace collapsed', () => {
+    expect(externalTitleFromPrompt('hi')).toBe('hi');
+    expect(externalTitleFromPrompt('\n\n  fix   the login\t bug \nmore context')).toBe(
+      'fix the login bug',
+    );
+  });
+
+  it('truncates long prompts at 64 chars with an ellipsis', () => {
+    const title = externalTitleFromPrompt('x'.repeat(100));
+    expect(title).toHaveLength(62);
+    expect(title!.endsWith('…')).toBe(true);
+  });
+
+  it('returns null for blank prompts so the placeholder title survives', () => {
+    expect(externalTitleFromPrompt('')).toBeNull();
+    expect(externalTitleFromPrompt('   \n \t ')).toBeNull();
+  });
+});
+
+describe('ExternalLaunchIntents (product-launch intent handoff)', () => {
+  const intent = {
+    cli: 'claude',
+    sessionId: '924241d6-f2e8-444d-8d75-0386362bf52f',
+    prompt: 'hi',
+  };
+
+  it('hands the intent to the first matching agent-enter, exactly once', () => {
+    const intents = new ExternalLaunchIntents();
+    intents.register('term-1', intent);
+    expect(intents.consume('term-1', 'claude')).toEqual(intent);
+    expect(intents.consume('term-1', 'claude')).toBeNull();
+  });
+
+  it('voids the intent when a different CLI shows up on the terminal', () => {
+    const intents = new ExternalLaunchIntents();
+    intents.register('term-1', intent);
+    expect(intents.consume('term-1', 'codex')).toBeNull();
+    // One-shot even on mismatch: the launch it described never happened.
+    expect(intents.consume('term-1', 'claude')).toBeNull();
+  });
+
+  it('never leaks a stale intent into a much later session', () => {
+    let now = 0;
+    const intents = new ExternalLaunchIntents(() => now);
+    intents.register('term-1', intent);
+    now = 121_000;
+    expect(intents.consume('term-1', 'claude')).toBeNull();
+  });
+
+  it('keeps intents per terminal', () => {
+    const intents = new ExternalLaunchIntents();
+    intents.register('term-1', intent);
+    intents.register('term-2', { cli: 'codex', sessionId: null, prompt: null });
+    expect(intents.consume('term-2', 'codex')).toEqual({
+      cli: 'codex',
+      sessionId: null,
+      prompt: null,
+    });
+    expect(intents.consume('term-1', 'claude')).toEqual(intent);
   });
 });

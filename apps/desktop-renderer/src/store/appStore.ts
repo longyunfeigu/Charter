@@ -172,6 +172,8 @@ interface AppStore {
     edgeKey: string,
     boundary: ExternalReplyBoundary,
     status?: 'ok' | 'error',
+    /** The user message this reply answers — shown instead of the session title. */
+    lastUserMessage?: string | null,
   ): void;
   signalSessionCompletion(task: TaskDto): void;
   dismissSessionNotice(id: string): void;
@@ -553,7 +555,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       });
     }, 4_200);
   },
-  signalExternalSessionNotice(task, edgeKey, boundary, status = 'ok') {
+  signalExternalSessionNotice(task, edgeKey, boundary, status = 'ok', lastUserMessage = null) {
     const info = externalSessionReplyInfo(task, boundary, status);
     if (!info || get().settings?.notifications.enabled === false) return;
     // If the process already crossed a terminal task-state edge, that stronger
@@ -569,7 +571,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       state: task.state,
       tone: info.tone,
       kind: 'reply',
-      title: sessionDisplayTitle(task),
+      // A reply notice names the message it answers, not the session: after
+      // "who are you", a banner reading like the first message is a lie.
+      title: lastUserMessage?.trim() || sessionDisplayTitle(task),
       projectName: task.projectName,
       label: info.label,
       body: info.body,

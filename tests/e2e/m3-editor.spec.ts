@@ -97,6 +97,29 @@ test.describe('M3 workspace and editor', () => {
     }
   });
 
+  test('explorer context menu offers Open in Browser for HTML files only', async () => {
+    const fixture = createTsSmallFixture();
+    writeFileSync(join(fixture, 'page.html'), '<!doctype html><title>fixture page</title>\n');
+    const { app, page } = await launchApp({ env: { PI_IDE_OPEN_WORKSPACE: fixture } });
+    try {
+      // HTML file gets the item; PI_IDE_E2E keeps the real browser from launching.
+      await page.getByTestId('tree-item-page.html').click({ button: 'right' });
+      const item = page.getByRole('menuitem', { name: 'Open in Browser' });
+      await expect(item).toBeVisible();
+      await item.click();
+      await expect(page.getByRole('menu')).toHaveCount(0);
+      await page.waitForTimeout(300); // rpc round-trip; a failure would surface as a toast
+      await expect(page.locator('.toast.error')).toHaveCount(0);
+
+      // Non-HTML files do not offer it.
+      await page.getByTestId('tree-item-README.md').click({ button: 'right' });
+      await expect(page.getByRole('menuitem', { name: 'Rename…' })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Open in Browser' })).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+
   test('agent edit refreshes an already-open clean model and review closes without Monaco errors', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({

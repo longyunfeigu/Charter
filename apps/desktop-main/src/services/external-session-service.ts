@@ -13,6 +13,8 @@ import type { WorkspaceHost } from './workspace-host.js';
 import type { TaskService } from './task-service.js';
 import { cleanTerminalText, ExternalStructuredReplayParser } from './external-replay-parser.js';
 import { discoverCliSessionId, isSafeCliSessionId } from './cli-session-locator.js';
+import type { ExternalLaunchIntents } from './external-launch-intents.js';
+import { TypedLineTracker } from './typed-line-tracker.js';
 
 /** Paths never attributed to an external session (product/tooling noise). */
 const IGNORED_SEGMENTS = ['node_modules', '.git'];
@@ -20,7 +22,20 @@ const IGNORED_BASENAMES = ['.DS_Store'];
 const IGNORED_PREFIXES = ['.pi-ide-chg.'];
 const MAX_TERMINAL_REPLAY_BYTES = 2 * 1024 * 1024;
 const TERMINAL_EVENT_CHARS = 12_000;
-const OBSERVED_REPLY_QUIET_MS = 1_800;
+// 1s of true quiet is enough: interactive TUIs animate a spinner continuously
+// while working, so output only settles once the reply is really finished.
+// The previous 1.8s read as "the notification lags the agent" in field use.
+const OBSERVED_REPLY_QUIET_MS = 1_000;
+/** First-prompt delivery: the TUI is treated as ready once its paint settles. */
+const PROMPT_SETTLE_QUIET_MS = 600;
+/** …and delivered regardless after this, so a quiet TUI never swallows it. */
+const PROMPT_DELIVERY_DEADLINE_MS = 8_000;
+/**
+ * The Enter must be its own PTY write: a CR in the same chunk as a bracketed
+ * paste is treated by TUI paste handling as pasted text — the exact "typed
+ * but never sent" failure this path exists to prevent.
+ */
+const PROMPT_ENTER_DELAY_MS = 250;
 
 function countPatchLines(patch: string | null): { additions: number; deletions: number } {
   let additions = 0;
@@ -81,6 +96,16 @@ interface LiveSession {
   presenceTimer: ReturnType<typeof setTimeout> | null;
   presenceAwaitingReply: boolean;
   presenceSawOutput: boolean;
+  /** Composer first prompt awaiting a ready TUI (product launch intent). */
+  pendingPrompt: string | null;
+  promptSettleTimer: ReturnType<typeof setTimeout> | null;
+  promptDeadlineTimer: ReturnType<typeof setTimeout> | null;
+  promptEnterTimer: ReturnType<typeof setTimeout> | null;
+  /** Notification copy: the user message the current reply answers. */
+  typedLine: TypedLineTracker;
+  lastUserLine: string | null;
+  /** >0 while the product itself writes the PTY (prompt/resume injection). */
+  suppressInputCapture: number;
   /** Whether this live invocation, rather than an earlier resumed turn, exposed structured data. */
   structuredStream: boolean;
   captureGrade: 'structured' | 'observed';
@@ -115,6 +140,21 @@ export function externalResumeCommand(cli: string, sessionId?: string | null): s
 }
 
 /**
+ * External sessions are named by the user's own first message (like Pi
+ * sessions), not by a conversation id. First non-empty line, ≤64 chars.
+ */
+export function externalTitleFromPrompt(prompt: string): string | null {
+  const firstLine =
+    prompt
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) ?? '';
+  const cleaned = firstLine.replace(/\s+/g, ' ');
+  if (!cleaned) return null;
+  return cleaned.length <= 64 ? cleaned : `${cleaned.slice(0, 61)}…`;
+}
+
+/**
  * ADR-0017 — external CLI agent sessions. Listens for agent enter/exit on user
  * terminals; on enter snapshots the project (temp-index write-tree), creates
  * the backing task and starts watcher accounting: every touched path gets a
@@ -134,6 +174,8 @@ export class ExternalSessionService {
     private readonly tasks: TaskService,
     private readonly workspace: WorkspaceHost,
     private readonly logger: Logger,
+    /** ADR-0017 amendment: product-launch intents registered by terminal.create. */
+    private readonly launchIntents: ExternalLaunchIntents | null = null,
   ) {
     this.unsubscribeManager = terminals.onAgentState(({ id, agent, cwd }) => {
       if (agent) void this.onAgentEnter(id, agent, cwd);
@@ -189,6 +231,10 @@ export class ExternalSessionService {
     const session = this.byTerminal.get(terminalId);
     if (!session || session.ended) return;
 
+    // A painting TUI is a booting TUI — keep deferring the first prompt until
+    // its output settles, then deliver (see armPromptDelivery).
+    if (session.pendingPrompt) this.notePromptReadiness(session);
+
     const parsed = session.parser.feed(session.cli, data);
     // Structured streams reveal the conversation id directly — record it the
     // moment it appears so even a crash leaves the task resumable by id.
@@ -230,6 +276,9 @@ export class ExternalSessionService {
           taskId: session.taskId,
           label: observation.label,
           status: observation.status === 'error' ? 'error' : 'ok',
+          lastUserMessage: session.lastUserLine
+            ? externalTitleFromPrompt(session.lastUserLine)
+            : null,
         });
       }
     }
@@ -246,12 +295,29 @@ export class ExternalSessionService {
    */
   private onTerminalInput(terminalId: string, data: string): void {
     const session = this.byTerminal.get(terminalId);
-    if (!session || session.ended || session.structuredStream) return;
+    if (!session || session.ended) return;
+    // Typed-line capture (notification copy only). Product-owned writes skip
+    // it: their text is known exactly and set by the writer itself.
+    if (session.suppressInputCapture === 0) {
+      const committed = session.typedLine.feed(data);
+      if (committed) session.lastUserLine = committed;
+    }
+    if (session.structuredStream) return;
     if (!/[\r\n]/.test(data)) return;
     if (session.presenceTimer) clearTimeout(session.presenceTimer);
     session.presenceTimer = null;
     session.presenceAwaitingReply = true;
     session.presenceSawOutput = false;
+  }
+
+  /** PTY write from the product itself — invisible to typed-line capture. */
+  private writeProduct(session: LiveSession, data: string): void {
+    session.suppressInputCapture += 1;
+    try {
+      this.terminals.write(session.terminalId, data);
+    } finally {
+      session.suppressInputCapture -= 1;
+    }
   }
 
   private noteObservedOutput(session: LiveSession, data: string): void {
@@ -280,6 +346,9 @@ export class ExternalSessionService {
         terminalId: session.terminalId,
         taskId: session.taskId,
         quietMs: OBSERVED_REPLY_QUIET_MS,
+        lastUserMessage: session.lastUserLine
+          ? externalTitleFromPrompt(session.lastUserLine)
+          : null,
       });
     }, OBSERVED_REPLY_QUIET_MS);
     session.presenceTimer.unref?.();
@@ -290,6 +359,61 @@ export class ExternalSessionService {
     session.presenceTimer = null;
     session.presenceAwaitingReply = false;
     session.presenceSawOutput = false;
+  }
+
+  /**
+   * First-prompt delivery (composer → CLI). Detection only proves the process
+   * exists; the TUI becomes paste-ready around its first paint. Deliver once
+   * post-enter output has been quiet for a moment, with a hard deadline so a
+   * TUI that never paints still receives the prompt instead of dropping it.
+   */
+  private armPromptDelivery(session: LiveSession, prompt: string): void {
+    session.pendingPrompt = prompt;
+    session.promptDeadlineTimer = setTimeout(
+      () => this.deliverPendingPrompt(session),
+      PROMPT_DELIVERY_DEADLINE_MS,
+    );
+    session.promptDeadlineTimer.unref?.();
+    // An already-painted TUI (slow detection) produces no further output —
+    // seed one settle window instead of waiting for the deadline.
+    this.notePromptReadiness(session);
+  }
+
+  private notePromptReadiness(session: LiveSession): void {
+    if (session.promptSettleTimer) clearTimeout(session.promptSettleTimer);
+    session.promptSettleTimer = setTimeout(
+      () => this.deliverPendingPrompt(session),
+      PROMPT_SETTLE_QUIET_MS,
+    );
+    session.promptSettleTimer.unref?.();
+  }
+
+  private deliverPendingPrompt(session: LiveSession): void {
+    const prompt = session.pendingPrompt;
+    session.pendingPrompt = null;
+    if (session.promptSettleTimer) clearTimeout(session.promptSettleTimer);
+    session.promptSettleTimer = null;
+    if (session.promptDeadlineTimer) clearTimeout(session.promptDeadlineTimer);
+    session.promptDeadlineTimer = null;
+    if (!prompt || session.ended) return;
+    this.tasks.recordEvent(session.taskId, 'user.message', { text: prompt, kind: 'external' });
+    session.lastUserLine = prompt;
+    this.writeProduct(session, `\u001b[200~${prompt}\u001b[201~`);
+    session.promptEnterTimer = setTimeout(() => {
+      session.promptEnterTimer = null;
+      if (!session.ended) this.writeProduct(session, '\r');
+    }, PROMPT_ENTER_DELAY_MS);
+    session.promptEnterTimer.unref?.();
+  }
+
+  private clearPromptDelivery(session: LiveSession): void {
+    session.pendingPrompt = null;
+    if (session.promptSettleTimer) clearTimeout(session.promptSettleTimer);
+    session.promptSettleTimer = null;
+    if (session.promptDeadlineTimer) clearTimeout(session.promptDeadlineTimer);
+    session.promptDeadlineTimer = null;
+    if (session.promptEnterTimer) clearTimeout(session.promptEnterTimer);
+    session.promptEnterTimer = null;
   }
 
   private bufferTerminalText(session: LiveSession, cleaned: string): void {
@@ -420,6 +544,11 @@ export class ExternalSessionService {
       }
     }
 
+    // Product-launched sessions (composer / New Terminal presets) arrive with
+    // an intent: the pre-assigned conversation id and the first prompt. The
+    // intent is one-shot — consumed here, on the detection edge it was for.
+    const intent = this.launchIntents?.consume(terminalId, cli) ?? null;
+
     let taskId: string;
     try {
       const task = await this.tasks.createExternalTask({
@@ -429,6 +558,7 @@ export class ExternalSessionService {
         projectPath,
         worktree,
         snapshotRef,
+        title: intent?.prompt ? externalTitleFromPrompt(intent.prompt) : null,
       });
       taskId = task.id;
     } catch (e) {
@@ -463,6 +593,13 @@ export class ExternalSessionService {
       presenceTimer: null,
       presenceAwaitingReply: false,
       presenceSawOutput: false,
+      pendingPrompt: null,
+      promptSettleTimer: null,
+      promptDeadlineTimer: null,
+      promptEnterTimer: null,
+      typedLine: new TypedLineTracker(),
+      lastUserLine: null,
+      suppressInputCapture: 0,
       structuredStream: false,
       captureGrade: 'observed',
       parser: new ExternalStructuredReplayParser(),
@@ -475,6 +612,14 @@ export class ExternalSessionService {
     this.byTerminal.set(terminalId, session);
     const leadIn = this.terminals.recentData(terminalId);
     if (leadIn) this.onTerminalData(terminalId, leadIn);
+
+    if (intent?.sessionId) {
+      // Launch pre-assigned the conversation id (`claude --session-id`): the
+      // task is resumable by exact id from its very first moment.
+      session.sessionId = intent.sessionId;
+      this.tasks.setExternalSessionId(taskId, intent.sessionId);
+    }
+    if (intent?.prompt) this.armPromptDelivery(session, intent.prompt);
 
     broadcast('terminal.agentState', { id: terminalId, agent: cli, taskId });
     broadcast('external.sessionChanged', {
@@ -589,6 +734,7 @@ export class ExternalSessionService {
     if (session.terminalFlushTimer) clearTimeout(session.terminalFlushTimer);
     session.terminalFlushTimer = null;
     this.clearObservedPresence(session);
+    this.clearPromptDelivery(session);
     this.flushTerminal(session);
     if (session.recomputeTimer) clearTimeout(session.recomputeTimer);
     session.recomputeTimer = null;
@@ -687,8 +833,13 @@ export class ExternalSessionService {
       root: task.projectPath,
       cwd: expectedCwd,
       startedAtMs: Date.now(),
-      // Resuming forks a fresh CLI conversation id — rediscovered at next end.
-      sessionId: null,
+      // `claude --resume <id>` continues the SAME conversation id — keep it,
+      // so an immediate exit without new transcript writes stays targetable.
+      // Codex resume ids are rediscovered from the rollout at next end.
+      sessionId:
+        external.cli === 'claude' && external.sessionId && isSafeCliSessionId(external.sessionId)
+          ? external.sessionId
+          : null,
       isGitRepo: git !== null,
       snapshotRef: external.snapshotRef,
       git,
@@ -703,6 +854,13 @@ export class ExternalSessionService {
       presenceTimer: null,
       presenceAwaitingReply: false,
       presenceSawOutput: false,
+      pendingPrompt: null,
+      promptSettleTimer: null,
+      promptDeadlineTimer: null,
+      promptEnterTimer: null,
+      typedLine: new TypedLineTracker(),
+      lastUserLine: null,
+      suppressInputCapture: 0,
       structuredStream: false,
       captureGrade: external.captureGrade === 'structured' ? 'structured' : 'observed',
       parser: new ExternalStructuredReplayParser(),
@@ -755,7 +913,9 @@ export class ExternalSessionService {
     // Fresh shells can discard keystrokes during startup; the short delay is
     // harmless for an existing prompt and makes restart recovery reliable.
     await new Promise<void>((resolve) => setTimeout(resolve, 350));
-    this.terminals.write(terminalId, `${command}\r`);
+    const resuming = this.byTerminal.get(terminalId);
+    if (resuming) this.writeProduct(resuming, `${command}\r`);
+    else this.terminals.write(terminalId, `${command}\r`);
     await detected;
     return { terminalId, cli: external.cli };
   }
@@ -794,7 +954,20 @@ export class ExternalSessionService {
       kind: 'external',
       ...(codeRefs.length > 0 ? { codeRefs } : {}),
     });
-    this.terminals.write(external.terminalId, `\u001b[200~${prompt}\u001b[201~\r`);
+    // A session that never got a composer prompt keeps its placeholder title
+    // until the first product-path message names it.
+    if (task.title === `${external.cli} · external session`) {
+      const title = externalTitleFromPrompt(text);
+      if (title) this.tasks.setExternalTitle(taskId, title);
+    }
+    session.lastUserLine = text;
+    this.writeProduct(session, `\u001b[200~${prompt}\u001b[201~`);
+    // Enter as its own write — a CR inside the paste chunk reads as pasted
+    // text to TUI paste handling and leaves the message sitting unsent.
+    const enterTimer = setTimeout(() => {
+      if (!session.ended) this.writeProduct(session, '\r');
+    }, PROMPT_ENTER_DELAY_MS);
+    enterTimer.unref?.();
     return { delivered: true, terminalId: external.terminalId };
   }
 

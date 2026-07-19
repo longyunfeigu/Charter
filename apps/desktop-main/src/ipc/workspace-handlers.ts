@@ -56,6 +56,10 @@ export function registerWorkspaceHandlers(
         await host.trashEntry(path);
         return { trashed: true };
       },
+      'fs.openInBrowser': async ({ path }) => {
+        await host.openInBrowser(path);
+        return { opened: true };
+      },
 
       'doc.open': async ({ path }) => ({
         doc: toDto(await host.mustActive().documents.open(path)),

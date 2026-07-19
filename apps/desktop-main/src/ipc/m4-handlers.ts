@@ -14,9 +14,12 @@ import {
   PYTHON_INSTALL_HINT,
   type PythonLspStatus,
 } from '@pi-ide/language-service';
+import { randomUUID } from 'node:crypto';
 import { registerHandlers } from './router.js';
 import type { WorkspaceHost } from '../services/workspace-host.js';
 import type { SettingsService } from '../services/settings-service.js';
+import type { ExternalLaunchIntents } from '../services/external-launch-intents.js';
+import { isSafeCliSessionId } from '../services/cli-session-locator.js';
 import { broadcast } from '../broadcast.js';
 
 interface ActiveSearch {
@@ -38,9 +41,21 @@ export interface TerminalContextResolvers {
   scratch(): TerminalContextResolution;
 }
 
-/** Product-owned launch map: renderer selects a preset, never shell text. */
-export function terminalLaunchCommand(launch: 'shell' | 'claude' | 'codex'): string | null {
-  if (launch === 'claude') return 'claude';
+/**
+ * Product-owned launch map: renderer selects a preset, never shell text.
+ * Claude launches carry a pre-assigned conversation id so a later resume can
+ * target THIS session deterministically (`claude --resume <id>`) instead of
+ * relying on transcript discovery. Only an exact UUID may reach PTY input.
+ */
+export function terminalLaunchCommand(
+  launch: 'shell' | 'claude' | 'codex',
+  sessionId?: string | null,
+): string | null {
+  if (launch === 'claude') {
+    return sessionId && isSafeCliSessionId(sessionId)
+      ? `claude --session-id ${sessionId}`
+      : 'claude';
+  }
   if (launch === 'codex') return 'codex';
   return null;
 }
@@ -242,6 +257,8 @@ export function registerM4Handlers(
   logger: Logger,
   /** Lazy because TaskService is constructed after handler registration. */
   contextResolvers?: TerminalContextResolvers,
+  /** ADR-0017 amendment: launch intents consumed by ExternalSessionService. */
+  externalLaunches?: ExternalLaunchIntents,
 ): void {
   const resolveTerminalContext = (
     requested:
@@ -318,7 +335,7 @@ export function registerM4Handlers(
         return { outcomes };
       },
 
-      'terminal.create': async ({ taskId, context, launch }) => {
+      'terminal.create': async ({ taskId, context, launch, initialPrompt }) => {
         const requested =
           context ?? (taskId ? { kind: 'task' as const, taskId } : { kind: 'focused' as const });
         const resolved = resolveTerminalContext(requested);
@@ -327,8 +344,17 @@ export function registerM4Handlers(
           shellPath: undefined,
           launch,
         });
-        const command = terminalLaunchCommand(launch);
+        const sessionId = launch === 'claude' ? randomUUID() : null;
+        const command = terminalLaunchCommand(launch, sessionId);
         if (command) {
+          // The intent (pre-assigned conversation id + composer first prompt)
+          // is consumed when agent detection confirms the CLI really started;
+          // the prompt is delivered there, never as raw early PTY writes.
+          externalLaunches?.register(info.id, {
+            cli: launch,
+            sessionId,
+            prompt: initialPrompt?.trim() ? initialPrompt : null,
+          });
           // Let the renderer attach the xterm before the first TUI repaint.
           setTimeout(() => services.terminals.write(info.id, `${command}\r`), 350).unref();
         }

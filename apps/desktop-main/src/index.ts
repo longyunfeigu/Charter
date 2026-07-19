@@ -56,6 +56,7 @@ import { registerPreviewHandlers } from './ipc/preview-handlers.js';
 import { registerContextAttachmentHandlers } from './ipc/context-attachment-handlers.js';
 import { PreviewService } from './services/preview-service.js';
 import { ExternalSessionService } from './services/external-session-service.js';
+import { ExternalLaunchIntents } from './services/external-launch-intents.js';
 import { registerExternalHandlers } from './ipc/external-handlers.js';
 import { buildSupportBundle } from './services/support-bundle.js';
 import {
@@ -91,6 +92,7 @@ let m5Ref: M5Services | null = null;
 let agentHostRef: AgentHost | null = null;
 let taskServiceRef: TaskService | null = null;
 let externalSessionsRef: ExternalSessionService | null = null;
+let externalLaunchIntents: ExternalLaunchIntents | null = null;
 let skillStoreRef: SkillStore | null = null;
 export function getM5(): M5Services | null {
   return m5Ref;
@@ -480,52 +482,62 @@ if (!gotLock) {
       );
       m4 = new M4Services(workspaceHost, settings, logger.child('m4'), shellIntegrationDir);
       m4Ref = m4;
-      registerM4Handlers(m4, workspaceHost, logger.child('ipc'), {
-        recent(projectPath) {
-          const project = state
-            .recentWorkspaces()
-            .find((item) => item.exists && item.path === projectPath);
-          if (!project) return null;
-          return {
-            cwd: project.path,
-            projectName: project.displayName,
-            projectPath: project.path,
-            contextKind: 'recent' as const,
-            contextLabel: project.displayName,
-            contextTaskId: null,
-          };
-        },
-        task(taskId) {
-          try {
-            const task = taskServiceRef?.getTask(taskId);
-            if (!task) return null;
-            const worktree = task.worktree && !task.worktree.missing ? task.worktree : null;
+      // ADR-0017 amendment: product CLI launches register an intent here
+      // (pre-assigned conversation id + composer prompt); the external session
+      // service consumes it on the detection edge.
+      externalLaunchIntents = new ExternalLaunchIntents();
+      registerM4Handlers(
+        m4,
+        workspaceHost,
+        logger.child('ipc'),
+        {
+          recent(projectPath) {
+            const project = state
+              .recentWorkspaces()
+              .find((item) => item.exists && item.path === projectPath);
+            if (!project) return null;
             return {
-              cwd: worktree?.path ?? task.external?.cwd ?? task.projectPath,
-              projectName: task.projectName,
-              projectPath: task.projectPath,
-              contextKind: 'task' as const,
-              contextLabel: task.title,
-              contextTaskId: task.id,
+              cwd: project.path,
+              projectName: project.displayName,
+              projectPath: project.path,
+              contextKind: 'recent' as const,
+              contextLabel: project.displayName,
+              contextTaskId: null,
             };
-          } catch {
-            return null;
-          }
+          },
+          task(taskId) {
+            try {
+              const task = taskServiceRef?.getTask(taskId);
+              if (!task) return null;
+              const worktree = task.worktree && !task.worktree.missing ? task.worktree : null;
+              return {
+                cwd: worktree?.path ?? task.external?.cwd ?? task.projectPath,
+                projectName: task.projectName,
+                projectPath: task.projectPath,
+                contextKind: 'task' as const,
+                contextLabel: task.title,
+                contextTaskId: task.id,
+              };
+            } catch {
+              return null;
+            }
+          },
+          scratch() {
+            const root = join(paths.runtimeDir, 'scratch');
+            mkdirSync(root, { recursive: true });
+            const cwd = mkdtempSync(join(root, 'terminal-'));
+            return {
+              cwd,
+              projectName: 'Scratch',
+              projectPath: null,
+              contextKind: 'scratch' as const,
+              contextLabel: 'Temporary commands',
+              contextTaskId: null,
+            };
+          },
         },
-        scratch() {
-          const root = join(paths.runtimeDir, 'scratch');
-          mkdirSync(root, { recursive: true });
-          const cwd = mkdtempSync(join(root, 'terminal-'));
-          return {
-            cwd,
-            projectName: 'Scratch',
-            projectPath: null,
-            contextKind: 'scratch' as const,
-            contextLabel: 'Temporary commands',
-            contextTaskId: null,
-          };
-        },
-      });
+        externalLaunchIntents,
+      );
       m5Ref = new M5Services(workspaceHost, state, paths, logger.child('m5'));
       registerM5Handlers(m5Ref, workspaceHost, logger.child('ipc'));
 
@@ -608,6 +620,7 @@ if (!gotLock) {
         taskService,
         workspaceHost,
         logger.child('external'),
+        externalLaunchIntents,
       );
       registerExternalHandlers(externalSessionsRef, logger.child('ipc'));
 

@@ -48,6 +48,8 @@ interface CreateTerminalRequest {
   title?: string;
   context?: TerminalWorkingContext;
   launch?: TerminalLaunch;
+  /** Composer first message — delivered by the host once the CLI TUI is ready. */
+  initialPrompt?: string;
   quick?: boolean;
   reveal?: boolean;
 }
@@ -629,6 +631,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     const res = await rpcResult('terminal.create', {
       ...(options?.taskId ? { taskId: options.taskId } : {}),
       ...(options?.context ? { context: options.context } : {}),
+      ...(options?.initialPrompt?.trim() ? { initialPrompt: options.initialPrompt } : {}),
       launch,
     });
     if (!okOrToast(res)) return null;

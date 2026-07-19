@@ -238,6 +238,30 @@ export class WorkspaceHost {
     return parent === '.' ? newName : `${parent}/${newName}`;
   }
 
+  /** Open an HTML file with the OS default browser. Main process re-checks the
+   *  extension: the renderer only decides menu visibility, never the policy. */
+  async openInBrowser(path: string): Promise<void> {
+    const ws = this.mustActive();
+    if (!/\.html?$/i.test(path)) {
+      throw new ProductFailure(
+        productError('WS_PATH_INVALID', {
+          userMessage: 'Only HTML files can be opened in the browser.',
+        }),
+      );
+    }
+    const abs = await resolveInsideRoot(ws.canonicalPath, path);
+    if (process.env.PI_IDE_E2E) return;
+    const failure = await shell.openPath(abs);
+    if (failure !== '') {
+      throw new ProductFailure(
+        productError('WS_OPEN_EXTERNAL_FAILED', {
+          userMessage: `Could not open "${basename(path)}" in the browser.`,
+          technicalMessage: failure,
+        }),
+      );
+    }
+  }
+
   async trashEntry(path: string): Promise<void> {
     const ws = this.mustActive();
     const abs = await resolveInsideRoot(ws.canonicalPath, path);

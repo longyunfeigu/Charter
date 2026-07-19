@@ -93,12 +93,14 @@ export const EVENT_CHANNELS = {
    * turn.completed / Claude result). Observed-grade sessions never fire this. */
   'external.turn': ev(
     'external.turn',
-    1,
+    2,
     z.object({
       terminalId: z.string(),
       taskId: z.string(),
       label: z.string(),
       status: z.enum(['ok', 'error']),
+      /** The user message this reply answers (compacted); null when unknown. */
+      lastUserMessage: z.string().nullable().optional(),
     }),
   ),
   /** Presence-only fallback for an observed external TUI: after user input,
@@ -106,11 +108,13 @@ export const EVENT_CHANNELS = {
    * or Replay evidence boundary. */
   'external.activitySettled': ev(
     'external.activitySettled',
-    1,
+    2,
     z.object({
       terminalId: z.string(),
       taskId: z.string(),
       quietMs: z.number().int().positive(),
+      /** The user message this reply answers (compacted); null when unknown. */
+      lastUserMessage: z.string().nullable().optional(),
     }),
   ),
   /** ADR-0022 am.2: a console message from a loopback preview frame (any level;

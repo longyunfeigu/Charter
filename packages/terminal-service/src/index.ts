@@ -55,6 +55,38 @@ interface Session {
   recentData: string;
 }
 
+// ---------- terminal environment hygiene ----------
+
+/**
+ * Ambient agent-session markers must never leak into user terminals. When the
+ * app itself was launched from inside a Claude Code (or Codex) session — a dev
+ * run, a CI harness, a user who starts everything from one agent shell — the
+ * Electron process inherits that session's environment. A claude started in a
+ * Charter terminal would then detect a nested/child agent session and change
+ * behavior; the observed field failure is that nested interactive claude
+ * sessions write NO transcript at all, so `claude --resume <id>` and
+ * `--continue` both report "No conversation found".
+ *
+ * Session-scoped markers are stripped; deliberate user configuration
+ * (`CLAUDE_CONFIG_DIR`, `ANTHROPIC_*` auth/base-url) passes through. Anything
+ * a user exports in their own shell profile is restored by the login shell
+ * the PTY spawns, so stripping errs on the safe side.
+ */
+const AGENT_SESSION_ENV_ALLOWLIST = new Set(['CLAUDE_CONFIG_DIR']);
+const AGENT_SESSION_ENV_EXACT = ['AI_AGENT', 'CODEX_SANDBOX'];
+
+export function sanitizedTerminalEnv(
+  env: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (key.startsWith('CLAUDE') && !AGENT_SESSION_ENV_ALLOWLIST.has(key)) continue;
+    if (AGENT_SESSION_ENV_EXACT.includes(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
 // ---------- external agent CLI detection (ADR-0017) ----------
 
 /** Known coding-agent CLIs; overridable via PI_IDE_EXTERNAL_CLIS (tests). */
@@ -373,7 +405,7 @@ export class TerminalManager {
       rows: options.rows ?? 24,
       cwd: options.cwd,
       env: {
-        ...process.env,
+        ...sanitizedTerminalEnv(process.env),
         ...plan.env,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',

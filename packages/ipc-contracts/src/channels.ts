@@ -295,6 +295,12 @@ export const CHANNELS = {
     z.object({ path: z.string() }).strict(),
     z.object({ trashed: z.boolean() }),
   ),
+  'fs.openInBrowser': ch(
+    'fs.openInBrowser',
+    1,
+    z.object({ path: z.string() }).strict(),
+    z.object({ opened: z.boolean() }),
+  ),
   'doc.open': ch(
     'doc.open',
     1,
@@ -416,7 +422,7 @@ export const CHANNELS = {
   ),
   'terminal.create': ch(
     'terminal.create',
-    2,
+    3,
     z
       .object({
         /** Legacy task shortcut; still host-resolved and never an absolute renderer path. */
@@ -425,6 +431,12 @@ export const CHANNELS = {
         context: TerminalContextSchema.optional(),
         /** Fixed host-owned launch presets; arbitrary commands still go through terminal.write. */
         launch: z.enum(['shell', 'claude', 'codex']).default('shell'),
+        /**
+         * Composer text delivered to a claude/codex launch once its TUI is
+         * ready (main-process paste + separate Enter). Never shell input —
+         * ignored for plain shell launches.
+         */
+        initialPrompt: z.string().min(1).max(20000).optional(),
       })
       .strict(),
     TerminalInfoSchema,

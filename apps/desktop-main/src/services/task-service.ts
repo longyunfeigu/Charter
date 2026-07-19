@@ -1987,11 +1987,14 @@ export class TaskService {
     /** Preserve an originating task worktree so accounting stays on that mount. */
     worktree?: TaskWorktree | null;
     snapshotRef: string | null;
+    /** The user's first message names the session; null keeps the placeholder. */
+    title?: string | null;
   }): Promise<TaskDto> {
     const project = await this.workspaceRowForPath(input.projectPath);
     const accountingRoot = input.worktree?.path ?? project.canonicalPath;
     const now = new Date().toISOString();
     const id = newId('task');
+    const title = input.title?.trim() || `${input.cli} · external session`;
     let gitBaseline: { head: string | null; branch: string | null } | null = null;
     if (project.isGitRepo) {
       try {
@@ -2017,7 +2020,7 @@ export class TaskService {
       .run(
         id,
         project.id,
-        `${input.cli} · external session`,
+        title,
         `External \`${input.cli}\` session in an embedded terminal (unmanaged — outside the Tool Gateway). Changes are tracked by the workspace watcher against the entry snapshot.`,
         JSON.stringify([]),
         JSON.stringify({ providerId: 'external', modelId: input.cli }),
@@ -2029,7 +2032,7 @@ export class TaskService {
         now,
       );
     this.recordEvent(id, 'task.created', {
-      title: `${input.cli} · external session`,
+      title,
       mode: 'ask',
       model: { providerId: 'external', modelId: input.cli },
       acceptance: [],
@@ -2118,6 +2121,22 @@ export class TaskService {
       status: 'ok',
       evidenceKinds: ['result'],
     });
+  }
+
+  /**
+   * Name an external session after its first user message. The row-refresh
+   * broadcast reuses task.stateChanged (the renderer's generic task upsert
+   * channel); the state itself is unchanged.
+   */
+  setExternalTitle(taskId: string, title: string): void {
+    const row = this.getRow(taskId);
+    const cleaned = title.trim();
+    if (!row.external_json || !cleaned || row.title === cleaned) return;
+    this.db
+      .prepare('UPDATE tasks SET title = ?, updated_at = ? WHERE id = ?')
+      .run(cleaned, new Date().toISOString(), taskId);
+    const task = this.getTask(taskId);
+    broadcast('task.stateChanged', { taskId, state: task.state, task });
   }
 
   /**

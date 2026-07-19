@@ -116,7 +116,11 @@ function timeAgo(value: string, now: number): string {
 }
 
 function statusBadge(task: TaskDto): { label: string; tone: string } | null {
-  if (isAnswered(task)) return { label: 'Answered', tone: 'answered' };
+  if (isAnswered(task)) {
+    // Ended CLI session ≠ answered Pi run: the truthful edge is the exit.
+    if (task.external) return { label: 'Ended', tone: 'neutral' };
+    return { label: 'Answered', tone: 'answered' };
+  }
   if (task.state === 'REVIEW_READY') return { label: 'Review', tone: 'review' };
   const meta = presentedMeta(task);
   if (['AWAITING_PLAN_APPROVAL', 'AWAITING_PERMISSION', 'INTERRUPTED'].includes(task.state)) {
@@ -187,7 +191,12 @@ function SessionTaskRow({
           <span className="sr-session-detail">
             <span data-testid={`home-task-ticker-${task.id}`}>
               {showProject ? `${task.projectName} · ` : ''}
-              {action?.label ?? (isAnswered(task) ? 'Answered · no file changes' : meta.label)}
+              {action?.label ??
+                (isAnswered(task)
+                  ? task.external
+                    ? 'Session ended · no file changes'
+                    : 'Answered · no file changes'
+                  : meta.label)}
             </span>
             <time dateTime={task.updatedAt}>{timeAgo(task.updatedAt, now)}</time>
           </span>

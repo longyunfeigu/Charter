@@ -1119,7 +1119,7 @@ function SessionActionDock({ task, files }: { task: TaskDto; files: string[] }):
     return (
       <footer className="session-action-dock" data-testid="session-action-dock">
         <span className="session-action-note" data-testid="task-room-answered">
-          Answer complete · no file changes
+          {task.external ? 'Session ended · no file changes' : 'Answer complete · no file changes'}
         </span>
         {task.external ? (
           <button

@@ -80,6 +80,7 @@ async function signalExternalReply(
   edgeKey: string,
   boundary: 'structured' | 'observed',
   status: 'ok' | 'error' = 'ok',
+  lastUserMessage: string | null = null,
 ): Promise<void> {
   const app = useAppStore.getState();
   app.signalSessionReply(taskId, edgeKey);
@@ -92,7 +93,7 @@ async function signalExternalReply(
     const result = await rpcResult('task.get', { taskId, eventsAfter: 0 });
     if (result.ok) task = result.data.task;
   }
-  if (task) app.signalExternalSessionNotice(task, edgeKey, boundary, status);
+  if (task) app.signalExternalSessionNotice(task, edgeKey, boundary, status, lastUserMessage);
 }
 
 export const PANEL_MIN_WIDTH = 480;
@@ -340,19 +341,19 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
     // Structured Claude/Codex streams expose a real reply/turn boundary.
     // Reflect it on the exact Session row instead of animating whichever room
     // happens to be selected at the time.
-    onEvent('external.turn', ({ terminalId, taskId, status }) => {
+    onEvent('external.turn', ({ terminalId, taskId, status, lastUserMessage }) => {
       seq += 1;
       const edgeKey = `external-turn:${terminalId}:${seq}`;
-      void signalExternalReply(taskId, edgeKey, 'structured', status);
+      void signalExternalReply(taskId, edgeKey, 'structured', status, lastUserMessage ?? null);
     });
 
     // Interactive Claude/Codex TUIs do not expose structured result events.
     // The host therefore emits a presence-only output-settled edge after a
     // submitted prompt; it must never be promoted into semantic Replay data.
-    onEvent('external.activitySettled', ({ terminalId, taskId }) => {
+    onEvent('external.activitySettled', ({ terminalId, taskId, lastUserMessage }) => {
       seq += 1;
       const edgeKey = `external-settled:${terminalId}:${seq}`;
-      void signalExternalReply(taskId, edgeKey, 'observed');
+      void signalExternalReply(taskId, edgeKey, 'observed', 'ok', lastUserMessage ?? null);
     });
 
     // Focused-workspace changes intentionally do not clear terminal/session

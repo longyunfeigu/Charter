@@ -247,18 +247,18 @@ export function HomeView(): React.JSX.Element {
     if (agent !== 'pi') {
       setSubmitting(true);
       useTerminalStore.getState().init();
+      // The first message rides the create call: the host delivers it once the
+      // CLI's TUI is actually ready and presses Enter itself; a blind timed
+      // write from here raced the TUI startup and left the text unsent.
       const id = await useTerminalStore.getState().create({
         launch: agent,
         context: { kind: 'focused' },
         title: titleFromIntent(intent),
         reveal: false,
+        initialPrompt: goal,
       });
       if (id) {
         app.openTerminalSession(id);
-        const prompt = goal;
-        window.setTimeout(() => {
-          void rpcResult('terminal.write', { id, data: `\u001b[200~${prompt}\u001b[201~\r` });
-        }, 350);
         setIntent('');
         setRefs([]);
         setConversationRefs([]);
