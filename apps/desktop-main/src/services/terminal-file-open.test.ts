@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cwdRelativeToken, terminalOpenAction } from './terminal-file-open.js';
+import { cwdRelativeToken, terminalOpenAction, verifyTokens } from './terminal-file-open.js';
 
 describe('terminalOpenAction (ADR-0033 browser/editor split)', () => {
   it('sends browser-native files to the OS default app', () => {
@@ -42,5 +42,35 @@ describe('cwdRelativeToken (terminal cwd containment)', () => {
     expect(cwdRelativeToken(cwd, '   ')).toBeNull();
     // Documented split: lexical/symlink escape checks live in resolveInsideRoot.
     expect(cwdRelativeToken(cwd, '../secrets.env')).toBe('../secrets.env');
+  });
+});
+
+describe('verifyTokens (ADR-0033 am.1 boundary probe)', () => {
+  const cwd = '/Users/dev/playground';
+  const filesOnDisk = new Set(['素材/截图 2026.png', 'Screenshot 2026-07-20 at 10.05.32.png']);
+  const probe = async (_cwd: string, rel: string) => filesOnDisk.has(rel);
+
+  it('answers per token, preserving request order', async () => {
+    await expect(
+      verifyTokens(
+        cwd,
+        ['素材/截图 2026.png', 'nope.png', 'Screenshot 2026-07-20 at 10.05.32.png'],
+        probe,
+      ),
+    ).resolves.toEqual([true, false, true]);
+  });
+
+  it('containment rejections and probe errors both collapse to false', async () => {
+    await expect(verifyTokens(cwd, ['/etc/passwd', '  '], probe)).resolves.toEqual([false, false]);
+    const throwing = async () => {
+      throw new Error('symlink escape');
+    };
+    await expect(verifyTokens(cwd, ['a b.png'], throwing)).resolves.toEqual([false]);
+  });
+
+  it('normalizes absolute in-cwd tokens the same way openPath does', async () => {
+    await expect(
+      verifyTokens(cwd, ['/Users/dev/playground/素材/截图 2026.png'], probe),
+    ).resolves.toEqual([true]);
   });
 });

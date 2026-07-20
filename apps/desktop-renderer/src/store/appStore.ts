@@ -128,6 +128,11 @@ interface AppStore {
   /** Contextual lower panel for project diagnostics. It belongs to Project
    * Tools and does not resurrect the retired global workspace shell. */
   projectBottomTab: BottomTab | null;
+  /** ADR-0038: session-archaeology page. `scope` narrows to one project path
+   * (or discovered directory); null shows all agent activity on this machine. */
+  archaeology: { scope: string | null } | null;
+  openArchaeology(scope: string | null): void;
+  closeArchaeology(): void;
   /** ADR-0029: the rail's panel view, lifted so commands and flows that mean
    * "show me the project files" can reveal the one tree. */
   railView: RailView;
@@ -279,8 +284,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
   sessionSplitDragging: false,
   projectTool: null,
   projectBottomTab: null,
+  archaeology: null,
   railView: typeof window === 'undefined' ? 'sessions' : loadRailView(),
   composerFocusSeq: 0,
+
+  openArchaeology(scope) {
+    set({
+      archaeology: { scope },
+      taskRoomTaskId: null,
+      sessionTerminalId: null,
+      projectTool: null,
+      projectBottomTab: null,
+      surface: 'home',
+    });
+  },
+  closeArchaeology() {
+    set({ archaeology: null });
+  },
 
   setRailView(railView) {
     saveRailView(railView);
@@ -363,7 +383,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       projectTool,
       surface: projectTool ? 'workspace' : 'home',
       ...(projectTool
-        ? { taskRoomTaskId: null, sessionTerminalId: null }
+        ? { taskRoomTaskId: null, sessionTerminalId: null, archaeology: null }
         : { projectBottomTab: null }),
     });
   },
@@ -404,6 +424,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       sessionToolExpanded: false,
       projectTool: null,
       projectBottomTab: null,
+      archaeology: null,
       ...(peek && peek.taskId !== taskId ? { peek: null } : {}),
     });
   },
@@ -432,6 +453,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       sessionToolExpanded: false,
       projectTool: null,
       projectBottomTab: null,
+      archaeology: null,
     });
   },
 

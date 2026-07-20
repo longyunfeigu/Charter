@@ -25,3 +25,28 @@ export function cwdRelativeToken(cwd: string, token: string): string | null {
   }
   return trimmed;
 }
+
+/**
+ * ADR-0033 am.1: batch-verify boundary candidates for `terminal.statTokens`.
+ * Per token: normalize against the terminal cwd, then ask `probe` whether a
+ * regular file exists there. Containment rejection and probe errors (missing
+ * file, symlink escape from resolveInsideRoot) all collapse to `false` — the
+ * renderer only needs "is this candidate real", never why not.
+ */
+export async function verifyTokens(
+  cwd: string,
+  tokens: string[],
+  probe: (cwd: string, rel: string) => Promise<boolean>,
+): Promise<boolean[]> {
+  return Promise.all(
+    tokens.map(async (token) => {
+      const rel = cwdRelativeToken(cwd, token);
+      if (rel === null) return false;
+      try {
+        return await probe(cwd, rel);
+      } catch {
+        return false;
+      }
+    }),
+  );
+}

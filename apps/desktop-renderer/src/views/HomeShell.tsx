@@ -8,6 +8,7 @@ import { HomeView } from './HomeView.js';
 import { TaskRoomView } from './TaskRoomView.js';
 import { SessionTerminalView } from './SessionTerminalView.js';
 import { ProjectToolView } from './ProjectToolView.js';
+import { ArchaeologyView } from './ArchaeologyView.js';
 import { useTerminalStore } from './TerminalPanel.js';
 import { FileLens } from './FileLens.js';
 import { NewProjectDialog } from './NewProjectDialog.js';
@@ -26,6 +27,7 @@ export function HomeShell(): React.JSX.Element {
   const taskRoomTaskId = useAppStore((s) => s.taskRoomTaskId);
   const sessionTerminalId = useAppStore((s) => s.sessionTerminalId);
   const projectTool = useAppStore((s) => s.projectTool);
+  const archaeology = useAppStore((s) => s.archaeology);
   const lens = useAppStore((s) => s.lens);
   const setLens = useAppStore((s) => s.setLens);
   const newProjectOpen = useAppStore((s) => s.newProjectOpen);
@@ -78,6 +80,8 @@ export function HomeShell(): React.JSX.Element {
           <SessionTerminalView key={sessionTerminalId} terminalId={sessionTerminalId} />
         ) : taskRoomTaskId ? (
           <TaskRoomView key={taskRoomTaskId} />
+        ) : archaeology ? (
+          <ArchaeologyView />
         ) : projectTool ? (
           <ProjectToolView tool={projectTool} />
         ) : (

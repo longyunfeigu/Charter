@@ -12,9 +12,13 @@ import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { revealPosition } from './SearchView.js';
 import {
   detectFileLinks,
+  detectWideCandidates,
   fileLinkHint,
-  readBufferLine,
+  mergeFileLinks,
+  readWrappedLine,
+  resolveWideMatches,
   splitLineSuffix,
+  type FileLinkMatch,
 } from './terminal-file-links.js';
 import { useExternalStore } from '../store/externalStore.js';
 import { useTaskStore } from '../store/taskStore.js';
@@ -28,7 +32,10 @@ export type TerminalWorkingContext =
   | { kind: 'focused' }
   | { kind: 'recent'; projectPath: string }
   | { kind: 'task'; taskId: string }
-  | { kind: 'scratch' };
+  | { kind: 'scratch' }
+  // ADR-0038: adoption terminal — the host resolves the cwd from its own
+  // discovery cache; the renderer only ever names the conversation.
+  | { kind: 'archaeology'; cli: 'claude' | 'codex'; sessionId: string };
 
 export interface TermInstance {
   id: string;
@@ -596,29 +603,69 @@ function wireFileLinks(item: TermInstance): void {
       showLinkHint(event, uri.startsWith('file://') ? fileLinkHint(uri, isMac) : uri),
     leave: hideLinkHint,
   };
+  // ADR-0033 am.1: verified wide matches (space/CJK boundaries) per logical
+  // line text. Small LRU — hover re-fires constantly, the host stat only once.
+  const wideCache = new Map<string, FileLinkMatch[]>();
   item.term.registerLinkProvider({
     provideLinks(y, callback) {
-      const line = item.term.buffer.active.getLine(y - 1);
-      if (!line) {
+      const buffer = item.term.buffer.active;
+      if (!buffer.getLine(y - 1)) {
         callback(undefined);
         return;
       }
-      const { text, cellOf } = readBufferLine(line);
-      const links = detectFileLinks(text).map((match) => ({
-        range: {
-          start: { x: (cellOf[match.start] ?? 0) + 1, y },
-          end: { x: (cellOf[match.end - 1] ?? 0) + 1, y },
-        },
-        text: match.text,
-        activate: (event: MouseEvent, token: string) => {
-          if (!openModifierHeld(event)) return;
-          void openTerminalFileToken(item.id, token);
-        },
-        hover: (event: MouseEvent, token: string) =>
-          showLinkHint(event, fileLinkHint(token, isMac)),
-        leave: hideLinkHint,
-      }));
-      callback(links.length > 0 ? links : undefined);
+      // The logical (unwrapped) line: fixes wrapped long paths and gives the
+      // boundary scan the full text to expand into.
+      const { text, cellAt } = readWrappedLine(buffer, y - 1);
+      const toLinks = (matches: FileLinkMatch[]) =>
+        matches.map((match) => {
+          const head = cellAt[match.start];
+          const tail = cellAt[match.end - 1];
+          return {
+            range: {
+              start: { x: (head?.x ?? 0) + 1, y: (head?.y ?? y - 1) + 1 },
+              end: { x: (tail?.x ?? 0) + 1, y: (tail?.y ?? y - 1) + 1 },
+            },
+            text: match.text,
+            activate: (event: MouseEvent, token: string) => {
+              if (!openModifierHeld(event)) return;
+              void openTerminalFileToken(item.id, token);
+            },
+            hover: (event: MouseEvent, token: string) =>
+              showLinkHint(event, fileLinkHint(token, isMac)),
+            leave: hideLinkHint,
+          };
+        });
+      const sure = detectFileLinks(text);
+      const finish = (wide: FileLinkMatch[]) => {
+        const merged = mergeFileLinks(sure, wide);
+        callback(merged.length > 0 ? toLinks(merged) : undefined);
+      };
+      const groups = detectWideCandidates(text, sure);
+      if (groups.length === 0) {
+        finish([]);
+        return;
+      }
+      const cached = wideCache.get(text);
+      if (cached) {
+        wideCache.delete(text); // re-insert: keep hot lines out of eviction
+        wideCache.set(text, cached);
+        finish(cached);
+        return;
+      }
+      const tokens = [...new Set(groups.flat().map((c) => c.statPath))];
+      void rpcResult('terminal.statTokens', { id: item.id, tokens }).then((res) => {
+        if (!res.ok) {
+          finish([]); // transient host error — uncached so a later hover retries
+          return;
+        }
+        const existing = new Set(tokens.filter((_, i) => res.data.existing[i]));
+        const wide = resolveWideMatches(groups, (path) => existing.has(path));
+        wideCache.set(text, wide);
+        if (wideCache.size > 64) {
+          wideCache.delete(wideCache.keys().next().value!);
+        }
+        finish(wide);
+      });
     },
   });
 }

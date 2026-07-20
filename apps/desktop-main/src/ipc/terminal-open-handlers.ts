@@ -7,7 +7,11 @@ import { resolveInsideRoot } from '@pi-ide/workspace-service';
 import { registerHandlers } from './router.js';
 import type { M4Services } from './m4-handlers.js';
 import type { WorkspaceHost } from '../services/workspace-host.js';
-import { cwdRelativeToken, terminalOpenAction } from '../services/terminal-file-open.js';
+import {
+  cwdRelativeToken,
+  terminalOpenAction,
+  verifyTokens,
+} from '../services/terminal-file-open.js';
 
 /**
  * ADR-0033: ⌘+click file opening from terminal output. Lives outside
@@ -71,6 +75,24 @@ export function registerTerminalOpenHandlers(
           }
         }
         return { action: 'editor' as const, path: abs, workspacePath };
+      },
+      // ADR-0033 am.1: read-only existence probe for path-boundary candidates
+      // (paths with spaces/CJK where the regex cannot see the edges). Same cwd
+      // containment as openPath; a bad candidate is `false`, never an error.
+      'terminal.statTokens': async ({ id, tokens }) => {
+        const info = services.terminals.list().find((item) => item.id === id);
+        if (!info) {
+          throw new ProductFailure(
+            productError('TERMINAL_NOT_FOUND', {
+              userMessage: 'That terminal session is no longer available.',
+            }),
+          );
+        }
+        const existing = await verifyTokens(info.cwd, tokens, async (cwd, rel) => {
+          const abs = await resolveInsideRoot(cwd, rel);
+          return (await stat(abs)).isFile();
+        });
+        return { existing };
       },
     },
     logger,

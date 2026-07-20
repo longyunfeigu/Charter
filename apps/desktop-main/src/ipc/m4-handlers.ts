@@ -39,6 +39,12 @@ export interface TerminalContextResolvers {
   recent(projectPath: string): TerminalContextResolution | null;
   task(taskId: string): TerminalContextResolution | null;
   scratch(): TerminalContextResolution;
+  /** ADR-0038: cwd of a discovered CLI session, resolved from the host-owned
+   * discovery cache — the renderer only ever names (cli, sessionId). */
+  archaeology(
+    cli: 'claude' | 'codex',
+    sessionId: string,
+  ): Promise<TerminalContextResolution | null>;
 }
 
 /**
@@ -260,13 +266,14 @@ export function registerM4Handlers(
   /** ADR-0017 amendment: launch intents consumed by ExternalSessionService. */
   externalLaunches?: ExternalLaunchIntents,
 ): void {
-  const resolveTerminalContext = (
+  const resolveTerminalContext = async (
     requested:
       | { kind: 'focused' }
       | { kind: 'recent'; projectPath: string }
       | { kind: 'task'; taskId: string }
-      | { kind: 'scratch' },
-  ): TerminalContextResolution => {
+      | { kind: 'scratch' }
+      | { kind: 'archaeology'; cli: 'claude' | 'codex'; sessionId: string },
+  ): Promise<TerminalContextResolution> => {
     if (requested.kind === 'focused') {
       const ws = host.mustActive();
       return {
@@ -293,6 +300,16 @@ export function registerM4Handlers(
       throw new ProductFailure(
         productError('TERMINAL_CONTEXT_UNKNOWN', {
           userMessage: 'That task context is no longer available.',
+        }),
+      );
+    }
+    if (requested.kind === 'archaeology') {
+      const discovered =
+        (await contextResolvers?.archaeology(requested.cli, requested.sessionId)) ?? null;
+      if (discovered) return discovered;
+      throw new ProductFailure(
+        productError('TERMINAL_CONTEXT_UNKNOWN', {
+          userMessage: 'That discovered session is no longer available. Rescan and try again.',
         }),
       );
     }
@@ -338,7 +355,7 @@ export function registerM4Handlers(
       'terminal.create': async ({ taskId, context, launch, initialPrompt }) => {
         const requested =
           context ?? (taskId ? { kind: 'task' as const, taskId } : { kind: 'focused' as const });
-        const resolved = resolveTerminalContext(requested);
+        const resolved = await resolveTerminalContext(requested);
         const info = services.terminals.create({
           ...resolved,
           shellPath: undefined,
@@ -368,7 +385,7 @@ export function registerM4Handlers(
             }),
           );
         }
-        const info = services.terminals.changeContext(id, resolveTerminalContext(context));
+        const info = services.terminals.changeContext(id, await resolveTerminalContext(context));
         if (!info) {
           throw new ProductFailure(
             productError('TERMINAL_NOT_FOUND', {

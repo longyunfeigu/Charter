@@ -46,6 +46,82 @@ describe('IPC channel registry', () => {
     ).toBe(false);
   });
 
+  it('terminal.statTokens bounds the candidate batch (ADR-0033 am.1)', () => {
+    expect(
+      validateChannelRequest('terminal.statTokens', { id: 'term_1', tokens: ['a b.png'] }).ok,
+    ).toBe(true);
+    expect(validateChannelRequest('terminal.statTokens', { id: 'term_1', tokens: [] }).ok).toBe(
+      false,
+    );
+    expect(
+      validateChannelRequest('terminal.statTokens', {
+        id: 'term_1',
+        tokens: Array.from({ length: 25 }, (_, i) => `f${i}.png`),
+      }).ok,
+    ).toBe(false);
+    expect(
+      validateChannelRequest('terminal.statTokens', { id: 'term_1', tokens: ['a'.repeat(1025)] })
+        .ok,
+    ).toBe(false);
+    // strict(): no smuggling extra fields past the schema.
+    expect(
+      validateChannelRequest('terminal.statTokens', {
+        id: 'term_1',
+        tokens: ['a.png'],
+        follow: true,
+      }).ok,
+    ).toBe(false);
+  });
+
+  it('archaeology.adopt takes a cli, an exact session uuid and a terminal (ADR-0038)', () => {
+    const uuid = '6f3a92c1-1234-4abc-8def-0123456789ab';
+    expect(
+      validateChannelRequest('archaeology.adopt', {
+        cli: 'claude',
+        sessionId: uuid,
+        terminalId: 'term_1',
+      }).ok,
+    ).toBe(true);
+    // Only exact UUIDs — the id is eventually written into a PTY.
+    expect(
+      validateChannelRequest('archaeology.adopt', {
+        cli: 'claude',
+        sessionId: 'rm -rf /; echo',
+        terminalId: 'term_1',
+      }).ok,
+    ).toBe(false);
+    expect(
+      validateChannelRequest('archaeology.adopt', {
+        cli: 'gemini',
+        sessionId: uuid,
+        terminalId: 'term_1',
+      }).ok,
+    ).toBe(false);
+    // strict(): no smuggling extra fields past the schema.
+    expect(
+      validateChannelRequest('archaeology.adopt', {
+        cli: 'codex',
+        sessionId: uuid,
+        terminalId: 'term_1',
+        cwd: '/etc',
+      }).ok,
+    ).toBe(false);
+  });
+
+  it('terminal.create accepts the archaeology context without a raw path (ADR-0038)', () => {
+    const uuid = '6f3a92c1-1234-4abc-8def-0123456789ab';
+    expect(
+      validateChannelRequest('terminal.create', {
+        context: { kind: 'archaeology', cli: 'claude', sessionId: uuid },
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateChannelRequest('terminal.create', {
+        context: { kind: 'archaeology', cli: 'claude', sessionId: uuid, cwd: '/etc' },
+      }).ok,
+    ).toBe(false);
+  });
+
   it('screenshot.saveToAssets takes exactly one watcher path or PNG bytes (ADR-0036)', () => {
     expect(
       validateChannelRequest('screenshot.saveToAssets', {

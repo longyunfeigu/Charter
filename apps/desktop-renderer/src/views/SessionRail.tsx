@@ -20,6 +20,7 @@ import { ArmedIconButton } from './ui.js';
 import { SessionFilesPane } from './SessionFilesPane.js';
 import { useGlowTasks } from './useGlow.js';
 import { sessionDisplayTitle } from '../store/sessionAttention.js';
+import { unknownDirectories, useArchaeologyStore } from '../store/archaeologyStore.js';
 
 export type SessionEntry =
   | { key: string; kind: 'task'; task: TaskDto }
@@ -87,7 +88,7 @@ function providerLabel(provider: 'pi' | 'claude' | 'codex'): string {
   return 'Pi';
 }
 
-function timeAgo(value: string, now: number): string {
+export function timeAgo(value: string, now: number): string {
   const elapsed = Math.max(0, now - Date.parse(value));
   const minutes = Math.floor(elapsed / 60_000);
   if (minutes < 1) return 'now';
@@ -296,6 +297,19 @@ export function SessionRail(): React.JSX.Element {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // ADR-0038: discovered external conversations (read-only ~/.claude/~/.codex
+  // sweep) — the Projects panel shows per-project counts and unknown dirs.
+  const discovered = useArchaeologyStore((s) => s.sessions);
+  const discoveryEnabled = useArchaeologyStore((s) => s.enabled);
+  const discoveredByProject = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const session of discovered) {
+      if (session.trackedTaskId !== null || !session.projectPath) continue;
+      counts.set(session.projectPath, (counts.get(session.projectPath) ?? 0) + 1);
+    }
+    return counts;
+  }, [discovered]);
+  const unknownDirs = useMemo(() => unknownDirectories(discovered), [discovered]);
   const [visibleCount, setVisibleCount] = useState(SESSION_PAGE_SIZE);
 
   const setView = (next: RailView): void => {
@@ -307,6 +321,9 @@ export function SessionRail(): React.JSX.Element {
   const showProjects = (): void => {
     setView('projects');
     setProjectsPanelOpen(true);
+    // ADR-0038: the Projects panel is discovery's ambient entry point — keep
+    // the "N outside" counts fresh without the user ever asking for a scan.
+    void useArchaeologyStore.getState().scan();
   };
 
   useEffect(() => {
@@ -897,13 +914,30 @@ export function SessionRail(): React.JSX.Element {
                 <Ic name="folder" size={14} />
                 <span className="sr-project-copy">
                   <strong>{project.displayName}</strong>
-                  <small>{sessionCount} sessions</small>
+                  <small data-testid={`project-discovered-${project.path}`}>
+                    {sessionCount} sessions
+                    {(discoveredByProject.get(project.path) ?? 0) > 0
+                      ? ` · ${discoveredByProject.get(project.path)} outside`
+                      : ''}
+                  </small>
                 </span>
                 {active ? (
                   <span className="sr-project-current" title="Current project">
                     <Ic name="check" size={12} />
                   </span>
                 ) : null}
+              </button>
+              <button
+                className="sr-project-use"
+                data-testid={`project-history-${project.path}`}
+                title={`Session history of ${project.displayName} — Charter and outside`}
+                aria-label={`Session history of ${project.displayName}`}
+                onClick={() => {
+                  setProjectsPanelOpen(false);
+                  app.openArchaeology(project.path);
+                }}
+              >
+                <Ic name="clock" size={13} />
               </button>
               <button
                 className="sr-project-use"
@@ -925,6 +959,27 @@ export function SessionRail(): React.JSX.Element {
             </div>
           );
         })}
+        {discoveryEnabled && (unknownDirs.length > 0 || discovered.length > 0) ? (
+          <button
+            className="sr-agent-activity"
+            data-testid="rail-agent-activity"
+            onClick={() => {
+              setProjectsPanelOpen(false);
+              app.openArchaeology(null);
+            }}
+          >
+            <Ic name="clock" size={14} />
+            <span className="sr-project-copy">
+              <strong>Agent activity</strong>
+              <small>
+                {unknownDirs.length > 0
+                  ? `${unknownDirs.length} director${unknownDirs.length === 1 ? 'y' : 'ies'} never opened here`
+                  : 'everything discovered on this machine'}
+              </small>
+            </span>
+            <Ic name="chevron" size={12} className="sr-agent-activity-chevron" />
+          </button>
+        ) : null}
       </div>
     </>
   );

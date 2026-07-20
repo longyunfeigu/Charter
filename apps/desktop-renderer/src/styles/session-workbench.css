@@ -1511,3 +1511,228 @@
     box-shadow: none;
   }
 }
+
+/* ═══ ADR-0038: session archaeology — discovered external conversations ═══ */
+
+/* "External · discovered" state pill, sibling of answered/review/neutral. */
+.sr-state.found {
+  background: var(--info-bg);
+  color: var(--info);
+}
+
+/* Projects panel footer: cross-project agent activity entry. */
+.sr-agent-activity {
+  width: 100%;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 7px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--fg-muted);
+  text-align: left;
+  cursor: pointer;
+}
+.sr-agent-activity:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.sr-agent-activity-chevron {
+  flex: none;
+  transform: rotate(-90deg);
+}
+
+/* The archaeology page (main content area). */
+.arch-root {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-editor);
+}
+.arch-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.arch-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.arch-back:hover {
+  background: var(--bg-hover);
+}
+.arch-back svg {
+  transform: rotate(90deg);
+}
+.arch-heading {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.arch-heading strong {
+  font-size: 13.5px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+.arch-heading span {
+  overflow: hidden;
+  color: var(--fg-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.arch-head .arch-btn {
+  margin-left: auto;
+}
+.arch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.arch-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.arch-btn.primary {
+  border-color: var(--fg);
+  background: var(--fg);
+  color: var(--fg-inverse);
+  font-weight: 650;
+}
+.arch-btn.primary:hover {
+  background: color-mix(in srgb, var(--fg) 86%, var(--bg-editor));
+  color: var(--fg-inverse);
+}
+.arch-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.arch-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 24px 20px;
+}
+.arch-col {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.arch-sec {
+  padding: 12px 2px 5px;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.arch-row {
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 54px;
+  margin-bottom: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-card);
+  color: var(--fg);
+  text-align: left;
+}
+.arch-row:hover {
+  border-color: var(--border-strong);
+}
+.arch-row.tracked {
+  opacity: 0.62;
+}
+.arch-row.arch-dir {
+  cursor: pointer;
+  color: var(--fg-muted);
+}
+.arch-row .sr-provider {
+  --pm-hole: var(--bg-card);
+}
+.arch-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.arch-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.arch-title b {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.arch-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+}
+.arch-meta > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.arch-meta time {
+  flex: none;
+  color: var(--fg-faint);
+  font-size: 9.5px;
+}
+.arch-acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.arch-dir-chevron {
+  transform: rotate(-90deg);
+  color: var(--fg-faint);
+}
+.arch-empty {
+  padding: 28px 8px;
+  color: var(--fg-faint);
+  font-size: 12px;
+  text-align: center;
+}

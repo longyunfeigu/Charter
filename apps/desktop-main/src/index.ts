@@ -9,7 +9,7 @@ import {
   session,
   shell,
 } from 'electron';
-import { join, normalize } from 'node:path';
+import { basename, join, normalize } from 'node:path';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
@@ -61,6 +61,8 @@ import { PreviewService } from './services/preview-service.js';
 import { ExternalSessionService } from './services/external-session-service.js';
 import { ExternalLaunchIntents } from './services/external-launch-intents.js';
 import { registerExternalHandlers } from './ipc/external-handlers.js';
+import { SessionArchaeologyService } from './services/session-archaeology.js';
+import { registerArchaeologyHandlers } from './ipc/archaeology-handlers.js';
 import { ScreenshotWatcher } from './services/screenshot-watcher.js';
 import { registerScreenshotHandlers } from './ipc/screenshot-handlers.js';
 import { buildSupportBundle } from './services/support-bundle.js';
@@ -97,6 +99,7 @@ let m5Ref: M5Services | null = null;
 let agentHostRef: AgentHost | null = null;
 let taskServiceRef: TaskService | null = null;
 let externalSessionsRef: ExternalSessionService | null = null;
+let archaeologyRef: SessionArchaeologyService | null = null;
 let externalLaunchIntents: ExternalLaunchIntents | null = null;
 let skillStoreRef: SkillStore | null = null;
 let screenshotWatcherRef: ScreenshotWatcher | null = null;
@@ -541,6 +544,21 @@ if (!gotLock) {
               contextTaskId: null,
             };
           },
+          // ADR-0038: adoption terminals — cwd comes from the discovery cache,
+          // never from the renderer. Deferred: archaeologyRef is assigned below.
+          async archaeology(cli, sessionId) {
+            const found = (await archaeologyRef?.lookup(cli, sessionId)) ?? null;
+            if (!found) return null;
+            const projectPath = found.projectPath ?? found.cwd;
+            return {
+              cwd: found.cwd,
+              projectName: basename(projectPath) || projectPath,
+              projectPath,
+              contextKind: 'recent' as const,
+              contextLabel: basename(projectPath) || projectPath,
+              contextTaskId: null,
+            };
+          },
         },
         externalLaunchIntents,
       );
@@ -669,6 +687,23 @@ if (!gotLock) {
         externalLaunchIntents,
       );
       registerExternalHandlers(externalSessionsRef, logger.child('ipc'));
+
+      // ADR-0038: session archaeology — read-only discovery over the CLI
+      // agents' own stores. E2E only ever scans an explicitly supplied fake
+      // home (PI_IDE_ARCHAEOLOGY_HOME), never the developer machine's.
+      const archaeologyHome = process.env.PI_IDE_ARCHAEOLOGY_HOME;
+      archaeologyRef = new SessionArchaeologyService({
+        logger: logger.child('archaeology'),
+        ...(archaeologyHome ? { homeDir: archaeologyHome } : {}),
+        enabled: !process.env.PI_IDE_E2E || Boolean(archaeologyHome),
+        knownSessions: () => taskServiceRef?.externalSessionIndex() ?? new Map(),
+        projects: () =>
+          state
+            .recentWorkspaces()
+            .filter((item) => item.exists)
+            .map((item) => item.path),
+      });
+      registerArchaeologyHandlers(archaeologyRef, externalSessionsRef, logger.child('ipc'));
 
       // PIVOT-014: system notifications on attention-worthy task states.
       // E2E runs must not spray real OS banners (they disturb focus/timing).

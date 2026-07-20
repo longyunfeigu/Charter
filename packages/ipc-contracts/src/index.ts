@@ -14,3 +14,4 @@ export * from './providers.js';
 export * from './skills.js';
 export * from './memory.js';
 export * from './screenshots.js';
+export * from './archaeology.js';

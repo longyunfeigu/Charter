@@ -42,6 +42,12 @@ import {
 import { CodeContextRefsSchema, ExternalInjectRefSchema } from './code-context.js';
 import { FileContextRefsSchema, MAX_ATTACHMENT_IMAGE_BYTES } from './file-context.js';
 import { ScreenshotAssetSourceSchema, ScreenshotCaptureSchema } from './screenshots.js';
+import {
+  CLI_SESSION_ID_RE,
+  DiscoveredCliSchema,
+  DiscoveredSessionDtoSchema,
+  MAX_DISCOVERED_SESSIONS,
+} from './archaeology.js';
 
 const SettingsStateSchema = z.object({
   effective: SettingsSchema,
@@ -54,6 +60,16 @@ const TerminalContextSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('recent'), projectPath: z.string().min(1) }).strict(),
   z.object({ kind: z.literal('task'), taskId: z.string().min(1) }).strict(),
   z.object({ kind: z.literal('scratch') }).strict(),
+  // ADR-0038: terminal for adopting a discovered CLI session. The renderer
+  // names the session; the HOST resolves its cwd from the discovery cache —
+  // no raw renderer path ever reaches the PTY spawn.
+  z
+    .object({
+      kind: z.literal('archaeology'),
+      cli: DiscoveredCliSchema,
+      sessionId: z.string().regex(CLI_SESSION_ID_RE),
+    })
+    .strict(),
 ]);
 
 /** ADR-0033: file types `terminal.openPath` hands to the OS default app
@@ -520,6 +536,20 @@ export const CHANNELS = {
       workspacePath: z.string().nullable(),
     }),
   ),
+  /** ADR-0033 am.1: batch existence probe for space/CJK path-boundary
+   * candidates. Same cwd containment as terminal.openPath, but read-only and
+   * per-token non-throwing — a token outside the cwd is simply `false`. */
+  'terminal.statTokens': ch(
+    'terminal.statTokens',
+    1,
+    z
+      .object({
+        id: z.string(),
+        tokens: z.array(z.string().min(1).max(1024)).min(1).max(24),
+      })
+      .strict(),
+    z.object({ existing: z.array(z.boolean()) }),
+  ),
   /** ADR-0021: a command block finished (renderer-parsed OSC 133;D). The main
    * process applies PIVOT-014 hygiene and may show a system notification whose
    * click reveals the block. */
@@ -592,6 +622,35 @@ export const CHANNELS = {
       })
       .strict(),
     z.object({ delivered: z.boolean(), terminalId: z.string() }),
+  ),
+  /** ADR-0038: read-only discovery of the CLI agents' own transcript stores.
+   * Newest first, capped; `enabled:false` means discovery is off (E2E without
+   * a fake home) and the renderer hides every archaeology surface. */
+  'archaeology.scan': ch(
+    'archaeology.scan',
+    1,
+    z.object({}).strict(),
+    z.object({
+      sessions: z.array(DiscoveredSessionDtoSchema).max(MAX_DISCOVERED_SESSIONS),
+      scannedAt: z.string(),
+      enabled: z.boolean(),
+    }),
+  ),
+  /** ADR-0038: adopt a discovered session as a regular external task. The
+   * terminal must have been created with the matching `archaeology` context
+   * (same cwd containment as any resume); entry snapshot from this moment —
+   * the imported past never enters the ledger. */
+  'archaeology.adopt': ch(
+    'archaeology.adopt',
+    1,
+    z
+      .object({
+        cli: DiscoveredCliSchema,
+        sessionId: z.string().regex(CLI_SESSION_ID_RE),
+        terminalId: z.string().min(1),
+      })
+      .strict(),
+    z.object({ taskId: z.string(), terminalId: z.string(), cli: z.string() }),
   ),
   'git.status': ch(
     'git.status',

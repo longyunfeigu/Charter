@@ -2353,6 +2353,27 @@ export class TaskService {
   }
 
   /**
+   * ADR-0038: every CLI conversation id Charter already owns, lowercased,
+   * mapped to its task. Archaeology dedupes against this so a session started
+   * inside a product terminal is never re-listed as "discovered".
+   */
+  externalSessionIndex(): Map<string, string> {
+    const rows = this.db
+      .prepare('SELECT id, external_json FROM tasks WHERE external_json IS NOT NULL')
+      .all() as Array<{ id: string; external_json: string }>;
+    const index = new Map<string, string>();
+    for (const row of rows) {
+      try {
+        const external = JSON.parse(row.external_json) as { sessionId?: string | null };
+        if (external.sessionId) index.set(external.sessionId.toLowerCase(), row.id);
+      } catch {
+        // A malformed legacy row must not break discovery.
+      }
+    }
+    return index;
+  }
+
+  /**
    * Name an external session after its first user message. The row-refresh
    * broadcast reuses task.stateChanged (the renderer's generic task upsert
    * channel); the state itself is unchanged.

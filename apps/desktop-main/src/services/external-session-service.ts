@@ -909,6 +909,121 @@ export class ExternalSessionService {
       });
     }
 
+    return this.startResumedSession({
+      task,
+      external,
+      terminalId,
+      expectedCwd,
+      command,
+      retireStubOnMiss: settled,
+      sameTaskResume: !settled,
+    });
+  }
+
+  /**
+   * ADR-0038: adopt a DISCOVERED session (session archaeology) as a brand-new
+   * external task — the same machinery as continuing a settled session, minus
+   * a source task. The entry snapshot is taken at this moment: everything the
+   * conversation did before adoption stays outside the ledger, honestly.
+   */
+  async adopt(
+    input: { cli: string; sessionId: string; cwd: string; projectPath: string; title: string },
+    terminalId: string,
+  ): Promise<{ terminalId: string; cli: string; taskId: string }> {
+    if (!isSafeCliSessionId(input.sessionId)) {
+      throw new ProductFailure(
+        productError('EXTERNAL_SESSION_ID_INVALID', {
+          userMessage: 'That session id cannot be resumed safely.',
+        }),
+      );
+    }
+    const command = externalResumeCommand(input.cli, input.sessionId);
+    if (!command) {
+      throw new ProductFailure(
+        productError('EXTERNAL_RESUME_UNSUPPORTED', {
+          userMessage: `${input.cli} does not have a supported session-resume command.`,
+        }),
+      );
+    }
+    if (this.byTerminal.has(terminalId) || this.pendingResumes.has(terminalId)) {
+      throw new ProductFailure(
+        productError('EXTERNAL_SESSION_ACTIVE', {
+          userMessage: `This terminal already has an active external session.`,
+        }),
+      );
+    }
+    const terminal = this.terminals.list().find((item) => item.id === terminalId);
+    if (!terminal) {
+      throw new ProductFailure(
+        productError('TERMINAL_NOT_FOUND', {
+          userMessage: 'Open a terminal for this session and try again.',
+        }),
+      );
+    }
+    if (terminal.cwd !== input.cwd) {
+      throw new ProductFailure(
+        productError('EXTERNAL_RESUME_CWD_MISMATCH', {
+          userMessage: `The resume terminal must start in ${input.cwd}.`,
+        }),
+      );
+    }
+    // Entry snapshot at adoption — the diff baseline for everything after.
+    let snapshotRef: string | null = null;
+    try {
+      const info = await openWorkspaceInfo(input.projectPath);
+      if (info.isGitRepo) snapshotRef = await new GitService(input.projectPath).snapshotTree();
+    } catch (e) {
+      this.logger.warn('adoption snapshot failed; degrading to first-seen baselines', {
+        terminalId,
+        error: errorMessage(e),
+      });
+    }
+    let task = await this.tasks.createExternalTask({
+      cli: input.cli,
+      terminalId,
+      cwd: input.cwd,
+      projectPath: input.projectPath,
+      worktree: null,
+      snapshotRef,
+      title: input.title,
+    });
+    this.tasks.setExternalSessionId(task.id, input.sessionId);
+    this.tasks.recordEvent(task.id, 'external.sessionAdopted', {
+      cli: input.cli,
+      sessionId: input.sessionId,
+      cwd: input.cwd,
+    });
+    task = this.tasks.getTask(task.id);
+    this.logger.info('discovered external session adopted', {
+      taskId: task.id,
+      cli: input.cli,
+      cwd: input.cwd,
+    });
+    return this.startResumedSession({
+      task,
+      external: task.external!,
+      terminalId,
+      expectedCwd: input.cwd,
+      command,
+      retireStubOnMiss: true,
+      sameTaskResume: false,
+    });
+  }
+
+  /** Shared tail of resume/adopt: wire the live session, inject the resume
+   * command, and hold the RPC open until the CLI is really detected. */
+  private async startResumedSession(input: {
+    task: ReturnType<TaskService['getTask']>;
+    external: NonNullable<ReturnType<TaskService['getTask']>['external']>;
+    terminalId: string;
+    expectedCwd: string;
+    command: string;
+    /** Retire the freshly-minted stub task if the CLI never shows up. */
+    retireStubOnMiss: boolean;
+    /** Same-task resumes flip the source task active again (state-gated). */
+    sameTaskResume: boolean;
+  }): Promise<{ terminalId: string; cli: string; taskId: string }> {
+    const { task, external, terminalId, expectedCwd, command } = input;
     const git = task.gitBaseline ? new GitService(task.projectPath) : null;
     const watcher = new WorkspaceWatcher(task.projectPath);
     const changeSet = await this.tasks.contextForTask(task.id).changes.changeSet(task.id);
@@ -964,7 +1079,7 @@ export class ExternalSessionService {
     this.byTerminal.set(terminalId, session);
     // A continuation task is born active; only a same-task resume flips the
     // source task's status back (and is state-gated in the task service).
-    if (!settled) this.tasks.resumeExternalSession(task.id, terminalId);
+    if (input.sameTaskResume) this.tasks.resumeExternalSession(task.id, terminalId);
     broadcast('external.sessionChanged', {
       taskId: task.id,
       terminalId,
@@ -982,7 +1097,7 @@ export class ExternalSessionService {
           // A continuation stub that never saw its CLI is pure noise — retire
           // it. Worktree-mounted stubs keep the shared mount and stay visible
           // (archive would discard the source task's worktree).
-          if (settled && !task.worktree) {
+          if (input.retireStubOnMiss && !task.worktree) {
             try {
               this.tasks.archive(task.id);
             } catch (e) {
