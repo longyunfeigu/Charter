@@ -70,8 +70,12 @@ function clipped(value: unknown, max = 4000): string {
   return source.length <= max ? source : `${source.slice(0, max - 1)}…`;
 }
 
+/** Plan-shaped provider tools (exact names): the pivot signal source (V3.1). */
+const PLAN_TOOLS = /^(todowrite|exitplanmode|update_plan|todo_list)$/;
+
 function commandKind(name: string): ExternalReplayObservation['kind'] {
   const lower = name.toLowerCase();
+  if (PLAN_TOOLS.test(lower)) return 'plan';
   if (/patch|write|create|delete|rename|edit/.test(lower)) return 'write';
   if (/search|grep|find|web/.test(lower)) return 'search';
   if (/test|verify|lint|check/.test(lower)) return 'verification';
@@ -195,30 +199,35 @@ export class ExternalStructuredReplayParser {
           const name = text(block.name) || 'tool';
           if (id) this.calls.set(id, name);
           const input = object(block.input);
+          const kind = commandKind(name);
           out.push({
             key: id || undefined,
             callId: id || undefined,
-            kind: commandKind(name),
-            label: `Claude called ${name}`,
+            kind,
+            label: kind === 'plan' ? `Claude updated its plan (${name})` : `Claude called ${name}`,
             detail: clipped(input),
             status: 'running',
             toolName: name,
             paths: firstPath(input),
-            evidenceKinds: ['tool'],
+            evidenceKinds: kind === 'plan' ? ['plan'] : ['tool'],
           });
         } else if (blockType === 'tool_result') {
           const callId = text(block.tool_use_id);
           const name = this.calls.get(callId) ?? 'tool';
           const failed = block.is_error === true;
+          const kind = commandKind(name);
           out.push({
             key: callId || undefined,
             callId: callId || undefined,
-            kind: commandKind(name),
-            label: `${name} ${failed ? 'failed' : 'completed'}`,
+            kind,
+            label:
+              kind === 'plan'
+                ? `Claude plan update ${failed ? 'failed' : 'recorded'}`
+                : `${name} ${failed ? 'failed' : 'completed'}`,
             detail: clipped(block.content),
             status: failed ? 'error' : 'ok',
             toolName: name,
-            evidenceKinds: ['tool', 'result'],
+            evidenceKinds: kind === 'plan' ? ['plan', 'result'] : ['tool', 'result'],
           });
         }
       }
@@ -328,6 +337,20 @@ export class ExternalStructuredReplayParser {
             toolName: 'file_change',
             paths,
             evidenceKinds: ['tool', 'file'],
+          },
+        ];
+      }
+      if (itemType === 'todo_list') {
+        // Codex's observable plan (exec --json). Same id across
+        // started/completed — one proposal, and the pivot signal source.
+        return [
+          {
+            key: id || undefined,
+            kind: 'plan',
+            label: complete ? 'Codex updated its plan' : 'Codex is updating its plan',
+            detail: clipped(item.items ?? item),
+            status: complete ? 'ok' : 'running',
+            evidenceKinds: ['plan'],
           },
         ];
       }

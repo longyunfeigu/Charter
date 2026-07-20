@@ -1,7 +1,7 @@
 # ADR-0013 — Review v2: Monaco side-by-side diff, git decorations, feedback loop
 
 Status: accepted
-Date: 2026-07-14
+Date: 2026-07-14 (decorations revised 2026-07-20 — see "Revision" below)
 Related: spec §5.4/§13.2 (REV, CHG-005/007/008 — semantics unchanged), PIVOT-024, ADR-0009 (worktrees), E2E-014/015
 
 ## Context
@@ -40,9 +40,25 @@ no tab marks, no gutter bars), although VS Code trained users to expect them.
 
 - Shared `gitStatusStore` (renderer): one `git.status` snapshot, refreshed by
   the fs watcher (400 ms debounce) and workspace switches.
-- Explorer rows: colored filename + status letter (A/M/D/U/R/C); folders with
+- Explorer rows: colored filename + status letter (A/M/D/R/C); folders with
   changed descendants get a small dot. Home project tree tints file names.
 - Tabs: status letter next to the dirty dot.
+
+#### Revision 2026-07-20 — merge U into A, per-file ±line counts
+
+User acceptance on a real project showed a tree full of identical "U" letters:
+the untracked/added distinction is git plumbing users don't think in, and the
+letter alone answers neither "is this new or edited?" nor "how big is the
+edit?". Approved via mock (docs/design/filetree-diffstat-mock.html, 方案 A):
+
+- Untracked and staged-new both render a green **A** — `GitMark` no longer has
+  a `U` member.
+- Modified/renamed rows show **+N −M** (green/red, tabular numerals) before the
+  letter. Counts come from `git diff --numstat -z HEAD` (worktree+index vs
+  HEAD), returned as `stats` on `git.status` v2 and refreshed by the same
+  watcher debounce. Untracked and binary files carry no counts (letter only);
+  numstat failures degrade to letters, never break status. Agent-mark-only
+  projects (no git) keep letter-only decorations.
 - Editor gutter: change bars vs the git index (`git.diffFile`) — green added,
   blue modified, red triangle for deletions — recomputed on open, save
   (dirty→clean edge) and status refreshes. Pure diff parsing is unit-tested

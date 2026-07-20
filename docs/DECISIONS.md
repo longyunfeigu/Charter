@@ -19,6 +19,8 @@
 | [ADR-0028](adr/ADR-0028-project-memory.md) | Accepted | 项目记忆：审查即学习的规则沉淀，单源三投影（preamble / CLAUDE.md / AGENTS.md 托管区块），私有记忆只管理不合并 | 2026-07-19 | 提案① mock Ⓐ/Ⓑ/Ⓒ、ADR-0015/0019 模式复用、ADR-0017 边界教训、M11-07 清理路径 |
 | [ADR-0029](adr/ADR-0029-single-project-tree.md) | Accepted | 单一项目文件树：rail Files 面板并入 ExplorerView 管理能力成为唯一的树（ProjectTree）；编辑器表面移除 Files 工具列，'files' 工具改名 'editor'；railView 提升至 appStore | 2026-07-20 | 用户验收截图指出双树冗余并选定合并终局；部分取代 ADR-0024 中「Editor 保留 canonical ExplorerView」 |
 | [ADR-0030](adr/ADR-0030-external-terminal-single-input.md) | Accepted | 外部会话单输入口：删除底部 product composer，CLI 输入行是唯一对话面；拖拽/选区经 external.injectContext 注入（bracketed paste 不带回车）；注入记台账、typed-line 命名会话 | 2026-07-20 | 用户 mockup 验收（B 案）；部分取代 ADR-0017/0024 的外部 composer 表述 |
+| [ADR-0031](adr/ADR-0031-replay-v31-conversation-first-recap.md) | Accepted | Replay V3.1：对话优先 Recap——引自报告的结论行（逐字+引用锚）、只读返回线（审阅唯一入口在房间）、折叠占位符、转折（计划修订）检测、对外动作双轨与不可逆置顶、输入台账；外部 parser 补 TodoWrite/todo_list→plan | 2026-07-20 | 用户两轮 mock 验收（replay-v4-recap-mock*.html）；砍掉与房间重复的行动面板/成本条；扩展 ADR-0017 am.8 |
+| [ADR-0033](adr/ADR-0033-terminal-file-links.md) | Accepted | 终端文件链接：⌘+单击 file token 经 terminal.openPath（cwd 封禁+扩展名分流）系统浏览器打开 html/svg/pdf、其余进编辑器；OSC 8 + 正则双轨识别；顺带修复终端网页链接点击无响应 | 2026-07-20 | 用户 mockup 验收（terminal-file-link-mock.html，选定 ⌘+单击/系统浏览器）；§12.3 策略未放宽 |
 
 ## ADR 模板
 

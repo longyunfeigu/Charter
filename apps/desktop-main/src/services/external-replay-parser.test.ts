@@ -94,6 +94,66 @@ describe('ExternalStructuredReplayParser', () => {
     expect(second.terminalText).toBe('');
   });
 
+  it('maps Claude TodoWrite/ExitPlanMode tool calls to plan observations (V3.1 pivot source)', () => {
+    const parser = new ExternalStructuredReplayParser();
+    const result = parser.feed(
+      'claude',
+      [
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [
+              {
+                type: 'tool_use',
+                id: 'todo-1',
+                name: 'TodoWrite',
+                input: { todos: [{ content: 'switch to single-flight refresh' }] },
+              },
+            ],
+          },
+        }),
+        JSON.stringify({
+          type: 'user',
+          message: {
+            content: [{ type: 'tool_result', tool_use_id: 'todo-1', content: 'ok' }],
+          },
+        }),
+        '',
+      ].join('\n'),
+    );
+    const plans = result.observations.filter((item) => item.kind === 'plan');
+    expect(plans.length).toBe(2); // running + terminal, same key (one proposal)
+    expect(plans[0]!.label).toContain('Claude updated its plan');
+    expect(plans[0]!.key).toBe('todo-1');
+    expect(plans[1]!.key).toBe('todo-1');
+    expect(plans[0]!.evidenceKinds).toContain('plan');
+    expect(plans[0]!.detail).toContain('single-flight');
+  });
+
+  it('maps Codex todo_list items to plan observations', () => {
+    const parser = new ExternalStructuredReplayParser();
+    const result = parser.feed(
+      'codex',
+      [
+        JSON.stringify({
+          type: 'item.completed',
+          item: {
+            id: 'todo-9',
+            type: 'todo_list',
+            items: [{ text: 'retry with replay queue', completed: false }],
+          },
+        }),
+        '',
+      ].join('\n'),
+    );
+    expect(result.structured).toBe(true);
+    const plan = result.observations.find((item) => item.kind === 'plan');
+    expect(plan).toBeDefined();
+    expect(plan!.label).toBe('Codex updated its plan');
+    expect(plan!.detail).toContain('replay queue');
+    expect(plan!.evidenceKinds).toContain('plan');
+  });
+
   it('strips terminal control sequences and redacts credential-shaped text', () => {
     const cleaned = cleanTerminalText('\u001b[32mok\u001b[0m token=secret-value');
     expect(cleaned).toContain('ok');

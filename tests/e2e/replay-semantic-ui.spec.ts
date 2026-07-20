@@ -107,7 +107,10 @@ test.describe('Semantic Replay UI — real Electron surface', () => {
       // transport controls and page identity without horizontal overflow.
       await setWindowSize(app, 1024, 768);
       await expect(page.getByText('对话与操作', { exact: true })).toBeVisible();
-      await expect(page.getByText('Agent 当时正在做什么', { exact: true })).toBeVisible();
+      // V3.1: the right column is the result card (conclusion + return line),
+      // not the removed "what the agent was doing" header.
+      await expect(page.getByTestId('replay-summary')).toBeVisible();
+      await expect(page.getByTestId('replay-to-room')).toBeVisible();
       await expect(page.getByTestId('replay-play')).toBeVisible();
       expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
       await page.screenshot({ path: join(SHOTS, 'pi-narrow-1024.png') });

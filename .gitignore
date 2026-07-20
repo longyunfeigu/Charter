@@ -5,6 +5,7 @@ release/
 coverage/
 *.tsbuildinfo
 .DS_Store
+.idea/
 *.log
 .tmp/
 tmp/

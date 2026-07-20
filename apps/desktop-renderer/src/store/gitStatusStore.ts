@@ -7,24 +7,32 @@ import { onEvent, rpcResult } from '../bridge.js';
  * - git status (authoritative when the project is a repo — covers user edits)
  * - the product's own change records (agent-touched files; the ONLY source
  *   for non-git projects, where git has nothing to say)
- * Visual language mirrors VS Code: A green, M amber, D red, U untracked, C conflict.
+ * Visual language: A green (added — untracked and staged-new read the same to
+ * users, so both show A), M amber, D red, R blue, C conflict red. Modified
+ * files additionally carry ±line counts (git numstat) for the explorer.
  */
 
-export type GitMark = 'A' | 'M' | 'D' | 'U' | 'R' | 'C';
+export type GitMark = 'A' | 'M' | 'D' | 'R' | 'C';
 
 export const MARK_COLOR: Record<GitMark, string> = {
   A: 'var(--success)',
-  U: 'var(--success)',
   M: 'var(--warning)',
   R: 'var(--info)',
   D: 'var(--danger)',
   C: 'var(--danger)',
 };
 
+export interface DiffStat {
+  insertions: number;
+  deletions: number;
+}
+
 interface GitStatusStore {
   isRepo: boolean;
   /** workspace-relative path → mark */
   byPath: Record<string, GitMark>;
+  /** workspace-relative path → ±line counts (tracked, non-binary files only) */
+  statByPath: Record<string, DiffStat>;
   /** directories that contain at least one marked file */
   dirty: Record<string, true>;
   /** bumps on every refresh — gutter recompute trigger */
@@ -40,7 +48,7 @@ function markOf(entry: {
   workState: string;
 }): GitMark {
   if (entry.group === 'conflict') return 'C';
-  if (entry.group === 'untracked') return 'U';
+  if (entry.group === 'untracked') return 'A';
   const s = (entry.workState.trim() || entry.indexState.trim()).toUpperCase();
   if (s.startsWith('A')) return 'A';
   if (s.startsWith('D')) return 'D';
@@ -53,6 +61,7 @@ let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 export const useGitStatusStore = create<GitStatusStore>((set, get) => ({
   isRepo: false,
   byPath: {},
+  statByPath: {},
   dirty: {},
   version: 0,
   initialized: false,
@@ -61,7 +70,7 @@ export const useGitStatusStore = create<GitStatusStore>((set, get) => ({
     if (get().initialized) return;
     set({ initialized: true });
     onEvent('workspace.changed', () => {
-      set({ byPath: {}, dirty: {}, isRepo: false });
+      set({ byPath: {}, statByPath: {}, dirty: {}, isRepo: false });
       void get().refresh();
     });
     // Watcher events debounce into one status refresh.
@@ -95,8 +104,12 @@ export const useGitStatusStore = create<GitStatusStore>((set, get) => ({
     }
     // … git overrides per path when the project is a repo (it also sees user edits).
     const isRepo = gitRes.ok && gitRes.data.isRepo;
+    const statByPath: Record<string, DiffStat> = {};
     if (gitRes.ok && gitRes.data.isRepo) {
       for (const entry of gitRes.data.entries) byPath[entry.path] = markOf(entry);
+      for (const s of gitRes.data.stats) {
+        statByPath[s.path] = { insertions: s.insertions, deletions: s.deletions };
+      }
     }
     const dirty: Record<string, true> = {};
     for (const path of Object.keys(byPath)) {
@@ -106,6 +119,6 @@ export const useGitStatusStore = create<GitStatusStore>((set, get) => ({
         dirty[dir] = true;
       }
     }
-    set({ isRepo, byPath, dirty, version: get().version + 1 });
+    set({ isRepo, byPath, statByPath, dirty, version: get().version + 1 });
   },
 }));

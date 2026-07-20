@@ -58,6 +58,15 @@ test.describe('Replay V3 — one story, three depths', () => {
       // edit-basic never ran a verification — the contract must say so.
       await expect(page.getByTestId('replay-contract')).toContainText('未验证');
 
+      // 1b) V3.1 result card: the quoted conclusion (agent's recorded report,
+      //     Inferred level), the read-only return line, and the input ledger.
+      await expect(page.getByTestId('replay-conclusion')).toBeVisible();
+      await expect(page.getByTestId('replay-conclusion')).toContainText('引自最终报告');
+      await expect(page.getByTestId('replay-to-room')).toContainText('回放保持只读');
+      await expect(page.getByTestId('replay-inputs')).toBeVisible();
+      // The conversation is first-class: the user's request renders as a bubble.
+      await expect(page.locator('.rp-story-event.message.from-user').first()).toBeVisible();
+
       // 2) The design taxonomy is gone: no A–E navigation, no % confidence.
       expect(await page.locator('[data-testid^="replay-mode-"]').count()).toBe(0);
       const fullText = (await page.getByTestId('replay-view').textContent()) ?? '';
@@ -163,7 +172,9 @@ test.describe('Replay V3 — one story, three depths', () => {
       await page.getByTestId('replay-open').click();
       await expect(page.getByTestId('replay-view')).toBeVisible();
       await expect(page.getByTestId('replay-summary')).toBeVisible();
-      await page.keyboard.press('Escape');
+      // V3.1: the return line closes the read-only replay back into the room.
+      await page.getByTestId('replay-to-room').locator('button').click();
+      await expect(page.getByTestId('replay-view')).toHaveCount(0);
 
       expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
     } finally {
@@ -328,6 +339,14 @@ test.describe('Replay V3 — one story, three depths', () => {
       await expect(page.getByTestId('replay-view')).toBeVisible();
       await expect(page.getByTestId('replay-count')).toContainText('/ 10', { timeout: 30000 });
 
+      // V3.1: a 10k ledger folds into placeholders, never silent holes — the
+      // fold row counts what it hides and expands to samples.
+      const fold = page.getByTestId('replay-fold').first();
+      await expect(fold).toBeVisible();
+      await expect(fold).toContainText('折叠了');
+      await fold.locator('summary').click();
+      await expect(fold.locator('.rp-fold-sample button').first()).toBeVisible();
+
       // Search narrows 10k facts to the seeded needles without freezing.
       await switchReplayDepth(page, 'explore');
       const searchStarted = Date.now();
@@ -349,6 +368,56 @@ test.describe('Replay V3 — one story, three depths', () => {
       await page.getByTestId('replay-close').click();
     } finally {
       await second.app.close();
+    }
+  });
+
+  test('a recorded plan revision surfaces as a pivot card with id-backed grounds', async () => {
+    const fixture = createTsSmallFixture();
+    const { app, page } = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+    });
+    try {
+      await page.getByTestId('surface-home').click();
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
+      await page.getByTestId('home-intent').fill('[scenario:plan-request-changes] revise me');
+      await page.getByTestId('home-submit').click();
+
+      // Drive the recorded revision: feedback on plan v1 → revised v2 → approve.
+      await expect(page.getByTestId('plan-card')).toBeVisible({ timeout: 20000 });
+      await page.getByTestId('agent-input').fill('please add a verification step');
+      await page.getByTestId('agent-send').click();
+      await expect(page.getByTestId('plan-card')).toContainText('Revised', { timeout: 20000 });
+      await page.getByTestId('plan-approve').click();
+      await page.getByTestId('perm-allow-task').click({ timeout: 20000 });
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+        timeout: 30000,
+      });
+
+      await page.getByTestId('session-more').click();
+      await page.getByTestId('replay-open').click();
+      await expect(page.getByTestId('replay-view')).toBeVisible();
+
+      // The second proposal is a pivot: card in the story, chapter on the axis.
+      const pivot = page.getByTestId('replay-pivot').first();
+      await pivot.scrollIntoViewIfNeeded();
+      await expect(pivot).toBeVisible();
+      await expect(pivot).toContainText('转折');
+      await expect(pivot).toContainText('推导叙事');
+      // The revision's recorded prose (plan summary) is quoted, not invented.
+      await expect(pivot).toContainText('Revised');
+      await expect(
+        page.getByTestId('replay-timeline').locator('[data-category="pivot"]'),
+      ).toHaveCount(1);
+
+      // Its grounds are clickable, id-backed references.
+      const refs = pivot.locator('.rp-pivot-refs button');
+      await expect(refs.first()).toBeVisible();
+      await refs.first().click();
+      await expect(page.getByTestId('replay-detail-layer')).toBeVisible();
+
+      await page.keyboard.press('Escape');
+    } finally {
+      await app.close();
     }
   });
 

@@ -105,6 +105,7 @@ export function SemanticTimeline({
             <button
               key={chapter.id}
               className={`rp-semantic-moment ${active ? 'active' : ''} status-${fact.status}`}
+              data-category={chapter.category}
               style={{ left: `${left}%` }}
               onClick={() => controller.selectFact(fact.id)}
               title={fact.action}
@@ -193,6 +194,7 @@ function semanticPositions(count: number): number[] {
 
 function momentIcon(fact: ReplayFactDto): string {
   if (fact.status === 'error' || fact.status === 'denied') return 'alert';
+  if (fact.pivot) return 'map';
   if (fact.kind === 'verification') return fact.status === 'ok' ? 'check' : 'alert';
   if (fact.actor.kind === 'user') return 'user';
   if (fact.actor.kind === 'agent') return 'bot';

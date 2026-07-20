@@ -36,6 +36,15 @@ export interface GitBranch {
   current: boolean;
 }
 
+/** Combined worktree+index line counts vs HEAD for one tracked file. */
+export interface GitNumstatEntry {
+  path: string;
+  insertions: number;
+  deletions: number;
+  /** Binary files have no line counts (`-` in numstat output). */
+  binary: boolean;
+}
+
 function gitError(
   code: string,
   userMessage: string,
@@ -217,6 +226,39 @@ export class GitService {
     });
 
     return { branch, upstream, ahead, behind, entries: deduped };
+  }
+
+  /**
+   * Per-file ±line counts, worktree+index combined vs HEAD (ADR-0013 explorer
+   * decorations). Untracked files never appear — the UI shows them as plain
+   * "new" without counting.
+   */
+  async numstat(): Promise<GitNumstatEntry[]> {
+    const res = await this.run(['diff', '--numstat', '-z', 'HEAD'], { allowCodes: [128] });
+    if (res.code !== 0) return []; // repo without a HEAD commit yet
+    const records = res.stdout.split('\u0000');
+    const entries: GitNumstatEntry[] = [];
+    for (let i = 0; i < records.length; i++) {
+      const record = records[i]!;
+      if (record === '') continue;
+      const m = record.match(/^(-|\d+)\t(-|\d+)\t([\s\S]*)$/);
+      if (!m) continue;
+      let path = m[3]!;
+      if (path === '') {
+        // rename record: "INS\tDEL\t" NUL preimage NUL postimage — report the new path
+        path = records[i + 2] ?? '';
+        i += 2;
+      }
+      if (path === '') continue;
+      const binary = m[1] === '-' || m[2] === '-';
+      entries.push({
+        path,
+        insertions: binary ? 0 : Number(m[1]),
+        deletions: binary ? 0 : Number(m[2]),
+        binary,
+      });
+    }
+    return entries;
   }
 
   async diffFile(path: string, options: { staged: boolean }): Promise<string> {

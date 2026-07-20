@@ -361,6 +361,11 @@ export function projectActivityEvent(event: TimelineEventDto): ActivityItem | nu
     }
     case 'user.message': {
       const isAnswer = str(p.kind) === 'answer';
+      // Attached code refs are recorded inputs (Replay V3.1 input ledger);
+      // they never pulse the tree — the glow only reacts to write/review paths.
+      const refPaths = Array.isArray(p.codeRefs)
+        ? p.codeRefs.map((ref) => cleanPath(str(rec(ref).path))).filter(Boolean)
+        : [];
       return {
         ...base,
         author: 'user',
@@ -368,7 +373,9 @@ export function projectActivityEvent(event: TimelineEventDto): ActivityItem | nu
         label: isAnswer
           ? `Answered: “${trunc(str(p.text), 80)}”`
           : `You: “${trunc(str(p.text), 80)}”`,
+        ...(str(p.text) ? { detail: trunc(str(p.text), 2000) } : {}),
         status: 'info',
+        paths: [...new Set(refPaths)],
       };
     }
     case 'agent.message':
@@ -376,6 +383,9 @@ export function projectActivityEvent(event: TimelineEventDto): ActivityItem | nu
         ...base,
         kind: 'message',
         label: trunc(str(p.text), 140),
+        // Full recorded prose (bounded) so replay can show the actual reply,
+        // not only the one-line action label.
+        ...(str(p.text) ? { detail: trunc(str(p.text), 2000) } : {}),
         status: 'ok',
       };
     case 'agent.thinking':

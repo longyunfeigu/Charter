@@ -28,6 +28,24 @@ describe('IPC channel registry', () => {
     }
   });
 
+  it('terminal.openPath takes a terminal id plus a bounded token and nothing else', () => {
+    expect(
+      validateChannelRequest('terminal.openPath', { id: 'term_1', path: 'rocket.html' }).ok,
+    ).toBe(true);
+    expect(validateChannelRequest('terminal.openPath', { id: 'term_1', path: '' }).ok).toBe(false);
+    expect(
+      validateChannelRequest('terminal.openPath', { id: 'term_1', path: 'a'.repeat(4097) }).ok,
+    ).toBe(false);
+    // strict(): no smuggling extra fields past the schema.
+    expect(
+      validateChannelRequest('terminal.openPath', {
+        id: 'term_1',
+        path: 'rocket.html',
+        line: 3,
+      }).ok,
+    ).toBe(false);
+  });
+
   it('accepts at most three conversation references when creating a task', () => {
     const base = {
       title: 'Use prior context',

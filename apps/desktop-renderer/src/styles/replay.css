@@ -3507,3 +3507,597 @@
     overflow-y: auto;
   }
 }
+
+/* ==========================================================================
+   Replay V3.1 — conversation-first recap (mock replay-v4-recap-mock.html)
+   Scoped under .rp-v31 so the base playback rules keep serving other depths.
+   ========================================================================== */
+
+.rp-v31.rp-recap.rp-playback {
+  grid-template-columns: minmax(360px, 38%) minmax(0, 1fr);
+}
+
+/* The V3.1 right panel has no separate head row: summary card + stage. */
+.rp-v31 .rp-now-panel {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+/* ---------- result card ---------- */
+
+.rp-v31 .rp-summary {
+  display: block;
+  padding: 13px 18px 12px;
+}
+
+.rp-result-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  min-width: 0;
+}
+
+.rp-result-line h1 {
+  margin: 0;
+  font-size: 16.5px;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.rp-result-facts {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.rp-conclusion {
+  margin-top: 10px;
+  padding: 8px 12px 9px;
+  border-left: 3px solid var(--rp-violet);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--rp-violet) 8%, var(--bg-card));
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.rp-conclusion > .rp-level {
+  float: none;
+  margin-right: 8px;
+}
+
+.rp-conclusion p {
+  display: inline;
+  margin: 0;
+}
+
+.rp-conclusion-cites {
+  display: block;
+  margin-top: 6px;
+}
+
+.rp-cite-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 6px 0 0;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--rp-blue) 30%, var(--border));
+  border-radius: var(--radius-chip);
+  background: var(--rp-blue-soft);
+  color: var(--rp-blue);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.rp-cite-chip:hover {
+  filter: brightness(1.05);
+  background: color-mix(in srgb, var(--rp-blue) 14%, var(--bg-card));
+}
+
+/* ---------- return-to-room line ---------- */
+
+.rp-to-room {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 9px;
+}
+
+.rp-to-room > button {
+  color: var(--rp-blue);
+  font-size: 12px;
+  font-weight: 620;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+
+.rp-to-room > button:hover {
+  background: var(--rp-blue-soft);
+}
+
+.rp-to-room > small {
+  color: var(--fg-muted);
+  font-size: 10.5px;
+}
+
+/* ---------- changed / outward / attention duo ---------- */
+
+.rp-v31 .rp-summary-duo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 11px;
+}
+
+.rp-v31 .rp-summary-duo > div > span:first-child {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin-bottom: 4px;
+}
+
+.rp-v31 .rp-summary-changed li button .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+}
+
+.rp-outward-row {
+  min-width: 0;
+}
+
+.rp-outward-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rp-outward-row > span > small {
+  color: var(--fg-muted);
+}
+
+.rp-rev {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: var(--radius-chip);
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 640;
+}
+
+.rp-rev-reversible {
+  background: color-mix(in srgb, var(--rp-green) 12%, var(--bg-card));
+  color: var(--rp-green);
+}
+
+.rp-rev-compensatable {
+  background: color-mix(in srgb, var(--rp-green) 9%, var(--bg-card));
+  color: color-mix(in srgb, var(--rp-green) 80%, var(--fg));
+}
+
+.rp-rev-irreversible {
+  background: var(--rp-amber);
+  color: #fff;
+}
+
+.rp-rev-unknown {
+  background: color-mix(in srgb, var(--fg-muted) 12%, var(--bg-card));
+  color: var(--fg-muted);
+}
+
+.rp-attn-pinned {
+  border: 1px solid color-mix(in srgb, var(--rp-amber) 42%, var(--border));
+  background: color-mix(in srgb, var(--rp-amber) 9%, var(--bg-card));
+}
+
+.rp-attn-pinned:hover {
+  background: color-mix(in srgb, var(--rp-amber) 15%, var(--bg-card)) !important;
+}
+
+.rp-attn-badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: var(--radius-chip);
+  background: var(--rp-amber);
+  color: #fff;
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+/* ---------- stage actions ---------- */
+
+.rp-stage-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 7px 4px 9px;
+  font-size: 11.5px;
+}
+
+.rp-stage-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-muted);
+  padding: 3px 6px;
+  border-radius: 6px;
+}
+
+.rp-stage-actions button:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.rp-stage-actions .rp-stage-verify {
+  margin-left: auto;
+  color: var(--rp-blue);
+}
+
+/* ---------- conversation bubbles ---------- */
+
+.rp-v31 .rp-story-event.message {
+  min-height: 0;
+  grid-template-columns: 30px minmax(0, 1fr);
+  padding: 9px 9px 9px 10px;
+}
+
+.rp-msg-ava {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-top: 1px;
+  border-radius: 50%;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--bg-card);
+}
+
+.rp-msg-ava.user {
+  background: color-mix(in srgb, var(--fg) 82%, var(--bg-card));
+}
+
+.rp-msg-ava.agent {
+  background: var(--rp-blue);
+}
+
+.rp-msg-ava .sr-provider {
+  width: 15px;
+  height: 15px;
+}
+
+.rp-msg-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rp-msg-who {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg-muted);
+  font-size: 10px;
+}
+
+.rp-msg-who strong {
+  color: var(--fg);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+}
+
+.rp-msg-who em {
+  font-style: normal;
+}
+
+.rp-msg-text {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  font-size: 12.3px;
+  line-height: 1.55;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 7;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rp-story-event.from-user .rp-msg-text {
+  background: color-mix(in srgb, var(--fg) 5%, var(--bg-card));
+}
+
+.rp-v31 .rp-story-event.message.active {
+  background: var(--rp-blue-soft);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1.5px var(--rp-blue);
+}
+
+.rp-v31 .rp-story-event.message.active .rp-msg-who,
+.rp-v31 .rp-story-event.message.active .rp-msg-who strong {
+  color: inherit;
+}
+
+/* ---------- fold placeholder ---------- */
+
+.rp-fold {
+  position: relative;
+  z-index: 1;
+  margin: 3px 0;
+}
+
+.rp-fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.rp-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.rp-fold > summary:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.rp-fold-line {
+  flex: 1;
+  border-top: 1px dashed var(--border-strong);
+}
+
+.rp-fold-label {
+  flex: none;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rp-fold > summary em {
+  flex: none;
+  color: var(--rp-blue);
+  font-style: normal;
+}
+
+.rp-fold-sample {
+  margin: 2px 0 4px 26px;
+  padding-left: 12px;
+  border-left: 2px dashed var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rp-fold-sample > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  text-align: left;
+}
+
+.rp-fold-sample > button:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.rp-fold-sample > button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rp-fold-sample > button > time {
+  margin-left: auto;
+  flex: none;
+  font-size: 10px;
+}
+
+.rp-fold-sample > .rp-fold-more {
+  color: var(--rp-blue);
+}
+
+/* ---------- pivot card ---------- */
+
+.rp-v31 .rp-story-event.pivot {
+  display: block !important;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--rp-violet) 32%, var(--border));
+  border-left: 3px solid var(--rp-violet);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--rp-violet) 7%, var(--bg-card));
+  margin: 6px 0;
+}
+
+.rp-v31 .rp-story-event.pivot.active {
+  box-shadow: inset 0 0 0 1.5px var(--rp-violet);
+  background: color-mix(in srgb, var(--rp-violet) 12%, var(--bg-card));
+  color: var(--fg);
+}
+
+.rp-pivot-main {
+  display: block;
+  width: 100%;
+  padding: 9px 12px 7px;
+  text-align: left;
+  color: inherit;
+}
+
+.rp-pivot-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: color-mix(in srgb, var(--rp-violet) 82%, var(--fg));
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: 0.05em;
+}
+
+.rp-pivot-tag i {
+  font-style: normal;
+  font-size: 13px;
+}
+
+.rp-pivot-tag time {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-weight: 400;
+}
+
+.rp-pivot-main strong {
+  font-size: 12px;
+  font-weight: 640;
+}
+
+.rp-pivot-main p {
+  margin: 3px 0 0;
+  color: color-mix(in srgb, var(--rp-violet) 55%, var(--fg));
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.rp-pivot-main .rp-pivot-none {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.rp-pivot-refs {
+  display: block;
+  padding: 0 12px 9px;
+}
+
+/* ---------- outward mark on compact action rows ---------- */
+
+.rp-outward-mark {
+  color: var(--rp-amber);
+  font-weight: 640;
+}
+
+/* ---------- session contract: time + inputs cells ---------- */
+
+.rp-contract-time small {
+  color: var(--fg-muted);
+  font-weight: 400;
+}
+
+.rp-contract-time em {
+  margin: 0 5px;
+  color: var(--fg-muted);
+  font-style: normal;
+}
+
+.rp-contract-inputs {
+  position: relative;
+}
+
+.rp-contract-inputs details > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.rp-contract-inputs details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.rp-contract-inputs details > summary em {
+  color: var(--rp-blue);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.rp-inputs-pop {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 320px;
+  max-height: 300px;
+  overflow: auto;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-menu, 0 10px 32px rgba(0, 0, 0, 0.16));
+}
+
+.rp-inputs-pop h4 {
+  margin: 0 0 5px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.rp-inputs-pop h4 + p,
+.rp-inputs-pop ul {
+  margin: 0 0 10px;
+  padding: 0 0 0 4px;
+  list-style: none;
+  font-size: 11.5px;
+}
+
+.rp-inputs-pop li {
+  padding: 1px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rp-inputs-pop .rp-inputs-note {
+  color: var(--fg-muted);
+}
+
+/* ---------- semantic axis: pivot moments ---------- */
+
+.rp-semantic-moment[data-category='pivot'] i {
+  border-color: var(--rp-violet);
+  background: color-mix(in srgb, var(--rp-violet) 12%, var(--bg-card));
+  color: var(--rp-violet);
+}
+
+.rp-semantic-moment[data-category='pivot'] > span > strong {
+  color: color-mix(in srgb, var(--rp-violet) 80%, var(--fg));
+}
+
+/* ---------- narrow layout ---------- */
+
+@media (max-width: 900px) {
+  .rp-v31.rp-recap.rp-playback {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  }
+
+  .rp-v31 .rp-summary-duo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rp-inputs-pop {
+    left: auto;
+    right: 0;
+  }
+}

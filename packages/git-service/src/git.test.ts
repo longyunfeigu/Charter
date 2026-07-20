@@ -104,6 +104,49 @@ describe('GitService (GIT-001/002/008)', () => {
   });
 });
 
+describe('GitService numstat (ADR-0013 diffstat decorations)', () => {
+  it('counts worktree+index lines vs HEAD; untracked files never appear', async () => {
+    writeFileSync(join(root, 'tracked.txt'), 'changed\nplus one\nplus two\n'); // -1 +3 unstaged
+    writeFileSync(join(root, 'fresh.txt'), 'new\n'); // untracked
+    mkdirSync(join(root, 'sub'));
+    writeFileSync(join(root, 'sub/staged.txt'), 'a\nb\n');
+    sh(['add', 'sub/staged.txt']); // staged-new counts vs HEAD too
+
+    const stats = await git.numstat();
+    const byPath = Object.fromEntries(stats.map((s) => [s.path, s]));
+    expect(byPath['tracked.txt']).toMatchObject({ insertions: 3, deletions: 1, binary: false });
+    expect(byPath['sub/staged.txt']).toMatchObject({ insertions: 2, deletions: 0 });
+    expect(byPath['fresh.txt']).toBeUndefined();
+  });
+
+  it('reports renames under the new path', async () => {
+    sh(['mv', 'tracked.txt', 'renamed.txt']);
+    const stats = await git.numstat();
+    const byPath = Object.fromEntries(stats.map((s) => [s.path, s]));
+    expect(byPath['renamed.txt']).toMatchObject({ insertions: 0, deletions: 0 });
+    expect(byPath['tracked.txt']).toBeUndefined();
+  });
+
+  it('flags binary files instead of counting lines', async () => {
+    writeFileSync(join(root, 'blob.bin'), Buffer.from([0, 1, 2, 255, 0, 7]));
+    sh(['add', 'blob.bin']);
+    const stats = await git.numstat();
+    const bin = stats.find((s) => s.path === 'blob.bin');
+    expect(bin).toMatchObject({ binary: true, insertions: 0, deletions: 0 });
+  });
+
+  it('returns empty on a repo without a HEAD commit', async () => {
+    const bare = mkdtempSync(join(tmpdir(), 'pi-ide-git-empty-'));
+    try {
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: bare });
+      writeFileSync(join(bare, 'first.txt'), 'x\n');
+      expect(await new GitService(bare).numstat()).toEqual([]);
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('GitService snapshotTree/readTreeBlob (ADR-0017)', () => {
   it('snapshots tracked, dirty and untracked files without touching the real index', async () => {
     writeFileSync(join(root, 'tracked.txt'), 'dirty edit\n'); // dirty tracked

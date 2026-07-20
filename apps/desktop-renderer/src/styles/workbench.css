@@ -1820,3 +1820,22 @@ kbd {
   border-top-color: var(--info);
   animation: term-ring-spin 1s linear infinite;
 }
+
+/* ADR-0033: hover hint for ⌘+click file/URL links in terminal output. */
+.terminal-link-hint {
+  position: fixed;
+  z-index: 200;
+  display: none;
+  max-width: 420px;
+  overflow: hidden;
+  padding: 4px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-menu);
+  color: var(--fg-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}

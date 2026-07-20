@@ -109,13 +109,16 @@ test.describe('P4 review v2 + decorations (ADR-0013)', () => {
       env: { PI_IDE_OPEN_WORKSPACE: fixture },
     });
     try {
-      // The rail tree shows M on the modified file and U on the untracked one.
+      // The rail tree shows +N −M with amber M on the modified file and a
+      // green A on the new one (untracked and added share the "new" visual).
       await page.getByTestId('rail-tab-files').click();
-      await expect(page.getByTestId('tree-git-brand-new.ts')).toHaveText('U', { timeout: 15000 });
+      await expect(page.getByTestId('tree-git-brand-new.ts')).toHaveText('A', { timeout: 15000 });
+      await expect(page.getByTestId('tree-diff-brand-new.ts')).not.toBeAttached();
       const srcRow = page.getByTestId('tree-item-src');
       await expect(srcRow).toBeVisible();
       await srcRow.click(); // expand src/
       await expect(page.getByTestId('tree-git-src/index.ts')).toHaveText('M', { timeout: 15000 });
+      await expect(page.getByTestId('tree-diff-src/index.ts')).toHaveText('+2−0');
 
       // Open the modified file: tab mark + gutter bars appear.
       await page.getByTestId('tree-item-src/index.ts').click();

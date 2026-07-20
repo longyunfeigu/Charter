@@ -50,6 +50,14 @@ export const ReplayRelationSchema = z.object({
 });
 export type ReplayRelation = z.infer<typeof ReplayRelationSchema>;
 
+export const ReplayPivotSchema = z.object({
+  /** Recorded plan prose for the revision, if the agent wrote any; never invented. */
+  reason: z.string().nullable(),
+  /** Recorded facts that precede this revision: prior plan + failures since it. */
+  refFactIds: z.array(z.string()),
+});
+export type ReplayPivot = z.infer<typeof ReplayPivotSchema>;
+
 export const ReplayFactDtoSchema = z.object({
   /** Stable id: the underlying event id / tool callId. */
   id: z.string(),
@@ -86,6 +94,11 @@ export const ReplayFactDtoSchema = z.object({
   reversibility: z.enum(['reversible', 'compensatable', 'irreversible', 'unknown']),
   /** Never skipped or grouped in Story Time. */
   mandatory: z.boolean(),
+  /** Recorded outward action: the fact carries a recorded application
+   * identity (MCP/provider-emitted `app`) — never inferred from tool names. */
+  outward: z.boolean().optional(),
+  /** Plan revision after an earlier plan (V3.1 pivot); id-backed refs only. */
+  pivot: ReplayPivotSchema.optional(),
   groupKey: z.string().optional(),
   groupSize: z.number().int().optional(),
   app: z.string().optional(),
@@ -106,6 +119,7 @@ export const ReplayChapterCategorySchema = z.enum([
   'approach',
   'discovery',
   'decision',
+  'pivot',
   'change',
   'problem',
   'verification',
@@ -149,10 +163,25 @@ export const ReplaySessionDtoSchema = z.object({
   summary: z.object({
     /** Deterministic template — never an uncited model narrative. */
     result: z.string(),
+    /** Verbatim excerpt of the agent's recorded final report (Inferred level):
+     * quoted, anchored to its fact — never a synthesized narrative. */
+    conclusion: z.object({ text: z.string(), factId: z.string() }).nullable(),
     changed: z.array(ReplayCitedLineSchema),
+    /** Recorded outward actions (facts with a recorded app identity). */
+    outward: z.array(
+      z.object({
+        label: z.string(),
+        factId: z.string(),
+        app: z.string().optional(),
+        reversibility: z.enum(['reversible', 'compensatable', 'irreversible', 'unknown']),
+      }),
+    ),
     attention: z.array(ReplayCitedLineSchema),
     citations: z.array(z.string()),
   }),
+  /** Recorded inputs fed with the request (user-attached code refs). Memory
+   * and rule injections are not ledgered yet — the UI must say "not recorded". */
+  inputs: z.object({ files: z.array(z.string()) }),
   chapters: z.array(ReplayChapterDtoSchema),
   coverage: z.array(ReplayCoverageSegmentSchema),
 });
@@ -263,6 +292,37 @@ function isMaterialChange(item: ActivityItem): boolean {
     ((item.changeIds?.length ?? 0) > 0 ||
       (item.diffstat != null && item.diffstat.additions + item.diffstat.deletions > 0))
   );
+}
+
+/**
+ * Recorded outward action: an agent act carrying a recorded application
+ * identity (`app` is MCP/provider-emitted, never inferred from tool names or
+ * paths). Reads/searches stay inward even when app-attributed.
+ */
+function isOutwardAction(item: ActivityItem): boolean {
+  return (
+    Boolean(item.app) &&
+    item.author === 'agent' &&
+    item.kind !== 'read' &&
+    item.kind !== 'search' &&
+    item.kind !== 'state' &&
+    item.kind !== 'system'
+  );
+}
+
+/** Verbatim excerpt for the conclusion line: cut at a sentence boundary. */
+function excerptSentence(text: string, max: number): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max);
+  const stop = Math.max(
+    cut.lastIndexOf('。'),
+    cut.lastIndexOf('.'),
+    cut.lastIndexOf('；'),
+    cut.lastIndexOf('！'),
+    cut.lastIndexOf('？'),
+  );
+  return stop > max * 0.5 ? cut.slice(0, stop + 1) : `${cut}…`;
 }
 
 function isMandatory(item: ActivityItem): boolean {
@@ -498,6 +558,36 @@ export function projectReplay(input: {
     return relations;
   };
 
+  // -- pivot detection (V3.1): a NEW agent plan proposal after an earlier one
+  // is a recorded strategy revision. `status !== 'info'` excludes plan
+  // progress ticks; a same-key lifecycle pair (running → terminal) is one
+  // proposal, never a revision. Refs are id-backed: the prior plan plus the
+  // failures recorded since it. The reason is the plan's own recorded prose.
+  const pivotByIndex = new Map<number, ReplayPivot>();
+  {
+    let lastPlan = -1;
+    let failures: number[] = [];
+    items.forEach((item, index) => {
+      if (item.status === 'error' || item.status === 'denied') failures.push(index);
+      const isPlanProposal =
+        item.kind === 'plan' && item.author === 'agent' && item.status !== 'info';
+      if (!isPlanProposal) return;
+      if (lastPlan < 0) {
+        lastPlan = index;
+        failures = [];
+        return;
+      }
+      if (items[lastPlan]!.key !== item.key) {
+        pivotByIndex.set(index, {
+          reason: item.detail ?? null,
+          refFactIds: [factIdOf(lastPlan), ...failures.slice(-3).map(factIdOf)],
+        });
+        failures = [];
+      }
+      lastPlan = index;
+    });
+  }
+
   // -- facts --
   const facts: ReplayFactDto[] = working.map(({ item, index, mandatory, groupKey }) => {
     const span = storySpans.get(index) ?? { start: 0, end: 0 };
@@ -531,6 +621,8 @@ export function projectReplay(input: {
       risk: riskFor(item),
       reversibility: reversibilityFor(item),
       mandatory,
+      ...(isOutwardAction(item) ? { outward: true } : {}),
+      ...(pivotByIndex.has(index) ? { pivot: pivotByIndex.get(index)! } : {}),
       ...(groupKey !== null && (groupSize ?? 0) >= 2 ? { groupKey, groupSize } : {}),
       ...(item.app ? { app: item.app } : {}),
       ...(item.resource ? { resource: item.resource } : {}),
@@ -653,7 +745,24 @@ export function projectReplay(input: {
       factId: entry.factId,
     }));
 
+  // Recorded outward actions (V3.1): the non-file "what changed" track.
+  const outwardFacts = facts.filter((fact) => fact.outward);
+  const outward = outwardFacts.slice(0, 6).map((fact) => ({
+    label: fact.action,
+    factId: fact.id,
+    ...(fact.app ? { app: fact.app } : {}),
+    reversibility: fact.reversibility,
+  }));
+
   const attention: Array<{ label: string; factId: string }> = [];
+  // Irreversible / high-risk outward actions are pinned first: they are the
+  // part no snapshot can undo.
+  for (const fact of outwardFacts) {
+    if (attention.length >= 2) break;
+    if (fact.reversibility === 'irreversible' || fact.risk === 'high') {
+      attention.push({ label: `对外动作：${fact.action}`, factId: fact.id });
+    }
+  }
   for (const fact of facts) {
     if (attention.length >= 4) break;
     if (fact.status === 'error' || fact.status === 'denied') {
@@ -680,6 +789,13 @@ export function projectReplay(input: {
   const totalAdd = [...changedByPath.values()].reduce((sum, e) => sum + e.additions, 0);
   const totalDel = [...changedByPath.values()].reduce((sum, e) => sum + e.deletions, 0);
   const fileCount = changedByPath.size;
+  const irreversibleCount = outwardFacts.filter(
+    (fact) => fact.reversibility === 'irreversible',
+  ).length;
+  const outwardPhrase =
+    outwardFacts.length > 0
+      ? `${outwardFacts.length} 项对外动作${irreversibleCount > 0 ? `（${irreversibleCount} 项不可逆）` : ''}`
+      : '';
   let result: string;
   if (outcome === 'running') {
     result = `任务进行中 — 已记录 ${facts.length} 个事件。`;
@@ -688,10 +804,30 @@ export function projectReplay(input: {
   } else if (outcome === 'stopped') {
     result = `任务已停止（${outcomeLabel}）— 共记录 ${facts.length} 个事件。`;
   } else if (fileCount > 0) {
-    result = `${outcomeLabel} — ${fileCount} 个文件被修改（+${totalAdd} −${totalDel}）。`;
+    // Dual-track template (V3.1): files and outward actions are both results.
+    result = `${outcomeLabel} — ${fileCount} 个文件被修改（+${totalAdd} −${totalDel}）${outwardPhrase ? `，${outwardPhrase}` : ''}。`;
+  } else if (outwardFacts.length > 0) {
+    result = `${outcomeLabel} — ${outwardPhrase}，未记录文件变更。`;
   } else {
-    result = `${outcomeLabel} — 未记录文件变更。`;
+    result = `${outcomeLabel} — 未记录文件变更或对外动作。`;
   }
+
+  // Conclusion line: a verbatim, fact-anchored excerpt of the agent's own
+  // recorded final report — quoted (Inferred), never synthesized.
+  const conclusion =
+    reportFact && reportFact.detail
+      ? { text: excerptSentence(reportFact.detail, 220), factId: reportFact.id }
+      : null;
+
+  // Recorded inputs: user-attached code refs on the request/answers. Memory
+  // and rule injections are not ledgered — the UI must say so, not guess.
+  const inputFiles = [
+    ...new Set(
+      items
+        .filter((it) => it.author === 'user' && (it.kind === 'user' || it.kind === 'answer'))
+        .flatMap((it) => it.paths),
+    ),
+  ].slice(0, 24);
 
   const citations = [
     ...new Set(
@@ -716,7 +852,8 @@ export function projectReplay(input: {
     storyDurationMs,
     eventCount: facts.length,
     latestSequence: items.reduce((max, item) => Math.max(max, item.sequence), 0),
-    summary: { result, changed, attention, citations },
+    summary: { result, conclusion, changed, outward, attention, citations },
+    inputs: { files: inputFiles },
     chapters,
     coverage,
   };
@@ -728,6 +865,7 @@ export function projectReplay(input: {
 
 function chapterCategory(fact: ReplayFactDto): ReplayChapterCategory {
   if (fact.status === 'error' || fact.status === 'denied') return 'problem';
+  if (fact.pivot) return 'pivot';
   switch (fact.kind) {
     case 'user':
       return 'request';
@@ -767,6 +905,10 @@ function pickChapters(facts: ReplayFactDto[]): ReplayChapterDto[] {
         break;
       case 'result':
         score = 90;
+        break;
+      case 'pivot':
+        // A recorded strategy revision is the turning point of the story.
+        score = 91;
         break;
       case 'decision':
         score = fact.kind === 'permission' ? (fact.risk === 'high' ? 92 : 88) : 80;

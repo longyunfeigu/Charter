@@ -54,6 +54,17 @@ const TerminalContextSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('scratch') }).strict(),
 ]);
 
+/** ADR-0033: file types `terminal.openPath` hands to the OS default app
+ * (browser for html/svg/pdf); everything else opens in the editor. Shared so
+ * the renderer's hover hint always matches the host's actual behavior. */
+export const TERMINAL_EXTERNAL_OPEN_EXTENSIONS = [
+  '.html',
+  '.htm',
+  '.xhtml',
+  '.svg',
+  '.pdf',
+] as const;
+
 const TerminalInfoSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -480,6 +491,24 @@ export const CHANNELS = {
     z.object({}).strict(),
     z.object({ items: z.array(TerminalInfoSchema) }),
   ),
+  /** ADR-0033: ⌘+click on a file token inside a terminal (OSC 8 hyperlink or
+   * regex-detected path). The host resolves the token against THAT terminal's
+   * launch cwd under the same lexical+symlink containment rules as workspace
+   * paths; browser-native files open in the OS default app, everything else
+   * comes back for the renderer's editor. */
+  'terminal.openPath': ch(
+    'terminal.openPath',
+    1,
+    z.object({ id: z.string(), path: z.string().min(1).max(4096) }).strict(),
+    z.object({
+      action: z.enum(['external', 'editor']),
+      /** Absolute resolved path (toasts/logging). */
+      path: z.string(),
+      /** Focused-workspace-relative path when the file lives inside it — the
+       * renderer can hand this straight to doc.open. */
+      workspacePath: z.string().nullable(),
+    }),
+  ),
   /** ADR-0021: a command block finished (renderer-parsed OSC 133;D). The main
    * process applies PIVOT-014 hygiene and may show a system notification whose
    * click reveals the block. */
@@ -555,7 +584,7 @@ export const CHANNELS = {
   ),
   'git.status': ch(
     'git.status',
-    1,
+    2,
     z.object({}).strict(),
     z.object({
       gitAvailable: z.boolean(),
@@ -573,6 +602,15 @@ export const CHANNELS = {
           group: z.enum(['staged', 'changes', 'untracked', 'conflict']),
           indexState: z.string(),
           workState: z.string(),
+        }),
+      ),
+      /** v2: ±line counts vs HEAD per tracked file (explorer diffstat, ADR-0013).
+       * Untracked and binary files are absent — the UI falls back to letter-only. */
+      stats: z.array(
+        z.object({
+          path: z.string(),
+          insertions: z.number().int().min(0),
+          deletions: z.number().int().min(0),
         }),
       ),
     }),

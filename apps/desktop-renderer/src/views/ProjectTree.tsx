@@ -80,8 +80,9 @@ export const ProjectTree = forwardRef<ProjectTreeHandle, { onQuickAdd?: (rel: st
     const pushToast = useAppStore((s) => s.pushToast);
     // PIVOT-016: agent writes make the touched rows glow while the change is fresh.
     const glowPaths = useGlowPaths();
-    // ADR-0013: git status decorations (A/M/D letters, dirty-folder dots).
+    // ADR-0013: git status decorations (A/M/D letters, ±line counts, dirty-folder dots).
     const gitMarks = useGitStatusStore((s) => s.byPath);
+    const gitStats = useGitStatusStore((s) => s.statByPath);
     const gitDirty = useGitStatusStore((s) => s.dirty);
 
     const [scrollTop, setScrollTop] = useState(0);
@@ -247,6 +248,10 @@ export const ProjectTree = forwardRef<ProjectTreeHandle, { onQuickAdd?: (rel: st
               const index = first + i;
               const isDir = row.kind === 'dir' || row.kind === 'symlink';
               const relPayload = isDir ? `${row.path}/` : row.path;
+              const mark = isDir ? undefined : gitMarks[row.path];
+              // Counts accompany modified/renamed letters only — a new file is
+              // just "A"; binary and untracked files have no stats to show.
+              const stat = mark === 'M' || mark === 'R' ? gitStats[row.path] : undefined;
               return (
                 <React.Fragment key={row.path}>
                   <div
@@ -300,26 +305,40 @@ export const ProjectTree = forwardRef<ProjectTreeHandle, { onQuickAdd?: (rel: st
                         textOverflow: 'ellipsis',
                         flex: 1,
                         minWidth: 0,
-                        color:
-                          !isDir && gitMarks[row.path]
-                            ? MARK_COLOR[gitMarks[row.path]!]
-                            : undefined,
+                        color: mark ? MARK_COLOR[mark] : undefined,
                       }}
                     >
                       {row.name}
                     </span>
-                    {!isDir && gitMarks[row.path] ? (
+                    {stat ? (
+                      <span
+                        className="mono"
+                        data-testid={`tree-diff-${row.path}`}
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 600,
+                          fontVariantNumeric: 'tabular-nums',
+                          flex: 'none',
+                        }}
+                      >
+                        <span style={{ color: 'var(--success)' }}>+{stat.insertions}</span>
+                        <span style={{ color: 'var(--danger)', marginLeft: 4 }}>
+                          −{stat.deletions}
+                        </span>
+                      </span>
+                    ) : null}
+                    {mark ? (
                       <span
                         className="mono"
                         data-testid={`tree-git-${row.path}`}
                         style={{
-                          color: MARK_COLOR[gitMarks[row.path]!],
+                          color: MARK_COLOR[mark],
                           fontSize: 10,
                           fontWeight: 700,
                           flex: 'none',
                         }}
                       >
-                        {gitMarks[row.path]}
+                        {mark}
                       </span>
                     ) : isDir && gitDirty[row.path] ? (
                       <span

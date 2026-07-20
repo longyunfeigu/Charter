@@ -60,10 +60,19 @@ export const CHAPTER_LABEL: Record<ReplayChapterCategory, string> = {
   approach: '方法',
   discovery: '发现',
   decision: '决策',
+  pivot: '转折',
   change: '变更',
   problem: '问题',
   verification: '验证',
   result: '结果',
+};
+
+/** Short reversibility badge for outward-action rows — honest, never upgraded. */
+export const REVERSIBILITY_BADGE: Record<ReplayFactDto['reversibility'], string> = {
+  reversible: '可回滚',
+  compensatable: '可补偿',
+  irreversible: '不可逆',
+  unknown: '可逆性未知',
 };
 
 export function labelSource(source: string): string {

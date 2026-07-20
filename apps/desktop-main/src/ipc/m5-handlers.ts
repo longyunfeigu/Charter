@@ -226,9 +226,11 @@ export function registerM5Handlers(
             detached: false,
             head: null,
             entries: [],
+            stats: [],
           };
         }
-        const status = await git.status();
+        // Diffstat is decoration-only: a numstat failure must not break status.
+        const [status, numstat] = await Promise.all([git.status(), git.numstat().catch(() => [])]);
         return {
           gitAvailable: true,
           isRepo: true,
@@ -245,6 +247,9 @@ export function registerM5Handlers(
             indexState: e.indexState,
             workState: e.workState,
           })),
+          stats: numstat
+            .filter((s) => !s.binary)
+            .map((s) => ({ path: s.path, insertions: s.insertions, deletions: s.deletions })),
         };
       },
       'git.diffFile': async ({ path, staged }) => ({

@@ -450,6 +450,159 @@ describe('replay projection — non-coding work through the real ingest shape', 
   });
 });
 
+describe('replay projection — V3.1 pivot detection', () => {
+  it('marks a second agent plan proposal as a pivot with id-backed refs', () => {
+    seq = 0;
+    const { facts, session } = projectReplay({
+      task: task(),
+      items: [
+        item(at(0), { kind: 'user', author: 'user', label: 'You: fix it' }),
+        item(at(5), { kind: 'plan', status: 'pending', label: 'Proposed a plan (2 steps)' }),
+        item(at(60), { kind: 'command', status: 'error', label: 'Command failed: npm test' }),
+        item(at(70), {
+          kind: 'plan',
+          status: 'pending',
+          label: 'Proposed a plan (3 steps)',
+          detail: 'Switch to single-flight refresh instead of a mutex.',
+        }),
+      ],
+    });
+    const first = facts[1]!;
+    const failed = facts[2]!;
+    const revised = facts[3]!;
+    expect(first.pivot).toBeUndefined();
+    expect(revised.pivot).toBeDefined();
+    expect(revised.pivot!.reason).toContain('single-flight');
+    expect(revised.pivot!.refFactIds).toContain(first.id);
+    expect(revised.pivot!.refFactIds).toContain(failed.id);
+    expect(session.chapters.some((c) => c.category === 'pivot')).toBe(true);
+  });
+
+  it('never marks plan progress ticks or same-call lifecycles as pivots', () => {
+    seq = 0;
+    const { facts } = projectReplay({
+      task: task(),
+      items: [
+        item(at(0), { kind: 'plan', status: 'pending', label: 'Proposed a plan' }),
+        // Progress tick (agent.planUpdated → status info): not a revision.
+        item(at(10), { kind: 'plan', status: 'info', label: 'Updated plan progress' }),
+        // Same-key lifecycle pair (external TodoWrite running → ok): one proposal.
+        item(at(20), { kind: 'plan', status: 'running', key: 'call-td', label: 'TodoWrite' }),
+        item(at(21), { kind: 'plan', status: 'ok', key: 'call-td', label: 'TodoWrite done' }),
+      ],
+    });
+    expect(facts.filter((f) => f.pivot).length).toBe(1); // only the call-td proposal after the first plan
+    expect(facts[1]!.pivot).toBeUndefined();
+    expect(facts[3]!.pivot).toBeUndefined();
+  });
+});
+
+describe('replay projection — V3.1 outward actions and dual-track summary', () => {
+  it('marks recorded-app agent actions as outward and lists them in the summary', () => {
+    seq = 0;
+    const { facts, session } = projectReplay({
+      task: task({ goalMd: 'Compare vendors and notify procurement' }),
+      items: [
+        item(at(0), { kind: 'user', author: 'user', label: 'You: compare and notify' }),
+        item(at(5), {
+          kind: 'search',
+          label: 'Web search: vendor pricing',
+          app: 'Web',
+        }),
+        item(at(10), {
+          kind: 'command',
+          label: 'Sent the comparison to procurement',
+          app: 'Mail',
+          resource: 'thread-77',
+        }),
+        item(at(20), { kind: 'read', label: 'Read quote.pdf', app: 'Files' }),
+      ],
+    });
+    expect(facts[1]!.outward).toBeUndefined(); // searches stay inward
+    expect(facts[2]!.outward).toBe(true);
+    expect(facts[3]!.outward).toBeUndefined(); // reads stay inward
+    expect(session.summary.outward).toHaveLength(1);
+    expect(session.summary.outward[0]!.label).toContain('procurement');
+    // Dual-track result: zero files but recorded outward actions.
+    expect(session.summary.result).toContain('对外动作');
+    expect(session.summary.result).not.toContain('未记录文件变更或对外动作');
+  });
+
+  it('never infers outward identity without a recorded app', () => {
+    seq = 0;
+    const { facts, session } = projectReplay({
+      task: task(),
+      items: [item(at(0), { kind: 'command', label: 'Ran curl -X POST https://api.example' })],
+    });
+    expect(facts[0]!.outward).toBeUndefined();
+    expect(session.summary.outward).toHaveLength(0);
+    expect(session.summary.result).toContain('未记录文件变更或对外动作');
+  });
+
+  it('pins high-risk outward actions first in attention', () => {
+    seq = 0;
+    const { session } = projectReplay({
+      task: task(),
+      items: [
+        item(at(0), { kind: 'command', status: 'error', label: 'Command failed: build' }),
+        item(at(5), {
+          kind: 'command',
+          label: 'Posted the release note',
+          app: 'Slack',
+          riskLevel: 'R3',
+        }),
+      ],
+    });
+    expect(session.summary.attention[0]!.label).toContain('对外动作');
+    expect(session.summary.attention.some((a) => a.label.includes('failed'))).toBe(true);
+  });
+});
+
+describe('replay projection — V3.1 conclusion and inputs', () => {
+  it('quotes the recorded final report verbatim as the conclusion, anchored to its fact', () => {
+    seq = 0;
+    const { session, facts } = projectReplay({
+      task: task(),
+      items: [
+        item(at(0), {
+          kind: 'report',
+          label: 'Final report — 1 file changed',
+          detail: 'Fixed the login race by single-flighting the token refresh.',
+        }),
+      ],
+    });
+    expect(session.summary.conclusion).not.toBeNull();
+    expect(session.summary.conclusion!.text).toContain('single-flighting');
+    expect(session.summary.conclusion!.factId).toBe(facts[0]!.id);
+  });
+
+  it('returns a null conclusion when no report prose was recorded', () => {
+    seq = 0;
+    const { session } = projectReplay({
+      task: task(),
+      items: [item(at(0), { kind: 'write', changeIds: ['c1'], paths: ['a.ts'] })],
+    });
+    expect(session.summary.conclusion).toBeNull();
+  });
+
+  it('collects user-attached code refs as recorded inputs', () => {
+    seq = 0;
+    const { session } = projectReplay({
+      task: task(),
+      items: [
+        item(at(0), {
+          kind: 'user',
+          author: 'user',
+          label: 'You: fix auth',
+          paths: ['src/auth/client.ts', 'docs/auth.md'],
+        }),
+        item(at(5), { kind: 'read', paths: ['src/other.ts'] }),
+      ],
+    });
+    expect(session.inputs.files).toEqual(['src/auth/client.ts', 'docs/auth.md']);
+  });
+});
+
 describe('replay projection — scale', () => {
   it('projects 10k facts quickly', () => {
     seq = 0;

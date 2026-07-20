@@ -7,7 +7,15 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { onEvent, rpcResult } from '../bridge.js';
 import { okOrToast, useAppStore } from '../store/appStore.js';
+import { useEditorStore } from '../store/editorStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
+import { revealPosition } from './SearchView.js';
+import {
+  detectFileLinks,
+  fileLinkHint,
+  readBufferLine,
+  splitLineSuffix,
+} from './terminal-file-links.js';
 import { useExternalStore } from '../store/externalStore.js';
 import { useTaskStore } from '../store/taskStore.js';
 import { useDraftStore } from '../store/draftStore.js';
@@ -502,6 +510,119 @@ export function observeTerminalFit(
   };
 }
 
+/* ── ADR-0033: ⌘+click file/URL links in terminal output ─────────────────── */
+
+const isMac = navigator.platform.startsWith('Mac');
+
+let linkHint: HTMLDivElement | null = null;
+function showLinkHint(event: MouseEvent, text: string): void {
+  if (!linkHint) {
+    linkHint = document.createElement('div');
+    linkHint.className = 'terminal-link-hint';
+    document.body.appendChild(linkHint);
+  }
+  linkHint.textContent = text;
+  linkHint.style.left = `${Math.min(event.clientX + 12, window.innerWidth - 280)}px`;
+  linkHint.style.top = `${event.clientY + 18}px`;
+  linkHint.style.display = 'block';
+}
+function hideLinkHint(): void {
+  if (linkHint) linkHint.style.display = 'none';
+}
+
+/** Plain click must keep meaning "select text"; teach the modifier instead. */
+let lastModifierHintAt = 0;
+function openModifierHeld(event: MouseEvent): boolean {
+  if (event.metaKey || event.ctrlKey) return true;
+  const now = Date.now();
+  if (now - lastModifierHintAt > 1500) {
+    lastModifierHintAt = now;
+    useAppStore
+      .getState()
+      .pushToast('info', `Hold ${isMac ? '⌘' : 'Ctrl'} and click to open the link.`);
+  }
+  return false;
+}
+
+async function openTerminalFileToken(terminalId: string, token: string): Promise<void> {
+  hideLinkHint();
+  const { path, line } = splitLineSuffix(token);
+  const res = await rpcResult('terminal.openPath', { id: terminalId, path });
+  if (!okOrToast(res)) return;
+  if (res.data.action !== 'editor') return;
+  const rel = res.data.workspacePath;
+  if (!rel) {
+    useAppStore.getState().pushToast('info', `${res.data.path} is outside the current workspace.`);
+    return;
+  }
+  // Terminal sessions live outside the Editor surface — switch first (the
+  // QuickOpen pattern); the PTY stays alive across the surface change.
+  useAppStore.getState().setProjectTool('editor');
+  await useEditorStore.getState().openFile(rel);
+  if (line !== null) revealPosition(rel, line, 1);
+}
+
+/** WebLinksAddon activation (regex-detected http/https URLs). The sandboxed
+ * renderer cannot window.open — route through the https-only allowlist. */
+function activateWebUri(event: MouseEvent, uri: string): void {
+  if (!openModifierHeld(event)) return;
+  void rpcResult('app.openExternal', { url: uri }).then((res) => {
+    if (res.ok && !res.data.opened) {
+      useAppStore.getState().pushToast('warning', 'Only https links can be opened.');
+    }
+  });
+}
+
+/** OSC 8 hyperlinks (Claude Code emits file:// links around file mentions)
+ * plus a regex provider for bare tokens like `rocket.html` from CLIs that do
+ * not hyperlink. Both funnel into terminal.openPath, which resolves against
+ * THIS terminal's cwd and never leaves it. */
+function wireFileLinks(item: TermInstance): void {
+  item.term.options.linkHandler = {
+    allowNonHttpProtocols: true,
+    activate: (event, uri) => {
+      if (uri.startsWith('file://')) {
+        if (!openModifierHeld(event)) return;
+        try {
+          void openTerminalFileToken(item.id, decodeURIComponent(new URL(uri).pathname));
+        } catch {
+          // Malformed URI from the guest program — nothing to open.
+        }
+        return;
+      }
+      activateWebUri(event, uri);
+    },
+    hover: (event, uri) =>
+      showLinkHint(event, uri.startsWith('file://') ? fileLinkHint(uri, isMac) : uri),
+    leave: hideLinkHint,
+  };
+  item.term.registerLinkProvider({
+    provideLinks(y, callback) {
+      const line = item.term.buffer.active.getLine(y - 1);
+      if (!line) {
+        callback(undefined);
+        return;
+      }
+      const { text, cellOf } = readBufferLine(line);
+      const links = detectFileLinks(text).map((match) => ({
+        range: {
+          start: { x: (cellOf[match.start] ?? 0) + 1, y },
+          end: { x: (cellOf[match.end - 1] ?? 0) + 1, y },
+        },
+        text: match.text,
+        activate: (event: MouseEvent, token: string) => {
+          if (!openModifierHeld(event)) return;
+          void openTerminalFileToken(item.id, token);
+        },
+        hover: (event: MouseEvent, token: string) =>
+          showLinkHint(event, fileLinkHint(token, isMac)),
+        leave: hideLinkHint,
+      }));
+      callback(links.length > 0 ? links : undefined);
+    },
+  });
+}
+
 function makeTerm(fontSize: number, scrollback: number): { term: Terminal; fit: FitAddon } {
   const appearance = terminalAppearance();
   const term = new Terminal({
@@ -514,7 +635,7 @@ function makeTerm(fontSize: number, scrollback: number): { term: Terminal; fit: 
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
-  term.loadAddon(new WebLinksAddon());
+  term.loadAddon(new WebLinksAddon(activateWebUri));
   return { term, fit };
 }
 
@@ -683,6 +804,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       }
     });
     term.attachCustomKeyEventHandler((event) => blockNavigationKey(item, event));
+    wireFileLinks(item);
     set({ items: [...get().items, item], active: item.id });
     if (options?.reveal !== false) useAppStore.getState().showBottomTab('terminal');
     return item.id;

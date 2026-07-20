@@ -33,6 +33,7 @@ import { broadcast } from './broadcast.js';
 import { WorkspaceHost } from './services/workspace-host.js';
 import { registerWorkspaceHandlers } from './ipc/workspace-handlers.js';
 import { M4Services, registerM4Handlers } from './ipc/m4-handlers.js';
+import { registerTerminalOpenHandlers } from './ipc/terminal-open-handlers.js';
 import { M5Services, registerM5Handlers } from './ipc/m5-handlers.js';
 import { registerM6Handlers } from './ipc/m6-handlers.js';
 import { registerM7Handlers } from './ipc/m7-handlers.js';
@@ -540,6 +541,7 @@ if (!gotLock) {
         },
         externalLaunchIntents,
       );
+      registerTerminalOpenHandlers(m4, workspaceHost, logger.child('ipc'));
       m5Ref = new M5Services(workspaceHost, state, paths, logger.child('m5'));
       registerM5Handlers(m5Ref, workspaceHost, logger.child('ipc'));
 
