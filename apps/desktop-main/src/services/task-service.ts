@@ -32,6 +32,7 @@ import type {
   PreviewRectDto,
   TaskDto,
   TimelineEventDto,
+  TurnDto,
   VerificationCommand,
 } from '@pi-ide/ipc-contracts';
 import {
@@ -713,7 +714,9 @@ export class TaskService {
         ),
       );
     }
-    if (task.state === 'AWAITING_PLAN_APPROVAL') this.setState(input.taskId, 'CANCELLED');
+    // ADR-0032: rejecting a plan settles the turn back to the conversation —
+    // the Session stays open for a different ask.
+    if (task.state === 'AWAITING_PLAN_APPROVAL') this.setState(input.taskId, 'IDLE');
     const runId = this.runsByTask.get(input.taskId) ?? this.host.activeRunForTask(input.taskId);
     if (runId) this.host.abort(runId, 'user_stop');
     return this.getTask(input.taskId);
@@ -967,9 +970,9 @@ export class TaskService {
     return { status: 'applied', changeSet: await this.changeSetForReview(input.taskId) };
   }
 
-  /** REVIEW_READY → ACCEPTED (user accepts the workspace state; not a git commit).
-   * Worktree tasks merge their net change set back into the main tree first
-   * (ADR-0009); conflicts stop the accept unless explicitly confirmed. */
+  /** ADR-0032: accepting settles the pending turn(s) and returns the Session
+   * to IDLE — the conversation continues. Worktree merge-back moved to
+   * archive time (the tree must survive later turns). Not a git commit. */
   async acceptTask(
     taskId: string,
     options: {
@@ -977,6 +980,8 @@ export class TaskService {
       confirmConflicts?: boolean;
       /** Who accepted — 'user' (default) or 'system:full-auto' (ADR-0012). */
       actor?: string;
+      /** Settle only this turn (rail turn-list action); default: all pending. */
+      runId?: string;
     } = {},
   ): Promise<{
     task: TaskDto;
@@ -986,17 +991,38 @@ export class TaskService {
     prDraft?: PrDraftDto | null;
   }> {
     const task = this.getTask(taskId);
-    if (task.state !== 'REVIEW_READY') {
+    // ADR-0032: REVIEW_READY settles the fresh turn; IDLE lets the rail turn
+    // list settle an earlier pending turn while the conversation is at rest.
+    if (!['REVIEW_READY', 'IDLE'].includes(task.state)) {
       throw new ProductFailure(
         productError('TASK_NOT_REVIEWABLE', {
-          userMessage: `Only a task in REVIEW_READY can be accepted (current: ${task.state}).`,
+          userMessage: `Only a settled or review-ready Session can accept (current: ${task.state}).`,
         }),
       );
     }
     const context = this.contextForTask(taskId);
-    // Captured before merge-back/discard: the PR draft's change list must
-    // describe exactly what the accept applied (ADR-0022).
+    // Captured at accept: the PR draft's change list must describe exactly
+    // the workspace state this settlement confirmed (ADR-0022).
     const changeSetAtAccept = await context.changes.changeSet(taskId);
+    const unsettledRun = options.runId
+      ? this.db
+          .prepare(
+            'SELECT id FROM agent_runs WHERE task_id = ? AND id = ? AND review_state IS NULL LIMIT 1',
+          )
+          .get(taskId, options.runId)
+      : this.db
+          .prepare(
+            'SELECT id FROM agent_runs WHERE task_id = ? AND ended_at IS NOT NULL AND review_state IS NULL LIMIT 1',
+          )
+          .get(taskId);
+    // Answer-only turns settle automatically. Accepting them has no domain
+    // meaning, and a repeated accept on an idle Session must be idempotent.
+    if (
+      (task.state === 'IDLE' && !unsettledRun) ||
+      (changeSetAtAccept.files.length === 0 && task.changedFiles === 0)
+    ) {
+      return { task, status: 'accepted', prDraft: null };
+    }
     // VER-007/E2E-018: accepting real changes without any verification needs a
     // second, explicit confirmation.
     const verificationRuns = context.verifications.listForTask(taskId);
@@ -1012,28 +1038,7 @@ export class TaskService {
       }
     }
 
-    // ADR-0009: merge the worktree's net changes back into the main tree.
-    if (task.worktree) {
-      const mainRoot = task.projectPath;
-      const cs = changeSetAtAccept;
-      if (cs.files.length > 0) {
-        const conflicts = await this.worktrees.mergeBackPreflight(mainRoot, cs);
-        if (conflicts.length > 0 && !options.confirmConflicts) {
-          this.recordEvent(taskId, 'merge.blocked', { conflicts });
-          return { task: this.getTask(taskId), status: 'conflicts', conflicts };
-        }
-        const { merged } = await this.worktrees.mergeBack(mainRoot, context.root, cs);
-        this.recordEvent(taskId, 'task.mergedBack', {
-          files: merged,
-          branch: task.worktree.branch,
-          conflictsOverridden: conflicts.map((c) => c.path),
-        });
-      }
-      await this.worktrees.discard(mainRoot, task.worktree as TaskWorktree);
-      this.contexts.drop(context.root);
-    }
-
-    // §6.1: ACCEPTED requires a final report; it is recorded when the run completes.
+    // §6.1: acceptance requires a final report; it is recorded when the run completes.
     const hasReport = this.db
       .prepare("SELECT id FROM task_events WHERE task_id = ? AND type = 'report.final' LIMIT 1")
       .get(taskId) as { id: string } | undefined;
@@ -1045,12 +1050,17 @@ export class TaskService {
       );
     }
     const unverifiedConfirmed = verificationRuns.length === 0 && options.confirmUnverified === true;
+    // ADR-0032: settle the turn ledger. Accepting confirms the current
+    // workspace state, so by default every finished-but-unsettled run settles.
+    const reviewState = options.actor === 'system:full-auto' ? 'auto_accepted' : 'accepted';
+    const settledRunIds = this.settleRuns(taskId, reviewState, options.runId);
     this.recordEvent(taskId, 'task.accepted', {
       at: new Date().toISOString(),
       actor: options.actor ?? 'user',
       unverifiedConfirmed,
+      settledRunIds,
     });
-    const accepted = this.setState(taskId, 'ACCEPTED');
+    const accepted = this.setState(taskId, 'IDLE');
     // ADR-0022: PR draft — an export of the evidence, generated for git
     // projects with real changes. Failure to draft never fails the accept.
     let prDraft: PrDraftDto | null = null;
@@ -1065,6 +1075,32 @@ export class TaskService {
       });
     }
     return { task: accepted, status: 'accepted', prDraft };
+  }
+
+  /** ADR-0032: mark finished, unsettled runs with their settlement. Returns
+   * the settled run ids (newest last). A runId narrows to that turn only. */
+  private settleRuns(
+    taskId: string,
+    reviewState: 'accepted' | 'auto_accepted' | 'rolled_back' | 'answered',
+    runId?: string,
+  ): string[] {
+    const rows = runId
+      ? (this.db
+          .prepare(
+            'SELECT id FROM agent_runs WHERE task_id = ? AND id = ? AND review_state IS NULL',
+          )
+          .all(taskId, runId) as Array<{ id: string }>)
+      : (this.db
+          .prepare(
+            'SELECT id FROM agent_runs WHERE task_id = ? AND ended_at IS NOT NULL AND review_state IS NULL ORDER BY started_at',
+          )
+          .all(taskId) as Array<{ id: string }>);
+    const now = new Date().toISOString();
+    const update = this.db.prepare(
+      'UPDATE agent_runs SET review_state = ?, reviewed_at = ? WHERE id = ?',
+    );
+    for (const row of rows) update.run(reviewState, now, row.id);
+    return rows.map((row) => row.id);
   }
 
   /** ADR-0022: build + persist the PR draft (body file under the workspace's
@@ -1176,9 +1212,10 @@ export class TaskService {
     | { status: 'conflicts'; task: TaskDto; conflicts: Array<{ path: string; reason: string }> }
   > {
     const task = this.getTask(taskId);
-    // ADR-0012: post-accept rollback — snapshots survive accept, so a plain
-    // task can still be restored. A merged worktree task cannot (its worktree
-    // — the change-record root — was discarded on accept).
+    // ADR-0012: post-accept rollback — snapshots survive settlement, so a
+    // plain Session can still be restored. A merged worktree task cannot (its
+    // worktree — the change-record root — was discarded on merge; historic
+    // ACCEPTED rows only).
     if (task.state === 'ACCEPTED' && task.worktree) {
       throw new ProductFailure(
         productError('TASK_NOT_ROLLBACKABLE', {
@@ -1187,19 +1224,21 @@ export class TaskService {
         }),
       );
     }
-    if (!['REVIEW_READY', 'INTERRUPTED', 'FAILED', 'ACCEPTED'].includes(task.state)) {
+    if (!['REVIEW_READY', 'IDLE', 'INTERRUPTED', 'FAILED', 'ACCEPTED'].includes(task.state)) {
       throw new ProductFailure(
         productError('TASK_NOT_ROLLBACKABLE', {
           userMessage: `The task cannot be rolled back from state ${task.state}.`,
         }),
       );
     }
-    // ADR-0009: a worktree task never touched the main tree — rollback is
-    // simply discarding the worktree (byte-exact by construction).
+    // ADR-0009: a worktree task never touched the main tree — full rollback is
+    // discarding the worktree (byte-exact by construction). ADR-0032: with the
+    // tree gone the conversation has no working context left — archive it.
     if (task.worktree) {
       const context = this.contextForTask(taskId);
       await this.worktrees.discard(task.projectPath, task.worktree as TaskWorktree);
       this.contexts.drop(context.root);
+      this.settleRuns(taskId, 'rolled_back');
       this.recordEvent(taskId, 'task.rolledBack', {
         ok: true,
         restored: [],
@@ -1207,9 +1246,13 @@ export class TaskService {
         conflictsOverridden: [],
         failed: [],
       });
+      const rolledBack = this.setState(taskId, 'ROLLED_BACK');
+      this.db
+        .prepare('UPDATE tasks SET archived = 1, updated_at = ? WHERE id = ?')
+        .run(new Date().toISOString(), taskId);
       return {
         status: 'ok',
-        task: this.setState(taskId, 'ROLLED_BACK'),
+        task: rolledBack,
         restored: [],
       };
     }
@@ -1226,6 +1269,9 @@ export class TaskService {
       };
     }
     const report = await changes.rollback(taskId, { force: options.force ?? false });
+    // ADR-0032: the rollback settles every unsettled turn; the Session stays
+    // a live conversation on its restored workspace.
+    this.settleRuns(taskId, 'rolled_back');
     this.recordEvent(taskId, 'task.rolledBack', {
       ok: report.ok,
       restored: report.restored,
@@ -1241,7 +1287,145 @@ export class TaskService {
         }),
       );
     }
-    return { status: 'ok', task: this.setState(taskId, 'ROLLED_BACK'), restored: report.restored };
+    return { status: 'ok', task: this.safeSettleToIdle(taskId), restored: report.restored };
+  }
+
+  /**
+   * ADR-0032 (P2): roll back exactly one turn — newest settled turn only, so
+   * the ledger unwinds in order and never leaves holes. Restores every path
+   * the turn's agent tool calls touched to its recorded state at the turn
+   * boundary (byte-exact from the blob store); user review edits and other
+   * turns are untouched. Conflicts (files changed outside the turn since)
+   * stop it unless forced.
+   */
+  async rollbackTurn(
+    taskId: string,
+    runId: string,
+    options: { force?: boolean } = {},
+  ): Promise<
+    | { status: 'ok'; task: TaskDto; restored: string[] }
+    | { status: 'conflicts'; task: TaskDto; conflicts: Array<{ path: string; reason: string }> }
+  > {
+    const task = this.getTask(taskId);
+    if (!['REVIEW_READY', 'IDLE'].includes(task.state)) {
+      throw new ProductFailure(
+        productError('TASK_NOT_ROLLBACKABLE', {
+          userMessage: `A turn cannot be rolled back while the Session is ${task.state}.`,
+        }),
+      );
+    }
+    // Newest-first: the latest finished, not-already-rolled-back run.
+    const latest = this.db
+      .prepare(
+        "SELECT id, review_state FROM agent_runs WHERE task_id = ? AND ended_at IS NOT NULL AND (review_state IS NULL OR review_state != 'rolled_back') ORDER BY started_at DESC LIMIT 1",
+      )
+      .get(taskId) as { id: string; review_state: string | null } | undefined;
+    if (!latest || latest.id !== runId) {
+      throw new ProductFailure(
+        productError('TURN_NOT_LATEST', {
+          userMessage:
+            'Only the newest settled turn can be rolled back — turns unwind newest-first.',
+        }),
+      );
+    }
+    const changes = this.db
+      .prepare(
+        'SELECT fc.relative_path, fc.kind, fc.before_hash, fc.after_hash, fc.rename_to FROM file_changes fc JOIN tool_calls tc ON tc.id = fc.tool_call_id WHERE tc.run_id = ? ORDER BY fc.created_at, fc.id',
+      )
+      .all(runId) as Array<{
+      relative_path: string;
+      kind: string;
+      before_hash: string | null;
+      after_hash: string | null;
+      rename_to: string | null;
+    }>;
+
+    // Fold the turn's change log: first-seen = the boundary state to restore,
+    // last-written = the state the disk should still be in (conflict guard).
+    const beforeState = new Map<string, string | null>();
+    const afterState = new Map<string, string | null>();
+    const firstSeen = (path: string, before: string | null): void => {
+      if (!beforeState.has(path)) beforeState.set(path, before);
+    };
+    for (const change of changes) {
+      switch (change.kind) {
+        case 'created':
+          firstSeen(change.relative_path, null);
+          afterState.set(change.relative_path, change.after_hash);
+          break;
+        case 'deleted':
+          firstSeen(change.relative_path, change.before_hash);
+          afterState.set(change.relative_path, null);
+          break;
+        case 'renamed':
+          firstSeen(change.relative_path, change.before_hash);
+          afterState.set(change.relative_path, null);
+          if (change.rename_to) {
+            firstSeen(change.rename_to, null);
+            afterState.set(change.rename_to, change.after_hash);
+          }
+          break;
+        default:
+          firstSeen(change.relative_path, change.before_hash);
+          afterState.set(change.relative_path, change.after_hash);
+      }
+    }
+    const targets = [...beforeState.entries()].map(([path, toHash]) => ({
+      path,
+      toHash,
+      expectedCurrentHash: afterState.get(path) ?? null,
+    }));
+
+    if (targets.length > 0) {
+      const result = await this.contextForTask(taskId).changes.rollbackToStates(targets, {
+        force: options.force ?? false,
+      });
+      if (result.conflicts.length > 0 && !(options.force ?? false)) {
+        this.recordEvent(taskId, 'rollback.blocked', {
+          runId,
+          conflicts: result.conflicts.map((c) => ({ path: c.path, reason: c.reason })),
+        });
+        return {
+          status: 'conflicts',
+          task: this.getTask(taskId),
+          conflicts: result.conflicts.map((c) => ({ path: c.path, reason: c.reason })),
+        };
+      }
+      if (!result.ok) {
+        throw new ProductFailure(
+          productError('CHG_ROLLBACK_INCOMPLETE', {
+            userMessage:
+              'Some files could not be restored to the turn boundary; snapshots are kept for manual recovery.',
+            context: { failed: result.verified.filter((v) => !v.ok) },
+          }),
+        );
+      }
+      this.settleRuns(taskId, 'rolled_back', runId);
+      this.recordEvent(taskId, 'turn.rolledBack', {
+        runId,
+        restored: result.restored,
+        conflictsOverridden: result.conflicts.map((c) => c.path),
+      });
+      return { status: 'ok', task: this.safeSettleToIdle(taskId), restored: result.restored };
+    }
+    // A chat-only turn: nothing on disk — settling the ledger is the rollback.
+    this.settleRuns(taskId, 'rolled_back', runId);
+    this.recordEvent(taskId, 'turn.rolledBack', { runId, restored: [], conflictsOverridden: [] });
+    return { status: 'ok', task: this.safeSettleToIdle(taskId), restored: [] };
+  }
+
+  /** ADR-0032: land on IDLE from any settle-eligible state (historic ACCEPTED
+   * rows route through ROLLED_BACK semantics — they stay terminal). */
+  private safeSettleToIdle(taskId: string): TaskDto {
+    const state = this.getTask(taskId).state;
+    if (state === 'IDLE') return this.getTask(taskId);
+    if (state === 'ACCEPTED') return this.setState(taskId, 'ROLLED_BACK');
+    try {
+      return this.setState(taskId, 'IDLE');
+    } catch {
+      // Historic states without an IDLE edge keep their legacy exit.
+      return this.setState(taskId, 'ROLLED_BACK');
+    }
   }
 
   // ---------- verification (M9-01/02, VER-001..010) ----------
@@ -2232,7 +2416,9 @@ export class TaskService {
       );
     }
     const task = this.getTask(taskId);
-    if (!['REVIEW_READY', 'INTERRUPTED', 'FAILED'].includes(task.state)) {
+    // ADR-0032: a settled (IDLE) external Session is a live conversation —
+    // it resumes against the SAME task baseline like the unsettled trio.
+    if (!['REVIEW_READY', 'IDLE', 'INTERRUPTED', 'FAILED'].includes(task.state)) {
       throw new ProductFailure(
         productError('EXTERNAL_SESSION_NOT_RESUMABLE', {
           userMessage: `The ${external.cli} session cannot resume from ${task.state}.`,
@@ -2311,7 +2497,7 @@ export class TaskService {
         }),
       );
     }
-    if (!['READY', 'INTERRUPTED', 'REVIEW_READY', 'FAILED'].includes(task.state)) {
+    if (!['READY', 'IDLE', 'INTERRUPTED', 'REVIEW_READY', 'FAILED'].includes(task.state)) {
       throw new ProductFailure(
         productError('TASK_NOT_STARTABLE', {
           userMessage: `The task cannot start from state ${task.state}.`,
@@ -2568,13 +2754,13 @@ export class TaskService {
       else this.host.followUp(runId, expanded, attachments?.images);
       return during === 'steer' ? 'steered' : 'queued';
     }
-    // Closed tasks cannot restart (ACCEPTED/ROLLED_BACK/CANCELLED/ARCHIVED —
-    // §6.1). Fail loudly; the room composer starts a follow-up task instead.
-    if (!['READY', 'INTERRUPTED', 'REVIEW_READY', 'FAILED'].includes(task.state)) {
+    // ADR-0032: only archived (and historic terminal) Sessions refuse
+    // messages; IDLE is the settled conversation waiting for the next one.
+    if (!['READY', 'IDLE', 'INTERRUPTED', 'REVIEW_READY', 'FAILED'].includes(task.state)) {
       throw new ProductFailure(
         productError('TASK_CLOSED', {
           userMessage:
-            'This task is closed — send the message as a follow-up task from its room instead.',
+            'This Session is closed (archived) — start a new Session and reference it with @ instead.',
         }),
       );
     }
@@ -2634,20 +2820,137 @@ export class TaskService {
     });
   }
 
-  archive(taskId: string): TaskDto {
+  /** ADR-0032: archive is the Session's only close. Worktree merge-back moved
+   * here from accept — the tree must survive earlier turns, so its net
+   * changes reach the main tree exactly once, when the conversation ends. */
+  async archive(
+    taskId: string,
+    options: { confirmConflicts?: boolean } = {},
+  ): Promise<
+    | { status: 'archived'; task: TaskDto }
+    | { status: 'conflicts'; task: TaskDto; conflicts: Array<{ path: string; reason: string }> }
+  > {
     const task = this.getTask(taskId);
-    if (['ACCEPTED', 'ROLLED_BACK', 'CANCELLED'].includes(task.state)) {
-      this.setState(taskId, 'ARCHIVED');
+    if (isRunningState(task.state as TaskState)) {
+      throw new ProductFailure(
+        productError('TASK_RUNNING', {
+          userMessage: 'Stop the running turn before archiving this Session.',
+        }),
+      );
     }
-    // ADR-0009: best-effort worktree cleanup for finished isolated tasks.
     if (task.worktree && existsSync(task.worktree.path)) {
-      void this.worktrees.discard(task.projectPath, task.worktree as TaskWorktree);
-      this.contexts.drop(task.worktree.path);
+      const context = this.contextForTask(taskId);
+      const cs = await context.changes.changeSet(taskId);
+      if (cs.files.length > 0) {
+        const conflicts = await this.worktrees.mergeBackPreflight(task.projectPath, cs);
+        if (conflicts.length > 0 && !options.confirmConflicts) {
+          this.recordEvent(taskId, 'merge.blocked', { conflicts });
+          return { status: 'conflicts', task: this.getTask(taskId), conflicts };
+        }
+        const { merged } = await this.worktrees.mergeBack(task.projectPath, context.root, cs);
+        this.recordEvent(taskId, 'task.mergedBack', {
+          files: merged,
+          branch: task.worktree.branch,
+          conflictsOverridden: conflicts.map((c) => c.path),
+        });
+      }
+      await this.worktrees.discard(task.projectPath, task.worktree as TaskWorktree);
+      this.contexts.drop(context.root);
+    }
+    if (task.state !== 'ARCHIVED') {
+      try {
+        this.setState(taskId, 'ARCHIVED');
+      } catch {
+        // States without an ARCHIVED edge (READY/DRAFT…) keep their state;
+        // the archived flag below still closes the Session.
+      }
     }
     this.db
       .prepare('UPDATE tasks SET archived = 1, updated_at = ? WHERE id = ?')
       .run(new Date().toISOString(), taskId);
-    return this.getTask(taskId);
+    return { status: 'archived', task: this.getTask(taskId) };
+  }
+
+  /** ADR-0032: the Session's turn ledger — one row per agent run with its
+   * settlement, prompt excerpt and per-turn change stats (derived from the
+   * run → tool_calls → file_changes chain; verification by time window). */
+  turns(taskId: string): TurnDto[] {
+    this.getTask(taskId); // TASK_NOT_FOUND for unknown ids
+    const runs = this.db
+      .prepare(
+        'SELECT id, state, model, started_at, ended_at, review_state, reviewed_at FROM agent_runs WHERE task_id = ? ORDER BY started_at, id',
+      )
+      .all(taskId) as Array<{
+      id: string;
+      state: string;
+      model: string | null;
+      started_at: string;
+      ended_at: string | null;
+      review_state: string | null;
+      reviewed_at: string | null;
+    }>;
+    const promptStmt = this.db.prepare(
+      "SELECT payload_json FROM task_events WHERE task_id = ? AND type = 'user.message' AND created_at >= ? AND (? IS NULL OR created_at < ?) ORDER BY sequence LIMIT 1",
+    );
+    const changesStmt = this.db.prepare(
+      'SELECT fc.relative_path, fc.patch FROM file_changes fc JOIN tool_calls tc ON tc.id = fc.tool_call_id WHERE tc.run_id = ?',
+    );
+    const verificationStmt = this.db.prepare(
+      "SELECT state, COUNT(*) AS n FROM verification_runs WHERE task_id = ? AND created_at >= ? AND (? IS NULL OR created_at < ?) AND state IN ('passed','failed','timeout') GROUP BY state",
+    );
+    return runs.map((run, index) => {
+      const nextStart = runs[index + 1]?.started_at ?? null;
+      const promptRow = promptStmt.get(taskId, run.started_at, nextStart, nextStart) as
+        { payload_json: string } | undefined;
+      let prompt = '';
+      if (promptRow) {
+        try {
+          const payload = JSON.parse(promptRow.payload_json) as { text?: string };
+          prompt = (payload.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        } catch {
+          /* keep empty */
+        }
+      }
+      const changeRows = changesStmt.all(run.id) as Array<{
+        relative_path: string;
+        patch: string | null;
+      }>;
+      const paths = new Set<string>();
+      let additions = 0;
+      let deletions = 0;
+      for (const change of changeRows) {
+        paths.add(change.relative_path);
+        const stats = countPatchLines(change.patch);
+        additions += stats.additions;
+        deletions += stats.deletions;
+      }
+      const verificationRows = verificationStmt.all(
+        taskId,
+        run.started_at,
+        nextStart,
+        nextStart,
+      ) as Array<{ state: string; n: number }>;
+      const passed = verificationRows.find((row) => row.state === 'passed')?.n ?? 0;
+      const failed = verificationRows
+        .filter((row) => row.state === 'failed' || row.state === 'timeout')
+        .reduce((sum, row) => sum + row.n, 0);
+      const reviewState = (run.review_state ?? 'pending') as TurnDto['reviewState'];
+      return {
+        runId: run.id,
+        index: index + 1,
+        startedAt: run.started_at,
+        endedAt: run.ended_at,
+        runState: run.state,
+        reviewState,
+        reviewedAt: run.reviewed_at,
+        prompt,
+        model: run.model,
+        changedFiles: paths.size,
+        additions,
+        deletions,
+        verification: passed + failed > 0 ? { passed, failed } : null,
+      };
+    });
   }
 
   // ---------- agent event projection ----------
@@ -2756,8 +3059,9 @@ export class TaskService {
           )
           .run(event.reason, new Date().toISOString(), runId);
         this.recordEvent(taskId, 'run.aborted', { runId, reason: event.reason });
-        // A plan rejection already moved the task to CANCELLED — keep it there.
-        if (this.getTask(taskId).state !== 'CANCELLED') {
+        // A plan rejection already settled the turn (IDLE, ADR-0032; CANCELLED
+        // on historic rows) — keep the settled state.
+        if (!['CANCELLED', 'IDLE'].includes(this.getTask(taskId).state)) {
           this.safeTransition(taskId, 'INTERRUPTED');
         }
         break;
@@ -2783,20 +3087,34 @@ export class TaskService {
     }
   }
 
-  /** Emit the final report, then move to REVIEW_READY (§6.1: never auto-ACCEPTED). */
+  /** Emit the final report, then settle or park the turn (§6.1 as amended by
+   * ADR-0032): change-making turns go to REVIEW_READY (never auto-ACCEPTED
+   * outside Full mode); zero-change turns settle as `answered` straight back
+   * to the IDLE conversation — a chat reply needs no review gate. */
   private async finalizeRun(taskId: string, runId: string): Promise<void> {
     try {
       const task = this.getTask(taskId);
       if (task.state === 'EXPLORING') {
-        // Ask flow: EXPLORING → IN_PROGRESS → REVIEW_READY (§6.1 exact hops).
+        // Ask flow: EXPLORING → IN_PROGRESS → … (§6.1 exact hops).
         this.setState(taskId, 'IN_PROGRESS');
       }
       const report = await this.buildFinalReportData(taskId, runId, 'completed');
-      // ADR-0009: record the net changed-file count — zero-change tasks get the
-      // light "Answered" completion presentation.
+      // ADR-0009: record the net changed-file count — zero-change turns get the
+      // light "Answered" settlement.
       const changedFiles = ((report.changed as { files?: number } | undefined)?.files ?? 0) | 0;
       this.db.prepare('UPDATE tasks SET changed_files = ? WHERE id = ?').run(changedFiles, taskId);
       this.recordEvent(taskId, 'report.final', report);
+      // ADR-0032: nothing to review — settle this turn as answered and keep
+      // the conversation open. Earlier unsettled turns keep their pending
+      // review (visible in the rail turn list).
+      if (changedFiles === 0) {
+        const pendingChanges = await this.contextForTask(taskId).changes.changeSet(taskId);
+        if (pendingChanges.files.length === 0) {
+          this.settleRuns(taskId, 'answered', runId);
+          this.safeTransition(taskId, 'IDLE');
+          return;
+        }
+      }
       const current = this.getTask(taskId).state;
       if (current === 'VERIFYING') this.setState(taskId, 'REVIEW_READY');
       else this.safeTransition(taskId, 'REVIEW_READY');

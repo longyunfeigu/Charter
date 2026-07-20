@@ -223,7 +223,7 @@ test.describe('README product images', () => {
         .getByTestId('home-intent')
         .fill('[scenario:edit-basic] improve the expired coupon recovery');
       await page.getByTestId('home-submit').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 30000,
       });
 

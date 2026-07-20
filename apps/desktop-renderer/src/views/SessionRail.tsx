@@ -111,6 +111,8 @@ function statusBadge(task: TaskDto): { label: string; tone: string } | null {
     return { label: meta.short, tone: 'review' };
   }
   if (task.state === 'FAILED') return { label: 'Failed', tone: 'failed' };
+  // ADR-0032: a settled conversation with work applied — quiet ok badge.
+  if (task.state === 'IDLE') return { label: 'Settled', tone: 'answered' };
   if (task.state === 'ACCEPTED') return { label: 'Accepted', tone: 'answered' };
   if (task.state === 'ROLLED_BACK' || task.state === 'CANCELLED') {
     return { label: meta.short, tone: 'neutral' };

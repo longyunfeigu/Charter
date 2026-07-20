@@ -14,6 +14,14 @@ export function registerM9Handlers(tasks: TaskService, logger: Logger): void {
         }
         return { status: 'ok' as const, task: result.task, restored: result.restored };
       },
+      // ADR-0032 (P2): unwind exactly one turn, newest settled first.
+      'task.rollbackTurn': async ({ taskId, runId, force }) => {
+        const result = await tasks.rollbackTurn(taskId, runId, { force });
+        if (result.status === 'conflicts') {
+          return { status: 'conflicts' as const, task: result.task, conflicts: result.conflicts };
+        }
+        return { status: 'ok' as const, task: result.task, restored: result.restored };
+      },
       'task.runVerification': async ({ taskId, label }) => {
         const runs = await tasks.runVerifications(taskId, {
           ...(label !== undefined ? { label } : {}),

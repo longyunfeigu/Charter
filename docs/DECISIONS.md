@@ -20,6 +20,7 @@
 | [ADR-0029](adr/ADR-0029-single-project-tree.md) | Accepted | 单一项目文件树：rail Files 面板并入 ExplorerView 管理能力成为唯一的树（ProjectTree）；编辑器表面移除 Files 工具列，'files' 工具改名 'editor'；railView 提升至 appStore | 2026-07-20 | 用户验收截图指出双树冗余并选定合并终局；部分取代 ADR-0024 中「Editor 保留 canonical ExplorerView」 |
 | [ADR-0030](adr/ADR-0030-external-terminal-single-input.md) | Accepted | 外部会话单输入口：删除底部 product composer，CLI 输入行是唯一对话面；拖拽/选区经 external.injectContext 注入（bracketed paste 不带回车）；注入记台账、typed-line 命名会话 | 2026-07-20 | 用户 mockup 验收（B 案）；部分取代 ADR-0017/0024 的外部 composer 表述 |
 | [ADR-0031](adr/ADR-0031-replay-v31-conversation-first-recap.md) | Accepted | Replay V3.1：对话优先 Recap——引自报告的结论行（逐字+引用锚）、只读返回线（审阅唯一入口在房间）、折叠占位符、转折（计划修订）检测、对外动作双轨与不可逆置顶、输入台账；外部 parser 补 TodoWrite/todo_list→plan | 2026-07-20 | 用户两轮 mock 验收（replay-v4-recap-mock*.html）；砍掉与房间重复的行动面板/成本条；扩展 ADR-0017 am.8 |
+| [ADR-0032](adr/ADR-0032-session-as-conversation.md) | Accepted | 会话即对话（4b）：一个 Session 聊天+干活不换房间；账按轮记（agent_runs.review_state），验收/回滚/Answered 结算到 IDLE 续聊；ARCHIVED 是唯一关门，worktree 合并挪到归档时；按轮回滚（最新已结轮逆序，字节级）；对话流保持纯净。验收修订：右栏轮次账本撤除（summary 保持会话级、对齐 Claude Code/Codex，按轮通道仅存 API 层）；已答 Done 仪式删除、accept 幂等化 | 2026-07-20 | 用户两轮 mock 验收（session-4b-continuous-room.html，第 2 轮删轮标记/内联验收条）+ 验收轮截图反馈两条；取代 ADR-0008 的会话粒度终结与 follow-up 开新任务；历史终结任务迁移（migration v6） |
 | [ADR-0033](adr/ADR-0033-terminal-file-links.md) | Accepted | 终端文件链接：⌘+单击 file token 经 terminal.openPath（cwd 封禁+扩展名分流）系统浏览器打开 html/svg/pdf、其余进编辑器；OSC 8 + 正则双轨识别；顺带修复终端网页链接点击无响应 | 2026-07-20 | 用户 mockup 验收（terminal-file-link-mock.html，选定 ⌘+单击/系统浏览器）；§12.3 策略未放宽 |
 
 ## ADR 模板

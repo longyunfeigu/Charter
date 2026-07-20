@@ -763,6 +763,100 @@ export class ChangeService {
     return { ok, restored, verified, conflictsOverridden: preflight.conflicts.map((c) => c.path) };
   }
 
+  /**
+   * ADR-0032 (per-turn rollback): byte-exact restore of specific paths to
+   * recorded prior hashes. Preflight per path: the current content must match
+   * the recorded post-turn hash — anything else changed outside the turn and
+   * conflicts (never overwritten silently). Blob-backed, same guarantees as
+   * the full rollback.
+   */
+  async rollbackToStates(
+    targets: Array<{ path: string; toHash: string | null; expectedCurrentHash: string | null }>,
+    options: { force?: boolean } = {},
+  ): Promise<{
+    ok: boolean;
+    restored: string[];
+    verified: Array<{ path: string; ok: boolean; detail?: string }>;
+    conflicts: RollbackConflict[];
+  }> {
+    const conflicts: RollbackConflict[] = [];
+    for (const target of targets) {
+      const abs = await resolveInsideRoot(this.root, target.path);
+      let currentHash: string | null = null;
+      try {
+        currentHash = sha(await fs.readFile(abs));
+      } catch {
+        currentHash = null;
+      }
+      if (currentHash === target.toHash) continue; // already at the boundary
+      if (currentHash !== target.expectedCurrentHash) {
+        conflicts.push({
+          path: target.path,
+          reason:
+            currentHash === null
+              ? 'The file was deleted outside this turn after the turn changed it.'
+              : 'The file was modified outside this turn after the turn changed it.',
+          currentHash,
+          expectedHash: target.expectedCurrentHash,
+        });
+      }
+    }
+    if (conflicts.length > 0 && !options.force) {
+      return { ok: false, restored: [], verified: [], conflicts };
+    }
+
+    const restored: string[] = [];
+    const verified: Array<{ path: string; ok: boolean; detail?: string }> = [];
+    for (const target of targets) {
+      const abs = await resolveInsideRoot(this.root, target.path);
+      try {
+        let currentHash: string | null = null;
+        try {
+          currentHash = sha(await fs.readFile(abs));
+        } catch {
+          currentHash = null;
+        }
+        if (currentHash === target.toHash) {
+          verified.push({ path: target.path, ok: true });
+          continue;
+        }
+        if (target.toHash === null) {
+          await fs.rm(abs, { force: true });
+          restored.push(target.path);
+          const stillThere = await fs.access(abs).then(
+            () => true,
+            () => false,
+          );
+          verified.push({
+            path: target.path,
+            ok: !stillThere,
+            ...(stillThere ? { detail: 'file still exists' } : {}),
+          });
+        } else {
+          const bytes = await this.blobs.get(target.toHash);
+          if (!bytes) {
+            verified.push({ path: target.path, ok: false, detail: 'turn-boundary blob missing' });
+            continue;
+          }
+          await this.writeBytes(target.path, bytes, null);
+          restored.push(target.path);
+          const roundTrip = await fs.readFile(abs);
+          verified.push({
+            path: target.path,
+            ok: sha(roundTrip) === target.toHash,
+            ...(sha(roundTrip) !== target.toHash ? { detail: 'content mismatch' } : {}),
+          });
+        }
+        if (this.documents.isOpen(target.path)) {
+          await this.documents.handleExternalChange(target.path);
+        }
+      } catch (e) {
+        verified.push({ path: target.path, ok: false, detail: errorMessage(e) });
+      }
+    }
+    return { ok: verified.every((v) => v.ok), restored, verified, conflicts };
+  }
+
   /** CHG-008: reverse-apply exactly one hunk of a file's net diff. Fails closed on staleness. */
   async rejectHunk(
     taskId: string,

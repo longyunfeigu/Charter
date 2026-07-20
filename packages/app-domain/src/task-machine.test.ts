@@ -60,6 +60,29 @@ describe('task state machine (spec §6.1)', () => {
 
   it('exposes the complete state list', () => {
     expect(TASK_STATES).toContain('AWAITING_PLAN_APPROVAL');
-    expect(TASK_STATES).toHaveLength(15);
+    expect(TASK_STATES).toContain('IDLE');
+    expect(TASK_STATES).toHaveLength(16);
+  });
+
+  describe('ADR-0032 — session as conversation', () => {
+    it('settlement lands on IDLE and the conversation can continue', () => {
+      expect(canTransition('REVIEW_READY', 'IDLE')).toBe(true);
+      expect(canTransition('IDLE', 'IN_PROGRESS')).toBe(true);
+      expect(canTransition('IDLE', 'EXPLORING')).toBe(true);
+      // Zero-change turns settle straight from the run states.
+      expect(canTransition('IN_PROGRESS', 'IDLE')).toBe(true);
+      expect(canTransition('VERIFYING', 'IDLE')).toBe(true);
+      // Plan rejection settles the turn, not the Session.
+      expect(canTransition('AWAITING_PLAN_APPROVAL', 'IDLE')).toBe(true);
+    });
+
+    it('archive is the only terminal; IDLE never reaches historic resting states', () => {
+      expect(canTransition('IDLE', 'ARCHIVED')).toBe(true);
+      expect(canTransition('REVIEW_READY', 'ARCHIVED')).toBe(true);
+      expect(canTransition('IDLE', 'ACCEPTED')).toBe(false);
+      expect(canTransition('IDLE', 'ROLLED_BACK')).toBe(false);
+      expect(canTransition('ARCHIVED', 'IDLE')).toBe(false);
+      expect(isRunningState('IDLE')).toBe(false);
+    });
   });
 });

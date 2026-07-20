@@ -148,7 +148,7 @@ test.describe('Unified Session Canvas', () => {
       // The single Action Dock owns the decision; accepting does not switch shells.
       page.once('dialog', (dialog) => void dialog.accept());
       await page.getByTestId('review-bar-accept').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 15000,
       });
       await expect(page.getByTestId('task-room-accepted')).toBeVisible();

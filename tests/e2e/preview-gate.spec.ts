@@ -157,7 +157,7 @@ test.describe('Preview gate (ADR-0022)', () => {
       await expect(page.getByTestId('review-view')).toBeVisible({ timeout: 15000 });
       page.once('dialog', (d) => void d.accept());
       await page.getByTestId('review-accept-all').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 30000,
       });
 
@@ -174,8 +174,9 @@ test.describe('Preview gate (ADR-0022)', () => {
       await expect(page.getByTestId('pr-draft-card')).toHaveCount(0);
       await expect(page.getByTestId('tl-pr-draft')).toBeVisible();
 
-      // GIT-007, observable: no new commit, no charter/pr branch, no remote —
-      // the accepted change sits uncommitted in the working tree.
+      // GIT-007, observable: no new commit, no charter/pr branch, no remote.
+      // ADR-0032: accept settles the turn only — the worktree Session is
+      // still alive, so the MAIN tree stays untouched until archive merges.
       const logAfter = execFileSync('git', ['log', '--oneline'], { cwd: fixture })
         .toString()
         .trim();
@@ -184,7 +185,19 @@ test.describe('Preview gate (ADR-0022)', () => {
         .toString()
         .trim();
       expect(branches).toBe('');
-      expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).toContain('add(3, 4)');
+      expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).toContain('add(2, 3)');
+
+      // Archive closes the Session and lands the merge — still uncommitted.
+      await expect(page.locator('.session-notice-open')).toHaveCount(0, { timeout: 10000 });
+      await page.getByTestId('session-more').click();
+      await page.getByTestId('task-archive').click();
+      await page.getByTestId('task-archive-confirm').click();
+      await expect
+        .poll(() => readFileSync(join(fixture, 'src/index.ts'), 'utf8'), { timeout: 20000 })
+        .toContain('add(3, 4)');
+      expect(execFileSync('git', ['log', '--oneline'], { cwd: fixture }).toString().trim()).toBe(
+        logBefore,
+      );
       const status = execFileSync('git', ['status', '--porcelain'], { cwd: fixture })
         .toString()
         .trim();

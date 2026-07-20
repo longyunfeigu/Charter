@@ -92,7 +92,17 @@ export function registerM6Handlers(
         task: tasks.getTask(taskId),
         timeline: tasks.timeline(taskId, eventsAfter),
       }),
-      'task.archive': async ({ taskId }) => ({ task: tasks.archive(taskId) }),
+      'task.archive': async ({ taskId, confirmConflicts }) => {
+        // ADR-0032: archive closes the Session; worktree merge-back happens
+        // here and can surface conflicts for explicit confirmation.
+        const result = await tasks.archive(taskId, { confirmConflicts });
+        return {
+          task: result.task,
+          status: result.status,
+          ...(result.status === 'conflicts' ? { conflicts: result.conflicts } : {}),
+        };
+      },
+      'task.turns': async ({ taskId }) => ({ turns: tasks.turns(taskId) }),
 
       'models.list': async () => {
         const useMock =

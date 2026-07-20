@@ -33,8 +33,13 @@ export function registerM8Handlers(tasks: TaskService, logger: Logger): void {
             ? { expectedCurrentHash: payload.expectedCurrentHash }
             : {}),
         }),
-      'task.accept': async ({ taskId, confirmUnverified, confirmConflicts }) => {
-        const result = await tasks.acceptTask(taskId, { confirmUnverified, confirmConflicts });
+      'task.accept': async ({ taskId, confirmUnverified, confirmConflicts, runId }) => {
+        const result = await tasks.acceptTask(taskId, {
+          confirmUnverified,
+          confirmConflicts,
+          // ADR-0032: settle only this turn when the rail turn list asks to.
+          ...(runId ? { runId } : {}),
+        });
         return {
           task: result.task,
           status: result.status,

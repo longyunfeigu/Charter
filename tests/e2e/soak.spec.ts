@@ -80,7 +80,7 @@ test('soak: 50 consecutive tasks, one worker, zero restarts, clean exit', async 
       await page.getByTestId('review-bar-more').click();
       await page.getByTestId('report-rollback').click();
       await page.getByTestId('report-rollback-confirm').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ROLLED_BACK', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 15000,
       });
 

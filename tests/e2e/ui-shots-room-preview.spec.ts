@@ -50,7 +50,7 @@ test('room live preview visual walk', async () => {
     await page.getByTestId('home-mode-full').click();
     await page.getByTestId('home-intent').fill('[scenario:edit-basic] coupon expiry hint');
     await page.getByTestId('home-submit').click();
-    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
       timeout: 30000,
     });
 

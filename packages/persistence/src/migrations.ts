@@ -288,4 +288,36 @@ CREATE TABLE memory_sync_state (
 );
 `,
   },
+  {
+    version: 6,
+    name: 'session-as-conversation',
+    // ADR-0032: settlement moves from the task to the turn (one agent run).
+    // review_state: accepted | auto_accepted | rolled_back | answered — NULL
+    // means the finished turn is still awaiting review. Historic terminal
+    // tasks migrate: worktree ones lost their tree on accept and become
+    // archived read-only Sessions; plain ones become IDLE, continuable
+    // conversations (their last run inherits the matching settlement).
+    up: `
+ALTER TABLE agent_runs ADD COLUMN review_state TEXT;
+ALTER TABLE agent_runs ADD COLUMN reviewed_at TEXT;
+UPDATE agent_runs SET
+  review_state = CASE (SELECT state FROM tasks WHERE tasks.id = agent_runs.task_id)
+    WHEN 'ACCEPTED' THEN 'accepted'
+    WHEN 'ROLLED_BACK' THEN 'rolled_back'
+  END,
+  reviewed_at = COALESCE(ended_at, (SELECT updated_at FROM tasks WHERE tasks.id = agent_runs.task_id))
+WHERE id IN (
+  SELECT r.id FROM agent_runs r
+  JOIN tasks t ON t.id = r.task_id AND t.state IN ('ACCEPTED','ROLLED_BACK')
+  WHERE NOT EXISTS (
+    SELECT 1 FROM agent_runs r2
+    WHERE r2.task_id = r.task_id AND r2.started_at > r.started_at
+  )
+);
+UPDATE tasks SET archived = 1
+  WHERE state IN ('ACCEPTED','ROLLED_BACK') AND worktree_json IS NOT NULL AND archived = 0;
+UPDATE tasks SET state = 'IDLE'
+  WHERE state IN ('ACCEPTED','ROLLED_BACK') AND archived = 0;
+`,
+  },
 ];

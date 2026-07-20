@@ -717,6 +717,10 @@ export function projectReplay(input: {
   } else if (task.state === 'REVIEW_READY') {
     outcome = 'completed';
     outcomeLabel = 'Agent 完成 · 待审阅';
+  } else if (task.state === 'IDLE') {
+    // ADR-0032: the settled conversation — turns settled, session continuable.
+    outcome = 'completed';
+    outcomeLabel = '轮次已结算 · 会话可继续';
   } else if (task.state === 'ACCEPTED' || task.state === 'ARCHIVED') {
     outcome = 'completed';
     outcomeLabel = '已完成并接受';

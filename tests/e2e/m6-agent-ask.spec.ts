@@ -39,10 +39,12 @@ test.describe('M6 read-only agent with deterministic runtime', () => {
       await expect(page.getByTestId('tl-agent').last()).toContainText('package.json', {
         timeout: 20000,
       });
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
-      await expect(page.getByTestId('review-bar')).toBeVisible();
+      // ADR-0032: an answered turn settles straight to the conversation — no
+      // review bar (nothing to review), the light Answered dock instead.
+      await expect(page.getByTestId('review-bar')).toHaveCount(0);
       await expect(page.getByTestId('task-room-answered')).toBeVisible();
       // Usage remains recorded but is summarized once instead of interrupting
       // each turn in the conversation.
@@ -65,7 +67,7 @@ test.describe('M6 read-only agent with deterministic runtime', () => {
       await expect(page.getByTestId('tl-tool-apply_patch')).toBeVisible({ timeout: 20000 });
       const card = page.getByTestId('tl-tool-apply_patch');
       await expect(card).not.toHaveAttribute('data-state', 'SUCCEEDED');
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
     } finally {
@@ -125,13 +127,9 @@ test.describe('M6 read-only agent with deterministic runtime', () => {
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
     });
     await createAskTask(first.page, '[scenario:ask-basic] describe the repo', 'History task');
-    await expect(first.page.getByTestId('task-state')).toHaveAttribute(
-      'data-state',
-      'REVIEW_READY',
-      {
-        timeout: 20000,
-      },
-    );
+    await expect(first.page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
+      timeout: 20000,
+    });
     await first.app.close();
 
     const second = await launchApp({

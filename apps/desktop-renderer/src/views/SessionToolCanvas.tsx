@@ -71,9 +71,13 @@ export function SessionToolCanvas(props: {
       // A zero-change answer has nothing to inspect. Keep the Session summary
       // and its Done action in focus instead of presenting a 0-file review.
       current.setSessionTool('summary');
-    } else if (task.state === 'ROLLED_BACK' && current.sessionTool === 'review') {
-      // The proposed change set no longer exists after rollback. Preserve the
-      // timeline record, but retire the active review surface immediately.
+    } else if (
+      (task.state === 'ROLLED_BACK' || task.state === 'IDLE') &&
+      current.sessionTool === 'review'
+    ) {
+      // Settlement (ADR-0032) or rollback retires the active review surface;
+      // the timeline record stays, and the rail turn list reopens Review on
+      // demand for any still-pending turn.
       current.setSessionTool('summary');
     }
   }, [task.state, task.id, files.length]);
@@ -1115,7 +1119,10 @@ function SessionActionDock({ task, files }: { task: TaskDto; files: string[] }):
     );
   }
 
-  if (task.state === 'REVIEW_READY' && answered) {
+  // ADR-0032: answered turns settle straight to IDLE — the light "Answered"
+  // dock survives on both (historic REVIEW_READY rows keep working). There is
+  // no decision left to confirm, so this state deliberately has no Done action.
+  if ((task.state === 'REVIEW_READY' || task.state === 'IDLE') && answered) {
     return (
       <footer className="session-action-dock" data-testid="session-action-dock">
         <span className="session-action-note" data-testid="task-room-answered">
@@ -1130,13 +1137,6 @@ function SessionActionDock({ task, files }: { task: TaskDto; files: string[] }):
             Resume {task.external.cli === 'claude' ? 'Claude' : 'Codex'} session
           </button>
         ) : null}
-        <button
-          className="btn primary"
-          data-testid="task-done"
-          onClick={() => void store.acceptTask()}
-        >
-          Done
-        </button>
       </footer>
     );
   }
@@ -1190,6 +1190,25 @@ function SessionActionDock({ task, files }: { task: TaskDto; files: string[] }):
             Stop
           </button>
         ) : null}
+      </footer>
+    );
+  }
+
+  // ADR-0032: a settled conversation keeps its escape hatch — snapshots
+  // survive settlement, so "roll back everything" stays one click away.
+  if (task.state === 'IDLE' && (task.changedFiles ?? 0) > 0) {
+    return (
+      <footer className="session-action-dock compact" data-testid="session-action-dock">
+        <span className="session-action-note" data-testid="task-room-accepted">
+          Settled · snapshots retained
+        </span>
+        <ConfirmDangerButton
+          label="Roll back everything…"
+          confirmLabel="Confirm — restore all files"
+          testid="task-rollback"
+          quiet
+          onConfirm={() => void store.rollbackTask()}
+        />
       </footer>
     );
   }

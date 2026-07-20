@@ -22,7 +22,7 @@ async function createTask(
 }
 
 test.describe('M8 agent writes, plan approval and review (E2E-010/011/014/015)', () => {
-  test('E2E-010: edit task patches 3 files, runs tests, REVIEW_READY, accept → ACCEPTED', async () => {
+  test('E2E-010: edit task patches 3 files, runs tests, REVIEW_READY, accept settles the turn (ADR-0032)', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
@@ -67,14 +67,14 @@ test.describe('M8 agent writes, plan approval and review (E2E-010/011/014/015)',
       expect(readFileSync(join(fixture, 'src/util.ts'), 'utf8')).toContain('mul');
       expect(existsSync(join(fixture, 'src/created-by-agent.ts'))).toBe(true);
 
-      // Review shows the change set; accepting moves the task to ACCEPTED (§6.1).
+      // Review shows the change set; accepting settles the turn to IDLE (§6.1 as amended by ADR-0032).
       await page.getByTestId('review-bar-open').click();
       await expect(page.getByTestId('review-view')).toBeVisible();
       await expect(page.getByTestId('review-file-src/index.ts')).toBeVisible();
       await expect(page.getByTestId('review-file-src/util.ts')).toBeVisible();
       await expect(page.getByTestId('review-file-src/created-by-agent.ts')).toBeVisible();
       await page.getByTestId('review-accept-all').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
       await expect(page.getByTestId('tl-accepted')).toBeVisible();
@@ -105,7 +105,9 @@ test.describe('M8 agent writes, plan approval and review (E2E-010/011/014/015)',
       await expect(
         page.getByTestId('tl-agent').filter({ hasText: 'REWRITE the util module carefully' }),
       ).toHaveCount(1, { timeout: 20000 });
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+      // ADR-0032: this scenario changes no files — the turn settles as
+      // answered and the conversation is immediately continuable.
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
 

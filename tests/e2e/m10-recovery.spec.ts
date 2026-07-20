@@ -116,7 +116,7 @@ test.describe('M10 — crash recovery, reliability, diagnostics', () => {
       await expect(page.getByTestId('task-resume')).toBeVisible();
       await page.getByTestId('task-rollback').click();
       await page.getByTestId('task-rollback-confirm').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ROLLED_BACK', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 15000,
       });
       expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).toContain('add(2, 3)');

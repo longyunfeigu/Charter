@@ -609,7 +609,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
     }
   });
 
-  test('an accepted Claude session parks in History and resumes as a NEW task', async () => {
+  test('a settled Claude session stays a live conversation and resumes in the SAME task', async () => {
     test.setTimeout(180000);
     const fixture = createGitFixture();
     const bin = createHistoryClaudeBin(fixture);
@@ -641,7 +641,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await page.getByTestId('review-bar-open').click();
       await expect(page.getByTestId('review-view')).toBeVisible();
       await page.getByTestId('review-accept-all').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
       // Accepting a git-project task offers a PR draft — dismiss the modal.
@@ -672,28 +672,20 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
         });
       const before = await listExternal();
       expect(before).toHaveLength(1);
-      const acceptedId = before[0]!.id;
+      const settledId = before[0]!.id;
 
-      // The accepted session parks under History (alive sessions never do).
+      // ADR-0032: the settled Session is a live conversation — it stays in
+      // its project group (History is for archived rows), badged Settled.
       await page.getByTestId('surface-home').click();
-      const historyToggle = page.getByTestId('rail-group-history');
-      await expect(historyToggle).toBeVisible();
-      // The rail auto-expands a collapsed group when the open room's task
-      // lands in it — only click if it is still collapsed.
-      if ((await historyToggle.getAttribute('aria-expanded')) !== 'true') {
-        await historyToggle.click();
-      }
-      const historyGroup = page
-        .locator('section.sr-group')
-        .filter({ has: page.getByTestId('rail-group-history') });
-      const row = historyGroup.getByTestId(`home-task-${acceptedId}`);
+      const row = page.getByTestId(`home-task-${settledId}`);
       await expect(row).toBeVisible();
-      await expect(row).toContainText('Accepted');
+      await expect(row).toContainText('Settled');
+      await expect(page.getByTestId('rail-group-history')).toHaveCount(0);
 
-      // ↻ Resume continues the settled round as a NEW task (fresh baseline,
-      // same CLI conversation); the accepted record stays behind in History.
+      // ↻ Resume continues the SAME task (same baseline, same ledger, same
+      // CLI conversation) — no continuation task is created.
       await row.hover();
-      await page.getByTestId(`home-resume-${acceptedId}`).click();
+      await page.getByTestId(`home-resume-${settledId}`).click();
       await expect(page.getByTestId('task-room')).toBeVisible({ timeout: 30000 });
       await expect(page.getByTestId('external-terminal-host')).toContainText(
         'resumed-original-session',
@@ -701,12 +693,9 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       );
 
       const after = await listExternal();
-      expect(after).toHaveLength(2);
-      const source = after.find((task) => task.id === acceptedId);
-      expect(source?.state).toBe('ACCEPTED');
-      const continuation = after.find((task) => task.id !== acceptedId);
-      expect(continuation).toBeDefined();
-      expect(['READY', 'IN_PROGRESS'].includes(continuation!.state)).toBe(true);
+      expect(after).toHaveLength(1);
+      expect(after[0]!.id).toBe(settledId);
+      expect(['IN_PROGRESS', 'IDLE'].includes(after[0]!.state)).toBe(true);
     } finally {
       await app.close();
     }

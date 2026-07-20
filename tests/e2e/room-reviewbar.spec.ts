@@ -44,7 +44,7 @@ test.describe('Room ending — review bar (ADR-0016, direction B)', () => {
       // Rollback lives in the one Action Dock, still double-confirmed.
       await page.getByTestId('task-rollback').click();
       await page.getByTestId('task-rollback-confirm').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ROLLED_BACK', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 15000,
       });
       // The bar is state: it vanishes with REVIEW_READY.

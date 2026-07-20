@@ -519,8 +519,9 @@ function eventNode(
     case 'task.stateChanged': {
       const to = String(payload.to);
       // Terminal "Answered" milestone replaces the review-ready ceremony.
+      // ADR-0032: answered turns settle straight to IDLE — same milestone.
       // For external CLIs the edge is the process exit, not an answer.
-      if (to === 'REVIEW_READY' && isAnswered(task)) {
+      if ((to === 'REVIEW_READY' || to === 'IDLE') && isAnswered(task)) {
         const endedLabel = copy.locale === 'zh' ? '会话已结束' : 'Session ended';
         const answeredLabel = copy.locale === 'zh' ? '已回答' : 'Answered';
         return (
@@ -546,6 +547,9 @@ function eventNode(
           'AWAITING_PERMISSION',
           'VERIFYING',
           'REVIEW_READY',
+          // ADR-0032: settlement is expressed by its own ledger events
+          // (task.accepted / turn.rolledBack) — the IDLE edge is not noise-worthy.
+          'IDLE',
           'ACCEPTED',
           'ROLLED_BACK',
         ].includes(to)

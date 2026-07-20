@@ -18,6 +18,7 @@ import {
   PrDraftDtoSchema,
   TaskDtoSchema,
   TimelineEventDtoSchema,
+  TurnDtoSchema,
   VerificationCommandSchema,
   VerificationRunDtoSchema,
 } from './agent-dto.js';
@@ -759,9 +760,23 @@ export const CHANNELS = {
   ),
   'task.archive': ch(
     'task.archive',
+    2,
+    // ADR-0032: archive is the Session's only close; worktree merge-back
+    // happens here (moved from accept), so conflicts can block it.
+    z.object({ taskId: z.string(), confirmConflicts: z.boolean().default(false) }).strict(),
+    z.object({
+      task: TaskDtoSchema,
+      status: z.enum(['archived', 'conflicts']).default('archived'),
+      conflicts: z.array(z.object({ path: z.string(), reason: z.string() })).optional(),
+    }),
+  ),
+  /** ADR-0032: the Session's turn ledger — one row per agent run with its
+   * settlement, prompt excerpt and per-turn change stats. */
+  'task.turns': ch(
+    'task.turns',
     1,
     z.object({ taskId: z.string() }).strict(),
-    z.object({ task: TaskDtoSchema }),
+    z.object({ turns: z.array(TurnDtoSchema) }),
   ),
   'task.permissionDecision': ch(
     'task.permissionDecision',
@@ -858,13 +873,15 @@ export const CHANNELS = {
   ),
   'task.accept': ch(
     'task.accept',
-    2,
+    3,
     z
       .object({
         taskId: z.string(),
         confirmUnverified: z.boolean().default(false),
         /** ADR-0009: override worktree merge-back conflicts after explicit confirm. */
         confirmConflicts: z.boolean().default(false),
+        /** ADR-0032: settle only this turn (rail turn-list action). */
+        runId: z.string().optional(),
       })
       .strict(),
     z.object({
@@ -879,6 +896,18 @@ export const CHANNELS = {
     'task.rollback',
     1,
     z.object({ taskId: z.string(), force: z.boolean().default(false) }).strict(),
+    z.object({
+      status: z.enum(['ok', 'conflicts']),
+      task: TaskDtoSchema,
+      restored: z.array(z.string()).optional(),
+      conflicts: z.array(z.object({ path: z.string(), reason: z.string() })).optional(),
+    }),
+  ),
+  /** ADR-0032 (P2): roll back exactly one turn — newest settled first. */
+  'task.rollbackTurn': ch(
+    'task.rollbackTurn',
+    1,
+    z.object({ taskId: z.string(), runId: z.string(), force: z.boolean().default(false) }).strict(),
     z.object({
       status: z.enum(['ok', 'conflicts']),
       task: TaskDtoSchema,

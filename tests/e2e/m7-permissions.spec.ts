@@ -51,7 +51,7 @@ test.describe('M7 permission engine (PERM-001..010, §13.3)', () => {
         },
       );
       await expect(page.getByTestId('tl-agent').last()).toContainText('vendor', { timeout: 20000 });
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
 
@@ -82,7 +82,7 @@ test.describe('M7 permission engine (PERM-001..010, §13.3)', () => {
       await expect(page.getByTestId('tl-agent').last()).toContainText('refused', {
         timeout: 20000,
       });
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
     } finally {
@@ -112,7 +112,7 @@ test.describe('M7 permission engine (PERM-001..010, §13.3)', () => {
           timeout: 20000,
         },
       );
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
     } finally {
@@ -132,7 +132,7 @@ test.describe('M7 permission engine (PERM-001..010, §13.3)', () => {
       await expect(page.getByTestId('tl-agent').last()).toContainText('proceeding', {
         timeout: 20000,
       });
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
     } finally {

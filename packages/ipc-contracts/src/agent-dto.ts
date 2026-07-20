@@ -11,6 +11,8 @@ export const TaskStateSchema = z.enum([
   'AWAITING_PERMISSION',
   'VERIFYING',
   'REVIEW_READY',
+  // ADR-0032: settled conversation awaiting the next message.
+  'IDLE',
   'ACCEPTED',
   'ROLLED_BACK',
   'INTERRUPTED',
@@ -294,3 +296,34 @@ export const ModelDescriptorDtoSchema = z.object({
   authKind: z.enum(['api-key', 'oauth', 'none', 'unknown']),
 });
 export type ModelDescriptorDto = z.infer<typeof ModelDescriptorDtoSchema>;
+
+/** ADR-0032: a turn's settlement. `pending` = finished, awaiting review. */
+export const TurnReviewStateSchema = z.enum([
+  'pending',
+  'accepted',
+  'auto_accepted',
+  'rolled_back',
+  'answered',
+]);
+export type TurnReviewState = z.infer<typeof TurnReviewStateSchema>;
+
+/** ADR-0032: one Session turn (= one agent run) with its per-turn ledger. */
+export const TurnDtoSchema = z.object({
+  runId: z.string(),
+  /** 1-based position in the Session. */
+  index: z.number().int(),
+  startedAt: z.string(),
+  endedAt: z.string().nullable(),
+  /** Raw run state (STARTING/STREAMING/DONE/ERROR/ABORTED). */
+  runState: z.string(),
+  reviewState: TurnReviewStateSchema,
+  reviewedAt: z.string().nullable(),
+  /** Excerpt of the user message that started this turn. */
+  prompt: z.string(),
+  model: z.string().nullable(),
+  changedFiles: z.number().int(),
+  additions: z.number().int(),
+  deletions: z.number().int(),
+  verification: z.object({ passed: z.number().int(), failed: z.number().int() }).nullable(),
+});
+export type TurnDto = z.infer<typeof TurnDtoSchema>;

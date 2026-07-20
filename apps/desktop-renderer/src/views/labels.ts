@@ -28,6 +28,8 @@ export const TASK_STATE_META: Record<TaskState, { label: string; short: string; 
     AWAITING_PERMISSION: { label: 'Needs your permission', short: 'Permission', tone: 'warn' },
     VERIFYING: { label: 'Running verification', short: 'Verifying', tone: 'run' },
     REVIEW_READY: { label: 'Ready to review', short: 'Review', tone: 'ok' },
+    // ADR-0032: the settled conversation — alive, waiting for the next message.
+    IDLE: { label: 'Settled — reply to continue', short: 'Idle', tone: 'ok' },
     ACCEPTED: { label: 'Accepted', short: 'Accepted', tone: 'ok' },
     ROLLED_BACK: { label: 'Rolled back', short: 'Rolled back', tone: 'idle' },
     INTERRUPTED: { label: 'Interrupted', short: 'Interrupted', tone: 'warn' },
@@ -40,23 +42,28 @@ export function stateLabel(state: string): string {
   return TASK_STATE_META[state as TaskState]?.label ?? state;
 }
 
-/** ADR-0009 light completion: REVIEW_READY with zero net changes is an answer. */
+/** ADR-0009 light completion: zero net changes is an answer (ADR-0032: such
+ * turns settle straight to IDLE; REVIEW_READY covers historic rows). */
 export function isAnswered(task: { state: string; changedFiles?: number | null }): boolean {
-  return task.state === 'REVIEW_READY' && task.changedFiles === 0;
+  return (task.state === 'IDLE' || task.state === 'REVIEW_READY') && task.changedFiles === 0;
 }
 
 /**
- * Cleanup affordance: which tasks may be archived from the UI.
- * Running/deciding tasks never offer it (stop or decide first), and a
- * REVIEW_READY task with real changes must be reviewed or rolled back first.
- * The one exception is an answered task (zero changes) — archiving it is the
- * natural "close out" and implies accepting the no-op result.
+ * Cleanup affordance: which Sessions may be archived from the UI (ADR-0032:
+ * archive is the only close). Running/deciding turns never offer it — stop or
+ * decide first. An unsettled REVIEW_READY turn may archive: the changes keep
+ * their current state (worktree Sessions merge back at archive time).
  */
 export function canArchiveTask(task: { state: string; changedFiles?: number | null }): boolean {
-  if (['ACCEPTED', 'ROLLED_BACK', 'CANCELLED', 'FAILED', 'INTERRUPTED'].includes(task.state)) {
-    return true;
-  }
-  return isAnswered(task);
+  return [
+    'IDLE',
+    'REVIEW_READY',
+    'ACCEPTED',
+    'ROLLED_BACK',
+    'CANCELLED',
+    'FAILED',
+    'INTERRUPTED',
+  ].includes(task.state);
 }
 
 /** ADR-0023: task states whose work is settled — the rail's History bucket. */
@@ -91,13 +98,14 @@ export function isHistoryTask(task: ExternalishTask): boolean {
 }
 
 /**
- * States an ended external session can be revived from. The unsettled trio
- * resumes the SAME task (existing service gate); a settled round continues
- * the conversation as a NEW task on a fresh entry snapshot — mirroring
- * "a follow-up is a new task" for managed runs.
+ * States an ended external session can be revived from. ADR-0032: IDLE (a
+ * settled, live conversation) and the unsettled trio resume the SAME task;
+ * historic terminal rows (pre-migration) continue as a NEW task on a fresh
+ * entry snapshot.
  */
 const EXTERNAL_RESUMABLE_STATES = new Set([
   'REVIEW_READY',
+  'IDLE',
   'INTERRUPTED',
   'FAILED',
   ...SETTLED_TASK_STATES,

@@ -1,6 +1,6 @@
 # ADR-0032 — Session as conversation: one room for chat + work, per-turn settlement (4b)
 
-- Status: **Proposed** (mockup `docs/design/session-4b-continuous-room.html` awaiting owner confirmation; do not implement before it flips to Accepted)
+- Status: **Accepted** (owner confirmed the round-2 mockup `docs/design/session-4b-continuous-room.html` on 2026-07-20 — pure conversation stream, settlement in the rail — and delegated implementation)
 - Date: 2026-07-20
 - Supersedes (on acceptance): the session-granularity reading of task completion in ADR-0008 (task-centric shell) and the follow-up-as-new-Session mechanics; amends ADR-0012 (Full mode), ADR-0016 (review bar), ADR-0017 am.8 / ADR-0031 (replay chapters)
 - Related evidence: owner field report 2026-07-20 — a Full-mode Q&A chain produced one throwaway room per question; prior turns invisible except a dead context chip
@@ -111,6 +111,51 @@ a restore-to-turn-boundary operation, and the UI that stops closing the room.
   newest-first guard + conflicts; settlement bar overflow wiring.
 - **P3 — surfaces**: worktree archive-time merge, rail badges, replay turn
   chapters, notifications copy, session archive/auto-archive setting.
+
+## Verification evidence (implementation, 2026-07-20)
+
+- Unit 649/649: task-machine +2 (IDLE settlement edges, archive-only-terminal,
+  no IDLE→ACCEPTED), migration v6 upgrade test (worktree-settled → archived
+  read-only, plain settled → IDLE, only the LAST run inherits the settlement),
+  change-service +5 (rollbackToStates: byte-exact restore, created-file
+  deletion, conflict fail-closed, force override, missing-blob fail-closed).
+- E2E rewritten to the amended spec and green: m8 (accept settles to IDLE),
+  m6/m7/p2-visibility/timeline-window/memory/shell-v3/session-rail-polish
+  (zero-change turns settle straight to IDLE as answered), p3-full-mode
+  (auto-settle → full rollback from the settled dock → the SAME room takes
+  the next message), room-reviewbar (review surface retires on settlement),
+  shell-v4 worktree (accept leaves the main tree untouched; ARCHIVE merges),
+  preview-gate (PR draft on accept; merge lands at archive, still
+  uncommitted), external-cli (settled Claude session stays a live
+  conversation, resumes in the SAME task, no History parking), replay suites
+  (IDLE outcome label), m10/soak (rollback settles to IDLE).
+- Screenshot walk `/tmp/charter-replay-semantic/4b-turn*.png`: one room, turn
+  1 accepted from the rail ledger, the reply ran turn 2 in place (TURNS
+  2 · 1 awaiting review), review bar carries only the fresh turn.
+- Known pre-existing failure (NOT this change): m2-shell "diagnostics view" —
+  the `overlay-diagnostics` renderer was lost in the parallel single-tree
+  rework (ADR-0029 line); command registration still points at it.
+
+## Owner acceptance amendments (2026-07-20, acceptance round)
+
+1. **The rail Turns ledger is removed** (owner: "不需要 turn 的检测，这块
+   summary 的逻辑和 Claude Code & Codex 一致就行"). Decision §4's turn-list
+   surface is void: the summary rail stays session-level (status / changed
+   files / verification), exactly the pre-4b shape. Per-turn settlement
+   remains the engine model; `task.turns`, `task.accept{runId}` and
+   `task.rollbackTurn` stay as versioned, tested channels **without a UI
+   entry point** — a future Claude-Code-rewind-style entry can reattach.
+   Evidence: `session-turns` asserted absent + screenshot
+   `/tmp/charter-replay-semantic/summary-no-turns.png`.
+2. **The answered Done ceremony is deleted and accept is idempotent.** Owner
+   report: clicking Done on an answered idle Session appended one more
+   "Changes accepted" timeline row per click. The answered dock loses its
+   Done button (an answer is just an answer; external sessions keep Resume;
+   historic rows parked at REVIEW_READY simply rest until the next reply),
+   and `acceptTask` now no-ops — no event, no synthesized report — when the
+   Session is IDLE with nothing unsettled or the accept carries zero
+   changes. Regression e2e drives `task.accept` twice over the bridge and
+   asserts zero `task.accepted` events (shell-v4).
 
 ## Risks
 

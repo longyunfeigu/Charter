@@ -171,15 +171,18 @@
   font-size: 12px;
 }
 
-/* @ picker anchored inside the mid-run reply card */
+/* @ picker — the room composer docks at the window bottom, so the menu pops
+   UPWARD from the card (live reply card and archived follow-up card alike).
+   `top: auto` is required: .hm-menu's base rule anchors downward for Home. */
 
 .tr-ccard {
   position: relative;
 }
 
-.tr-ccard .hm-menu.room-file-menu {
+.tr-composer .hm-menu.room-file-menu {
   position: absolute;
   z-index: 40;
+  top: auto;
   bottom: calc(100% + 6px);
   left: 8px;
   right: 8px;

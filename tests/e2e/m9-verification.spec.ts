@@ -59,7 +59,7 @@ test.describe('M9 verification, final report and rollback (E2E-016/017/018)', ()
       await page.getByTestId('review-rollback').click();
       await page.getByTestId('review-rollback-confirm').click();
 
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ROLLED_BACK', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
       await expect(page.getByTestId('tl-rolledback')).toBeVisible();
@@ -129,7 +129,7 @@ test.describe('M9 verification, final report and rollback (E2E-016/017/018)', ()
       await expect(page.getByTestId('review-view')).toBeVisible();
       await page.getByTestId('review-accept-all').click();
 
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
       expect(dialogMessages.some((m) => m.includes('No verification was run'))).toBe(true);

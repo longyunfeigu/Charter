@@ -326,21 +326,18 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   async archiveTask(taskId) {
     const app = useAppStore.getState();
-    const task = get().tasks.find((t) => t.id === taskId);
-    // Light completion (ADR-0009): an answered task (zero changes) is closed
-    // out — accepting the no-op result — before it is archived.
-    if (task && task.state === 'REVIEW_READY' && task.changedFiles === 0) {
-      const accepted = await rpcResult('task.accept', {
-        taskId,
-        confirmUnverified: false,
-        confirmConflicts: false,
-      });
-      if (!accepted.ok) {
-        app.pushToast('error', accepted.error.userMessage);
-        return false;
-      }
+    // ADR-0032: archive merges a worktree Session back into the main tree —
+    // conflicts stop it and ask for explicit confirmation.
+    let res = await rpcResult('task.archive', { taskId, confirmConflicts: false });
+    if (res.ok && res.data.status === 'conflicts') {
+      const paths = (res.data.conflicts ?? []).map((c) => c.path).join(', ');
+      const confirmed = window.confirm(
+        `The project changed while this Session worked in its worktree.\nMerging will overwrite: ${paths}\n\nArchive and overwrite anyway?`,
+      );
+      if (!confirmed) return false;
+      res = await rpcResult('task.archive', { taskId, confirmConflicts: true });
+      if (res.ok && res.data.status === 'conflicts') return false;
     }
-    const res = await rpcResult('task.archive', { taskId });
     if (!res.ok) {
       app.pushToast('error', res.error.userMessage);
       return false;
@@ -350,7 +347,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       set({ activeTaskId: null, timeline: [], streaming: null, streamingThinking: null });
     }
     await get().refreshTasks();
-    app.pushToast('info', 'Task archived.');
+    app.pushToast('info', 'Session archived.');
     return true;
   },
 

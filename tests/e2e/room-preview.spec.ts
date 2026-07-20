@@ -54,7 +54,7 @@ test.describe('Room live preview (ADR-0022 am.2)', () => {
       await page.getByTestId('home-mode-full').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] full auto change');
       await page.getByTestId('home-submit').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 30000,
       });
 
@@ -205,7 +205,7 @@ test.describe('Room live preview (ADR-0022 am.2)', () => {
       await page.getByTestId('home-mode-full').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] rail one-click');
       await page.getByTestId('home-submit').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 30000,
       });
 

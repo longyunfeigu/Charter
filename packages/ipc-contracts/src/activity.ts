@@ -208,6 +208,7 @@ const STATE_LABELS: Record<string, { label: string; status: ActivityStatus }> = 
   AWAITING_PERMISSION: { label: 'Waiting for your permission', status: 'pending' },
   VERIFYING: { label: 'Verifying', status: 'info' },
   REVIEW_READY: { label: 'Ready for your review', status: 'ok' },
+  IDLE: { label: 'Turn settled — reply to continue', status: 'info' },
   ACCEPTED: { label: 'Accepted', status: 'ok' },
   ROLLED_BACK: { label: 'Rolled back', status: 'warn' },
   INTERRUPTED: { label: 'Interrupted', status: 'warn' },
@@ -605,6 +606,21 @@ export function projectActivityEvent(event: TimelineEventDto): ActivityItem | nu
         label: 'Rolled back to the pre-task state',
         status: 'warn',
       };
+    case 'turn.rolledBack': {
+      // ADR-0032 (P2): one turn unwound to its boundary — byte-exact restores.
+      const restored = Array.isArray(p.restored) ? p.restored.map((f) => str(f)) : [];
+      return {
+        ...base,
+        author: 'user',
+        kind: 'state',
+        label:
+          restored.length > 0
+            ? `Rolled back one turn (${restored.length} file${restored.length === 1 ? '' : 's'} restored)`
+            : 'Rolled back one turn',
+        status: 'warn',
+        paths: restored.map(cleanPath),
+      };
+    }
     case 'task.mergedBack': {
       const files = Array.isArray(p.files) ? p.files.map((f) => str(f)).filter(Boolean) : [];
       // kind 'write' so the merged files pulse/glow in the main project tree.

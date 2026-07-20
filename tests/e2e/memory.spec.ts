@@ -82,7 +82,7 @@ test('memory: correction → distill card → rule → injected into the next ru
     await page.getByTestId('home-mode-ask').click();
     await page.getByTestId('home-intent').fill('[scenario:ask-basic] quick question');
     await page.getByTestId('home-submit').click();
-    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
       timeout: 30000,
     });
 

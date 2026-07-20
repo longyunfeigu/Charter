@@ -122,7 +122,7 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([4, 5]);
+    expect(upgraded.appliedVersions).toEqual([4, 5, 6]);
     const names = (
       upgraded.db
         .prepare(
@@ -137,6 +137,62 @@ describe('persistence database', () => {
       'memory_sync_state',
       'task_conversation_references',
     ]);
+    upgraded.db.close();
+  });
+
+  it('v6 migrates settled tasks into conversations (ADR-0032)', () => {
+    const before = open(MIGRATIONS.slice(0, 5));
+    const now = new Date().toISOString();
+    const insertTask = before.db.prepare(
+      "INSERT INTO tasks (id, workspace_id, title, goal_md, mode, state, model_json, created_at, updated_at, archived, worktree_json) VALUES (?, 'ws', ?, '', 'edit', ?, '{}', ?, ?, 0, ?)",
+    );
+    before.db
+      .prepare(
+        "INSERT INTO workspaces (id, canonical_path, display_name, last_opened_at, created_at) VALUES ('ws', '/tmp/x', 'x', ?, ?)",
+      )
+      .run(now, now);
+    insertTask.run('t-accepted', 'plain accepted', 'ACCEPTED', now, now, null);
+    insertTask.run('t-rolled', 'plain rolled back', 'ROLLED_BACK', now, now, null);
+    insertTask.run(
+      't-wt',
+      'worktree accepted',
+      'ACCEPTED',
+      now,
+      now,
+      JSON.stringify({ path: '/tmp/wt', branch: 'b', baseHead: null, baseBranch: null }),
+    );
+    insertTask.run('t-review', 'still in review', 'REVIEW_READY', now, now, null);
+    const insertRun = before.db.prepare(
+      "INSERT INTO agent_runs (id, task_id, state, started_at, ended_at) VALUES (?, ?, 'DONE', ?, ?)",
+    );
+    insertRun.run('r-a1', 't-accepted', '2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z');
+    insertRun.run('r-a2', 't-accepted', '2026-07-01T00:02:00Z', '2026-07-01T00:03:00Z');
+    insertRun.run('r-rev', 't-review', '2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z');
+    before.db.close();
+
+    const upgraded = open(MIGRATIONS);
+    const task = (id: string) =>
+      upgraded.db.prepare('SELECT state, archived FROM tasks WHERE id = ?').get(id) as {
+        state: string;
+        archived: number;
+      };
+    // Plain settled tasks become live IDLE conversations.
+    expect(task('t-accepted')).toEqual({ state: 'IDLE', archived: 0 });
+    expect(task('t-rolled')).toEqual({ state: 'IDLE', archived: 0 });
+    // Worktree tasks lost their tree on accept: archived read-only, state kept.
+    expect(task('t-wt')).toEqual({ state: 'ACCEPTED', archived: 1 });
+    // Unsettled work is untouched.
+    expect(task('t-review')).toEqual({ state: 'REVIEW_READY', archived: 0 });
+    // Only the LAST run of a settled task inherits the settlement.
+    const run = (id: string) =>
+      (
+        upgraded.db.prepare('SELECT review_state FROM agent_runs WHERE id = ?').get(id) as {
+          review_state: string | null;
+        }
+      ).review_state;
+    expect(run('r-a1')).toBeNull();
+    expect(run('r-a2')).toBe('accepted');
+    expect(run('r-rev')).toBeNull();
     upgraded.db.close();
   });
 });

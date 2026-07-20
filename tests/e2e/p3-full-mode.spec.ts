@@ -30,8 +30,8 @@ test.describe('P3 full mode (ADR-0012)', () => {
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
 
-      // Straight to ACCEPTED — no plan approval, no permission card.
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+      // Straight to the settled conversation (ADR-0032) — no plan approval, no permission card.
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 30000,
       });
       await expect(page.getByTestId('perm-card')).toHaveCount(0);
@@ -41,32 +41,29 @@ test.describe('P3 full mode (ADR-0012)', () => {
       expect(existsSync(join(fixture, 'rollback-note.txt'))).toBe(true);
       expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).toContain('add(3, 4)');
 
-      // Replying to a CLOSED task starts a follow-up task (same project/mode)
-      // instead of silently doing nothing.
+      // Post-settlement rollback (ADR-0012 scoped by ADR-0032): snapshots
+      // survive settlement — the settled dock offers "roll back everything".
+      await expect(page.getByTestId('task-room-accepted')).toBeVisible();
+      await page.getByTestId('task-rollback').click();
+      await page.getByTestId('task-rollback-confirm').click();
+      await expect
+        .poll(() => existsSync(join(fixture, 'rollback-note.txt')), { timeout: 20000 })
+        .toBe(false);
+      expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).toBe(ORIGINAL_INDEX);
+
+      // ADR-0032: the rolled-back Session is STILL a live conversation —
+      // replying starts a new turn in the SAME room (no follow-up task).
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
+        timeout: 20000,
+      });
+      const roomTaskId = await page.getByTestId('task-room').getAttribute('data-task-id');
       await page.getByTestId('agent-input').fill('now also add a moon');
       await page.getByTestId('agent-send').click();
       await expect(page.getByTestId('task-room')).toContainText('now also add a moon', {
         timeout: 20000,
       });
-      await expect(page.getByTestId('task-state')).not.toHaveAttribute('data-state', 'ACCEPTED');
-
-      // Back to the original room for the rollback half of this test.
-      await page.getByTestId('task-room-back').click();
-      await page
-        .locator('[data-testid^="home-task-"]')
-        .filter({ hasText: 'full auto' })
-        .first()
-        .click();
-
-      // Post-accept rollback (ADR-0012): snapshots survive accept.
-      await expect(page.getByTestId('task-room-accepted')).toBeVisible();
-      await page.getByTestId('task-rollback').click();
-      await page.getByTestId('task-rollback-confirm').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ROLLED_BACK', {
-        timeout: 20000,
-      });
-      expect(existsSync(join(fixture, 'rollback-note.txt'))).toBe(false);
-      expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).toBe(ORIGINAL_INDEX);
+      // The reply ran a new turn HERE — the room never closed or forked.
+      await expect(page.getByTestId('task-room')).toHaveAttribute('data-task-id', roomTaskId!);
     } finally {
       await app.close();
     }

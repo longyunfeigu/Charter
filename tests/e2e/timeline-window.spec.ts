@@ -32,7 +32,7 @@ test.describe('M11-04 timeline windowing', () => {
       await page.getByTestId('home-submit').click();
 
       // The run completes: the final agent message and Done state arrive.
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
 

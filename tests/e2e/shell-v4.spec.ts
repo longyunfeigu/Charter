@@ -104,21 +104,41 @@ test.describe('Shell v4 — global tasks on a multi-mount engine (ADR-0009)', ()
       );
       await page.getByTestId('plan-approve').click();
 
-      // edit-plan-review writes nothing → light completion (PIVOT-031):
-      // "Answered", no report ceremony, no review button — a quiet Done.
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+      // edit-plan-review writes nothing → light completion (PIVOT-031, ADR-0032):
+      // the answered turn settles straight to the IDLE conversation.
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 30000,
       });
       await expect(page.getByTestId('task-room-answered')).toBeVisible();
       await expect(page.getByTestId('tl-answered')).toBeVisible();
       // ADR-0016: no Done ceremony and no review bar for an answered task.
       await expect(page.getByTestId('tl-done')).toHaveCount(0);
+      await expect(page.getByTestId('tl-accepted')).toHaveCount(0);
       await expect(page.getByTestId('review-bar')).toHaveCount(0);
       await expect(page.getByTestId('review-bar-open')).toHaveCount(0);
-      await page.getByTestId('task-done').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
-        timeout: 15000,
-      });
+      await expect(page.getByTestId('task-done')).toHaveCount(0);
+
+      // Defense in depth: stale clients may still send task.accept. Repeating
+      // it for an already answered turn is a no-op and must not write events.
+      const taskTestId = await row.getAttribute('data-testid');
+      const taskId = taskTestId?.slice('home-task-'.length);
+      expect(taskId).toBeTruthy();
+      const acceptedEventCount = await page.evaluate(async (id) => {
+        const bridge = window.product.rpc;
+        const payload = {
+          taskId: id,
+          confirmUnverified: false,
+          confirmConflicts: false,
+        };
+        await bridge['task.accept']!(payload);
+        await bridge['task.accept']!(payload);
+        const snapshot = await bridge['task.get']!({ taskId: id, eventsAfter: 0 });
+        if (!snapshot.ok) return -1;
+        return (snapshot.data as { timeline: Array<{ type: string }> }).timeline.filter(
+          (event) => event.type === 'task.accepted',
+        ).length;
+      }, taskId!);
+      expect(acceptedEventCount).toBe(0);
     } finally {
       await app.close();
     }
@@ -126,7 +146,7 @@ test.describe('Shell v4 — global tasks on a multi-mount engine (ADR-0009)', ()
 });
 
 test.describe('Shell v4 — worktree isolation and merge-back (ADR-0009)', () => {
-  test('an isolated task never touches the main tree until accept merges it back', async () => {
+  test('an isolated Session never touches the main tree until ARCHIVE merges it back (ADR-0032)', async () => {
     const fixture = createGitFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
@@ -174,15 +194,28 @@ test.describe('Shell v4 — worktree isolation and merge-back (ADR-0009)', () =>
       page.once('dialog', (d) => void d.accept());
       await page.getByTestId('review-accept-all').click();
 
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 30000,
       });
-      // Merge-back landed the change in the main tree; the worktree is gone.
-      expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).toContain('add(3, 4)');
-      await expect(page.getByTestId('tl-merged-back')).toBeVisible();
+      // Accepting a git-project task offers a PR draft — dismiss the modal.
+      const prDismiss = page.getByTestId('pr-draft-dismiss');
+      if (await prDismiss.isVisible().catch(() => false)) await prDismiss.click();
+      await expect(page.getByTestId('pr-draft-card')).toHaveCount(0);
+      // ADR-0032: accepting settles the turn but the conversation lives on —
+      // the worktree survives and the MAIN tree stays untouched.
+      expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).toContain('add(2, 3)');
+      await expect(page.getByTestId('tl-merged-back')).toHaveCount(0);
 
-      // The isolation branch stays on the header chip for audit.
-      await expect(page.getByTestId('task-room-worktree')).toContainText('charter/');
+      // Archiving is the Session's close — merge-back happens exactly here.
+      // (The room closes with it; the filesystem is the honest witness.)
+      // The settle notice toast overlays the More button for ~5s — let it expire.
+      await expect(page.locator('.session-notice-open')).toHaveCount(0, { timeout: 10000 });
+      await page.getByTestId('session-more').click();
+      await page.getByTestId('task-archive').click();
+      await page.getByTestId('task-archive-confirm').click();
+      await expect
+        .poll(() => readFileSync(join(fixture, 'src/index.ts'), 'utf8'), { timeout: 20000 })
+        .toContain('add(3, 4)');
     } finally {
       await app.close();
     }

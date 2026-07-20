@@ -38,7 +38,7 @@ test.describe('P2 visibility — thinking + live activity (ADR-0011)', () => {
 
       // Evidence exclusion: the run finishes; the answer bubble exists and the
       // thinking text is nowhere in the report/answer surfaces.
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
       await expect(page.getByTestId('tl-agent').last()).toBeVisible();

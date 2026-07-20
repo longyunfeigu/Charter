@@ -491,13 +491,11 @@ function WorktreeChip({
 }
 
 /** Room reply — plan-aware: while a plan awaits approval, typing here IS
- * "Request changes" (ADR-0009; no extra button). On a closed task (accepted /
- * rolled back / cancelled) a reply starts a FOLLOW-UP task in the same project
- * — closed tasks cannot restart (§6.1). The follow-up gets the SAME composer
- * chrome as Home (project chip, @-attach, trust level, merged model·effort),
- * seeded from the finished task but fully editable, since it really is a new
- * task. Mid-run / plan-awaiting states keep the bare reply pill — there is no
- * mode or model to re-pick on a task that is already running. */
+ * "Request changes" (ADR-0009; no extra button). ADR-0032: the Session is a
+ * continuous conversation — a settled (IDLE) turn just keeps the same reply
+ * pill, and the next message starts a new run in the SAME Session. Only an
+ * archived Session closes; replying there starts a NEW Session that carries
+ * this one as structured context (the Home-parity composer below). */
 function RoomComposer({
   task,
   running,
@@ -505,6 +503,7 @@ function RoomComposer({
   task: {
     id: string;
     state: string;
+    archived: boolean;
     title: string;
     projectPath: string;
     projectName: string;
@@ -533,7 +532,10 @@ function RoomComposer({
   const ref = useRef<HTMLTextAreaElement>(null);
   const composerFocusSeq = useAppStore((s) => s.composerFocusSeq);
   const planOpen = task.state === 'AWAITING_PLAN_APPROVAL';
-  const closed = ['ACCEPTED', 'ROLLED_BACK', 'CANCELLED', 'ARCHIVED'].includes(task.state);
+  // ADR-0032: only an archived Session is closed. Historic terminal states
+  // (pre-migration rows are archived; belt-and-braces here) stay read-only.
+  const closed =
+    task.archived || ['ACCEPTED', 'ROLLED_BACK', 'CANCELLED', 'ARCHIVED'].includes(task.state);
 
   // A follow-up is a NEW task: its own mode / model / effort, seeded from the
   // finished task but freely editable (state reseeds per task via key=).
@@ -720,8 +722,10 @@ function RoomComposer({
       : task.state === 'REVIEW_READY'
         ? 'Request changes or add review context…'
         : closed
-          ? 'Follow up — starts a new Session in this project…'
-          : 'Reply or add context…';
+          ? 'This Session is archived — replying starts a new Session that references it…'
+          : task.state === 'IDLE'
+            ? 'Reply — continue this Session…'
+            : 'Reply or add context…';
 
   // "/" in the empty reply → enabled-skills picker (ADR-0015); works for
   // steers, new runs and follow-ups alike (expansion happens product-side).
@@ -954,9 +958,8 @@ function RoomComposer({
               <Ic name="folder" size={14} />
               <span>{task.projectName}</span>
             </span>
-
-            {pickerMenu}
           </div>
+          {pickerMenu}
 
           {textarea('hm-ta tr-fta')}
           {slash.menu}

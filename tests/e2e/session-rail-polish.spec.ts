@@ -46,7 +46,7 @@ test.describe('Session rail and conversation role polish', () => {
         'Explain the render pipeline',
         '[scenario:edit-plan-review] Explain the renderer without changing files.',
       );
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 30_000,
       });
 

@@ -341,3 +341,77 @@ describe('external session baselines (ADR-0017)', () => {
     expect(readFileSync(join(root, 'a.txt'))).toEqual(original);
   });
 });
+
+describe('per-turn rollback (ADR-0032 rollbackToStates)', () => {
+  it('restores paths to recorded prior hashes, byte-exact from blobs', async () => {
+    const store = new BlobStore(blobDir);
+    const boundary = await store.put(Buffer.from('turn-boundary\n'));
+    writeFileSync(join(root, 'a.txt'), 'after-the-turn\n');
+    const svc = new ChangeService({ root, blobs: store, repo, documents: docs });
+    const result = await svc.rollbackToStates([
+      {
+        path: 'a.txt',
+        toHash: boundary.hash,
+        expectedCurrentHash: sha('after-the-turn\n'),
+      },
+    ]);
+    expect(result.ok).toBe(true);
+    expect(result.restored).toEqual(['a.txt']);
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('turn-boundary\n');
+  });
+
+  it('deletes files the turn created (toHash null) and skips already-at-boundary paths', async () => {
+    writeFileSync(join(root, 'made-by-turn.txt'), 'new\n');
+    const result = await service.rollbackToStates([
+      { path: 'made-by-turn.txt', toHash: null, expectedCurrentHash: sha('new\n') },
+      // already at the boundary — untouched, still ok
+      {
+        path: 'nested/deep.txt',
+        toHash: sha('deep\n'),
+        expectedCurrentHash: sha('something-else\n'),
+      },
+    ]);
+    expect(result.ok).toBe(true);
+    expect(existsSync(join(root, 'made-by-turn.txt'))).toBe(false);
+    expect(readFileSync(join(root, 'nested/deep.txt'), 'utf8')).toBe('deep\n');
+  });
+
+  it('conflicts (never overwrites) when the file changed outside the turn', async () => {
+    writeFileSync(join(root, 'a.txt'), 'edited outside the turn\n');
+    const result = await service.rollbackToStates([
+      {
+        path: 'a.txt',
+        toHash: sha('anything\n'),
+        expectedCurrentHash: sha('what-the-turn-left\n'),
+      },
+    ]);
+    expect(result.ok).toBe(false);
+    expect(result.conflicts).toHaveLength(1);
+    expect(result.conflicts[0]!.path).toBe('a.txt');
+    // Nothing was written.
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('edited outside the turn\n');
+  });
+
+  it('force overrides conflicts explicitly', async () => {
+    const store = new BlobStore(blobDir);
+    const boundary = await store.put(Buffer.from('boundary\n'));
+    writeFileSync(join(root, 'a.txt'), 'outside edit\n');
+    const svc = new ChangeService({ root, blobs: store, repo, documents: docs });
+    const result = await svc.rollbackToStates(
+      [{ path: 'a.txt', toHash: boundary.hash, expectedCurrentHash: sha('turn-left-this\n') }],
+      { force: true },
+    );
+    expect(result.ok).toBe(true);
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('boundary\n');
+  });
+
+  it('fails closed when the boundary blob is missing', async () => {
+    writeFileSync(join(root, 'a.txt'), 'current\n');
+    const result = await service.rollbackToStates([
+      { path: 'a.txt', toHash: '0'.repeat(64), expectedCurrentHash: sha('current\n') },
+    ]);
+    expect(result.ok).toBe(false);
+    expect(result.verified[0]!.detail).toContain('blob missing');
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('current\n');
+  });
+});

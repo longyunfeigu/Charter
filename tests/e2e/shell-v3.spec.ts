@@ -39,14 +39,14 @@ test.describe('Shell v3 — Task Room and entry consolidation', () => {
       await expect(page.getByTestId('review-view')).toBeVisible();
       await expect(page.getByTestId('review-file-src/index.ts')).toBeVisible();
       await page.getByTestId('review-accept-all').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'ACCEPTED', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
       // Accept closes the review; if it lingers, close it — the room remains.
       const close = page.getByTestId('review-close');
       if (await close.isVisible().catch(() => false)) await close.click();
       await expect(page.getByTestId('task-room')).toBeVisible();
-      await expect(page.getByTestId('task-state')).toHaveText('Accepted');
+      await expect(page.getByTestId('task-state')).toHaveText('Settled — reply to continue');
     } finally {
       await app.close();
     }
@@ -78,8 +78,9 @@ test.describe('Shell v3 — Task Room and entry consolidation', () => {
       await expect(page.getByTestId('agent-panel-main')).toHaveCount(0);
 
       // The waiting plan is decidable without leaving the conversation.
+      // (ADR-0032: this zero-change scenario settles straight to IDLE.)
       await page.getByTestId('plan-approve').click();
-      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 30000,
       });
     } finally {
