@@ -74,6 +74,20 @@ function stageLinux() {
   const installed = join(scratch, 'opt');
   mkdirSync(installed);
   execFileSync('tar', ['-xzf', tarball, '-C', installed], { stdio: 'inherit' });
+  const sandboxHelper = findEntry(
+    installed,
+    (path, entry) => entry.isFile() && basename(path) === 'chrome-sandbox',
+  );
+  if (!sandboxHelper) throw new Error(`chrome-sandbox was not found under ${installed}`);
+  if (process.getuid?.() === 0) {
+    execFileSync('chown', ['root:root', sandboxHelper], { stdio: 'inherit' });
+    execFileSync('chmod', ['4755', sandboxHelper], { stdio: 'inherit' });
+  } else {
+    // A tarball has no system installer to assign the Chromium helper's root
+    // owner. Configure it exactly as documented before launching the app.
+    execFileSync('sudo', ['chown', 'root:root', sandboxHelper], { stdio: 'inherit' });
+    execFileSync('sudo', ['chmod', '4755', sandboxHelper], { stdio: 'inherit' });
+  }
   executable = findEntry(
     installed,
     (path, entry) => entry.isFile() && basename(path).toLowerCase() === 'charter',

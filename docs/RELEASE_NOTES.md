@@ -22,6 +22,17 @@ does not allow unsigned applications, build from source or wait for a signed rel
 
 Before running a download, verify it against `SHA256SUMS.txt` attached to this Release.
 
+The Linux tarball uses Chromium's setuid sandbox. After extracting it, configure the helper before
+launching Charter (replace `<extracted-directory>` with the directory created by the archive):
+
+```sh
+sudo chown root:root <extracted-directory>/chrome-sandbox
+sudo chmod 4755 <extracted-directory>/chrome-sandbox
+<extracted-directory>/charter
+```
+
+Do not launch the Linux build with `--no-sandbox`.
+
 ## Updates and data
 
 Updates are manual in this preview. Quit Charter, back up its application-data directory, verify the
