@@ -13,7 +13,7 @@ on:
 
 jobs:
   check-test:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,8 +24,8 @@ jobs:
       - run: npm run check
       - run: npm run test
       - run: npm run build
-      - name: E2E (Linux headless)
-        run: xvfb-run --auto-servernum npm run test:e2e
+      - name: E2E
+        run: npm run test:e2e
 
   package-smoke:
     strategy:
