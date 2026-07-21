@@ -77,6 +77,14 @@ export async function launchApp(
   const page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
 
+  // Deterministic viewport: hosted CI displays are smaller than the product's
+  // default bounds (GitHub macOS runners emulate ~1176×885), so macOS clamps
+  // the window at creation and the cramped layout overlaps panes. PI_IDE_E2E
+  // sets enableLargerThanScreen in main; size the window explicitly here.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 1440, height: 900 });
+  });
+
   if (options.home !== 'keep') {
     if (options.env?.PI_IDE_OPEN_WORKSPACE) {
       // Opening a workspace auto-switches to the IDE surface (PIVOT-006).

@@ -212,6 +212,10 @@ function createMainWindow(bootstrap: Bootstrap): BrowserWindow {
     ...(initial.x !== undefined && initial.y !== undefined ? { x: initial.x, y: initial.y } : {}),
     minWidth: 1024,
     minHeight: 640,
+    // E2E runs on CI use emulated displays smaller than the default bounds
+    // (hosted macOS runners report ~1176×885); without this macOS clamps the
+    // window and the cramped layout breaks pointer-interception checks.
+    ...(process.env.PI_IDE_E2E ? { enableLargerThanScreen: true } : {}),
     show: false,
     title: 'Charter',
     ...(process.platform === 'darwin'

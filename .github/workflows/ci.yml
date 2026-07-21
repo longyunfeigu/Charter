@@ -26,6 +26,15 @@ jobs:
       - run: npm run build
       - name: E2E
         run: npm run test:e2e
+      - name: Upload E2E failure evidence (traces + report)
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-failure-evidence
+          path: |
+            tests/e2e/test-results/
+            test-results/
+          if-no-files-found: ignore
 
   package-smoke:
     strategy:

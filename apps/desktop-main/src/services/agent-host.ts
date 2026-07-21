@@ -119,6 +119,13 @@ export class AgentHost {
         });
         await this.stopWorker();
       }
+      // A worker without a completed init and no spawn in flight is a stale
+      // zombie (its spawn already failed); left alone this loop would spin
+      // without awaiting — stop it so the next pass respawns cleanly.
+      if (this.worker && !this.initialized) {
+        this.logger.warn('restarting uninitialized agent worker', { kind });
+        await this.stopWorker();
+      }
       if (!this.worker) {
         this.spawnPromise = this.spawn(kind).finally(() => {
           this.spawnPromise = null;
@@ -193,18 +200,30 @@ export class AgentHost {
         ),
       );
     }, 15000);
-    await this.readyPromise.promise.finally(() => clearTimeout(readyTimeout));
+    try {
+      await this.readyPromise.promise.finally(() => clearTimeout(readyTimeout));
 
-    // Initialize the runtime.
-    const credentials = kind === 'pi' ? this.secrets.credentialsForWorker() : [];
-    await this.request({
-      type: 'init',
-      reqId: newId('req'),
-      runtimeKind: kind,
-      runtimeDataDir: this.runtimeDataDir,
-      appVersion: app.getVersion(),
-      credentials,
-    });
+      // Initialize the runtime.
+      const credentials = kind === 'pi' ? this.secrets.credentialsForWorker() : [];
+      await this.request({
+        type: 'init',
+        reqId: newId('req'),
+        runtimeKind: kind,
+        runtimeDataDir: this.runtimeDataDir,
+        appVersion: app.getVersion(),
+        credentials,
+      });
+    } catch (e) {
+      // A worker that failed its handshake or init is a zombie — a late
+      // 'ready' resolves nothing, so it would never initialize or broadcast.
+      // Kill it so the exit handler reports status and ensure() can respawn.
+      try {
+        child.kill();
+      } catch {
+        // already gone
+      }
+      throw e;
+    }
     this.initialized = true;
     broadcast('agent.workerStatus', {
       alive: true,
