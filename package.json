@@ -1,6 +1,6 @@
 {
   "name": "pi-ide",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "private": true,
   "description": "Pi-powered Agentic IDE — local-first, task-native, observable, reviewable, revertible desktop IDE",
   "license": "MIT",

@@ -1,7 +1,16 @@
-# Charter 1.0 Beta 1 — Unsigned Preview
+# Charter 1.0 Beta 2 — Unsigned Preview
 
 Charter's complete Session-first desktop workflow is available as a public, zero-cost preview for
 macOS Apple Silicon, Windows x64 and Linux x64.
+
+## New since Beta 1
+
+- Visible session orchestration: external Claude Code/Codex sessions join a coordinated fleet with
+  a command center view, driven through a per-session MCP control bridge — no dotfile edits.
+- Agent worker restart resilience: changing provider credentials or losing the worker mid-start no
+  longer leaves the model catalog empty until app restart.
+- Beta 1 was gated out by its release pipeline and never published; Beta 2 is the first downloadable
+  preview.
 
 ## Highlights
 
@@ -40,8 +49,8 @@ new artifact, and replace the app. Before applying a database schema migration, 
 creates a timestamped backup and restores it if the migration fails.
 
 Read the
-[known limitations](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.1/docs/KNOWN_LIMITATIONS.md),
-[recovery guide](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.1/docs/RECOVERY.md),
-[privacy notice](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.1/PRIVACY.md), and
-[security policy](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.1/SECURITY.md) before using
+[known limitations](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.2/docs/KNOWN_LIMITATIONS.md),
+[recovery guide](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.2/docs/RECOVERY.md),
+[privacy notice](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.2/PRIVACY.md), and
+[security policy](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.2/SECURITY.md) before using
 the preview on important repositories.
