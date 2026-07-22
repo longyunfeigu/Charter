@@ -3,6 +3,7 @@ import { DocumentDtoSchema, FsChangeSchema } from './documents.js';
 import { WorkspaceDtoSchema } from './dto.js';
 import { TaskDtoSchema, TaskStateSchema, TimelineEventDtoSchema } from './agent-dto.js';
 import { ScreenshotCaptureSchema } from './screenshots.js';
+import { OrchestrationSnapshotSchema } from './orchestration.js';
 
 export interface EventChannelDef<S extends z.ZodType = z.ZodType> {
   name: string;
@@ -80,6 +81,7 @@ export const EVENT_CHANNELS = {
   ),
   'terminal.data': ev('terminal.data', 1, z.object({ id: z.string(), data: z.string() })),
   'terminal.exit': ev('terminal.exit', 1, z.object({ id: z.string(), exitCode: z.number() })),
+  'orchestration.changed': ev('orchestration.changed', 1, OrchestrationSnapshotSchema),
   /** ADR-0017: a terminal entered (agent = CLI name) or left (agent = null) an
    * external agent session. taskId is present once accounting attached. */
   'terminal.agentState': ev(

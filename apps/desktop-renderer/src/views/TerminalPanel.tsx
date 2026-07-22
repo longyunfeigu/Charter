@@ -26,6 +26,7 @@ import { useDraftStore } from '../store/draftStore.js';
 import { Ic } from './home-icons.js';
 import { useQuickConsoleStore } from '../store/quickConsoleStore.js';
 import { TerminalBlocks, type BlocksHost, type TermBlock } from './terminal-blocks.js';
+import { TerminalUserInputTracker } from './terminal-input-provenance.js';
 
 export type TerminalLaunch = 'shell' | 'claude' | 'codex';
 export type TerminalWorkingContext =
@@ -69,6 +70,18 @@ interface CreateTerminalRequest {
   reveal?: boolean;
 }
 
+interface TerminalHostInfo {
+  id: string;
+  title: string;
+  cwd: string;
+  projectName: string;
+  projectPath: string | null;
+  contextKind: 'focused' | 'recent' | 'task' | 'scratch';
+  contextLabel: string;
+  contextTaskId: string | null;
+  launch: TerminalLaunch;
+}
+
 interface TerminalStore {
   items: TermInstance[];
   active: string | null;
@@ -77,6 +90,7 @@ interface TerminalStore {
   undoCloseId: string | null;
   init(): void;
   create(options?: CreateTerminalRequest): Promise<string | null>;
+  adopt(id: string, outputTail?: string): Promise<void>;
   setContext(id: string, context: TerminalWorkingContext): Promise<boolean>;
   setActive(id: string): void;
   requestKill(id: string): Promise<void>;
@@ -94,6 +108,22 @@ export interface TerminalAppearance {
 
 const QUICK_CLOSE_GRACE_MS = 5000;
 const quickCloseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const adoptingTerminalIds = new Set<string>();
+
+const terminalInputTrackers = new WeakMap<Terminal, TerminalUserInputTracker>();
+const wiredInputElements = new WeakSet<HTMLElement>();
+
+function wireTerminalUserInput(term: Terminal): void {
+  const element = term.element;
+  const tracker = terminalInputTrackers.get(term);
+  if (!element || !tracker || wiredInputElements.has(element)) return;
+  wiredInputElements.add(element);
+  const mark = (): void => tracker.mark();
+  // Capture before xterm's textarea handlers translate these DOM events into onData.
+  element.addEventListener('paste', mark, true);
+  element.addEventListener('input', mark, true);
+  element.addEventListener('compositionend', mark, true);
+}
 
 // ---------- ADR-0021: terminal blocks (rail, jumps, actions, progress) ------
 
@@ -406,6 +436,7 @@ export function mountTerminal(
   } else if (el.parentElement !== host) {
     host.replaceChildren(el);
   }
+  wireTerminalUserInput(item.term);
   try {
     item.fit.fit();
     item.term.refresh(0, item.term.rows - 1);
@@ -686,6 +717,63 @@ function makeTerm(fontSize: number, scrollback: number): { term: Terminal; fit: 
   return { term, fit };
 }
 
+function createTermInstance(
+  info: TerminalHostInfo,
+  options: { title?: string; quick?: boolean; outputTail?: string } = {},
+): TermInstance {
+  const settings = useAppStore.getState().settings;
+  const quick = options.quick ?? false;
+  const { term, fit } = makeTerm(
+    settings?.terminal.fontSize ?? 12,
+    settings?.terminal.scrollback ?? 5000,
+  );
+  const blocks = new TerminalBlocks(xtermBlocksHost(term), {
+    onChange: () => useBlocksVersion.getState().bump(info.id),
+    onCommandEnd: (block, durationMs) => reportCommandEnd(info.id, block, durationMs),
+  });
+  term.parser.registerOscHandler(133, (data) => blocks.handleOsc133(data));
+  term.parser.registerOscHandler(9, (data) => blocks.handleOsc9(data));
+  const inputTracker = new TerminalUserInputTracker();
+  terminalInputTrackers.set(term, inputTracker);
+  term.onKey(() => inputTracker.mark());
+  term.onData((data) => {
+    void rpcResult('terminal.write', {
+      id: info.id,
+      data,
+      userInitiated: inputTracker.consume(),
+    });
+  });
+  term.onResize(({ cols, rows }) => {
+    void rpcResult('terminal.resize', { id: info.id, cols, rows });
+  });
+  const item: TermInstance = {
+    ...info,
+    title: options.title ?? info.title,
+    term,
+    fit,
+    blocks,
+    exited: false,
+    quick,
+    currentInput: '',
+    lastCommand: '',
+    hidden: false,
+  };
+  term.onData((data) => {
+    if (data === '\r') {
+      item.lastCommand = item.currentInput.trim();
+      item.currentInput = '';
+    } else if (data === '\u007f') {
+      item.currentInput = item.currentInput.slice(0, -1);
+    } else if (!data.startsWith('\u001b') && data >= ' ') {
+      item.currentInput += data;
+    }
+  });
+  term.attachCustomKeyEventHandler((event) => blockNavigationKey(item, event));
+  wireFileLinks(item);
+  if (options.outputTail) term.write(options.outputTail);
+  return item;
+}
+
 export function compactTerminalPath(path: string): string {
   const unixHome = path.match(/^\/Users\/[^/]+|^\/home\/[^/]+/)?.[0];
   if (unixHome) return `~${path.slice(unixHome.length)}`;
@@ -794,7 +882,6 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   },
 
   async create(options) {
-    const settings = useAppStore.getState().settings;
     const launch = options?.launch ?? 'shell';
     const res = await rpcResult('terminal.create', {
       ...(options?.taskId ? { taskId: options.taskId } : {}),
@@ -803,58 +890,33 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       launch,
     });
     if (!okOrToast(res)) return null;
-    const { term, fit } = makeTerm(
-      settings?.terminal.fontSize ?? 12,
-      settings?.terminal.scrollback ?? 5000,
-    );
-    // ADR-0021: blocks are parsed on this instance whether or not it is
-    // mounted — every terminal keeps its rail while running in the background.
-    const blocks = new TerminalBlocks(xtermBlocksHost(term), {
-      onChange: () => useBlocksVersion.getState().bump(res.data.id),
-      onCommandEnd: (block, durationMs) => reportCommandEnd(res.data.id, block, durationMs),
-    });
-    term.parser.registerOscHandler(133, (data) => blocks.handleOsc133(data));
-    term.parser.registerOscHandler(9, (data) => blocks.handleOsc9(data));
-    term.onData((data) => {
-      void rpcResult('terminal.write', { id: res.data.id, data });
-    });
-    term.onResize(({ cols, rows }) => {
-      void rpcResult('terminal.resize', { id: res.data.id, cols, rows });
-    });
-    const item: TermInstance = {
-      id: res.data.id,
+    const item = createTermInstance(res.data, {
       title: options?.title ?? (options?.quick ? '⌥ quick' : res.data.title),
-      term,
-      fit,
-      blocks,
-      exited: false,
-      cwd: res.data.cwd,
-      projectName: res.data.projectName,
-      projectPath: res.data.projectPath,
-      contextKind: res.data.contextKind,
-      contextLabel: res.data.contextLabel,
-      contextTaskId: res.data.contextTaskId,
-      launch: res.data.launch,
-      quick: options?.quick ?? false,
-      currentInput: '',
-      lastCommand: '',
-      hidden: false,
-    };
-    term.onData((data) => {
-      if (data === '\r') {
-        item.lastCommand = item.currentInput.trim();
-        item.currentInput = '';
-      } else if (data === '\u007f') {
-        item.currentInput = item.currentInput.slice(0, -1);
-      } else if (!data.startsWith('\u001b') && data >= ' ') {
-        item.currentInput += data;
-      }
+      quick: options?.quick,
     });
-    term.attachCustomKeyEventHandler((event) => blockNavigationKey(item, event));
-    wireFileLinks(item);
     set({ items: [...get().items, item], active: item.id });
     if (options?.reveal !== false) useAppStore.getState().showBottomTab('terminal');
     return item.id;
+  },
+
+  async adopt(id, outputTail = '') {
+    if (get().items.some((item) => item.id === id) || adoptingTerminalIds.has(id)) return;
+    adoptingTerminalIds.add(id);
+    try {
+      const result = await rpcResult('terminal.list', {});
+      if (!result.ok) return;
+      const info = result.data.items.find((item) => item.id === id);
+      if (!info || get().items.some((item) => item.id === id)) return;
+      // Main and renderer can briefly straddle schema versions during Vite
+      // development reloads; fall back to the legacy plain-text snapshot.
+      const recentData = result.data.recentData ?? {};
+      const item = createTermInstance(info, {
+        outputTail: recentData[id] ?? outputTail,
+      });
+      set({ items: [...get().items, item] });
+    } finally {
+      adoptingTerminalIds.delete(id);
+    }
   },
 
   async setContext(id, context) {

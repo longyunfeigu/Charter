@@ -845,6 +845,28 @@ export class SkillStore {
     return { ...dto };
   }
 
+  /** Install a product-owned, script-free manual into the managed store.
+   * Idempotent by name: existing user-visible content is never overwritten. */
+  installManaged(name: string, content: string): SkillDto {
+    const id = skillSlug(name);
+    const root = join(this.dir, id);
+    const file = join(root, SKILL_FILE);
+    if (!existsSync(file)) {
+      mkdirSync(root, { recursive: true });
+      const tmp = `${file}.tmp-${process.pid}`;
+      writeFileSync(tmp, content, 'utf8');
+      renameSync(tmp, file);
+    }
+    this.rescan('install-managed');
+    const dto = this.skillDtos.find((skill) => skill.id === id);
+    if (!dto) {
+      throw new ProductFailure(
+        productError('SKILL_IMPORT_INVALID', { userMessage: 'The manual could not be installed.' }),
+      );
+    }
+    return { ...dto };
+  }
+
   addSource(sourceDir: string): SkillSourceDto {
     const src = resolve(sourceDir);
     if (!isDirectory(src)) {

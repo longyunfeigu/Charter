@@ -226,4 +226,30 @@ describe('TerminalManager.pollOnce detection gating (ADR-0017 amendment)', () =>
 
     expect(inputs).toEqual([{ id: info.id, data: 'hello observed agent\r' }]);
   });
+
+  it('direct-spawns an agent with exact argv and emits its known state without polling', async () => {
+    const output: string[] = [];
+    const events: Array<{ id: string; agent: string | null }> = [];
+    manager = new TerminalManager(
+      (_id, data) => output.push(data),
+      () => {},
+      {
+        agentPollMs: 0,
+        shellIntegration: () => ({ dir: '/unused/in/direct-launch', enabled: true }),
+      },
+    );
+    manager.onAgentState((event) => events.push({ id: event.id, agent: event.agent }));
+
+    const info = manager.create({
+      cwd: tmpdir(),
+      executable: '/bin/sh',
+      args: ['-c', "printf 'DIRECT_AGENT_OK\\n'; sleep 0.1"],
+      knownAgent: 'codex',
+      launch: 'codex',
+    });
+
+    expect(manager.agentFor(info.id)).toBe('codex');
+    await vi.waitFor(() => expect(events[0]).toEqual({ id: info.id, agent: 'codex' }));
+    await vi.waitFor(() => expect(output.join('')).toContain('DIRECT_AGENT_OK'));
+  });
 });

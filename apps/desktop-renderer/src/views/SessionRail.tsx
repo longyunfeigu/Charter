@@ -21,6 +21,7 @@ import { SkillsRailPanel } from './SkillsRailPanel.js';
 import { useGlowTasks } from './useGlow.js';
 import { sessionDisplayTitle } from '../store/sessionAttention.js';
 import { unknownDirectories, useArchaeologyStore } from '../store/archaeologyStore.js';
+import { permissionForWorker, useOrchestrationStore } from '../store/orchestrationStore.js';
 import {
   buildRailGroups,
   isHistoryEntry,
@@ -62,9 +63,10 @@ function providerForTask(task: TaskDto): 'pi' | 'claude' | 'codex' {
   return 'pi';
 }
 
-function providerLabel(provider: 'pi' | 'claude' | 'codex'): string {
+function providerLabel(provider: 'pi' | 'shell' | 'claude' | 'codex'): string {
   if (provider === 'claude') return 'Claude';
   if (provider === 'codex') return 'Codex';
+  if (provider === 'shell') return 'Shell';
   return 'Pi';
 }
 
@@ -105,11 +107,17 @@ function SessionTaskRow({
   task,
   showProject = true,
   now,
+  worker = false,
+  workerCount = 0,
+  orchestrationNeeds = 0,
 }: {
   task: TaskDto;
   /** Rows inside a project group drop the redundant project name (ADR-0023). */
   showProject?: boolean;
   now: number;
+  worker?: boolean;
+  workerCount?: number;
+  orchestrationNeeds?: number;
 }): React.JSX.Element {
   const app = useAppStore();
   const activity = useActivityStore((state) => state.perTask[task.id]);
@@ -134,7 +142,7 @@ function SessionTaskRow({
   };
 
   return (
-    <div className="sr-row-wrap">
+    <div className={`sr-row-wrap ${worker ? 'sr-orch-worker' : ''}`}>
       <button
         className={`sr-session ${selected ? 'selected' : ''} ${glowTasks.has(task.id) ? 'glow-pulse' : ''} ${completion ? `completion-ripple completion-${completion.tone}` : ''} ${reply ? 'reply-shake' : ''}`}
         data-testid={`home-task-${task.id}`}
@@ -156,6 +164,15 @@ function SessionTaskRow({
             <span className={`sr-live-dot ${live ? 'live' : ''}`} />
             <b>{displayTitle}</b>
             {badge ? <span className={`sr-state ${badge.tone}`}>{badge.label}</span> : null}
+            {workerCount > 0 ? <span className="sr-orch-chip">⌁ 指挥 {workerCount}</span> : null}
+            {orchestrationNeeds > 0 ? (
+              <span
+                className="sr-orch-needs"
+                title={`${orchestrationNeeds} orchestration approval(s)`}
+              >
+                {orchestrationNeeds}
+              </span>
+            ) : null}
           </span>
           <span className="sr-session-detail">
             <span data-testid={`home-task-ticker-${task.id}`}>
@@ -205,10 +222,12 @@ function TerminalSessionRow({
   terminalId,
   launch,
   showProject = true,
+  worker = false,
 }: {
   terminalId: string;
-  launch: 'claude' | 'codex';
+  launch: 'shell' | 'claude' | 'codex';
   showProject?: boolean;
+  worker?: boolean;
 }): React.JSX.Element | null {
   const app = useAppStore();
   const item = useTerminalStore((state) => state.items.find((entry) => entry.id === terminalId));
@@ -219,28 +238,30 @@ function TerminalSessionRow({
   // title. Generic launch titles read as an unnamed session.
   const sessionName = /^(?:Claude Code|Codex)$/i.test(item.title) ? 'New session' : item.title;
   return (
-    <button
-      className={`sr-session ${selected ? 'selected' : ''}`}
-      data-testid={`session-terminal-${terminalId}`}
-      data-session-key={`terminal:${terminalId}`}
-      title={`${providerLabel(provider)} · ${item.contextLabel}`}
-      onClick={() => app.openTerminalSession(terminalId)}
-    >
-      <ProviderMark provider={provider} />
-      <span className="sr-session-copy">
-        <span className="sr-session-title">
-          <span className={`sr-live-dot ${item.exited ? '' : 'live'}`} />
-          <b>{sessionName}</b>
-          {item.exited ? <span className="sr-state neutral">Ended</span> : null}
-        </span>
-        <span className="sr-session-detail">
-          <span>
-            {showProject ? `${item.projectName} · ` : ''}
-            {item.exited ? 'Process ended · session retained' : 'Terminal session is live'}
+    <div className={`sr-row-wrap ${worker ? 'sr-orch-worker' : ''}`}>
+      <button
+        className={`sr-session ${selected ? 'selected' : ''}`}
+        data-testid={`session-terminal-${terminalId}`}
+        data-session-key={`terminal:${terminalId}`}
+        title={`${providerLabel(provider)} · ${item.contextLabel}`}
+        onClick={() => app.openTerminalSession(terminalId)}
+      >
+        <ProviderMark provider={provider} />
+        <span className="sr-session-copy">
+          <span className="sr-session-title">
+            <span className={`sr-live-dot ${item.exited ? '' : 'live'}`} />
+            <b>{sessionName}</b>
+            {item.exited ? <span className="sr-state neutral">Ended</span> : null}
+          </span>
+          <span className="sr-session-detail">
+            <span>
+              {showProject ? `${item.projectName} · ` : ''}
+              {item.exited ? 'Process ended · session retained' : 'Terminal session is live'}
+            </span>
           </span>
         </span>
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }
 
@@ -264,6 +285,8 @@ export function SessionRail(): React.JSX.Element {
   const tasks = useTaskStore((s) => s.tasks);
   const terminalStore = useTerminalStore();
   const taskByTerminal = useExternalStore((state) => state.taskByTerminal);
+  const orchestration = useOrchestrationStore((state) => state.snapshot);
+  const orchestrationPermissions = useOrchestrationStore((state) => state.permissions);
   const inbox = tasks.filter((task) => !task.archived && needsAttention(task));
   const [recent, setRecent] = useState<RecentWorkspaceDto[]>([]);
   // ADR-0029: the rail view lives in the app store so commands (⌘⇧E) and
@@ -311,6 +334,7 @@ export function SessionRail(): React.JSX.Element {
     void useTaskStore.getState().refreshTasks();
     terminalStore.init();
     useExternalStore.getState().init();
+    useOrchestrationStore.getState().init();
     void rpcResult('workspace.recent', {}).then((result) => {
       if (result.ok) setRecent(result.data.items);
     });
@@ -341,6 +365,7 @@ export function SessionRail(): React.JSX.Element {
   }, [addMenuOpen]);
 
   const allEntries = useMemo<SessionEntry[]>(() => {
+    const workerTerminalIds = new Set(orchestration.workers.map((worker) => worker.terminalId));
     const taskEntries: SessionEntry[] = tasks
       .filter((task) => !task.archived)
       .map((task) => ({ key: `task:${task.id}`, kind: 'task', task }));
@@ -349,18 +374,56 @@ export function SessionRail(): React.JSX.Element {
         (terminal) =>
           !terminal.hidden &&
           !taskByTerminal[terminal.id] &&
-          (terminal.launch === 'claude' || terminal.launch === 'codex'),
+          (terminal.launch === 'claude' ||
+            terminal.launch === 'codex' ||
+            workerTerminalIds.has(terminal.id)),
       )
       .map((terminal) => ({
         key: `terminal:${terminal.id}`,
         kind: 'terminal',
         terminalId: terminal.id,
-        launch: terminal.launch as 'claude' | 'codex',
+        launch: terminal.launch,
         projectName: terminal.projectName,
         exited: terminal.exited,
       }));
-    return [...terminalEntries.toReversed(), ...taskEntries];
-  }, [tasks, terminalStore.items, taskByTerminal]);
+    const base = [...terminalEntries.toReversed(), ...taskEntries];
+    const workerTaskIds = new Set(
+      orchestration.workers
+        .map((worker) => worker.taskId)
+        .filter((id): id is string => id !== null),
+    );
+    const unboundWorkerTerminalIds = new Set(
+      orchestration.workers.filter((worker) => !worker.taskId).map((worker) => worker.terminalId),
+    );
+    const ordered: SessionEntry[] = [];
+    const appended = new Set<string>();
+    const append = (entry: SessionEntry): void => {
+      if (appended.has(entry.key)) return;
+      appended.add(entry.key);
+      ordered.push(entry);
+    };
+    for (const entry of base) {
+      const isChild =
+        entry.kind === 'task'
+          ? workerTaskIds.has(entry.task.id)
+          : unboundWorkerTerminalIds.has(entry.terminalId);
+      if (isChild) continue;
+      append(entry);
+      if (entry.kind !== 'task') continue;
+      for (const relation of orchestration.workers.filter(
+        (worker) => worker.commanderTaskId === entry.task.id,
+      )) {
+        const child = base.find((candidate) =>
+          relation.taskId
+            ? candidate.kind === 'task' && candidate.task.id === relation.taskId
+            : candidate.kind === 'terminal' && candidate.terminalId === relation.terminalId,
+        );
+        if (child) append(child);
+      }
+    }
+    for (const entry of base) append(entry);
+    return ordered;
+  }, [orchestration.workers, tasks, terminalStore.items, taskByTerminal]);
 
   // Search and Needs You always inspect the complete set. The default rail is
   // intentionally progressive so long histories stay lightweight.
@@ -657,6 +720,26 @@ export function SessionRail(): React.JSX.Element {
                           task={entry.task}
                           showProject={group.history === true}
                           now={now}
+                          worker={orchestration.workers.some(
+                            (worker) => worker.taskId === entry.task.id,
+                          )}
+                          workerCount={
+                            orchestration.workers.filter(
+                              (worker) => worker.commanderTaskId === entry.task.id,
+                            ).length
+                          }
+                          orchestrationNeeds={
+                            orchestration.workers.some((worker) => worker.taskId === entry.task.id)
+                              ? orchestration.workers.filter(
+                                  (worker) =>
+                                    worker.taskId === entry.task.id &&
+                                    permissionForWorker(
+                                      orchestrationPermissions[worker.commanderTaskId] ?? [],
+                                      worker.terminalId,
+                                    ),
+                                ).length
+                              : (orchestrationPermissions[entry.task.id]?.length ?? 0)
+                          }
                         />
                       ) : (
                         <TerminalSessionRow
@@ -664,6 +747,9 @@ export function SessionRail(): React.JSX.Element {
                           terminalId={entry.terminalId}
                           launch={entry.launch}
                           showProject={group.history === true}
+                          worker={orchestration.workers.some(
+                            (worker) => worker.terminalId === entry.terminalId,
+                          )}
                         />
                       ),
                     )}

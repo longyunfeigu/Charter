@@ -74,6 +74,13 @@ import {
   TELEMETRY_TRANSPORT_AVAILABLE,
 } from './services/privacy-service.js';
 import { join as joinPath } from 'node:path';
+import {
+  TerminalControlIdentityRegistry,
+  TerminalControlService,
+} from './services/terminal-control-service.js';
+import { CtlServer } from './services/ctl-server.js';
+import { registerOrchestrationHandlers } from './ipc/orchestration-handlers.js';
+import { installTerminalControlIntegration } from './services/terminal-control-integration.js';
 
 const DEV_SERVER_URL = process.env.PI_IDE_DEV_SERVER_URL;
 const isDev = Boolean(DEV_SERVER_URL);
@@ -105,6 +112,9 @@ let externalLaunchIntents: ExternalLaunchIntents | null = null;
 let skillStoreRef: SkillStore | null = null;
 let screenshotWatcherRef: ScreenshotWatcher | null = null;
 let clipboardWatcherRef: ClipboardScreenshotWatcher | null = null;
+let terminalControlRef: TerminalControlService | null = null;
+let terminalIdentitiesRef: TerminalControlIdentityRegistry | null = null;
+let ctlServerRef: CtlServer | null = null;
 export function getM5(): M5Services | null {
   return m5Ref;
 }
@@ -495,12 +505,41 @@ if (!gotLock) {
         app.getPath('userData'),
         logger.child('shell-integration'),
       );
-      m4 = new M4Services(workspaceHost, settings, logger.child('m4'), shellIntegrationDir);
-      m4Ref = m4;
       // ADR-0017 amendment: product CLI launches register an intent here
       // (pre-assigned conversation id + composer prompt); the external session
       // service consumes it on the detection edge.
       externalLaunchIntents = new ExternalLaunchIntents();
+      const ctlSocketPath = join(paths.userData, 'ctl.sock');
+      const tokenOverrideAllowed = isDev || Boolean(process.env.PI_IDE_E2E);
+      terminalIdentitiesRef = new TerminalControlIdentityRegistry(
+        ctlSocketPath,
+        tokenOverrideAllowed ? (process.env.CHARTER_CTL_TOKEN_OVERRIDE ?? null) : null,
+      );
+      const terminalIntegration = installTerminalControlIntegration({
+        userData: paths.userData,
+        appPath: app.getAppPath(),
+        logger: logger.child('terminal-mcp'),
+      });
+      m4 = new M4Services(workspaceHost, settings, logger.child('m4'), shellIntegrationDir, (id) =>
+        settings.effective.orchestration.enabled
+          ? {
+              ...terminalIdentitiesRef!.environment(id),
+              ...terminalIntegration?.environment(),
+            }
+          : {},
+      );
+      m4Ref = m4;
+      m4.terminals.onExitEvent(({ id }) => terminalIdentitiesRef?.revokeTerminal(id));
+      terminalControlRef = new TerminalControlService(m4.terminals, logger.child('orchestration'), {
+        enabled: () => settings.effective.orchestration.enabled,
+        maxWorkers: () => settings.effective.orchestration.maxWorkers,
+        maxSendsPerMinute: () => settings.effective.orchestration.maxSendsPerMinute,
+        launchIntents: externalLaunchIntents,
+        taskForTerminal: (id) => externalSessionsRef?.taskIdForTerminal(id) ?? null,
+        onChanged: (snapshot) => broadcast('orchestration.changed', snapshot),
+        recordEvent: (taskId, type, payload) => taskServiceRef?.recordEvent(taskId, type, payload),
+      });
+      registerOrchestrationHandlers(terminalControlRef, logger.child('ipc'));
       registerM4Handlers(
         m4,
         workspaceHost,
@@ -621,6 +660,7 @@ if (!gotLock) {
         skillStore,
         paths,
         logger.child('tasks'),
+        terminalControlRef,
       );
       taskServiceRef = taskService;
       // ADR-0028: preamble <project_rules> + review-correction capture.
@@ -713,6 +753,33 @@ if (!gotLock) {
         externalLaunchIntents,
       );
       registerExternalHandlers(externalSessionsRef, logger.child('ipc'));
+      ctlServerRef = new CtlServer({
+        socketPath: ctlSocketPath,
+        identities: terminalIdentitiesRef,
+        control: terminalControlRef,
+        enabled: () => settings.effective.orchestration.enabled,
+        taskForTerminal: (id) => externalSessionsRef?.taskIdForTerminal(id) ?? null,
+        gatewayForTask: (taskId) => taskService.gatewayForTask(taskId),
+        prepareCaller: (taskId, terminalId) =>
+          void taskService.ensureTerminalControlRun(taskId, terminalId),
+        logger: logger.child('ctl'),
+      });
+      if (settings.effective.orchestration.enabled) {
+        void ctlServerRef.start().catch((error) => {
+          logger.warn('terminal control door failed to start', { error: errorMessage(error) });
+        });
+      }
+      settings.onChange((next) => {
+        terminalControlRef?.publishSnapshot();
+        if (next.effective.orchestration.enabled) {
+          void ctlServerRef?.start().catch((error) => {
+            logger.warn('terminal control door failed to start', { error: errorMessage(error) });
+          });
+        } else {
+          terminalIdentitiesRef?.clear();
+          void ctlServerRef?.stop();
+        }
+      });
 
       // ADR-0038: session archaeology — read-only discovery over the CLI
       // agents' own stores. E2E only ever scans an explicitly supplied fake
@@ -922,8 +989,13 @@ if (!gotLock) {
     screenshotWatcherRef?.dispose();
     externalSessionsRef?.dispose(); // before terminals: sessions close into review while the DB is open
     taskServiceRef?.shutdown();
+    terminalControlRef?.dispose();
     m4Ref?.dispose();
-    const disposal = agentHostRef?.dispose() ?? Promise.resolve();
+    terminalIdentitiesRef?.clear();
+    const disposal = Promise.all([
+      ctlServerRef?.stop() ?? Promise.resolve(),
+      agentHostRef?.dispose() ?? Promise.resolve(),
+    ]);
     void disposal
       .catch(() => undefined)
       .finally(() => {

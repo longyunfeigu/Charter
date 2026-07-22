@@ -27,6 +27,8 @@ interface RunHandle {
   followUpQueue: Array<{ text: string; imageCount: number }>;
   /** Hash of the most recent successful read_file — substituted for '$lastReadHash'. */
   lastReadHash: string | null;
+  /** Id returned by terminal.create — substituted for '$lastTerminalId'. */
+  lastTerminalId: string | null;
 }
 
 /** Deterministic marker so tests can assert an image crossed the runtime boundary. */
@@ -37,7 +39,9 @@ function imageSuffix(count: number): string {
 /** Replace '$lastReadHash' string values so scripted patches carry genuine base hashes. */
 function substituteMemory(value: unknown, handle: RunHandle): unknown {
   if (typeof value === 'string') {
-    return value === '$lastReadHash' ? (handle.lastReadHash ?? 'no-read-yet') : value;
+    if (value === '$lastReadHash') return handle.lastReadHash ?? 'no-read-yet';
+    if (value === '$lastTerminalId') return handle.lastTerminalId ?? 'no-terminal-yet';
+    return value;
   }
   if (Array.isArray(value)) return value.map((v) => substituteMemory(v, handle));
   if (value !== null && typeof value === 'object') {
@@ -111,6 +115,7 @@ export class MockAgentRuntime implements AgentRuntime {
       steerQueue: [],
       followUpQueue: [],
       lastReadHash: null,
+      lastTerminalId: null,
     };
     this.runs.set(input.runId, handle);
     return this.generate(input, session, handle);
@@ -326,6 +331,10 @@ export class MockAgentRuntime implements AgentRuntime {
         if (step.toolName === 'read_file' && result.ok) {
           const hash = (result.data as { hash?: unknown } | null)?.hash;
           if (typeof hash === 'string') handle.lastReadHash = hash;
+        }
+        if (step.toolName === 'terminal.create' && result.ok) {
+          const terminalId = (result.data as { terminal?: { id?: unknown } } | null)?.terminal?.id;
+          if (typeof terminalId === 'string') handle.lastTerminalId = terminalId;
         }
         yield { ...base(), type: 'tool.completed', callId, result };
         if (step.echo === 'plan' && !aborted()) {

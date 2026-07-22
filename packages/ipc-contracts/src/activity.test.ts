@@ -206,6 +206,17 @@ describe('projectActivityEvent (ADR-0006 pure projection)', () => {
     expect(requested.status).toBe('pending');
     expect(requested.paths).toEqual(['src/a.ts']);
 
+    const terminalRequested = projectActivityEvent(
+      evt('permission.requested', {
+        card: {
+          toolName: 'terminal.send',
+          preview: { summary: 'Send to worker', targets: ['term_worker'] },
+        },
+      }),
+    )!;
+    expect(terminalRequested.paths).toEqual([]);
+    expect(terminalRequested.evidenceKinds).toEqual(['terminal']);
+
     const decided = projectActivityEvent(
       evt('permission.decided', { outcome: 'allowed', actor: 'user', summary: 'Modify 1 file' }),
     )!;

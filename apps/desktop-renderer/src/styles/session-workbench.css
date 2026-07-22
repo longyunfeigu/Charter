@@ -373,6 +373,43 @@
 .sr-row-wrap {
   position: relative;
 }
+.sr-row-wrap.sr-orch-worker {
+  margin-left: 18px;
+}
+.sr-row-wrap.sr-orch-worker::before {
+  position: absolute;
+  left: -10px;
+  top: 0;
+  bottom: 2px;
+  width: 1px;
+  background: color-mix(in srgb, var(--info) 28%, var(--border));
+  content: '';
+}
+.sr-row-wrap.sr-orch-worker .sr-session {
+  min-height: 44px;
+  padding-block: 5px;
+}
+.sr-orch-chip {
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--info) 35%, var(--border));
+  border-radius: 999px;
+  padding: 1px 6px;
+  color: var(--info);
+  background: var(--info-bg);
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+.sr-orch-needs {
+  min-width: 17px;
+  height: 17px;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 999px;
+  color: var(--warning-fg, #fff);
+  background: var(--warning);
+  font: 700 9px var(--font-ui);
+}
 .sr-session {
   --completion-tone: var(--info);
   position: relative;

@@ -48,6 +48,7 @@ import {
   DiscoveredSessionDtoSchema,
   MAX_DISCOVERED_SESSIONS,
 } from './archaeology.js';
+import { OrchestrationSnapshotSchema } from './orchestration.js';
 
 const SettingsStateSchema = z.object({
   effective: SettingsSchema,
@@ -496,8 +497,15 @@ export const CHANNELS = {
   ),
   'terminal.write': ch(
     'terminal.write',
-    1,
-    z.object({ id: z.string(), data: z.string().max(1024 * 128) }).strict(),
+    2,
+    z
+      .object({
+        id: z.string(),
+        data: z.string().max(1024 * 128),
+        /** False for xterm-generated protocol replies such as focus, DA and DSR. */
+        userInitiated: z.boolean().optional(),
+      })
+      .strict(),
     z.object({ ok: z.boolean() }),
   ),
   'terminal.resize': ch(
@@ -514,9 +522,50 @@ export const CHANNELS = {
   ),
   'terminal.list': ch(
     'terminal.list',
-    2,
+    3,
     z.object({}).strict(),
-    z.object({ items: z.array(TerminalInfoSchema) }),
+    z.object({
+      items: z.array(TerminalInfoSchema),
+      /** Exact bounded PTY tails let newly adopted xterms reconstruct the
+       * current VT screen instead of replaying lossy ANSI-stripped text. */
+      recentData: z.record(z.string(), z.string().max(128 * 1024)),
+    }),
+  ),
+  'orchestration.getState': ch(
+    'orchestration.getState',
+    1,
+    z.object({}).strict(),
+    OrchestrationSnapshotSchema,
+  ),
+  'orchestration.pauseWorker': ch(
+    'orchestration.pauseWorker',
+    1,
+    z.object({ terminalId: z.string().min(1), paused: z.boolean() }).strict(),
+    OrchestrationSnapshotSchema,
+  ),
+  'orchestration.pauseFleet': ch(
+    'orchestration.pauseFleet',
+    1,
+    z.object({ taskId: z.string().min(1), paused: z.boolean() }).strict(),
+    OrchestrationSnapshotSchema,
+  ),
+  'orchestration.handBack': ch(
+    'orchestration.handBack',
+    1,
+    z.object({ terminalId: z.string().min(1) }).strict(),
+    OrchestrationSnapshotSchema,
+  ),
+  'orchestration.directorCut': ch(
+    'orchestration.directorCut',
+    1,
+    z
+      .object({
+        taskId: z.string().min(1),
+        terminalId: z.string().min(1),
+        reason: z.string().min(1).max(200),
+      })
+      .strict(),
+    z.object({ recorded: z.boolean() }),
   ),
   /** ADR-0033: ⌘+click on a file token inside a terminal (OSC 8 hyperlink or
    * regex-detected path). The host resolves the token against THAT terminal's
@@ -1348,6 +1397,12 @@ export const CHANNELS = {
     1,
     z.object({ dir: z.string().min(1).max(2000).optional() }).strict(),
     z.object({ skill: SkillDtoSchema.nullable() }),
+  ),
+  'skills.installCharterTerminal': ch(
+    'skills.installCharterTerminal',
+    1,
+    z.object({}).strict(),
+    z.object({ skill: SkillDtoSchema }),
   ),
   // Connect a root containing one or more SKILL.md folders without copying it.
   'skills.addSource': ch(

@@ -41,6 +41,7 @@ import { SessionToolCanvas, type SessionFileStat } from './SessionToolCanvas.js'
 import { SessionSplitHandle } from './SessionSplitHandle.js';
 import { CodeContextAttachments } from './CodeContextAttachments.js';
 import { sessionDisplayTitle } from '../store/sessionAttention.js';
+import { OrchestrationFleet, OrchestrationWorkerBand } from './OrchestrationFleet.js';
 
 const EMPTY_TERMINAL_REFS: TerminalOutputRef[] = [];
 
@@ -316,6 +317,9 @@ export function TaskRoomView(): React.JSX.Element {
       >
         <div className="tr-main">
           {task.external ? (
+            <OrchestrationWorkerBand taskId={task.id} terminalId={task.external.terminalId} />
+          ) : null}
+          {task.external ? (
             /* ADR-0017: the conversation with an external agent IS its terminal —
                it takes the timeline+composer's place; everything else is the
                same room (rail, peek, review bar). */
@@ -333,6 +337,7 @@ export function TaskRoomView(): React.JSX.Element {
               become a project rule, inline where the correction happened. */}
           {task.external ? null : <DistillCards taskId={task.id} />}
           {task.external ? null : <RoomComposer key={task.id} task={task} running={running} />}
+          <OrchestrationFleet taskId={task.id} />
         </div>
         <SessionSplitHandle taskId={task.id} containerRef={canvasBodyRef} />
         <SessionToolCanvas

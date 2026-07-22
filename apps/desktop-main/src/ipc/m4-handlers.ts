@@ -86,6 +86,7 @@ export class M4Services {
     private readonly settings: SettingsService,
     private readonly logger: Logger,
     shellIntegrationDir: string | null = null,
+    terminalEnvironment?: (id: string) => Record<string, string>,
   ) {
     this.terminals = new TerminalManager(
       (id, data) => broadcast('terminal.data', { id, data }),
@@ -96,6 +97,7 @@ export class M4Services {
           dir: shellIntegrationDir,
           enabled: this.settings.effective.terminal.shellIntegration,
         }),
+        ...(terminalEnvironment ? { envForTerminal: terminalEnvironment } : {}),
       },
     );
 
@@ -371,6 +373,7 @@ export function registerM4Handlers(
             cli: launch,
             sessionId,
             prompt: initialPrompt?.trim() ? initialPrompt : null,
+            promptDelivery: 'deferred',
           });
           // Let the renderer attach the xterm before the first TUI repaint.
           setTimeout(() => services.terminals.write(info.id, `${command}\r`), 350).unref();
@@ -395,8 +398,8 @@ export function registerM4Handlers(
         }
         return info;
       },
-      'terminal.write': async ({ id, data }) => {
-        services.terminals.write(id, data);
+      'terminal.write': async ({ id, data, userInitiated }) => {
+        services.terminals.write(id, data, userInitiated === false ? 'terminal' : 'user');
         return { ok: true };
       },
       'terminal.resize': async ({ id, cols, rows }) => {
@@ -410,9 +413,15 @@ export function registerM4Handlers(
         services.terminals.kill(id);
         return { closed: true, needsConfirm: false };
       },
-      'terminal.list': async () => ({
-        items: services.terminals.list(),
-      }),
+      'terminal.list': async () => {
+        const items = services.terminals.list();
+        return {
+          items,
+          recentData: Object.fromEntries(
+            items.map((item) => [item.id, services.terminals.recentData(item.id)]),
+          ),
+        };
+      },
 
       'lsp.status': async () => ({ python: services.getPythonStatus() }),
       'lsp.pythonRequest': async ({ method, path, line, character }) => {

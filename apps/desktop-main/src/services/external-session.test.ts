@@ -134,6 +134,7 @@ describe('ExternalLaunchIntents (product-launch intent handoff)', () => {
     cli: 'claude',
     sessionId: '924241d6-f2e8-444d-8d75-0386362bf52f',
     prompt: 'hi',
+    promptDelivery: 'deferred' as const,
   };
 
   it('hands the intent to the first matching agent-enter, exactly once', () => {
@@ -162,11 +163,17 @@ describe('ExternalLaunchIntents (product-launch intent handoff)', () => {
   it('keeps intents per terminal', () => {
     const intents = new ExternalLaunchIntents();
     intents.register('term-1', intent);
-    intents.register('term-2', { cli: 'codex', sessionId: null, prompt: null });
+    intents.register('term-2', {
+      cli: 'codex',
+      sessionId: null,
+      prompt: null,
+      promptDelivery: 'argv',
+    });
     expect(intents.consume('term-2', 'codex')).toEqual({
       cli: 'codex',
       sessionId: null,
       prompt: null,
+      promptDelivery: 'argv',
     });
     expect(intents.consume('term-1', 'claude')).toEqual(intent);
   });

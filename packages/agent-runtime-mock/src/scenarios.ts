@@ -55,6 +55,60 @@ export function promptParam(prompt: string, key: string): string | undefined {
 }
 
 export const SCENARIOS: Record<string, Scenario> = {
+  'orchestration-codex': () => [
+    {
+      kind: 'tool',
+      toolName: 'terminal.create',
+      input: {
+        launch: 'codex',
+        initialText: 'Report your identity and wait for the commander.',
+        submit: true,
+      },
+      reason: 'create a visible Codex worker',
+    },
+    {
+      kind: 'assistant',
+      text: 'The Codex worker was launched with its initial assignment. (deterministic orchestration answer)',
+      chunkSize: 24,
+    },
+    { kind: 'usage', inputTokens: 280, outputTokens: 70 },
+  ],
+  'orchestration-shell': () => [
+    {
+      kind: 'tool',
+      toolName: 'terminal.create',
+      input: { launch: 'shell', submit: true },
+      reason: 'create a visible worker',
+    },
+    {
+      kind: 'tool',
+      toolName: 'terminal.send',
+      input: {
+        id: '$lastTerminalId',
+        text: "printf 'ORCH_OK\\n'",
+        submit: true,
+      },
+      reason: 'run a deterministic worker command',
+    },
+    {
+      kind: 'tool',
+      toolName: 'terminal.wait',
+      input: { id: '$lastTerminalId', mode: 'command', timeoutMs: 10_000, quietMs: 500 },
+      reason: 'wait for the real shell exit code',
+    },
+    {
+      kind: 'tool',
+      toolName: 'terminal.read',
+      input: { id: '$lastTerminalId', maxBytes: 4096 },
+      reason: 'read the worker result',
+    },
+    {
+      kind: 'assistant',
+      text: 'The visible worker returned ORCH_OK and remains open for follow-up. (deterministic orchestration answer)',
+      chunkSize: 24,
+    },
+    { kind: 'usage', inputTokens: 620, outputTokens: 130 },
+  ],
   'ask-basic': (ctx) => [
     { kind: 'wait', ms: 5 },
     {

@@ -122,6 +122,7 @@ Charter is more than a chat surface around a model API. It combines agent orches
 | **Structured context** | Attach files, folders, selected line ranges, search results, terminal output, images, and preview feedback as typed references—not pasted guesswork |
 | **Isolated worktrees** | Let coding Sessions work away from your main checkout, then review, merge back, discard, or roll back explicitly |
 | **Real terminals** | Keep persistent PTYs, command blocks, progress, reruns, and external CLI sessions inside the same desktop workspace |
+| **Visible worker fleets** | Let one Session create and direct visible shell, Claude Code, or Codex workers while approvals, pause/takeover state, and every control action stay attributable |
 | **Quick Console** | Press `⌥Space` for a persistent scratch/project terminal and send selected output straight into the current Room |
 | **Managed skills** | Audit, enable, and invoke skills through the `/` picker; linked skill sources update live only after you trust them |
 | **Four autonomy modes** | Choose Read, Approve, Auto, or Full; permission boundaries and blocked operations remain explicit |
@@ -136,6 +137,8 @@ Charter is more than a chat surface around a model API. It combines agent orches
 - **Mid-run steering:** add instructions and structured context while the agent is working instead of restarting the entire task.
 - **Conversation continuity:** follow up on managed Sessions and resume supported external CLI conversations with their recorded identity and working directory.
 - **Global multi-project rail:** keep Sessions from multiple repositories visible while each task retains its own project context and state.
+- **Session-directed worker fleets:** a managed agent or an authenticated Claude Code/Codex terminal can create, read, send to, and wait for visible sibling PTYs through the same Tool Gateway and Permission Engine. Workers remain open for follow-up until the user closes them.
+- **Fleet and director UI:** worker Sessions nest under their commander in the rail; the commander Room adds live monitor tiles, pause-all, per-worker pause/takeover, synchronized approval cards, and an automatic or locked/manual director stage.
 - **Four autonomy modes:** Read, Approve, Auto, and Full change how plans and permissions are handled without removing hard safety boundaries.
 
 ### Live execution and attention
@@ -183,6 +186,7 @@ Charter is more than a chat surface around a model API. It combines agent orches
 - **Terminal-to-context flow:** attach command output to a managed agent without copying unbounded scrollback into the prompt.
 - **External CLI detection:** recognize supported Claude Code and Codex processes, preserve their terminal UI, and account for repository changes around the live session.
 - **Conversation identity and resume:** record supported external session IDs so continuation targets the original conversation instead of whichever CLI session happens to be newest.
+- **Authenticated local control door:** Charter-launched Claude Code and Codex sessions receive six native `charter` MCP tools plus a `charter-terminal` command fallback; both use a per-terminal, memory-only capability for the `0600` Unix socket, translate back into the same audited Gateway path, and disappear when Session orchestration is disabled.
 - **Observed vs. managed honesty:** external CLIs enter the same review workflow without pretending Charter controlled their internal permissions or reasoning stream.
 
 ### Verification, review, and Replay

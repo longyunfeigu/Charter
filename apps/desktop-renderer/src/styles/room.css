@@ -2081,3 +2081,362 @@ button.tr-extlive {
   background: color-mix(in srgb, var(--warning) 12%, transparent);
   animation: none;
 }
+/* ---------- M13 session orchestration: director stage + monitor wall ---------- */
+.orch-fleet {
+  flex: none;
+  border-top: 1px solid var(--border-soft);
+  padding: 8px 16px 12px;
+  background:
+    radial-gradient(
+      circle at 12% 0%,
+      color-mix(in srgb, var(--info) 8%, transparent),
+      transparent 38%
+    ),
+    var(--bg);
+}
+
+.orch-fleet-head,
+.orch-fleet-head > button,
+.orch-stage > header,
+.orch-tile-head,
+.orch-worker-band,
+.orch-tile footer,
+.orch-cutlog,
+.orch-review-band {
+  display: flex;
+  align-items: center;
+}
+
+.orch-fleet-head {
+  gap: 8px;
+  min-height: 30px;
+}
+.orch-fleet-head > button {
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.orch-fleet-head strong {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.orch-spacer {
+  flex: 1;
+}
+.orch-chevron {
+  transition: transform 140ms ease;
+}
+.orch-fleet.folded .orch-chevron {
+  transform: rotate(-90deg);
+}
+.orch-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  font-size: 10.5px;
+}
+.orch-chip.active {
+  border-color: color-mix(in srgb, var(--info) 48%, var(--border));
+  color: var(--info);
+}
+.orch-chip.warning {
+  border-color: var(--warning);
+  color: var(--warning);
+  background: var(--warning-bg);
+}
+.orch-fleet-body {
+  animation: orch-reveal 180ms ease both;
+}
+@keyframes orch-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.orch-stage {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  box-shadow: 0 8px 30px color-mix(in srgb, var(--fg) 7%, transparent);
+}
+.orch-stage.attention {
+  border-color: var(--warning);
+  box-shadow: 0 0 0 1px var(--warning);
+}
+.orch-stage > header {
+  gap: 7px;
+  min-height: 35px;
+  padding: 0 11px;
+  background: var(--bg-titlebar);
+  border-bottom: 1px solid var(--border-soft);
+}
+.orch-stage > header strong {
+  font-size: 11.5px;
+}
+.orch-stage > header button {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 10.5px;
+}
+.orch-stage > header button.active {
+  color: var(--warning);
+}
+.orch-stage > header .orch-open {
+  color: var(--info);
+}
+.orch-stage > pre,
+.orch-tile > pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow: auto;
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--bg-chip) 45%, var(--bg-editor));
+  font: 11px/1.62 var(--font-mono);
+}
+.orch-stage > pre {
+  height: 168px;
+  padding: 10px 12px;
+}
+.orch-live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fg-faint);
+  flex: none;
+}
+.orch-live.streaming {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 18%, transparent);
+  animation: orch-pulse 1.2s ease infinite;
+}
+.orch-live.failed {
+  background: var(--danger);
+}
+.orch-live.completed {
+  background: var(--success);
+}
+@keyframes orch-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+.orch-status,
+.orch-taken,
+.orch-reason,
+.orch-onair,
+.orch-queue {
+  display: inline-flex;
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+.orch-status {
+  background: var(--bg-chip);
+  color: var(--fg-faint);
+}
+.orch-status.failed {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.orch-status.completed {
+  background: var(--success-bg);
+  color: var(--success);
+}
+.orch-reason {
+  background: var(--info-bg);
+  color: var(--info);
+  font-weight: 600;
+}
+.orch-taken {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.orch-review-band {
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 11px;
+  font-size: 10px;
+  color: var(--warning);
+  background: var(--warning-bg);
+}
+.orch-review-band button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.orch-stage-approval {
+  padding: 0 10px 10px;
+  background: var(--warning-bg);
+}
+.orch-stage-approval .agent-card {
+  margin: 0;
+}
+.orch-commander-approvals .agent-card {
+  margin: 8px 0 0;
+}
+.orch-pending-cut {
+  margin: 7px 0;
+  border: 1px dashed var(--warning);
+  border-radius: 7px;
+  padding: 4px 9px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 10px;
+  cursor: pointer;
+}
+.orch-cutlog {
+  gap: 6px;
+  min-height: 28px;
+  overflow-x: auto;
+  font-size: 9.5px;
+  color: var(--fg-faint);
+}
+.orch-cutlog > span {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.orch-cutlog button {
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.orch-wall {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+.orch-tile {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+}
+.orch-tile.on-air {
+  border-color: color-mix(in srgb, var(--success) 48%, var(--border));
+}
+.orch-tile.attention {
+  border-color: var(--warning);
+}
+.orch-tile-head {
+  width: 100%;
+  gap: 6px;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  padding: 6px 8px;
+  background: var(--bg-titlebar);
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+.orch-tile-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+}
+.orch-onair {
+  margin-left: auto;
+  color: var(--success);
+}
+.orch-tile > pre {
+  height: 58px;
+  padding: 6px 8px;
+  font-size: 9.5px;
+}
+.orch-tile-muted {
+  height: 58px;
+  display: grid;
+  place-items: center;
+  color: var(--fg-faint);
+  font-size: 10px;
+}
+.orch-tile .agent-card {
+  margin: 7px;
+}
+.orch-tile footer {
+  justify-content: flex-end;
+  gap: 5px;
+  padding: 5px 7px;
+}
+.orch-tile footer button {
+  border: 0;
+  background: transparent;
+  color: var(--info);
+  font-size: 9.5px;
+  cursor: pointer;
+}
+.orch-queue {
+  position: absolute;
+  right: 7px;
+  bottom: 32px;
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.orch-state {
+  padding: 18px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--fg-muted);
+  text-align: center;
+  font-size: 11px;
+}
+.orch-state.error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.orch-state button {
+  margin-left: 8px;
+}
+
+.orch-worker-band {
+  flex: none;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--info) 28%, var(--border));
+  background: var(--info-bg);
+  color: var(--info);
+  font-size: 10.5px;
+}
+.orch-worker-band.taken {
+  border-color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.orch-worker-band button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+@media (max-width: 1120px) {
+  .orch-wall {
+    grid-template-columns: 1fr;
+  }
+  .orch-stage > pre {
+    height: 132px;
+  }
+  .orch-fleet-head {
+    flex-wrap: wrap;
+  }
+}

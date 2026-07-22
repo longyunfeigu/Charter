@@ -10,6 +10,7 @@ import {
   registerWriteTools,
   registerVerificationTool,
   registerSkillTool,
+  registerTerminalTools,
   createPlanAwarePermission,
   PermissionEngine,
   type AskUserPrompt,
@@ -17,6 +18,7 @@ import {
   type PlanGate,
   type SkillProviderEntry,
   type ToolAuditRecord,
+  type TerminalControlPort,
   type VerificationGate,
 } from '@pi-ide/tool-gateway';
 import { SearchService } from '@pi-ide/search-service';
@@ -147,6 +149,10 @@ export class ProjectContexts {
     private readonly host: WorkspaceHost,
     private readonly hooks: ContextHooks,
     private readonly logger: Logger,
+    private readonly terminalControl?: {
+      control: TerminalControlPort;
+      callerTerminalForCall(callId: string): string | null;
+    },
   ) {}
 
   get(root: string): ProjectContext | null {
@@ -228,6 +234,13 @@ export class ProjectContexts {
     registerVerificationTool(gateway, { gate: this.hooks.verificationGate() });
     // ADR-0015: skills load from the managed store only — never this root.
     registerSkillTool(gateway, { skills: () => this.hooks.skills() });
+    if (this.settings.effective.orchestration.enabled && this.terminalControl) {
+      registerTerminalTools(gateway, {
+        root: input.root,
+        control: this.terminalControl.control,
+        callerTerminalForCall: (callId) => this.terminalControl!.callerTerminalForCall(callId),
+      });
+    }
 
     const verifications = new VerificationService({
       root: input.root,
@@ -250,6 +263,28 @@ export class ProjectContexts {
     this.byRoot.set(input.root, context);
     this.logger.info('agent context mounted', { root: input.root, wsId: input.wsId });
     return context;
+  }
+
+  syncTerminalTools(enabled: boolean): void {
+    const names = [
+      'terminal.list',
+      'terminal.read',
+      'terminal.send',
+      'terminal.create',
+      'terminal.wait',
+      'terminal.kill',
+    ];
+    for (const context of this.byRoot.values()) {
+      if (enabled && this.terminalControl) {
+        registerTerminalTools(context.gateway, {
+          root: context.root,
+          control: this.terminalControl.control,
+          callerTerminalForCall: (callId) => this.terminalControl!.callerTerminalForCall(callId),
+        });
+      } else {
+        for (const name of names) context.gateway.unregister(name);
+      }
+    }
   }
 
   /** Quit-time teardown: resolve every pending gate before the DB closes. */

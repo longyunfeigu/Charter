@@ -13,6 +13,9 @@ export interface ExternalLaunchIntent {
   sessionId: string | null;
   /** Composer text to deliver once the TUI is ready; null for bare launches. */
   prompt: string | null;
+  /** Direct workers receive their first prompt as an argv value. Interactive
+   * shell launches still defer a paste until their TUI has painted. */
+  promptDelivery: 'argv' | 'deferred';
 }
 
 const INTENT_TTL_MS = 120_000;
@@ -37,7 +40,12 @@ export class ExternalLaunchIntents {
     this.byTerminal.delete(terminalId);
     if (entry.cli !== cli) return null;
     if (this.now() - entry.registeredAtMs > INTENT_TTL_MS) return null;
-    return { cli: entry.cli, sessionId: entry.sessionId, prompt: entry.prompt };
+    return {
+      cli: entry.cli,
+      sessionId: entry.sessionId,
+      prompt: entry.prompt,
+      promptDelivery: entry.promptDelivery,
+    };
   }
 
   private sweep(): void {

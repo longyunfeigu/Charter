@@ -9,7 +9,7 @@ export type SessionEntry =
       key: string;
       kind: 'terminal';
       terminalId: string;
-      launch: 'claude' | 'codex';
+      launch: 'shell' | 'claude' | 'codex';
       projectName: string;
       exited: boolean;
     };

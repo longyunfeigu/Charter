@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Contract tests may import pi here: this package is the sanctioned adapter boundary.
 import { AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent';
-import { buildPriorConversationMessages, PiAgentRuntime } from './index.js';
+import { buildPriorConversationMessages, PiAgentRuntime, runtimeToolAliases } from './index.js';
 import type { PriorConversationContext, ToolExecutor } from '@pi-ide/agent-contract';
 
 const executor: ToolExecutor = async (call) => ({
@@ -25,6 +25,22 @@ afterAll(() => {
 });
 
 describe('Pi adapter contract (AG-013 / ADR-0001)', () => {
+  it('aliases namespaced Gateway tools without colliding with valid provider names', () => {
+    const aliases = runtimeToolAliases([
+      'read_file',
+      'terminal.list',
+      'terminal.create',
+      'terminal_list',
+      `very.${'long.'.repeat(40)}tool`,
+    ]);
+    expect(aliases.get('read_file')).toBe('read_file');
+    expect(aliases.get('terminal.list')).toMatch(/^terminal_list_/);
+    expect(aliases.get('terminal.create')).toBe('terminal_create');
+    expect(aliases.get('terminal_list')).toBe('terminal_list');
+    expect(new Set(aliases.values()).size).toBe(aliases.size);
+    expect([...aliases.values()].every((name) => /^[a-zA-Z0-9_-]{1,128}$/.test(name))).toBe(true);
+  });
+
   it('keeps referenced turns separate, chunkable and explicitly untrusted', () => {
     const context: PriorConversationContext = {
       sourceTaskId: 'task_source',
@@ -109,6 +125,12 @@ describe('Pi adapter contract (AG-013 / ADR-0001)', () => {
           schemaVersion: 1,
           inputJsonSchema: { type: 'object' },
         },
+        {
+          name: 'terminal.create',
+          description: 'create a terminal',
+          schemaVersion: 1,
+          inputJsonSchema: { type: 'object' },
+        },
       ],
       systemPreamble: 'contract test',
     });
@@ -118,7 +140,7 @@ describe('Pi adapter contract (AG-013 / ADR-0001)', () => {
     const session = runtime.sessionForTest(ref.sessionId);
     expect(session).toBeTruthy();
     const active = session!.getActiveToolNames().sort();
-    expect(active).toEqual(['read_file', 'search_text']);
+    expect(active).toEqual(['read_file', 'search_text', 'terminal_create']);
     for (const forbidden of ['bash', 'edit', 'write', 'read']) {
       expect(active, `built-in "${forbidden}" must not be active`).not.toContain(forbidden);
     }

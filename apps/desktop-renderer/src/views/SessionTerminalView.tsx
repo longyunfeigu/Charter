@@ -13,6 +13,7 @@ import {
   TerminalPanel,
   useTerminalStore,
 } from './TerminalPanel.js';
+import { OrchestrationWorkerBand } from './OrchestrationFleet.js';
 
 function launchName(launch: 'shell' | 'claude' | 'codex'): string {
   if (launch === 'claude') return 'Claude Code';
@@ -77,6 +78,7 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
             <Ic name="chevron" size={12} /> Sessions
           </button>
         </header>
+        <OrchestrationWorkerBand terminalId={terminalId} />
         <div className={`stv-manager-body ${dockItemCount === 0 ? 'only-external' : ''}`}>
           {dockItemCount > 0 ? (
             <section className="stv-terminal-dock" data-testid="bottom-panel">
@@ -121,6 +123,7 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
           <Ic name="layout" size={13} /> {toolOpen ? 'Hide tools' : 'Show tools'}
         </button>
       </header>
+      <OrchestrationWorkerBand terminalId={terminalId} />
 
       <div className={`stv-body ${toolOpen ? 'with-tools' : ''}`}>
         <section className="stv-terminal" aria-label={`${launchName(item.launch)} terminal`}>

@@ -995,6 +995,72 @@ export function SettingsView(): React.JSX.Element {
               </Row>
             </div>
             <div className="st-card">
+              <div className="st-card-head">
+                <Ic name="terminal" size={14} />
+                <div>
+                  <div className="st-card-title">Session orchestration</div>
+                  <div className="st-card-sub">
+                    One agent can direct visible Claude, Codex, or shell workers.
+                  </div>
+                </div>
+              </div>
+              <Row
+                label="会话编排"
+                hint="Master switch: off unregisters terminal.* tools, removes ctl.sock, and hides every orchestration surface"
+              >
+                <Toggle
+                  testid="settings-orchestration"
+                  checked={settings.orchestration.enabled}
+                  onChange={(v) => set({ orchestration: { enabled: v } })}
+                />
+              </Row>
+              <Row label="Maximum live workers per session">
+                <input
+                  className="st-input"
+                  type="number"
+                  min={1}
+                  max={12}
+                  value={settings.orchestration.maxWorkers}
+                  onChange={(e) => set({ orchestration: { maxWorkers: Number(e.target.value) } })}
+                />
+              </Row>
+              <Row label="Maximum sends per minute">
+                <input
+                  className="st-input"
+                  type="number"
+                  min={1}
+                  max={120}
+                  value={settings.orchestration.maxSendsPerMinute}
+                  onChange={(e) =>
+                    set({ orchestration: { maxSendsPerMinute: Number(e.target.value) } })
+                  }
+                />
+              </Row>
+              <Row
+                label="External CLI instructions"
+                hint="Install the charter-terminal manual into Charter's managed Skills store"
+              >
+                <button
+                  className="btn"
+                  data-testid="settings-install-charter-terminal"
+                  onClick={() => {
+                    void rpcResult('skills.installCharterTerminal', {}).then((result) => {
+                      useAppStore
+                        .getState()
+                        .pushToast(
+                          result.ok ? 'success' : 'error',
+                          result.ok
+                            ? 'charter-terminal manual installed.'
+                            : result.error.userMessage,
+                        );
+                    });
+                  }}
+                >
+                  Install manual
+                </button>
+              </Row>
+            </div>
+            <div className="st-card">
               <Row
                 label="Capture review corrections as rule candidates"
                 hint="Request-fix notes and plan pushback offer a distill card (ADR-0028); nothing is captured when off"

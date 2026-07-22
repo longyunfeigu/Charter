@@ -57,6 +57,9 @@ import { newId, productError, toProductError } from '@pi-ide/foundation';
 interface SessionEntry {
   session: AgentSession;
   input: CreateSessionInput;
+  /** Provider-safe name -> canonical Gateway name. Anthropic rejects dots in
+   * tool names, while product tools intentionally use namespaces. */
+  toolNameByRuntime: Map<string, string>;
   currentRunId: string | null;
   /** The product system preamble is delivered with the session's first prompt. */
   preambleDelivered: boolean;
@@ -65,6 +68,46 @@ interface SessionEntry {
 }
 
 const PRIOR_CONTEXT_CHUNK_CHARS = 48_000;
+const RUNTIME_TOOL_NAME = /^[a-zA-Z0-9_-]{1,128}$/;
+
+function toolNameHash(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/** Map product names such as `terminal.create` onto provider-safe aliases.
+ * Canonical names remain authoritative for execution, audit and UI. */
+export function runtimeToolAliases(names: readonly string[]): Map<string, string> {
+  const aliases = new Map<string, string>();
+  const validCanonical = new Set(names.filter((name) => RUNTIME_TOOL_NAME.test(name)));
+  const used = new Set<string>();
+  for (const name of names) {
+    if (RUNTIME_TOOL_NAME.test(name) && !used.has(name)) {
+      aliases.set(name, name);
+      used.add(name);
+      continue;
+    }
+    const normalized = name.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/^_+|_+$/g, '') || 'tool';
+    let alias = normalized.slice(0, 128);
+    if (validCanonical.has(alias) || used.has(alias) || !RUNTIME_TOOL_NAME.test(alias)) {
+      const suffix = `_${toolNameHash(name)}`;
+      alias = `${normalized.slice(0, 128 - suffix.length)}${suffix}`;
+    }
+    let collision = 2;
+    while (used.has(alias)) {
+      const suffix = `_${collision}`;
+      alias = `${normalized.slice(0, 128 - suffix.length)}${suffix}`;
+      collision += 1;
+    }
+    aliases.set(name, alias);
+    used.add(alias);
+  }
+  return aliases;
+}
 
 export interface PriorConversationCustomMessage {
   key: string;
@@ -329,10 +372,14 @@ export class PiAgentRuntime implements AgentRuntime {
     }
 
     const sessionId = newId('pisess');
+    const toolAliases = runtimeToolAliases(input.tools.map((entry) => entry.name));
     const customTools: ToolDefinition[] = input.tools.map((entry) => ({
-      name: entry.name,
+      name: toolAliases.get(entry.name)!,
       label: entry.name,
-      description: entry.description,
+      description:
+        toolAliases.get(entry.name) === entry.name
+          ? entry.description
+          : `Canonical Charter tool: ${entry.name}. ${entry.description}`,
       // Raw JSON Schema is structurally a TSchema; pi serializes it for the LLM
       // and validates with typebox's standard-keyword interpreter.
       parameters: (entry.inputJsonSchema ?? { type: 'object', properties: {} }) as never,
@@ -386,7 +433,7 @@ export class PiAgentRuntime implements AgentRuntime {
       ) as never,
       // Explicit allowlist: exactly the gateway tools, nothing else. Pi's
       // built-in read/bash/edit/write can never activate (TOOL-001).
-      tools: input.tools.map((t) => t.name),
+      tools: input.tools.map((tool) => toolAliases.get(tool.name)!),
       customTools,
       sessionManager: SessionManager.create(discoveryCwd, sessionDir),
       settingsManager: SettingsManager.inMemory(),
@@ -395,6 +442,9 @@ export class PiAgentRuntime implements AgentRuntime {
     this.sessions.set(sessionId, {
       session,
       input,
+      toolNameByRuntime: new Map(
+        [...toolAliases.entries()].map(([canonical, runtime]) => [runtime, canonical]),
+      ),
       currentRunId: null,
       preambleDelivered: false,
       deliveredPriorContextKeys: new Set(),
@@ -548,10 +598,11 @@ export class PiAgentRuntime implements AgentRuntime {
             break;
           }
           case 'tool_execution_start': {
+            const toolName = entry.toolNameByRuntime.get(event.toolName) ?? event.toolName;
             queue.push({
               ...base(),
               type: 'tool.proposed',
-              call: { callId: event.toolCallId, toolName: event.toolName, input: event.args },
+              call: { callId: event.toolCallId, toolName, input: event.args },
             });
             queue.push({ ...base(), type: 'tool.started', callId: event.toolCallId });
             break;

@@ -135,6 +135,9 @@ function toolKind(name: string): ActivityKind {
   if (name === 'run_command') return 'command';
   if (name === 'run_verification') return 'verification';
   if (name === 'search_text') return 'search';
+  if (name.startsWith('terminal.')) {
+    return ['terminal.list', 'terminal.read', 'terminal.wait'].includes(name) ? 'read' : 'command';
+  }
   return 'read';
 }
 
@@ -197,6 +200,24 @@ function toolLabel(name: string, input: unknown, running: boolean, ok: boolean |
         ? `Verifying${label ? `: ${label}` : '…'}`
         : `Ran verification${label ? `: ${label}` : ''}`;
     }
+    case 'terminal.list':
+      return running ? '⌁ Listing visible sessions…' : '⌁ Listed visible sessions';
+    case 'terminal.read':
+      return running ? `⌁ Reading terminal ${str(data.id)}…` : `⌁ Read terminal ${str(data.id)}`;
+    case 'terminal.send':
+      return running
+        ? `⌁ Sending to terminal ${str(data.id)}…`
+        : `⌁ Sent to terminal ${str(data.id)}`;
+    case 'terminal.create':
+      return running
+        ? `⌁ Creating ${str(data.launch, 'shell')} worker…`
+        : `⌁ Created ${str(data.launch, 'shell')} worker`;
+    case 'terminal.wait':
+      return running
+        ? `⌁ Waiting for terminal ${str(data.id)}…`
+        : `⌁ Waited for terminal ${str(data.id)}`;
+    case 'terminal.kill':
+      return running ? `⌁ Closing terminal ${str(data.id)}…` : `⌁ Closed terminal ${str(data.id)}`;
     default:
       return running ? `Using ${name}…` : `Used ${name}`;
   }
@@ -431,6 +452,7 @@ export function projectActivityEvent(event: TimelineEventDto): ActivityItem | nu
         label: toolLabel(name, call.input, true, null),
         status: 'running',
         paths: toolPaths(name, call.input),
+        ...(name.startsWith('terminal.') ? { evidenceKinds: ['terminal'] as const } : {}),
       };
     }
     case 'tool.call': {
@@ -459,6 +481,45 @@ export function projectActivityEvent(event: TimelineEventDto): ActivityItem | nu
         ...(summary && !running ? { detail: trunc(summary, 200) } : {}),
         status,
         paths: toolPaths(name, p.input),
+        ...(name.startsWith('terminal.') ? { evidenceKinds: ['terminal'] as const } : {}),
+      };
+    }
+    case 'orchestration.workerCreated':
+    case 'orchestration.workerExited':
+    case 'orchestration.workerKilled':
+    case 'orchestration.sent':
+    case 'orchestration.sendQueued':
+    case 'orchestration.queueReleased':
+    case 'orchestration.pauseChanged':
+    case 'orchestration.takeover':
+    case 'orchestration.directorCut': {
+      const terminalId = str(p.terminalId);
+      const labels: Record<string, string> = {
+        'orchestration.workerCreated': `⌁ Worker ${terminalId} joined the fleet`,
+        'orchestration.workerExited': `⌁ Worker ${terminalId} exited`,
+        'orchestration.workerKilled': `⌁ Worker ${terminalId} was closed`,
+        'orchestration.sent': `⌁ Input delivered to ${terminalId}`,
+        'orchestration.sendQueued': `⌁ Input queued for ${terminalId}`,
+        'orchestration.queueReleased': `⌁ Queued input released to ${terminalId}`,
+        'orchestration.pauseChanged': `⌁ Remote control ${p.paused === true ? 'paused' : 'resumed'}`,
+        'orchestration.takeover': `⌁ Worker ${terminalId} ${str(p.state).replace('_', ' ')}`,
+        'orchestration.directorCut': `⌁ Director cut to ${terminalId}`,
+      };
+      return {
+        ...base,
+        kind: 'command',
+        label: labels[event.type] ?? '⌁ Orchestration event',
+        ...(str(p.reason) ? { detail: str(p.reason) } : {}),
+        status:
+          event.type === 'orchestration.workerExited' && Number(p.exitCode ?? 0) !== 0
+            ? 'error'
+            : event.type === 'orchestration.sendQueued'
+              ? 'pending'
+              : 'info',
+        toolName: 'terminal',
+        resource: terminalId || undefined,
+        evidenceKinds: ['terminal'] as const,
+        author: event.type === 'orchestration.pauseChanged' ? 'user' : 'system',
       };
     }
     case 'agent.planProposed': {
@@ -509,12 +570,14 @@ export function projectActivityEvent(event: TimelineEventDto): ActivityItem | nu
       const risk = rec(card.risk);
       const riskLevel = str(risk.level);
       const targets = Array.isArray(preview.targets) ? preview.targets.map((t) => str(t)) : [];
+      const terminalApproval = str(card.toolName).startsWith('terminal.');
       return {
         ...base,
         kind: 'permission',
         label: `Waiting for approval: ${trunc(str(preview.summary), 100)}`,
         status: 'pending',
-        paths: targets.filter(Boolean).map(cleanPath),
+        paths: terminalApproval ? [] : targets.filter(Boolean).map(cleanPath),
+        ...(terminalApproval ? { evidenceKinds: ['terminal'] as const } : {}),
         // Real recorded ids only: the tool call this request gates, and the
         // request id its decision will carry (never inferred from adjacency).
         ...(str(card.callId) ? { callId: str(card.callId) } : {}),

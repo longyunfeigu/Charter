@@ -19,6 +19,11 @@ fi
 if [[ -f "\${ZDOTDIR:-$HOME}/.zshenv" ]]; then
   builtin source "\${ZDOTDIR:-$HOME}/.zshenv"
 fi
+# User profiles may replace PATH wholesale. Restore Charter's ephemeral CLI
+# wrappers after they run so Claude/Codex keep their per-terminal MCP tools.
+if [[ -n "\${CHARTER_TERMINAL_BIN-}" && ":$PATH:" != *":$CHARTER_TERMINAL_BIN:"* ]]; then
+  export PATH="$CHARTER_TERMINAL_BIN:$PATH"
+fi
 # Respect a ZDOTDIR the user's .zshenv may have set, then restore the shim so
 # our .zshrc (which chains to theirs) is the one zsh loads next.
 CHARTER_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"
@@ -31,6 +36,9 @@ const ZSH_ZSHRC = `# Charter shell integration (ADR-0021): OSC 133 semantic prom
 if [[ -f "\${CHARTER_USER_ZDOTDIR:-$HOME}/.zshrc" ]]; then
   ZDOTDIR="\${CHARTER_USER_ZDOTDIR:-$HOME}"
   builtin source "\${CHARTER_USER_ZDOTDIR:-$HOME}/.zshrc"
+fi
+if [[ -n "\${CHARTER_TERMINAL_BIN-}" && ":$PATH:" != *":$CHARTER_TERMINAL_BIN:"* ]]; then
+  export PATH="$CHARTER_TERMINAL_BIN:$PATH"
 fi
 if [[ -o interactive && -z "\${CHARTER_SHELL_INTEGRATION-}" ]]; then
   export CHARTER_SHELL_INTEGRATION=1
@@ -59,6 +67,10 @@ const BASH_INIT = `# Charter shell integration (ADR-0021) — loads your own bas
 if [ -f "$HOME/.bashrc" ]; then
   builtin source "$HOME/.bashrc"
 fi
+case ":$PATH:" in
+  *":\${CHARTER_TERMINAL_BIN-}:"*) ;;
+  *) if [ -n "\${CHARTER_TERMINAL_BIN-}" ]; then export PATH="$CHARTER_TERMINAL_BIN:$PATH"; fi ;;
+esac
 if [ -z "\${CHARTER_SHELL_INTEGRATION-}" ]; then
   export CHARTER_SHELL_INTEGRATION=1
   __charter_in_command=""
@@ -94,6 +106,9 @@ fi
 `;
 
 const FISH_CONF = `# Charter shell integration (ADR-0021): OSC 133 semantic prompt marks.
+if set -q CHARTER_TERMINAL_BIN; and not contains -- $CHARTER_TERMINAL_BIN $PATH
+    set -gx PATH $CHARTER_TERMINAL_BIN $PATH
+end
 if status is-interactive; and not set -q CHARTER_SHELL_INTEGRATION
     set -gx CHARTER_SHELL_INTEGRATION 1
     function __charter_preexec --on-event fish_preexec

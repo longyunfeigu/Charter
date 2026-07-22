@@ -71,6 +71,7 @@ import type { AgentHost, RuntimeKind } from './agent-host.js';
 import type { SkillUsageEvent } from './skill-usage.js';
 import type { WorkspaceHost } from './workspace-host.js';
 import type { SettingsService } from './settings-service.js';
+import type { TerminalControlService } from './terminal-control-service.js';
 import type { SkillStore } from './skill-store.js';
 import { workspaceDataDir, type AppPaths } from '../app-paths.js';
 import { ProjectContexts, type ProjectContext } from './project-contexts.js';
@@ -228,6 +229,7 @@ export class TaskService {
 
   /** ADR-0028: project memory (injected post-construction; absent in some tests). */
   private memory: TaskMemoryHooks | null = null;
+  private readonly unsubscribeOrchestrationSettings: () => void;
 
   constructor(
     private readonly db: SqlDatabase,
@@ -237,6 +239,7 @@ export class TaskService {
     private readonly skills: SkillStore,
     private readonly appPaths: AppPaths,
     private readonly logger: Logger,
+    terminalControl?: TerminalControlService,
   ) {
     const paths = appPaths;
     this.worktrees = new WorktreeService(paths, logger);
@@ -249,7 +252,11 @@ export class TaskService {
         // Unknown task falls back to ask (fail closed = read-only).
         modeForTask: (taskId) => {
           try {
-            return this.getTask(taskId).mode;
+            const task = this.getTask(taskId);
+            // External CLI tasks use the gateway only through the authenticated
+            // control door. They need the regular approval engine, not Ask
+            // mode's absolute read-only boundary.
+            return task.external ? 'edit' : task.mode;
           } catch {
             return 'ask';
           }
@@ -272,7 +279,16 @@ export class TaskService {
         skills: () => this.skills.enabledSkills(),
       },
       logger,
+      terminalControl
+        ? {
+            control: terminalControl,
+            callerTerminalForCall: (callId) => terminalControl.callerTerminalForCall(callId),
+          }
+        : undefined,
     );
+    this.unsubscribeOrchestrationSettings = settings.onChange((state) => {
+      this.contexts.syncTerminalTools(state.effective.orchestration.enabled);
+    });
     host.delegate = {
       onAgentEvent: (taskId, runId, event) => this.onAgentEvent(taskId, runId, event),
       onRunEnded: (taskId, runId) => this.onRunEnded(taskId, runId),
@@ -298,12 +314,27 @@ export class TaskService {
     });
   }
 
-  private gatewayForTask(taskId: string): ToolGateway | null {
+  gatewayForTask(taskId: string): ToolGateway | null {
     try {
       return this.contextForTask(taskId).gateway;
     } catch {
       return null;
     }
+  }
+
+  /** The authenticated external control door has no managed runtime run, but
+   * tool_calls requires one for the same durable audit/permission pipeline. */
+  ensureTerminalControlRun(taskId: string, terminalId: string): string {
+    this.getTask(taskId);
+    const runId = `terminal:${terminalId}`;
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO agent_runs
+          (id, task_id, state, provider, model, started_at)
+         VALUES (?, ?, 'STREAMING', 'external', 'terminal-control', ?)`,
+      )
+      .run(runId, taskId, new Date().toISOString());
+    return runId;
   }
 
   /** Workspace row for a dispatch target path, creating the identity if new. */
@@ -3535,6 +3566,7 @@ export class TaskService {
    * persist. Fixes the "database is not open" crash on quit.
    */
   shutdown(): void {
+    this.unsubscribeOrchestrationSettings();
     this.contexts.shutdown('app quit');
     this.cancelAllAsks('app quit');
     this.cancelAllPlanWaits('app quit');

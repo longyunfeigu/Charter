@@ -63,6 +63,15 @@ export const bundles = [
     // Pi SDK stays external: it is ESM-native with dynamic imports and wasm assets.
     external: ['electron', '@earendil-works/pi-coding-agent'],
   },
+  {
+    entryPoints: [join(root, 'apps/desktop-main/src/terminal-control-mcp.ts')],
+    outfile: join(root, 'apps/desktop-main/dist/terminal-control-mcp.cjs'),
+    platform: 'node',
+    format: 'cjs',
+    bundle: true,
+    sourcemap: true,
+    target: 'node22',
+  },
 ];
 
 export async function buildAll() {

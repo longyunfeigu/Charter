@@ -65,6 +65,14 @@ export const SettingsSchema = z.object({
       showThinking: z.boolean().default(true),
     })
     .prefault({}),
+  orchestration: z
+    .object({
+      /** ADR-0044 circuit breaker: off means no tools, socket, or UI. */
+      enabled: z.boolean().default(true),
+      maxWorkers: z.number().int().min(1).max(12).default(5),
+      maxSendsPerMinute: z.number().int().min(1).max(120).default(30),
+    })
+    .prefault({}),
   notifications: z
     .object({
       /** System notifications on plan-approval / permission / review-ready / failed (PIVOT-014). */

@@ -10,6 +10,7 @@ import {
   type ExternalSkillEvent,
   type SkillUsageEvent,
 } from '../services/skill-usage.js';
+import { CHARTER_TERMINAL_SKILL } from '../services/terminal-control-manual.js';
 
 export interface SkillsHandlerDeps {
   /**
@@ -51,6 +52,9 @@ export function registerSkillsHandlers(
         if (!source) return { skill: null };
         return { skill: skills.import(source) };
       },
+      'skills.installCharterTerminal': async () => ({
+        skill: skills.installManaged('charter-terminal', CHARTER_TERMINAL_SKILL),
+      }),
       'skills.addSource': async ({ dir }) => {
         let source = dir ?? null;
         if (!source) {

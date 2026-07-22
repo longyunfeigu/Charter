@@ -28,6 +28,12 @@ export interface TerminalInfo {
 export interface CreateTerminalOptions {
   cwd: string;
   shellPath?: string | null;
+  /** Host-owned direct process launch. This is intentionally not exposed on
+   * renderer IPC; orchestration uses it to avoid typing a CLI into a shell. */
+  executable?: string;
+  args?: string[];
+  /** A directly spawned agent is known without foreground-process polling. */
+  knownAgent?: 'claude' | 'codex';
   cols?: number;
   rows?: number;
   scrollback?: number;
@@ -38,6 +44,8 @@ export interface CreateTerminalOptions {
   contextTaskId?: string | null;
   launch?: 'shell' | 'claude' | 'codex';
 }
+
+export type TerminalInputSource = 'user' | 'terminal' | 'host' | 'orchestrator';
 
 export interface TerminalContextUpdate {
   cwd: string;
@@ -53,6 +61,7 @@ interface Session {
   pty: IPty;
   tracker: AgentStateTracker;
   recentData: string;
+  knownAgent: 'claude' | 'codex' | null;
 }
 
 // ---------- terminal environment hygiene ----------
@@ -73,7 +82,15 @@ interface Session {
  * the PTY spawns, so stripping errs on the safe side.
  */
 const AGENT_SESSION_ENV_ALLOWLIST = new Set(['CLAUDE_CONFIG_DIR']);
-const AGENT_SESSION_ENV_EXACT = ['AI_AGENT', 'CODEX_SANDBOX'];
+const AGENT_SESSION_ENV_EXACT = [
+  'AI_AGENT',
+  'CODEX_SANDBOX',
+  // A Charter launched from one of its own terminals must issue fresh
+  // per-terminal capabilities, never propagate the parent's identity.
+  'CHARTER_TERM_ID',
+  'CHARTER_CTL',
+  'CHARTER_CTL_TOKEN',
+];
 
 export function sanitizedTerminalEnv(
   env: Record<string, string | undefined>,
@@ -264,6 +281,10 @@ export interface TerminalManagerOptions {
   /** DI seams for deterministic tests. */
   readTitle?: (session: { pty: IPty }) => string;
   readProcessTable?: () => ProcessTableEntry[] | null;
+  /** Host-issued per-terminal capabilities (ADR-0044). Values are resolved
+   * after the id exists and before the PTY is spawned; callers must never
+   * persist the token returned here. */
+  envForTerminal?: (id: string) => Record<string, string>;
 }
 
 function defaultShell(): string {
@@ -287,6 +308,10 @@ export class TerminalManager {
   private readonly sessions = new Map<string, Session>();
   private readonly dataListeners = new Set<(info: { id: string; data: string }) => void>();
   private readonly inputListeners = new Set<(info: { id: string; data: string }) => void>();
+  private readonly sourcedInputListeners = new Set<
+    (info: { id: string; data: string; source: TerminalInputSource }) => void
+  >();
+  private readonly exitListeners = new Set<(info: { id: string; exitCode: number }) => void>();
   private readonly agentListeners = new Set<
     (info: { id: string; agent: string | null; cwd: string }) => void
   >();
@@ -294,6 +319,7 @@ export class TerminalManager {
   private readonly readTitle: (session: { pty: IPty }) => string;
   private readonly readTable: () => ProcessTableEntry[] | null;
   private readonly shellIntegration: (() => ShellIntegrationConfig | null) | null;
+  private readonly envForTerminal: ((id: string) => Record<string, string>) | null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -311,6 +337,7 @@ export class TerminalManager {
     this.readTitle = options.readTitle ?? ((s) => s.pty.process);
     this.readTable = options.readProcessTable ?? readProcessTable;
     this.shellIntegration = options.shellIntegration ?? null;
+    this.envForTerminal = options.envForTerminal ?? null;
     const pollMs = options.agentPollMs ?? 700;
     if (pollMs > 0) {
       this.pollTimer = setInterval(() => this.pollOnce(), pollMs);
@@ -347,6 +374,20 @@ export class TerminalManager {
     return () => this.inputListeners.delete(listener);
   }
 
+  /** Source-aware input stream. User keystrokes are distinct from host and
+   * orchestrator writes so local takeover always wins (ADR-0044). */
+  onSourcedInputEvent(
+    listener: (info: { id: string; data: string; source: TerminalInputSource }) => void,
+  ): () => void {
+    this.sourcedInputListeners.add(listener);
+    return () => this.sourcedInputListeners.delete(listener);
+  }
+
+  onExitEvent(listener: (info: { id: string; exitCode: number }) => void): () => void {
+    this.exitListeners.add(listener);
+    return () => this.exitListeners.delete(listener);
+  }
+
   private emitData(id: string, data: string): void {
     const session = this.sessions.get(id);
     if (session) session.recentData = `${session.recentData}${data}`.slice(-64 * 1024);
@@ -370,6 +411,9 @@ export class TerminalManager {
     // at most one subprocess per tick regardless of terminal count.
     let table: ProcessTableEntry[] | null | undefined;
     for (const session of this.sessions.values()) {
+      // A host-owned direct launch remains the known agent until its root PTY
+      // exits. Polling its child processes can only downgrade that certainty.
+      if (session.knownAgent) continue;
       let match: string | null = null;
       try {
         const title = this.readTitle(session);
@@ -395,11 +439,15 @@ export class TerminalManager {
 
   create(options: CreateTerminalOptions): TerminalInfo {
     const shell = options.shellPath || defaultShell();
+    const executable = options.executable ?? shell;
     const id = newId('term');
+    const terminalEnv = this.envForTerminal?.(id) ?? {};
     // ADR-0021: known shells get OSC 133 marks injected; anything else spawns
     // exactly as before (plan is empty), preserving TERM-003 diagnosability.
-    const plan = shellIntegrationSpawn(shell, this.shellIntegration?.() ?? null);
-    const pty = nodePty.spawn(shell, plan.args, {
+    const plan = options.executable
+      ? { args: options.args ?? [], env: {} }
+      : shellIntegrationSpawn(shell, this.shellIntegration?.() ?? null);
+    const pty = nodePty.spawn(executable, plan.args, {
       name: 'xterm-256color',
       cols: options.cols ?? 80,
       rows: options.rows ?? 24,
@@ -407,14 +455,15 @@ export class TerminalManager {
       env: {
         ...sanitizedTerminalEnv(process.env),
         ...plan.env,
+        ...terminalEnv,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
       } as Record<string, string>,
     });
     const info: TerminalInfo = {
       id,
-      title: shell.split('/').pop() ?? shell,
-      shell,
+      title: executable.split('/').pop() ?? executable,
+      shell: executable,
       pid: pty.pid,
       cwd: options.cwd,
       projectName: options.projectName ?? basename(options.cwd),
@@ -424,21 +473,40 @@ export class TerminalManager {
       contextTaskId: options.contextTaskId ?? null,
       launch: options.launch ?? 'shell',
     };
+    const tracker = new AgentStateTracker();
+    if (options.knownAgent) tracker.update(options.knownAgent);
+    const session: Session = {
+      info,
+      pty,
+      tracker,
+      recentData: '',
+      knownAgent: options.knownAgent ?? null,
+    };
     pty.onData((data) => this.emitData(id, data));
     pty.onExit(({ exitCode }) => {
-      const session = this.sessions.get(id);
+      const liveSession = this.sessions.get(id);
       this.sessions.delete(id);
-      this.fireAgentExitIfActive(id, session);
+      this.fireAgentExitIfActive(id, liveSession);
       this.onExit(id, exitCode);
+      for (const listener of this.exitListeners) listener({ id, exitCode });
     });
-    this.sessions.set(id, { info, pty, tracker: new AgentStateTracker(), recentData: '' });
+    this.sessions.set(id, session);
+    if (options.knownAgent) {
+      queueMicrotask(() => {
+        if (this.sessions.get(id) !== session) return;
+        for (const listener of this.agentListeners) {
+          listener({ id, agent: options.knownAgent!, cwd: info.cwd });
+        }
+      });
+    }
     return info;
   }
 
-  write(id: string, data: string): void {
+  write(id: string, data: string, source: TerminalInputSource = 'host'): void {
     const session = this.sessions.get(id);
     if (!session) return;
     for (const listener of this.inputListeners) listener({ id, data });
+    for (const listener of this.sourcedInputListeners) listener({ id, data, source });
     session.pty.write(data);
   }
 
@@ -513,6 +581,9 @@ export class TerminalManager {
     this.pollTimer = null;
     this.disposeAll();
     this.dataListeners.clear();
+    this.inputListeners.clear();
+    this.sourcedInputListeners.clear();
+    this.exitListeners.clear();
     this.agentListeners.clear();
   }
 }

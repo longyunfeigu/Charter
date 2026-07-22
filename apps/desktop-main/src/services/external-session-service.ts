@@ -248,6 +248,10 @@ export class ExternalSessionService {
     }));
   }
 
+  taskIdForTerminal(terminalId: string): string | null {
+    return this.byTerminal.get(terminalId)?.taskId ?? null;
+  }
+
   private onTerminalData(terminalId: string, data: string): void {
     const session = this.byTerminal.get(terminalId);
     if (!session || session.ended) return;
@@ -645,8 +649,6 @@ export class ExternalSessionService {
     session.unsubscribe = watcher.onBatch((changes) => this.onBatch(session, changes));
     watcher.start();
     this.byTerminal.set(terminalId, session);
-    const leadIn = this.terminals.recentData(terminalId);
-    if (leadIn) this.onTerminalData(terminalId, leadIn);
 
     if (intent?.sessionId) {
       // Launch pre-assigned the conversation id (`claude --session-id`): the
@@ -654,7 +656,22 @@ export class ExternalSessionService {
       session.sessionId = intent.sessionId;
       this.tasks.setExternalSessionId(taskId, intent.sessionId);
     }
-    if (intent?.prompt) this.armPromptDelivery(session, intent.prompt);
+    if (intent?.prompt) {
+      if (intent.promptDelivery === 'argv') {
+        // The CLI owns submission (and can safely hold the prompt behind its
+        // directory-trust dialog); only account the message here.
+        this.tasks.recordEvent(session.taskId, 'user.message', {
+          text: intent.prompt,
+          kind: 'external',
+        });
+        session.lastUserLine = intent.prompt;
+      } else {
+        this.armPromptDelivery(session, intent.prompt);
+      }
+    }
+
+    const leadIn = this.terminals.recentData(terminalId);
+    if (leadIn) this.onTerminalData(terminalId, leadIn);
 
     broadcast('terminal.agentState', { id: terminalId, agent: cli, taskId });
     broadcast('external.sessionChanged', {

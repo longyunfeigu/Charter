@@ -45,6 +45,9 @@ export interface GatewayTool<I = unknown> {
   description: string;
   promptGuidance?: string;
   inputSchema: z.ZodType<I>;
+  /** Host-only invariants that must fail before risk evaluation or an approval
+   * prompt (for example orchestration depth and self-control). */
+  preflight?(input: I, call: ToolCallRequest): void | Promise<void>;
   risk(input: I): RiskAssessment;
   preview(input: I): Promise<ToolPreview>;
   execute(input: I, signal: AbortSignal, call: ToolCallRequest): Promise<ToolExecuteOutput>;
@@ -142,6 +145,10 @@ export class ToolGateway {
 
   register<I>(tool: GatewayTool<I>): void {
     this.tools.set(tool.name, tool as GatewayTool<never>);
+  }
+
+  unregister(name: string): void {
+    this.tools.delete(name);
   }
 
   has(name: string): boolean {
@@ -245,6 +252,24 @@ export class ToolGateway {
       };
     }
     const input = parsed.data as never;
+
+    if (tool.preflight) {
+      try {
+        await tool.preflight(input, call);
+      } catch (e) {
+        const error =
+          e instanceof ProductFailure ? e.error : toProductError(e, 'TOOL_PREFLIGHT_FAILED');
+        auditRecord('FAILED', null, error.code, false);
+        return {
+          callId: call.callId,
+          ok: false,
+          code: error.code,
+          summary: error.userMessage,
+          data: {},
+          retryable: error.retryable,
+        };
+      }
+    }
 
     let risk: RiskAssessment;
     try {
