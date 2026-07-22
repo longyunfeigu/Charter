@@ -121,3 +121,20 @@ export const SkillUsageDtoSchema = z.object({
   }),
 });
 export type SkillUsageDto = z.infer<typeof SkillUsageDtoSchema>;
+
+/**
+ * ADR-0045: install state of the charter-terminal manual on one external
+ * CLI's user-level skills directory (~/.claude/skills, ~/.codex/skills).
+ * upToDate is a byte-for-byte comparison against the bundled manual, so the
+ * settings panel can offer an update after the product revises the text.
+ */
+export const CharterTerminalSurfaceDtoSchema = z.object({
+  target: z.enum(['claude', 'codex']),
+  /** Absolute SKILL.md path inside the CLI's user-level skills directory. */
+  path: z.string(),
+  installed: z.boolean(),
+  upToDate: z.boolean(),
+  /** Read/write failure for this target; null when the surface is healthy. */
+  error: z.string().nullable(),
+});
+export type CharterTerminalSurfaceDto = z.infer<typeof CharterTerminalSurfaceDtoSchema>;

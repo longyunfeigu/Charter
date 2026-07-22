@@ -187,6 +187,7 @@ Charter is more than a chat surface around a model API. It combines agent orches
 - **External CLI detection:** recognize supported Claude Code and Codex processes, preserve their terminal UI, and account for repository changes around the live session.
 - **Conversation identity and resume:** record supported external session IDs so continuation targets the original conversation instead of whichever CLI session happens to be newest.
 - **Authenticated local control door:** Charter-launched Claude Code and Codex sessions receive six native `charter` MCP tools plus a `charter-terminal` command fallback; both use a per-terminal, memory-only capability for the `0600` Unix socket, translate back into the same audited Gateway path, and disappear when Session orchestration is disabled.
+- **One-click CLI manual install:** Settings installs the `charter-terminal` skill into Charter's Skills store plus `~/.claude/skills` and `~/.codex/skills` with a freshness check, so hand-launched claude/codex sessions (aliases, custom PATH) can also discover and drive the control door.
 - **Observed vs. managed honesty:** external CLIs enter the same review workflow without pretending Charter controlled their internal permissions or reasoning stream.
 
 ### Verification, review, and Replay

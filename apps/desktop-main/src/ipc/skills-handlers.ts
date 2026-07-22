@@ -11,6 +11,10 @@ import {
   type SkillUsageEvent,
 } from '../services/skill-usage.js';
 import { CHARTER_TERMINAL_SKILL } from '../services/terminal-control-manual.js';
+import {
+  charterTerminalSurfaceStatus,
+  installCharterTerminalSurfaces,
+} from '../services/charter-terminal-surfaces.js';
 
 export interface SkillsHandlerDeps {
   /**
@@ -52,8 +56,16 @@ export function registerSkillsHandlers(
         if (!source) return { skill: null };
         return { skill: skills.import(source) };
       },
+      // ADR-0045: one explicit click lands the manual in Charter's managed
+      // store (Pi runtime) and in ~/.claude/skills + ~/.codex/skills, so a
+      // hand-launched claude/codex can trigger orchestration even when the
+      // MCP wrapper chain is bypassed by the user's shell.
       'skills.installCharterTerminal': async () => ({
         skill: skills.installManaged('charter-terminal', CHARTER_TERMINAL_SKILL),
+        surfaces: installCharterTerminalSurfaces(),
+      }),
+      'skills.charterTerminalStatus': async () => ({
+        surfaces: charterTerminalSurfaceStatus(),
       }),
       'skills.addSource': async ({ dir }) => {
         let source = dir ?? null;

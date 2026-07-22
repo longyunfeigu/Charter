@@ -1,5 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { PROVIDER_PRESETS, providerPreset, type ProviderInfoDto } from '@pi-ide/ipc-contracts';
+import {
+  PROVIDER_PRESETS,
+  providerPreset,
+  type CharterTerminalSurfaceDto,
+  type ProviderInfoDto,
+} from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
 import { useAppStore, type SettingsSection } from '../store/appStore.js';
 import { useTaskStore } from '../store/taskStore.js';
@@ -281,6 +286,78 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: string }> = [
   { id: 'updates', label: 'Updates', icon: 'refresh' },
   { id: 'about', label: 'About', icon: 'info' },
 ];
+
+/** ADR-0045: one click installs the orchestration manual into Charter's
+ * managed store plus ~/.claude/skills and ~/.codex/skills, with a
+ * FanBox-style byte comparison so a revised manual surfaces as an update. */
+function CharterTerminalManualRow(): React.JSX.Element {
+  const pushToast = useAppStore((s) => s.pushToast);
+  const [surfaces, setSurfaces] = useState<CharterTerminalSurfaceDto[] | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void rpcResult('skills.charterTerminalStatus', {}).then((result) => {
+      if (result.ok) setSurfaces(result.data.surfaces);
+      else setStatusError(result.error.userMessage);
+    });
+  }, []);
+
+  const stateLabel = (surface: CharterTerminalSurfaceDto): string => {
+    if (surface.error) return `error: ${surface.error}`;
+    if (!surface.installed) return 'not installed';
+    return surface.upToDate ? 'up to date' : 'update available';
+  };
+  const allCurrent =
+    surfaces !== null && surfaces.every((surface) => surface.installed && surface.upToDate);
+
+  return (
+    <Row
+      label="External CLI instructions"
+      hint="Installs the charter-terminal manual into Charter's Skills store plus ~/.claude/skills and ~/.codex/skills, so hand-launched claude/codex sessions can trigger orchestration"
+    >
+      <span className="st-provider-form" style={{ padding: 0 }}>
+        {statusError ? <span className="st-hint">{statusError}</span> : null}
+        {surfaces === null && !statusError ? <span className="st-hint">Checking…</span> : null}
+        {surfaces?.map((surface) => (
+          <span
+            key={surface.target}
+            className="st-hint"
+            style={{ padding: 0 }}
+            data-testid={`charter-terminal-surface-${surface.target}`}
+          >
+            {surface.target}: {stateLabel(surface)}
+          </span>
+        ))}
+        <button
+          className="btn"
+          data-testid="settings-install-charter-terminal"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void rpcResult('skills.installCharterTerminal', {}).then((result) => {
+              setBusy(false);
+              if (!result.ok) {
+                pushToast('error', result.error.userMessage);
+                return;
+              }
+              setSurfaces(result.data.surfaces);
+              const failed = result.data.surfaces.filter((surface) => surface.error);
+              pushToast(
+                failed.length > 0 ? 'error' : 'success',
+                failed.length > 0
+                  ? `Some surfaces failed: ${failed.map((surface) => surface.target).join(', ')}`
+                  : 'charter-terminal manual installed for Charter, claude, and codex.',
+              );
+            });
+          }}
+        >
+          {busy ? 'Installing…' : allCurrent ? 'Reinstall' : 'Install / update'}
+        </button>
+      </span>
+    </Row>
+  );
+}
 
 function Row(props: {
   label: string;
@@ -1036,29 +1113,7 @@ export function SettingsView(): React.JSX.Element {
                   }
                 />
               </Row>
-              <Row
-                label="External CLI instructions"
-                hint="Install the charter-terminal manual into Charter's managed Skills store"
-              >
-                <button
-                  className="btn"
-                  data-testid="settings-install-charter-terminal"
-                  onClick={() => {
-                    void rpcResult('skills.installCharterTerminal', {}).then((result) => {
-                      useAppStore
-                        .getState()
-                        .pushToast(
-                          result.ok ? 'success' : 'error',
-                          result.ok
-                            ? 'charter-terminal manual installed.'
-                            : result.error.userMessage,
-                        );
-                    });
-                  }}
-                >
-                  Install manual
-                </button>
-              </Row>
+              <CharterTerminalManualRow />
             </div>
             <div className="st-card">
               <Row

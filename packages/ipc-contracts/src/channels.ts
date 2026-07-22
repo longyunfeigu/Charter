@@ -29,7 +29,12 @@ import {
   ReplaySessionDtoSchema,
 } from './replay.js';
 import { ProviderApiSchema, ProviderInfoSchema } from './providers.js';
-import { SkillDtoSchema, SkillSourceDtoSchema, SkillUsageDtoSchema } from './skills.js';
+import {
+  CharterTerminalSurfaceDtoSchema,
+  SkillDtoSchema,
+  SkillSourceDtoSchema,
+  SkillUsageDtoSchema,
+} from './skills.js';
 import {
   ExternalMemoryFileDtoSchema,
   MemoryAgentsTreeDtoSchema,
@@ -1398,11 +1403,20 @@ export const CHANNELS = {
     z.object({ dir: z.string().min(1).max(2000).optional() }).strict(),
     z.object({ skill: SkillDtoSchema.nullable() }),
   ),
+  // ADR-0045: one click installs the manual into Charter's managed store AND
+  // the external CLIs' user-level skills directories, so hand-launched
+  // claude/codex sessions can trigger orchestration without the MCP wrapper.
   'skills.installCharterTerminal': ch(
     'skills.installCharterTerminal',
+    2,
+    z.object({}).strict(),
+    z.object({ skill: SkillDtoSchema, surfaces: z.array(CharterTerminalSurfaceDtoSchema) }),
+  ),
+  'skills.charterTerminalStatus': ch(
+    'skills.charterTerminalStatus',
     1,
     z.object({}).strict(),
-    z.object({ skill: SkillDtoSchema }),
+    z.object({ surfaces: z.array(CharterTerminalSurfaceDtoSchema) }),
   ),
   // Connect a root containing one or more SKILL.md folders without copying it.
   'skills.addSource': ch(

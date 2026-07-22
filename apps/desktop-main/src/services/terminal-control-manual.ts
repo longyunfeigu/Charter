@@ -1,17 +1,25 @@
 export const CHARTER_TERMINAL_SKILL = `---
 name: charter-terminal
-description: Coordinate visible Charter terminal workers through the authenticated local terminal control door.
+description: Direct sibling terminals in the Charter desktop app — list windows, read output, send input, open Claude/Codex/shell workers, wait for completion. Use when the user asks to open another terminal or Claude/Codex window to run, try, or review something ("open a codex window to review this", "开个窗口跑测试", "看看另一个终端在干嘛"), or wants parallel experiments across visible windows. Only usable when the CHARTER_CTL environment variable is present (running inside a Charter terminal).
 disable-model-invocation: false
 ---
 
 # Charter terminal orchestration
 
+Confirm the door is present before anything else:
+
+\`\`\`bash
+[ -n "$CHARTER_CTL" ] && echo "inside Charter terminal $CHARTER_TERM_ID" || echo "not a Charter terminal; this skill is unavailable"
+\`\`\`
+
 Use Charter's native \`terminal.*\` tools when they are available. Charter-launched Claude Code
 and Codex sessions receive the same compatibility surface through the \`charter\` MCP server as
 \`terminal_list\`, \`terminal_create\`, \`terminal_send\`, \`terminal_wait\`, \`terminal_read\`, and
 \`terminal_kill\`. Coordinate workers with list/create/send/wait/read. \`terminal_kill\` is
-lifecycle-destructive, is refused for agent calls, and must not be used. The \`charter-terminal\`
-command is a Bash fallback. Never print, persist, or send \`$CHARTER_CTL_TOKEN\` anywhere.
+lifecycle-destructive, is refused for agent calls, and must not be used. When no \`charter\` MCP
+server is attached (a hand-launched session), use the \`charter-terminal\` Bash command or the raw
+HTTP routes below — same door, same host-enforced rules. Never print, persist, or send
+\`$CHARTER_CTL_TOKEN\` anywhere.
 
 ## Working loop
 
