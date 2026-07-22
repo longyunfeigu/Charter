@@ -996,6 +996,34 @@ export function SettingsView(): React.JSX.Element {
               />
             </Row>
             <Row
+              label="Terminal renderer"
+              hint="Auto uses GPU acceleration when available and falls back safely after setup or context loss"
+            >
+              <select
+                className="st-input wide"
+                data-testid="settings-terminal-renderer"
+                value={settings.terminal.renderer}
+                onChange={(e) => set({ terminal: { renderer: e.target.value } })}
+              >
+                <option value="auto">Auto · WebGL with fallback</option>
+                <option value="software">Software compatibility</option>
+              </select>
+            </Row>
+            <Row
+              label="Terminal character widths"
+              hint="Unicode 11 improves CJK and emoji alignment; use Unicode 6 for older TUIs with different wcwidth tables"
+            >
+              <select
+                className="st-input wide"
+                data-testid="settings-terminal-unicode"
+                value={settings.terminal.unicodeVersion}
+                onChange={(e) => set({ terminal: { unicodeVersion: e.target.value } })}
+              >
+                <option value="11">Unicode 11 · recommended</option>
+                <option value="6">Unicode 6 · compatibility</option>
+              </select>
+            </Row>
+            <Row
               label="Auto-move external agent sessions to the side panel"
               hint="Off = a detected claude/codex session only decorates its terminal in place; moving it is your click"
             >

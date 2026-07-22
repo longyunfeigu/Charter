@@ -27,6 +27,11 @@ import { Ic } from './home-icons.js';
 import { useQuickConsoleStore } from '../store/quickConsoleStore.js';
 import { TerminalBlocks, type BlocksHost, type TermBlock } from './terminal-blocks.js';
 import { TerminalUserInputTracker } from './terminal-input-provenance.js';
+import {
+  installTerminalUnicode,
+  syncTerminalRenderer,
+  syncTerminalUnicode,
+} from './terminal-renderer.js';
 
 export type TerminalLaunch = 'shell' | 'claude' | 'codex';
 export type TerminalWorkingContext =
@@ -436,6 +441,9 @@ export function mountTerminal(
   } else if (el.parentElement !== host) {
     host.replaceChildren(el);
   }
+  const terminalSettings = useAppStore.getState().settings?.terminal;
+  syncTerminalUnicode(item.term, terminalSettings?.unicodeVersion ?? '11');
+  syncTerminalRenderer(item.term, terminalSettings?.renderer ?? 'auto');
   wireTerminalUserInput(item.term);
   try {
     item.fit.fit();
@@ -713,6 +721,7 @@ function makeTerm(fontSize: number, scrollback: number): { term: Terminal; fit: 
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
+  installTerminalUnicode(term);
   term.loadAddon(new WebLinksAddon(activateWebUri));
   return { term, fit };
 }

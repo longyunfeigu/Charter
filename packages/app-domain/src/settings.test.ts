@@ -9,6 +9,8 @@ describe('settings resolution (SET-002 / WS-014)', () => {
     expect(effective.general.skin).toBe('studio');
     expect(effective.editor.fontSize).toBeGreaterThan(0);
     expect(effective.editor.autoSave).toBe('off');
+    expect(effective.terminal.renderer).toBe('auto');
+    expect(effective.terminal.unicodeVersion).toBe('11');
     expect(effective.privacy.telemetryEnabled).toBe(false);
   });
 
@@ -37,6 +39,16 @@ describe('settings resolution (SET-002 / WS-014)', () => {
   it('never lets telemetry default to on even with garbage input', () => {
     const { effective } = resolveSettings({ privacy: 12345 } as never, undefined);
     expect(effective.privacy.telemetryEnabled).toBe(false);
+  });
+
+  it('accepts terminal rendering compatibility settings', () => {
+    const { effective, issues } = resolveSettings(
+      { terminal: { renderer: 'software', unicodeVersion: '6' } },
+      undefined,
+    );
+    expect(issues).toHaveLength(0);
+    expect(effective.terminal.renderer).toBe('software');
+    expect(effective.terminal.unicodeVersion).toBe('6');
   });
 
   it('accepts the four coordinated application skins and rejects unknown ones', () => {

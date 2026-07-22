@@ -13,6 +13,13 @@ test.describe('terminal re-mount regressions', () => {
     const fixture = createGitFixture();
     const { app, page } = await launchApp({ env: { PI_IDE_OPEN_WORKSPACE: fixture } });
     try {
+      // This regression reads xterm's DOM rows. Keep it on the software
+      // renderer; WebGL lifecycle/fallback is covered by terminal-rendering.
+      await page.getByTestId('home-settings').click();
+      await page.getByTestId('settings-section-terminal').click();
+      await page.getByTestId('settings-terminal-renderer').selectOption('software');
+      await page.keyboard.press('Escape');
+
       // Terminal A with a distinctive marker in its scrollback.
       await page.keyboard.press('Control+`');
       await expect(page.getByTestId('terminal-panel')).toBeVisible();

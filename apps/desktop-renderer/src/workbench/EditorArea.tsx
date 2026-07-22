@@ -261,7 +261,10 @@ function MonacoPane({
   }, [codeSelection, mdToggleShown, positionFloat]);
 
   return (
-    <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+    <div
+      className={richActive ? 'editor-pane md-rich-pane' : 'editor-pane'}
+      style={{ flex: 1, minHeight: 0, position: 'relative' }}
+    >
       <div
         ref={containerRef}
         style={{ position: 'absolute', inset: 0 }}

@@ -40,6 +40,12 @@ export const SettingsSchema = z.object({
       fontSize: z.number().min(8).max(32).default(12),
       shellPath: z.string().nullable().default(null),
       scrollback: z.number().int().min(100).max(200000).default(5000),
+      /** Prefer the WebGL renderer, but always fall back to xterm's software
+       * renderer when GPU setup or the canvas context fails. */
+      renderer: z.enum(['auto', 'software']).default('auto'),
+      /** Unicode 11 has more complete CJK/emoji width data; Unicode 6 remains
+       * available for TUIs whose wcwidth table expects xterm's core default. */
+      unicodeVersion: z.enum(['6', '11']).default('11'),
       /** ADR-0017 rev.2: auto-move a detected external CLI session to the side
        * panel. Off = detection only decorates in place; moving is a user action. */
       autoPromoteExternal: z.boolean().default(false),
