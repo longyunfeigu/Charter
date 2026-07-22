@@ -4,43 +4,47 @@
 
 ### Let agents move fast. Keep every move in sight.
 
-Charter is a local-first desktop Agent IDE where the Charter Agent, Claude Code, and Codex can work on real repositories—while you watch the edits happen, steer from the running preview, and approve evidence instead of promises.
+**Charter is the local-first cockpit for coding agents that need to show their work.**<br>
+Run the built-in Charter Agent, Claude Code, and Codex on real repositories; watch every edit as it happens, steer from the running product, and approve evidence instead of promises.
 
-[![Development Preview](https://img.shields.io/badge/status-development_preview-C47A19?style=flat-square)](#project-status)
+*The agent says it is done. Charter shows you why you should believe it.*
+
+[![Beta 2](https://img.shields.io/badge/release-v1.0.0--beta.2-C47A19?style=flat-square)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.2)
 [![CI](https://img.shields.io/github/actions/workflow/status/longyunfeigu/Charter/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/longyunfeigu/Charter/actions/workflows/ci.yml)
+[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1B1A16?style=flat-square&logo=apple&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/latest)
+[![Windows](https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/latest)
+[![Linux](https://img.shields.io/badge/Linux-x64-F4B728?style=flat-square&logo=linux&logoColor=111111)](https://github.com/longyunfeigu/Charter/releases/latest)
 [![MIT License](https://img.shields.io/badge/license-MIT-2F855A?style=flat-square)](LICENSE)
-[![Website](https://img.shields.io/badge/website-charter--15n.pages.dev-1B1A16?style=flat-square)](https://charter-15n.pages.dev)
-[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522.19-417E38?style=flat-square&logo=nodedotjs&logoColor=white)](package.json)
-[![Electron](https://img.shields.io/badge/Electron-desktop-47848F?style=flat-square&logo=electron&logoColor=white)](https://www.electronjs.org/)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-[Why Charter](#why-charter) · [Product tour](#product-tour) · [Capabilities](#capability-map) · [Quick start](#quick-start) · [Architecture](#architecture) · [Project status](#project-status)
+[Download Beta](https://github.com/longyunfeigu/Charter/releases/latest) · [Product tour](#product-tour) · [What it does](#what-it-does) · [Quick start](#quick-start) · [Architecture](#architecture)
 
 </div>
 
 ![Charter Session showing the conversation, recorded file activity, inline diff, verification result, and review actions](docs/assets/readme/session-diff.png)
 
-<p align="center"><sub>Conversation, live file activity, code, verification, and the final decision—one Session, one screen.</sub></p>
+<p align="center"><sub>A real Charter Session: conversation, live work, code, verification, and the final decision on one screen. README captures come directly from the Electron app through Playwright.</sub></p>
 
 > [!IMPORTANT]
-> Charter is a **development preview**. Credential-free Beta artifacts are published as unsigned GitHub prereleases with checksums and an SBOM. They may be blocked by operating-system trust policy; build from source if unsigned applications are not permitted. Signed Stable distribution remains open.
+> Charter is a **development preview**. Beta artifacts are unsigned and not notarized, so operating-system trust policy may warn or block them. Published releases include SHA-256 checksums, an SBOM, and a machine-readable manifest. Do not disable OS security globally; build from source if unsigned applications are not permitted on your machine.
 
 ## Why Charter
 
-Coding agents are fast. A spinner is not observability.
+Coding agents are fast. A spinner is not observability, and a generated summary is not proof.
 
-Most agent tools optimize the moment you send a prompt. Charter is built for everything that follows: seeing what is happening now, catching the exact moment your attention is needed, trying the result in context, and deciding whether the work deserves to land.
+Most agent tools optimize the moment you send a prompt. Charter is built for everything that follows: seeing what is happening now, knowing when your attention is needed, trying the result in context, and deciding whether the work deserves to land.
 
 | The usual agent workflow | The Charter workflow |
 | --- | --- |
-| Wait for a transcript or final summary | Watch the current action, file writes, heat, rhythm, commands, and diff as they happen |
-| Leave the conversation to find a browser preview | Open the task's live Preview beside the conversation and point at the exact UI element to change |
-| Keep checking whether the agent is done | Get a clickable completion notice while the Session row ripples and lightly shakes for attention |
-| Repeat the same correction next week | Distill review feedback into an editable project rule, then track where it is injected |
-| Trust a generated “done” message | Review recorded changes, checks, preview evidence, and history before approving or rolling back |
+| Wait for a transcript or final summary | Watch the current action, file writes, commands, and diff as they happen |
+| Switch between chat, terminal, editor, and browser | Keep the conversation, real PTY, files, and live Preview in one Session |
+| Describe a visual bug from memory | Pick the exact element or draw a region and send structured visual context back |
+| Keep checking whether the agent is done | Let Charter call you back to the exact Session that needs attention |
+| Repeat the same correction next week | Distill review feedback into an editable, project-owned rule |
+| Trust a generated "done" message | Review recorded changes, checks, preview evidence, and history before approving |
 
-In Charter, a **Session** is the durable unit of human-agent work—not just a chat:
+In Charter, a **Session** is the durable unit of human-agent work, not just a chat:
 
 ```text
 Session = project + agent + worktree + conversation + plan
@@ -48,204 +52,156 @@ Session = project + agent + worktree + conversation + plan
         + verification + review + replay + memory
 ```
 
-The result is an agent workflow you can leave running without losing the thread—and return to without reconstructing what happened.
+### One continuous loop
+
+| 1. Charter | 2. Watch | 3. Steer | 4. Decide |
+| --- | --- | --- | --- |
+| Choose a project, agent, autonomy mode, model, and verification plan | Follow tool calls, file heat, commands, child workers, and progress live | Attach code, terminal output, screenshots, Preview elements, or a correction mid-run | Inspect Diff and checks, request changes, approve, merge back, or roll back byte-for-byte |
+
+You can leave a long-running Session without losing the thread, then return to the same conversation, PTYs, files, evidence, and decision state.
 
 ## Product tour
 
-### Watch the edit happen—not a spinner
+### Watch the edit happen, not a spinner
 
-The Room narrates the active tool call while the Session canvas shows files heating up as the agent writes. Rhythm bars, a writing beacon, additions/deletions, and the chronological ledger all come from the same recorded events. Click a live file to open its read-only diff-so-far without leaving the conversation.
+The Room narrates the active tool call while the Session canvas shows files heating up as the agent writes. Rhythm bars, write beacons, additions and deletions, and the chronological ledger all project the same recorded events. Click a live file to inspect its diff-so-far without leaving the conversation.
 
 ![Charter showing live file activity, writing heat, rhythm, and the current tool action inside a running Session](docs/assets/readme/live-file-activity.png)
 
-- **Immediate presence:** see the current action, path, elapsed time, token flow, and write state.
+- **Immediate presence:** see the current action, target path, elapsed time, token flow, and read/write state.
 - **File-level signal:** hot, warm, and cooling tiles reveal where work is concentrated.
-- **One event stream:** the Session Rail, timeline, live tiles, Diff, and later Replay agree because they project the same ledger.
-- **Safe steering:** reply while the run is active; you do not have to stop and restart just to add context.
-
-### Walk away. Charter will call you back.
-
-When an agent finishes, needs approval, answers a question, or is ready for review, Charter surfaces a clickable in-app notice. The exact Session also gains a short-lived water-ripple and reply-shake signal in the left rail, so the result is hard to miss without turning the whole app into an alarm panel.
-
-![Charter completion notice with the corresponding Session highlighted by a water-ripple attention effect in the left rail](docs/assets/readme/completion-attention.png)
-
-Click the notice to reveal the exact Session and state. Notifications are configurable, and quiet completed work remains discoverable in Session history.
-
-### Preview in the Room. Point at what should change.
-
-Charter detects a loopback dev server belonging to the task's own tree and opens it directly beside the conversation. No context switch, no vague “the orange text near the button” feedback.
-
-![Charter live Preview beside the Session conversation with an element attachment ready to send back to the agent](docs/assets/readme/live-preview.png)
-
-- **Open at any stage:** the Preview rail remains available during a run, at review, and after full-auto completion.
-- **Pick an element:** select a real page element; Charter attaches its selector, bounds, text, URL, and screenshot to the composer.
-- **Draw a region:** mark a visual area when a selector is not the right language.
-- **Bring errors back:** preview console errors can be surfaced for manual sending or forwarded under the configured policy.
-- **Keep isolation honest:** a worktree Session only shows ports attributed to that task tree—not a lookalike server from the main checkout.
-
-### Turn review feedback into durable Memory
-
-Corrections should improve the next run, but they should never become invisible model folklore. Charter captures review feedback as a candidate, lets you edit or dismiss it, and writes approved rules to the project's git-shareable `.charter/rules.md`.
-
-![Charter Memory manager showing project rules, injection statistics, and optional distribution targets](docs/assets/readme/memory-management.png)
-
-- **Review-as-learning:** request a fix, approve the inline distill card, and reuse the rule on the next managed run.
-- **Inspectable statistics:** see enabled rules, injection counts, repeated slips, and unresolved candidates.
-- **Controlled distribution:** optionally project rules into managed blocks in `CLAUDE.md` or `AGENTS.md`.
-- **No silent overwrite:** hand-edited managed blocks are flagged as drift and require an explicit import, overwrite, or stop decision.
-- **Private memory stays private:** browse supported Claude Code and Codex memory locations, then explicitly promote a copy into a Charter rule candidate when useful.
+- **Safe steering:** add instructions and structured context while the run is active instead of restarting it.
+- **One event stream:** the Rail, Room, Diff, Review, and Replay agree because they read the same ledger.
 
 ### One composer, whichever agent fits the job
 
-Choose the managed Charter Agent, Claude Code, or Codex from the same Session composer. Pick the project, permission mode, model, thinking level, and verification plan before the run begins.
+Start the managed Charter Agent, Claude Code, or Codex from the same composer. Choose the project, permission mode, model, thinking level, and checks before work begins.
 
 ![Charter composer with Charter Agent, Claude Code, and Codex in one agent picker](docs/assets/readme/agent-picker.png)
 
-The managed Charter Agent runs through the Tool Gateway. Installed Claude Code and Codex CLIs keep their native terminal experience and conversation identity, while Charter preserves the PTY, accounts for repository changes, and brings the result into the same review model.
+The managed agent works through Charter's Tool Gateway. Installed Claude Code and Codex CLIs keep their native terminal experience and conversation identity while Charter preserves the PTY, accounts for repository changes, and brings the outcome into the same review model.
+
+A Session can also direct a visible fleet of shell, Claude Code, and Codex workers. Workers stay attributable and open for follow-up; approvals, pause/takeover state, and control actions remain visible instead of disappearing into background jobs.
+
+### Preview the real product and point at the problem
+
+Charter detects a loopback dev server belonging to the task's own tree and opens it beside the conversation. There is no context switch and no vague "the orange text near the button" feedback.
+
+![Charter live Preview beside the Session conversation with an element attachment ready to send back to the agent](docs/assets/readme/live-preview.png)
+
+- **Open at any stage:** keep Preview available during the run, at review, and after completion.
+- **Pick an element:** attach its selector, bounds, text, page URL, and screenshot.
+- **Draw a region:** mark a visual area when a DOM selector is not the right language.
+- **Bring errors back:** send captured Preview console errors manually or through a bounded policy.
+- **Keep isolation honest:** a worktree Session only shows servers attributed to that task tree.
+
+### Walk away; Charter will call you back
+
+When an agent finishes, needs approval, answers a question, or is ready for review, Charter surfaces a clickable notice. The exact Session gains a short-lived ripple and reply signal in the Rail, making it easy to find without turning the whole app into an alarm panel.
+
+![Charter completion notice with the corresponding Session highlighted by a water-ripple attention effect in the left rail](docs/assets/readme/completion-attention.png)
+
+Notifications are configurable, and quiet completed work remains discoverable in Session history.
 
 ### Proof before approval
 
-Review is not a summary modal at the end of the chat. Charter keeps the outcome, changed files, additions/deletions, verification history, and final actions together. Inspect the inline Diff, rerun checks, request a fix with code context, roll back byte-for-byte, or approve the recorded change set.
+Review is not a summary modal at the end of a chat. Charter keeps the outcome, changed files, additions and deletions, verification history, and final actions together.
 
 ![Charter review surface showing changed files, a passed verification run, and request, rollback, and approve actions](docs/assets/readme/session-review.png)
 
-Checks keep their history: a new run does not overwrite the old one, and stale or superseded evidence stays visible. Completed Sessions can be replayed through result-first **Recap**, deeper **Explore**, and evidence-focused **Verify** views.
+Inspect an inline or accessible text Diff, rerun checks, request a fix with line context, roll back the recorded change set, or approve it. Check history is immutable: a new run never overwrites an old failure, and stale or superseded evidence stays visible. Completed Sessions open in result-first **Recap**, deeper **Explore**, and evidence-focused **Verify** views.
 
-## Capability map
+### Make corrections improve the next run
 
-Charter is more than a chat surface around a model API. It combines agent orchestration, a desktop IDE, controlled execution, live observability, visual feedback, durable evidence, and project learning in one Session model.
+Charter captures review feedback as a Memory candidate, lets you edit or dismiss it, and writes approved rules to the project's git-shareable `.charter/rules.md`.
 
-### At a glance
+![Charter Memory manager showing project rules, injection statistics, and optional distribution targets](docs/assets/readme/memory-management.png)
 
-| Capability | What it changes |
-| --- | --- |
-| **Structured context** | Attach files, folders, selected line ranges, search results, terminal output, images, and preview feedback as typed references—not pasted guesswork |
-| **Isolated worktrees** | Let coding Sessions work away from your main checkout, then review, merge back, discard, or roll back explicitly |
-| **Real terminals** | Keep persistent PTYs, command blocks, progress, reruns, and external CLI sessions inside the same desktop workspace |
-| **Visible worker fleets** | Let one Session create and direct visible shell, Claude Code, or Codex workers while approvals, pause/takeover state, and every control action stay attributable |
-| **Quick Console** | Press `⌥Space` for a persistent scratch/project terminal and send selected output straight into the current Room |
-| **Managed skills** | Audit, enable, and invoke skills through the `/` picker; linked skill sources update live only after you trust them |
-| **Four autonomy modes** | Choose Read, Approve, Auto, or Full; permission boundaries and blocked operations remain explicit |
-| **Verification & Replay** | Record checks, preview evidence, approvals, and a reproducible receipt instead of collapsing history into “passed” |
-| **Local-first state** | Keep projects, task state, evidence, and Memory on your machine; provider credentials never enter the renderer |
+- **Review as learning:** turn a requested fix or plan correction into an explicit reusable rule.
+- **Measured reuse:** see where rules were injected and whether the same slip happened again.
+- **Controlled distribution:** optionally project managed blocks into `CLAUDE.md` or `AGENTS.md`.
+- **No silent overwrite:** hand-edited managed blocks require an explicit import, overwrite, or stop decision.
+- **Private memory stays private:** external CLI memory is only promoted into project rules when you choose.
 
-### Session and agent orchestration
+## What it does
 
-- **One durable Session object:** the goal, plan, conversation, agent identity, worktree, files, terminals, Preview, checks, decisions, Replay, and Memory provenance stay linked after the run ends.
-- **Three execution backends:** start the managed Charter Agent, Claude Code, or Codex from the same composer without forcing every backend into the same runtime model.
-- **Plan-aware execution:** managed write tasks can propose a plan, wait for approval or revision, and refuse plan-gated writes until the plan is accepted.
-- **Mid-run steering:** add instructions and structured context while the agent is working instead of restarting the entire task.
-- **Conversation continuity:** follow up on managed Sessions and resume supported external CLI conversations with their recorded identity and working directory.
-- **Global multi-project rail:** keep Sessions from multiple repositories visible while each task retains its own project context and state.
-- **Session-directed worker fleets:** a managed agent or an authenticated Claude Code/Codex terminal can create, read, send to, and wait for visible sibling PTYs through the same Tool Gateway and Permission Engine. Workers remain open for follow-up until the user closes them.
-- **Fleet and director UI:** worker Sessions nest under their commander in the rail; the commander Room adds live monitor tiles, pause-all, per-worker pause/takeover, synchronized approval cards, and an automatic or locked/manual director stage.
-- **Four autonomy modes:** Read, Approve, Auto, and Full change how plans and permissions are handled without removing hard safety boundaries.
+Charter combines agent orchestration, a desktop IDE, controlled execution, live observability, visual feedback, durable evidence, and project learning in one Session model.
 
-### Live execution and attention
+### Sessions and agent orchestration
 
-- **Current-action narration:** see the active tool, target path, elapsed time, token flow, and whether the agent is reading, writing, waiting, or verifying.
-- **Live file presence:** event-driven heat tiles, write rhythms, diff statistics, and a writing beacon reveal where the run is changing the repository right now.
-- **Shared evidence stream:** the Session Rail, Room timeline, live tiles, Diff, Review, and Replay are projections of the same recorded task events.
-- **Thinking visibility:** optionally show the live reasoning stream as a collapsible, explicitly non-evidence block.
-- **Attention without babysitting:** clickable completion notices, Session-row ripple/shake signals, needs-attention filters, and configurable system notifications bring you back to the exact task.
-- **Honest lifecycle states:** distinguish working, waiting for approval, ready for review, answered, accepted, rolled back, interrupted, and ended external sessions.
+- **Three execution backends:** use the managed Charter Agent, Claude Code, or Codex without flattening their different trust models into one fiction.
+- **Four autonomy modes:** choose Read, Approve, Auto, or Full while hard safety boundaries remain explicit.
+- **Plan-aware execution:** write tasks can propose a plan and wait for approval before plan-gated changes begin.
+- **Visible worker fleets:** create and direct sibling shell or agent PTYs with a live monitor, synchronized approvals, pause-all, and per-worker takeover.
+- **Conversation continuity:** keep following up on managed Sessions and resume supported external CLI conversations with their original identity and working directory.
+- **Multi-project Rail:** monitor Sessions across repositories while every task retains its own project context, worktree, and state.
 
-### Context, files, and IDE workflow
+### Observe and steer
 
-- **Typed context references:** attach files, folders, frozen line selections, images, search results, terminal excerpts, and Preview captures with provenance instead of flattening them into prompt prose.
-- **Drag-and-drop context:** drag from the project tree or the operating system into the Room; out-of-project images are imported as bounded task attachments.
-- **In-Room File Peek:** inspect a file or diff beside the conversation, pin multiple tabs, and preserve the task's worktree boundary.
-- **Project navigation:** use the persistent file tree, Quick Open, global search, regex replace preview, Git Changes, Problems, and the command palette.
-- **Language intelligence:** diagnostics, go-to-definition, and rename preview are available for supported language services.
-- **Editor continuity:** drafts, selected context, open files, and the Room's reading position survive movement between the Session and Editor surfaces.
+- **Live file presence:** see write heat, rhythm, diff statistics, and a writing beacon while changes land.
+- **Structured context:** attach files, folders, frozen line selections, images, search results, terminal excerpts, and Preview captures with provenance.
+- **Screenshot express:** on supported macOS setups, a new screenshot or clipboard capture can be attached to the active agent, annotated, or filed into project assets.
+- **Attention routing:** completion notices, needs-attention filters, Rail signals, and system notifications return you to the exact Session.
+- **Session archaeology:** discover supported local Claude Code and Codex histories, inspect their project attribution, and adopt resumable work into Charter.
+- **Honest lifecycle states:** distinguish working, waiting, review-ready, answered, accepted, rolled back, interrupted, and ended external sessions.
 
-### Isolation and change control
+### Files, editor, and terminals
 
-- **Task-scoped Git worktrees:** coding Sessions can run against an isolated tree while the main checkout remains available for normal work.
-- **Per-project execution contexts:** documents, changes, permissions, tools, and verification services are mounted against the correct repository or worktree root.
-- **Recorded file operations:** writes create change records and content checkpoints used by Diff, Review, Replay, conflict checks, and rollback.
-- **Conflict-aware merge back:** Charter checks whether the main project changed while the task ran before applying isolated work.
-- **Byte-exact rollback:** restore the recorded baseline rather than asking the model to “undo what it did.”
-- **Reviewable change sets:** inspect files, hunks, additions/deletions, verification state, and stale review data before deciding.
+- **One project tree:** browse, create, rename, trash, drag as context, and inspect Git decorations without a second competing file explorer.
+- **IDE navigation:** use Quick Open, global search and replace preview, Git Changes, Problems, and the command palette.
+- **Language intelligence:** diagnostics, go-to-definition, and rename preview are available through supported language services.
+- **Persistent real PTYs:** terminals survive surface changes and preserve command boundaries, output, exit status, duration, progress, and reruns.
+- **Quick Console:** press `Option+Space` for a persistent scratch or project terminal, then send selected output into the current Room.
+- **Clickable terminal paths:** command output can open a file, line, or local HTML page directly in Charter or the default browser.
+- **Four coordinated skins:** Studio, Terminal, Archive, and Index change the complete interface language, not just one accent color.
 
-### Preview and visual feedback
+### Preview, change control, and evidence
 
-- **Task-attributed server detection:** discover loopback ports by process working directory so a worktree Session does not accidentally show the main checkout's server.
-- **Room-native Preview:** keep the running product beside the agent conversation during execution, review, or after full-auto completion.
-- **One-click dev start:** launch the detected project dev command in a background task terminal and keep the Preview surface in place.
-- **Element Pick:** capture a real selector, element text, bounds, page URL, and screenshot as a structured feedback attachment.
-- **Draw mode:** mark a visual region when the problem is spatial rather than DOM-addressable.
-- **Console feedback:** surface loopback Preview errors and send them manually or under a bounded auto-forward policy.
-- **Visible acceptance:** combine code changes, checks, screenshots, visual feedback, and the final product decision in the same review loop.
+- **Task-attributed Preview:** discover loopback ports by process working directory so the wrong checkout cannot impersonate the task's app.
+- **Isolated Git worktrees:** let coding Sessions work away from the main checkout, then review, merge back, discard, or roll back explicitly.
+- **Recorded file operations:** writes create checkpoints used by Diff, Review, Replay, conflict checks, and byte-exact rollback.
+- **Immutable verification history:** preserve passed, failed, stale, and superseded check results rather than replacing history with one green badge.
+- **Evidence-first Review:** keep outcome, files, hunks, checks, Preview evidence, and the final decision together.
+- **Reproducible Replay:** export bounded HTML/JSON receipts with per-row hashes and an explicit statement of what the ledger cannot prove.
+- **Side-effect-free PR draft:** prepare branch, body, and command guidance without silently committing, pushing, or publishing anything.
 
-### Terminals and external agents
+### Memory and skills
 
-- **Persistent real PTYs:** terminals survive tab and surface changes instead of being reconstructed from command logs.
-- **Legible command blocks:** preserve command boundaries, output, exit status, duration, progress, rerun relationships, and jump navigation.
-- **Quick Console:** open a persistent scratch or project terminal with `⌥Space`, then send selected output directly into the current Room.
-- **Terminal-to-context flow:** attach command output to a managed agent without copying unbounded scrollback into the prompt.
-- **External CLI detection:** recognize supported Claude Code and Codex processes, preserve their terminal UI, and account for repository changes around the live session.
-- **Conversation identity and resume:** record supported external session IDs so continuation targets the original conversation instead of whichever CLI session happens to be newest.
-- **Authenticated local control door:** Charter-launched Claude Code and Codex sessions receive six native `charter` MCP tools plus a `charter-terminal` command fallback; both use a per-terminal, memory-only capability for the `0600` Unix socket, translate back into the same audited Gateway path, and disappear when Session orchestration is disabled.
-- **One-click CLI manual install:** Settings installs the `charter-terminal` skill into Charter's Skills store plus `~/.claude/skills` and `~/.codex/skills` with a freshness check, so hand-launched claude/codex sessions (aliases, custom PATH) can also discover and drive the control door.
-- **Observed vs. managed honesty:** external CLIs enter the same review workflow without pretending Charter controlled their internal permissions or reasoning stream.
-
-### Verification, review, and Replay
-
-- **Configured verification plans:** choose known checks before a run or execute recorded checks from Review.
-- **Immutable check history:** reruns do not erase failures; passed, failed, stale, and superseded results remain distinguishable.
-- **Evidence-first Review:** keep the agent's outcome, changed files, Diff, checks, Preview, and final actions together.
-- **Request changes with context:** steer a fix from a selected line or visual issue and retain the correction in the Session record.
-- **Approve, merge, or roll back:** the decision acts on the recorded change set, not on a generated completion claim.
-- **PR draft from evidence:** prepare copyable branch, body, and command guidance without silently creating commits, branches, or pushes.
-- **Three Replay depths:** use **Recap** for the result, **Explore** for the semantic story, and **Verify** for cited evidence and the receipt.
-- **Evidence-bounded receipts:** export a reproducible HTML/JSON record with per-row hashes and an explicit boundary around what the ledger cannot prove.
-
-### Memory and managed skills
-
-- **Review-as-learning:** capture request-fix and plan corrections as editable Memory candidates rather than silently changing future behavior.
-- **Git-shareable project rules:** approved rules live in `.charter/rules.md`, while injection counts and candidate state remain machine-local.
-- **Measured reuse:** track how many tasks received a rule and whether the same correction slipped again.
-- **Controlled projections:** optionally sync managed blocks into `CLAUDE.md` or `AGENTS.md` with explicit drift handling—never a silent overwrite.
-- **Private-memory boundaries:** discover supported external CLI memory locations through opaque IDs, then explicitly view, promote, edit, or backup-delete supported files.
-- **Auditable skills:** inspect `SKILL.md` and bundled files, flag scripts, choose Off or Auto, and invoke enabled skills from the `/` picker.
-- **Trusted live sources:** external Agent Skills sources remain off until trusted, then file changes can update the running catalog without copying ownership into Charter.
+- **Project-owned rules:** approved Memory lives in `.charter/rules.md`; candidate state and usage counters stay machine-local.
+- **Drift-aware projections:** sync controlled blocks into external instruction files without overwriting hand edits silently.
+- **Auditable skills:** inspect `SKILL.md` and bundled files, flag scripts, enable trusted sources, and invoke skills from the `/` picker.
+- **Live skill sources:** trusted Agent Skills directories can update the catalog without copying ownership into Charter.
+- **Usage insight:** see which skills were used, by which supported consumer, and where unused or costly context may need cleanup.
 
 ### Local state, security, and privacy
 
-- **Narrow renderer bridge:** the UI uses a sandboxed Preload and versioned schema-validated IPC instead of direct Node or filesystem access.
-- **Isolated model loop:** the Agent Worker owns the managed model runtime but has no direct filesystem tools, database, or secrets at rest.
-- **Tool Gateway boundary:** every managed tool call is schema-checked, path-bounded, permission-classified, executed, redacted, and audited in Electron Main.
-- **R0–R4 policy:** read, write, local execution, consequential external operations, and blocked operations have explicit product treatment.
-- **OS-backed credentials:** provider secrets are encrypted with Electron `safeStorage`; the renderer receives redacted metadata only.
-- **Local evidence ledger:** task events, decisions, verification history, Replay facts, and Memory metadata are stored locally in SQLite and bounded blob stores.
-- **Preview containment:** embedded pages are limited to detected loopback servers with navigation, window-open, permission, and frame policies.
-- **Privacy controls:** crash previews are redacted, transport claims remain explicit, and local history deletion covers task-derived records.
+- **Sandboxed renderer:** the UI reaches privileged capabilities only through a narrow Preload bridge and versioned, schema-validated IPC.
+- **Isolated model loop:** the Agent Worker owns the managed model runtime but has no direct filesystem, database, or at-rest secret access.
+- **Tool Gateway boundary:** managed calls are schema-checked, path-bounded, permission-classified, redacted, executed, and audited in Electron Main.
+- **OS-backed credentials:** provider secrets use Electron `safeStorage`; the renderer receives redacted metadata only.
+- **Local evidence ledger:** projects, task state, decisions, Replay facts, and Memory metadata remain in local SQLite and bounded blob stores.
+- **Preview containment:** embedded pages are limited to detected loopback servers with navigation, popup, permission, and frame policies.
 
-### Desktop reliability and accessibility
-
-- **Real desktop windowing:** Electron owns native menus, theme following, persisted window state, notifications, and terminal process lifecycles.
-- **Responsive Session canvas:** the conversation and tool canvas resize, reorder at narrow widths, and preserve a user-adjusted split.
-- **Accessible Diff:** line-based text mode, keyboard hunk navigation, focus outlines, and live announcements support non-visual review.
-- **UI zoom:** scale the complete desktop surface—including Monaco and terminals—from 80% to 200%.
-- **Bounded large-session rendering:** timeline windows, stream caps, virtualized lists, and large-tree budgets keep long-running work inspectable.
+> [!NOTE]
+> Local-first does not mean offline inference. Prompts and the context you attach are sent to the model endpoint you configure and remain subject to that provider's data policy. External Claude Code and Codex sessions also retain their own permission and network models.
 
 ## Quick start
 
-### Download the unsigned beta
+### Download the unsigned Beta
 
-Download the current artifacts and `SHA256SUMS.txt` from
-[GitHub Releases](https://github.com/longyunfeigu/Charter/releases). The macOS and Windows binaries
-are unsigned and not notarized; read the [known limitations](docs/KNOWN_LIMITATIONS.md) before launch.
-Updates are manual in this preview.
+Download the current artifact and `SHA256SUMS.txt` from the [latest GitHub Release](https://github.com/longyunfeigu/Charter/releases/latest).
 
-### Prerequisites
+| Platform | Artifact | Preview target |
+| --- | --- | --- |
+| macOS | `.dmg` or `.zip` | Apple Silicon (`arm64`) |
+| Windows | NSIS installer | `x64` |
+| Linux | `.tar.gz` | `x64` Preview |
 
-- [Node.js](https://nodejs.org/) **22.19 or newer** (Node 24 is used in CI)
-- npm
-- Git
+The binaries are unsigned and not notarized. Gatekeeper, SmartScreen, Smart App Control, enterprise policy, or antivirus software may refuse to launch them. Read the [release notes](docs/RELEASE_NOTES.md), [known limitations](docs/KNOWN_LIMITATIONS.md), [privacy notice](PRIVACY.md), and [security policy](SECURITY.md) before using the preview on an important repository. Updates are manual.
 
 ### Run from source
+
+Prerequisites: [Node.js](https://nodejs.org/) **22.19 or newer**, npm, and Git.
 
 ```bash
 git clone https://github.com/longyunfeigu/Charter.git
@@ -257,54 +213,79 @@ npm run dev
 On first launch:
 
 1. Open a Git project.
-2. Open **Settings → Models**, add a provider, and fetch its model list.
-3. Create a Session, choose the agent and permission mode, then describe the outcome you want.
+2. Open **Settings -> Models**, add a provider, and fetch its model list.
+3. Create a Session, choose an agent and autonomy mode, then describe the outcome you want.
+4. Attach files, lines, images, or a verification plan when the task needs concrete context.
+5. Follow the live Session and review the recorded evidence before accepting changes.
 
-Charter currently includes presets for Anthropic, OpenAI, OpenRouter, and LiteLLM, plus custom Anthropic- or OpenAI-compatible endpoints. Credentials are encrypted with Electron's OS-backed `safeStorage`; the renderer sees only redacted configuration metadata.
+Charter includes presets for Anthropic, OpenAI, OpenRouter, and LiteLLM, plus custom Anthropic- or OpenAI-compatible endpoints.
 
-> [!NOTE]
-> Local-first describes Charter's project orchestration, state, evidence, and Memory storage—not offline inference. Prompts and the context you attach are sent to the model endpoint you configure and remain subject to that provider's data policy.
-
-To explore the complete flow without a provider key on macOS or Linux, use the deterministic mock runtime:
+To explore the complete managed flow without a provider key on macOS or Linux, use the deterministic mock runtime:
 
 ```bash
 PI_IDE_FORCE_MOCK=1 npm run dev
 ```
 
-To use **Claude Code** or **Codex** as external agents, install their CLI separately and make sure its executable is available on `PATH`.
+To use **Claude Code** or **Codex** as external agents, install the CLI separately and ensure its executable is on `PATH`.
+
+## Shortcuts
+
+macOS keys are shown; use `Ctrl` in place of `Command` on Windows and Linux where applicable.
+
+| Action | Shortcut | Action | Shortcut |
+| --- | --- | --- | --- |
+| Search everything | `Command+K` | New Session | `Command+N` |
+| Open Editor | `Command+E` | Quick Console | `Option+Space` |
+| Command Palette | `Command+Shift+P` | Quick Open | `Command+P` |
+| Open project | `Command+O` | Workspace search | `Command+Shift+F` |
+| Toggle Agent panel | `Command+L` | Toggle bottom panel | `Command+J` |
+| New terminal | `Control+Backtick` | Stop active agent | `Command+Escape` |
 
 ## Architecture
 
-Charter separates the product into six cooperating planes. Solid arrows in the map are command/result paths; dashed arrows are events and durable evidence. The managed Agent Worker and external CLI PTYs are intentionally separate execution paths with different trust guarantees.
+Charter separates the experience, model loop, tool execution, project services, and durable evidence into distinct trust boundaries.
 
 ![Detailed six-layer Charter architecture showing the experience, trust bridge, control, execution, workspace services, and evidence data planes](docs/assets/readme/architecture.webp)
 
 | Plane | Responsibility |
 | --- | --- |
-| **01 — Experience** | Session Rail, Task Room, Editor, Review/Replay, Preview/Terminal, and Memory/Skills surfaces |
-| **02 — Trust bridge** | Sandboxed Preload and versioned IPC schemas—the renderer's only route into privileged capabilities |
-| **03 — Control** | Task state, project contexts, Tool Gateway, permissions, external-session accounting, Preview, Replay, and Memory orchestration |
-| **04 — Execution** | The isolated managed Agent Worker and separately trusted Claude Code/Codex PTYs |
-| **05 — Workspace services** | Workspace, documents, search/language, Git/change tracking, terminal, and verification services |
-| **06 — Evidence & data** | SQLite ledger, content blobs and attachments, isolated worktrees, project rules, and OS-backed secrets |
+| **01 - Experience** | Session Rail, Room, Editor, Preview, Terminal, Review, Replay, Memory, and Skills |
+| **02 - Trust bridge** | Sandboxed Preload and versioned IPC schemas, the renderer's only route to privileged capabilities |
+| **03 - Control** | Task state, project contexts, Tool Gateway, permissions, Preview, Replay, and orchestration |
+| **04 - Execution** | The isolated managed Agent Worker and separately trusted Claude Code/Codex PTYs |
+| **05 - Workspace services** | Documents, search/language, Git/change tracking, terminals, and verification |
+| **06 - Evidence and data** | SQLite ledger, content blobs, attachments, worktrees, project rules, and OS-backed secrets |
 
-The managed **Agent Worker** owns the model loop, but it cannot directly read files, run commands, or access secrets. Tool requests return to **Electron Main**, where the Tool Gateway validates schemas and workspace boundaries, applies permission policy, executes the operation, redacts sensitive output, and records evidence.
+The managed **Agent Worker** owns the model loop but cannot directly read files, run commands, or access secrets. Tool requests return to **Electron Main**, where the Tool Gateway validates schemas and workspace boundaries, applies permission policy, executes the operation, redacts sensitive output, and records evidence.
 
-External Claude Code and Codex sessions deliberately have a different boundary. Charter preserves their real PTY, detects lifecycle and conversation identity, accounts for repository changes, and brings the result into review; the external CLI still owns its internal permission model.
-
-Local SQLite is the evidence ledger. Project mutations go through workspace services and, for isolated coding Sessions, land in a dedicated Git worktree. Provider credentials are resolved outside the renderer.
+External Claude Code and Codex sessions deliberately have a different boundary. Charter preserves their real PTY, observes lifecycle and conversation identity, accounts for repository changes, and brings the result into Review; the external CLI still owns its internal permission model.
 
 ### Permission model
 
 | Level | Typical operation | Default treatment |
 | --- | --- | --- |
-| **R0 — Read** | Read files, search, diagnostics, `git status` / `diff` | Allowed |
-| **R1 — Workspace write** | Create or edit files inside the isolated worktree | Ask, or allow after plan/mode policy |
-| **R2 — Local execution** | Known local commands and verification | Known checks may run; unknown commands ask |
-| **R3 — External / consequential** | Networked or consequential operations | Explicit confirmation every time unless a documented mode policy applies |
-| **R4 — Blocked** | `sudo`, `git push`, secret reads, writes outside the workspace, broad destructive commands | Rejected by the product |
+| **R0 - Read** | Read files, search, diagnostics, `git status` and `git diff` | Allowed |
+| **R1 - Workspace write** | Create or edit files inside the isolated worktree | Ask, or allow after plan/mode policy |
+| **R2 - Local execution** | Known local commands and verification | Known checks may run; unknown commands ask |
+| **R3 - External or consequential** | Networked or consequential operations | Explicit confirmation unless a documented mode policy applies |
+| **R4 - Blocked** | `sudo`, `git push`, secret reads, outside-workspace writes, broad destructive commands | Rejected by the product |
 
-Application-level permissions are not an operating-system sandbox. Review commands before approval and use isolated environments for untrusted repositories or instructions.
+Application-level permissions are not an operating-system sandbox. Review commands before approval and use additional isolation for untrusted repositories or instructions.
+
+## Built with
+
+| Layer | Core technology |
+| --- | --- |
+| Desktop shell | Electron 43, sandboxed Preload, hardened packaging fuses |
+| Interface | React 19, Zustand, Vite |
+| Editing | Monaco Editor, MDXEditor, React Markdown |
+| Terminal | node-pty, xterm.js, WebGL, Unicode 11 support |
+| Search | ripgrep-backed workspace search |
+| Agent runtime | Pi coding-agent adapter plus external Claude Code/Codex PTYs |
+| Quality | TypeScript, Vitest, Playwright Electron, security and performance gates |
+| Distribution | electron-builder, checksums, SPDX SBOM, release manifest |
+
+The exact third-party inventory is generated from the release lockfile. See [THIRD_PARTY_LICENSES.md](docs/THIRD_PARTY_LICENSES.md) for how published artifacts record licenses and notices.
 
 ## Repository layout
 
@@ -322,16 +303,16 @@ packages/
 tests/
   unit + security + performance + Playwright Electron E2E
 docs/
-  product specification, ADRs, implementation status, and release evidence
+  product specification, ADRs, implementation status, release evidence
 ```
 
-Useful design and engineering references:
+Useful references:
 
-- [Implementation status](docs/IMPLEMENTATION_STATUS.md) — what is implemented, verified, or still in progress
-- [Product and engineering specification](docs/PRODUCT_ENGINEERING_SPEC.md) — requirements, state machines, security, and acceptance criteria
-- [Session-first UX pivot](docs/UX_PIVOT_SPEC.md) — the product-object and shell model
-- [Architecture decisions](docs/DECISIONS.md) — ADR index and rationale
-- [Release checklist](docs/RELEASE_CHECKLIST.md) — what still blocks a stable release
+- [Implementation status](docs/IMPLEMENTATION_STATUS.md) - evidence-backed feature and milestone status.
+- [Product and engineering specification](docs/PRODUCT_ENGINEERING_SPEC.md) - requirements, state machines, security, and acceptance criteria.
+- [Session-first UX specification](docs/UX_PIVOT_SPEC.md) - the product object and shell model.
+- [Architecture decisions](docs/DECISIONS.md) - ADR index and rationale.
+- [Release checklist](docs/RELEASE_CHECKLIST.md) - completed Beta gates and remaining Stable gates.
 
 ## Development
 
@@ -366,21 +347,21 @@ CHARTER_README_SHOTS=1 npx playwright test \
 
 ## Project status
 
-Charter is being developed in public toward its first stable desktop release.
+Charter is being developed in public toward its first signed Stable desktop release.
 
-- The Session-first shell, managed agent path, external CLI accounting, live file presence, code context, Preview, Terminal, Verification, Review, Replay, Memory, skills, and core security boundaries are implemented.
-- Credential-free macOS/Windows/Linux packaging, release manifests, checksums, SBOM/license inventory, packaged-app smoke tests, and database upgrade/restore rehearsals are implemented for the unsigned Beta channel.
-- Signing/notarization, automatic updates, real-provider fixed-task qualification, and final Stable release remain blocked/open.
-- The intended stable targets are macOS and Windows; Linux is a preview target.
+- **Published now:** `v1.0.0-beta.2` is the first downloadable unsigned preview for macOS Apple Silicon, Windows x64, and Linux x64.
+- **Implemented on the current source tree:** the Session-first shell, managed agent path, external CLI accounting and orchestration, live file presence, structured context, Preview, Terminal, Verification, Review, Replay, Memory, Skills, and core security boundaries.
+- **Release pipeline:** three-platform packaging, manifests, checksums, SBOM/license inventory, packaged-app smoke tests, database upgrade/restore rehearsal, and credential-free gates are in place.
+- **Still open for Stable:** Apple notarization, trusted Windows signing, automatic updates, fixed-task real-provider qualification, and final owner sign-off.
 
-See [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for the evidence-backed status of each milestone and [RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) for the remaining release gates.
+The README follows the current source tree; the downloadable Beta may trail ongoing work on `main`. See the [Beta 2 release notes](docs/RELEASE_NOTES.md) for its exact contents and [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for current evidence.
 
 ## Contributing
 
 Contributions that strengthen the Session model, evidence quality, platform reliability, security boundaries, accessibility, or release readiness are especially welcome.
 
 1. Read [AGENTS.md](AGENTS.md) and the relevant product or ADR documentation.
-2. Pick a scoped item from the [implementation backlog](docs/IMPLEMENTATION_BACKLOG.md) or open an issue describing the behavior you want to change.
+2. Pick a scoped item from the [implementation backlog](docs/IMPLEMENTATION_BACKLOG.md), or open an issue describing the behavior you want to change.
 3. Keep architectural boundaries intact and add tests proportional to the risk.
 4. Run `npm run check`, `npm test`, and `npm run build` before opening a pull request; include targeted Electron E2E evidence for UI changes.
 
@@ -389,3 +370,13 @@ Please do not mark speculative or partially implemented behavior as complete. Ch
 ## License
 
 Charter is available under the [MIT License](LICENSE).
+
+---
+
+<div align="center">
+
+**Prompts start the work. Evidence earns the approval.**
+
+[Download Beta](https://github.com/longyunfeigu/Charter/releases/latest) · [Website](https://charter-15n.pages.dev) · [Report an issue](https://github.com/longyunfeigu/Charter/issues)
+
+</div>
