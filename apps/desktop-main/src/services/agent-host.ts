@@ -50,7 +50,6 @@ interface ActiveRun {
 export class AgentHost {
   private worker: UtilityProcess | null = null;
   private runtimeKind: RuntimeKind | null = null;
-  private readyPromise: Deferred<void> | null = null;
   /** In-flight spawn+init; concurrent ensure() calls join it instead of
    * racing requests into a worker whose runtime is not initialized yet. */
   private spawnPromise: Promise<void> | null = null;
@@ -98,6 +97,7 @@ export class AgentHost {
   async ensure(kind: RuntimeKind): Promise<void> {
     // Bounded by construction: each pass either returns, joins an in-flight
     // spawn, or spawns itself; a successful spawn satisfies the first check.
+    let joinFailed = false;
     for (;;) {
       if (this.disposed) {
         throw new ProductFailure(
@@ -109,7 +109,15 @@ export class AgentHost {
       // "worker exists" fast path) posted requests to a worker whose runtime
       // had not been initialized yet: the cold-start models.list failure.
       if (this.spawnPromise) {
-        await this.spawnPromise;
+        try {
+          await this.spawnPromise;
+        } catch (e) {
+          // A joined spawn can die through no fault of ours — stopWorker()
+          // kills a mid-handshake worker when credentials change. Retry with
+          // a fresh spawn once; a second failure is the caller's to see.
+          if (joinFailed) throw e;
+          joinFailed = true;
+        }
         continue;
       }
       if (this.worker && this.runtimeKind !== kind) {
@@ -137,7 +145,7 @@ export class AgentHost {
 
   private async spawn(kind: RuntimeKind): Promise<void> {
     const workerPath = join(app.getAppPath(), 'apps/agent-worker/dist/worker.mjs');
-    this.readyPromise = deferred<void>();
+    const ready = deferred<void>();
     this.runtimeKind = kind;
     this.initialized = false;
 
@@ -153,8 +161,32 @@ export class AgentHost {
       this.logger.warn(`worker stderr: ${chunk.toString().slice(0, 400)}`),
     );
 
-    child.on('message', (raw: unknown) => this.onMessage(raw as WorkerOutbound));
+    child.on('message', (raw: unknown) => {
+      const message = raw as WorkerOutbound;
+      // Resolve the handshake of THIS spawn only — a late 'ready' from a
+      // worker being replaced must not vouch for its successor.
+      if (message.type === 'ready') {
+        ready.resolve();
+        return;
+      }
+      this.onMessage(message);
+    });
     child.on('exit', (code) => {
+      // Abort an in-flight handshake at once — without this a worker killed
+      // mid-spawn (stopWorker on a credential change) stalls every joined
+      // ensure() for the full ready timeout while models.list serves an
+      // empty catalog. Settling twice is a no-op, so a late exit is safe.
+      ready.reject(
+        new ProductFailure(
+          productError('AG_WORKER_EXIT', {
+            userMessage: 'The agent worker exited during startup.',
+            retryable: true,
+          }),
+        ),
+      );
+      // A stale exit from a worker that has already been replaced must not
+      // tear down its successor's state or reject the successor's requests.
+      if (this.worker !== null && this.worker !== child) return;
       const wasInitialized = this.initialized;
       this.worker = null;
       this.initialized = false;
@@ -191,7 +223,7 @@ export class AgentHost {
 
     // Wait for ready handshake.
     const readyTimeout = setTimeout(() => {
-      this.readyPromise?.reject(
+      ready.reject(
         new ProductFailure(
           productError('AG_WORKER_START_TIMEOUT', {
             userMessage: 'The agent worker did not start in time.',
@@ -201,7 +233,7 @@ export class AgentHost {
       );
     }, 15000);
     try {
-      await this.readyPromise.promise.finally(() => clearTimeout(readyTimeout));
+      await ready.promise.finally(() => clearTimeout(readyTimeout));
 
       // Initialize the runtime.
       const credentials = kind === 'pi' ? this.secrets.credentialsForWorker() : [];
@@ -235,9 +267,6 @@ export class AgentHost {
 
   private onMessage(message: WorkerOutbound): void {
     switch (message.type) {
-      case 'ready':
-        this.readyPromise?.resolve();
-        break;
       case 'response': {
         const pendingReq = this.pending.get(message.reqId);
         if (pendingReq) {
@@ -369,16 +398,21 @@ export class AgentHost {
   }
 
   async stopWorker(): Promise<void> {
-    if (!this.worker) return;
-    this.post({ type: 'shutdown' });
+    const child = this.worker;
+    if (!child) return;
+    child.postMessage({ type: 'shutdown' });
     await new Promise((resolve) => setTimeout(resolve, 400));
     try {
-      this.worker?.kill();
+      child.kill();
     } catch {
       // already gone
     }
-    this.worker = null;
-    this.initialized = false;
+    // Only clear state that still belongs to this worker — ensure() may have
+    // spawned a successor while we waited out the graceful-shutdown window.
+    if (this.worker === child) {
+      this.worker = null;
+      this.initialized = false;
+    }
   }
 
   async dispose(): Promise<void> {

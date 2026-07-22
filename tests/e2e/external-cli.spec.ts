@@ -454,10 +454,12 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       expect(terminalId).not.toBeNull();
 
       // The launch pre-assigns the conversation id (`--session-id <uuid>`).
+      // The terminal-control wrapper prepends `--mcp-config=…` (session
+      // orchestration), so the id flag is asserted anywhere in the argv line.
       await expect
         .poll(readProbe, { timeout: 20000 })
-        .toMatch(/argv=--session-id [0-9a-f][0-9a-f-]{34}[0-9a-f]/);
-      const sessionId = /argv=--session-id ([0-9a-f-]{36})/.exec(readProbe())![1]!;
+        .toMatch(/argv=.*--session-id [0-9a-f][0-9a-f-]{34}[0-9a-f]/);
+      const sessionId = /--session-id ([0-9a-f-]{36})/.exec(readProbe())![1]!;
 
       // The first message is delivered by the host and actually submitted.
       await expect.poll(readProbe, { timeout: 20000 }).toContain('got-prompt-line');
@@ -517,7 +519,10 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
         { taskId: task!.id, terminalId: terminalId! },
       );
       expect(resumeOk).toBe(true);
-      await expect.poll(readProbe, { timeout: 20000 }).toContain(`argv=--resume ${sessionId}`);
+      // Same wrapper tolerance: `--mcp-config=…` may precede the resume flag.
+      await expect
+        .poll(readProbe, { timeout: 20000 })
+        .toMatch(new RegExp(`argv=.*--resume ${sessionId}`));
     } finally {
       await app.close();
     }

@@ -47,7 +47,9 @@ test.describe('M10 — crash recovery, reliability, diagnostics', () => {
       const { page } = first;
       // Charter a multi-write task in edit mode: every write asks.
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
+      // Worker cold start can flirt with its 15s ready timeout on slow
+      // hosted runners — give the first model fetch headroom beyond it.
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 30000 });
       await page.getByTestId('home-mode-edit').click();
       await page
         .getByTestId('home-intent')
@@ -196,7 +198,9 @@ test.describe('M10 — crash recovery, reliability, diagnostics', () => {
       await page.keyboard.press('Escape');
 
       await page.getByTestId('surface-home').click();
-      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
+      // Saving a provider key restarts the agent worker (m6-handlers
+      // secrets.set → stopWorker); the respawn needs cold-start headroom.
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 30000 });
       await page.getByTestId('home-mode-auto').click();
       await page
         .getByTestId('home-intent')

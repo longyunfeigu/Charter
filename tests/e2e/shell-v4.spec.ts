@@ -282,25 +282,13 @@ test.describe('Shell v4 — heartbeat + focus layers (PIVOT-028/025)', () => {
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
 
-      // Fleet layer: the persistent rail keeps the running Session and its
-      // current activity visible. Home no longer duplicates a Live Board.
-      await page.getByTestId('task-room-back').click();
-      await expect(page.getByTestId('home-view')).toBeVisible();
-      await expect(page.locator('.hm-mc')).toHaveCount(0);
-      await expect(page.locator('[data-testid^="live-board-"]')).toHaveCount(0);
-      const railSession = page.locator('button[data-testid^="home-task-"]').first();
-      await expect(railSession).toBeVisible({ timeout: 25000 });
-      await expect(railSession.locator('[data-testid^="home-task-ticker-"]')).toBeVisible();
-      await page.screenshot({ path: '/tmp/charter-live-launcher-1440.png' });
-
-      await railSession.click();
-      await expect(page.getByTestId('task-room')).toBeVisible();
-
-      // Focus layer: the same write events become stable file heat tiles in
-      // the Session tool canvas; the timeline and rail keep their own layers.
+      // Focus layer FIRST: file heat tiles decay on a 60s window
+      // (HEAT_WINDOW_MS), so every board assertion must run while the mock
+      // run's writes are fresh. On slow hosted runners the old order (rail
+      // checks + screenshots before entering the room) ate the whole window.
       await expect(page.getByTestId('session-summary')).toBeVisible();
       const roomBoard = page.locator('[data-testid^="live-board-"]').first();
-      await expect(roomBoard).toBeVisible();
+      await expect(roomBoard).toBeVisible({ timeout: 25000 });
       await expect(roomBoard).toContainText('THIS SESSION');
       await expect(roomBoard.getByTestId('live-tile-notes-live-a.txt')).toBeVisible({
         timeout: 25000,
@@ -320,8 +308,22 @@ test.describe('Shell v4 — heartbeat + focus layers (PIVOT-028/025)', () => {
       await roomBoard.getByTestId('live-tile-notes-live-a.txt').click();
       await expect(page.getByTestId('session-diff-review')).toBeVisible();
 
+      // Fleet layer: the persistent rail keeps the Session and its current
+      // activity visible. Home no longer duplicates a Live Board. None of
+      // these depend on the heat window.
+      await page.getByTestId('task-room-back').click();
+      await expect(page.getByTestId('home-view')).toBeVisible();
+      await expect(page.locator('.hm-mc')).toHaveCount(0);
+      await expect(page.locator('[data-testid^="live-board-"]')).toHaveCount(0);
+      const railSession = page.locator('button[data-testid^="home-task-"]').first();
+      await expect(railSession).toBeVisible({ timeout: 25000 });
       // Heartbeat layer: the sidebar row ticks with the current action.
-      await expect(page.locator('[data-testid^="home-task-ticker-"]').first()).toBeVisible();
+      await expect(railSession.locator('[data-testid^="home-task-ticker-"]')).toBeVisible();
+      await page.screenshot({ path: '/tmp/charter-live-launcher-1440.png' });
+
+      // The rail row re-opens its Session room.
+      await railSession.click();
+      await expect(page.getByTestId('task-room')).toBeVisible();
     } finally {
       await app.close();
     }
