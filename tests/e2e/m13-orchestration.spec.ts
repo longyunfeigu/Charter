@@ -132,7 +132,6 @@ test.describe('M13 session orchestration', () => {
         PATH: `${workerDriver.bin}:${process.env.PATH ?? ''}`,
       },
     });
-
     try {
       await startOrchestrationTask(page, 'M13 direct Codex worker', 'orchestration-codex');
       const createPermission = pendingPermission(page, 'terminal.create').first();
@@ -143,7 +142,9 @@ test.describe('M13 session orchestration', () => {
       const args = JSON.parse(readFileSync(workerDriver.probe, 'utf8')) as string[];
       expect(args.slice(-2)).toEqual(['--', 'Report your identity and wait for the commander.']);
 
-      const fleetOutput = page.getByTestId('orchestration-fleet').locator('.orch-stage pre');
+      await expect(page.getByTestId('task-room-fleet-tab')).toContainText('编队 1');
+      await page.getByTestId('task-room-fleet-tab').click();
+      const fleetOutput = page.getByTestId('orchestration-native-terminal').locator('.xterm-rows');
       await expect(fleetOutput).toContainText('CODEX_WORKER_READY', { timeout: 10_000 });
       await expect(fleetOutput).not.toContainText('STALE_TUI_FRAME');
     } finally {
@@ -179,9 +180,15 @@ test.describe('M13 session orchestration', () => {
       await expect(createPermission.first().getByTestId('perm-risk')).toHaveText('R2');
       await createPermission.first().getByTestId('perm-allow-once').click();
 
+      await expect(page.getByTestId('task-room-fleet-tab')).toContainText('编队 1');
+      await expect(page.getByTestId('task-room-conversation-tab')).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      await page.getByTestId('task-room-fleet-tab').click();
       const fleet = page.getByTestId('orchestration-fleet');
       await expect(fleet).toBeVisible();
-      await expect(fleet.locator('.orch-stage pre')).toBeVisible();
+      await expect(fleet.getByTestId('orchestration-native-terminal')).toBeVisible();
       await expect(fleet.locator('.orch-tile')).toHaveCount(1);
 
       const snapshot = await page.evaluate(async () => {
@@ -203,26 +210,76 @@ test.describe('M13 session orchestration', () => {
       const workerRow = page.getByTestId(`session-terminal-${worker.terminalId}`);
       await expect(workerRow).toBeVisible();
       await expect(workerRow.locator('xpath=..')).toHaveClass(/sr-orch-worker/);
-      await expect(page.getByTestId(`home-task-${taskId!}`)).toContainText('⌁ 指挥 1');
+      const commanderRow = page.getByTestId(`home-task-${taskId!}`);
+      const fleetShortcut = page.getByTestId(`home-fleet-${taskId!}`);
+      await expect(fleetShortcut).toContainText('1');
+
+      // A normal Session click still opens its conversation. Only the separate
+      // Fleet shortcut opens the Session-local command center.
+      await commanderRow.click();
+      await expect(page.getByTestId('task-room-conversation-tab')).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      await expect(page.getByTestId('orchestration-fleet')).toHaveCount(0);
+      await fleetShortcut.click();
+      await expect(page.getByTestId('task-room-fleet-tab')).toHaveAttribute('aria-current', 'page');
+
+      // Switching and focusing workers are observation-only. Neither action
+      // emits the user-input provenance that marks a terminal as taken over.
+      await fleet.locator('.orch-tile').first().click();
+      await page.getByTestId('orchestration-focus-open').click();
+      await expect(page.getByTestId('orchestration-focus')).toContainText('原生终端 · 未接管');
+      await expect
+        .poll(async () => {
+          const state = await page.evaluate(async () => {
+            return window.product.rpc['orchestration.getState']!({});
+          });
+          return (
+            state.data as { workers: Array<{ terminalId: string; takeover: boolean }> }
+          ).workers.find((candidate) => candidate.terminalId === worker.terminalId)?.takeover;
+        })
+        .toBe(false);
+      await page.getByTestId('orchestration-focus-back').click();
+
       await workerRow.click();
       await expect(page.getByTestId('orchestration-worker-band')).toBeVisible();
       await page.getByTestId('orchestration-worker-band').getByRole('button').first().click();
       await expect(page.getByTestId('task-room')).toHaveAttribute('data-task-id', taskId!);
+      await expect(page.getByTestId('task-room-fleet-tab')).toHaveAttribute('aria-current', 'page');
 
-      // The same pending record is rendered in the room and on the staged worker.
+      // The semantic right rail owns the pending decision while Fleet is open.
       const sendPermission = pendingPermission(page, 'terminal.send');
-      await expect(sendPermission).toHaveCount(2, { timeout: 20_000 });
-      await expect(page.getByTestId(`home-task-${taskId!}`).locator('.sr-orch-needs')).toHaveText(
-        '1',
-      );
-      const stagedApproval = fleet.locator('.orch-stage-approval');
-      await expect(stagedApproval).toContainText('terminal.send');
-      await stagedApproval.getByTestId('perm-allow-once').click();
+      await expect(sendPermission).toHaveCount(1, { timeout: 20_000 });
+      await expect(fleetShortcut.locator('i')).toHaveText('1');
+      await sendPermission.getByTestId('perm-allow-once').click();
       await expect(sendPermission).toHaveCount(0);
 
-      await expect(fleet.locator('.orch-stage pre')).toContainText('ORCH_OK', {
+      const nativeRows = fleet.getByTestId('orchestration-native-terminal').locator('.xterm-rows');
+      await expect(nativeRows).toContainText('ORCH_OK', {
         timeout: 20_000,
       });
+
+      // Fleet mounts the real PTY, so Claude/Codex slash commands, @files and
+      // shell input use the native terminal path. Actual keyboard input (and
+      // only keyboard input) marks takeover.
+      await fleet.getByTestId('orchestration-native-terminal').click();
+      await page.keyboard.type("printf 'NATIVE_FLEET_OK\\n'");
+      await page.keyboard.press('Enter');
+      await expect(nativeRows).toContainText('NATIVE_FLEET_OK', { timeout: 10_000 });
+      await expect
+        .poll(async () => {
+          const state = await page.evaluate(async () => {
+            return window.product.rpc['orchestration.getState']!({});
+          });
+          return (
+            state.data as { workers: Array<{ terminalId: string; takeover: boolean }> }
+          ).workers.find((candidate) => candidate.terminalId === worker.terminalId)?.takeover;
+        })
+        .toBe(true);
+      await page.getByTestId('orchestration-focus-open').click();
+      await page.getByRole('button', { name: '交还给 Commander' }).click();
+      await page.getByTestId('orchestration-focus-back').click();
 
       // A full-screen TUI rewrites cells in place. The fleet must show xterm's
       // rendered screen, not both ANSI-stripped repaint fragments appended.
@@ -233,8 +290,8 @@ test.describe('M13 session orchestration', () => {
           userInitiated: false,
         });
       }, worker.terminalId);
-      await expect(fleet.locator('.orch-stage pre')).toContainText('TUI_FRAME_NEW');
-      await expect(fleet.locator('.orch-stage pre')).not.toContainText('TUI_FRAME_OLD');
+      await expect(nativeRows).toContainText('TUI_FRAME_NEW');
+      await expect(nativeRows).not.toContainText('TUI_FRAME_OLD');
 
       const protocolWrite = await page.evaluate(async (terminalId) => {
         const bridge = (
@@ -251,7 +308,7 @@ test.describe('M13 session orchestration', () => {
         });
       }, worker.terminalId);
       expect(protocolWrite.ok).toBe(true);
-      await expect(fleet.locator('.orch-stage pre')).toContainText('PROTOCOL_PROBE_DONE');
+      await expect(nativeRows).toContainText('PROTOCOL_PROBE_DONE');
       await expect
         .poll(async () => {
           const state = await page.evaluate(async () => {
@@ -285,6 +342,7 @@ test.describe('M13 session orchestration', () => {
       await expect(readPermission.first().getByTestId('perm-risk')).toHaveText('R1');
       await readPermission.first().getByTestId('perm-allow-once').click();
 
+      await page.getByTestId('task-room-conversation-tab').click();
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 30_000,
       });
@@ -303,7 +361,9 @@ test.describe('M13 session orchestration', () => {
       }
       await expect(page.getByTestId('tl-tool-terminal.kill')).toHaveCount(0);
       await expect(workerRow).toBeVisible();
+      await page.getByTestId('task-room-fleet-tab').click();
       await expect(fleet.locator('.orch-tile')).toHaveCount(1);
+      await expect(fleet.locator('.orch-signal-card.done')).toContainText('worker 仍保持打开');
       const completedState = await page.evaluate(async () => {
         return window.product.rpc['orchestration.getState']!({});
       });
@@ -410,6 +470,7 @@ test.describe('M13 session orchestration', () => {
       ).toBe(true);
       expect(result.waited?.data?.exitCode).toBe(0);
       expect(result.read?.data?.content).toContain('EXTERNAL_ORCH_OK');
+      await page.getByTestId('task-room-fleet-tab').click();
       await expect(page.getByTestId('orchestration-fleet')).toBeVisible();
       await expect(pendingPermission(page, 'terminal.kill')).toHaveCount(0);
       const state = await page.evaluate(async () => {

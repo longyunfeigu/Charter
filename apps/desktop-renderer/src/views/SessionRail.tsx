@@ -141,8 +141,17 @@ function SessionTaskRow({
     app.openTaskRoom(task.id);
   };
 
+  const openFleet = (event: React.MouseEvent): void => {
+    event.stopPropagation();
+    void useTaskStore.getState().openTask(task.id);
+    app.openTaskRoom(task.id);
+    app.setSessionRoomView('fleet');
+  };
+
   return (
-    <div className={`sr-row-wrap ${worker ? 'sr-orch-worker' : ''}`}>
+    <div
+      className={`sr-row-wrap ${worker ? 'sr-orch-worker' : ''} ${workerCount > 0 ? 'has-fleet' : ''}`}
+    >
       <button
         className={`sr-session ${selected ? 'selected' : ''} ${glowTasks.has(task.id) ? 'glow-pulse' : ''} ${completion ? `completion-ripple completion-${completion.tone}` : ''} ${reply ? 'reply-shake' : ''}`}
         data-testid={`home-task-${task.id}`}
@@ -164,15 +173,6 @@ function SessionTaskRow({
             <span className={`sr-live-dot ${live ? 'live' : ''}`} />
             <b>{displayTitle}</b>
             {badge ? <span className={`sr-state ${badge.tone}`}>{badge.label}</span> : null}
-            {workerCount > 0 ? <span className="sr-orch-chip">⌁ 指挥 {workerCount}</span> : null}
-            {orchestrationNeeds > 0 ? (
-              <span
-                className="sr-orch-needs"
-                title={`${orchestrationNeeds} orchestration approval(s)`}
-              >
-                {orchestrationNeeds}
-              </span>
-            ) : null}
           </span>
           <span className="sr-session-detail">
             <span data-testid={`home-task-ticker-${task.id}`}>
@@ -188,6 +188,21 @@ function SessionTaskRow({
           </span>
         </span>
       </button>
+      {workerCount > 0 ? (
+        <button
+          className={`sr-fleet-shortcut ${selected && app.sessionRoomView === 'fleet' ? 'active' : ''}`}
+          data-testid={`home-fleet-${task.id}`}
+          title={`Open Fleet · ${workerCount} worker${workerCount === 1 ? '' : 's'}${
+            orchestrationNeeds > 0 ? ` · ${orchestrationNeeds} need attention` : ''
+          }`}
+          aria-label={`Open Fleet for ${displayTitle}`}
+          onClick={openFleet}
+        >
+          <span>⌁</span>
+          <b>{workerCount}</b>
+          {orchestrationNeeds > 0 ? <i>{orchestrationNeeds}</i> : null}
+        </button>
+      ) : null}
       {resumable || canArchiveTask(task) ? (
         <div className="sr-actions">
           {resumable ? (

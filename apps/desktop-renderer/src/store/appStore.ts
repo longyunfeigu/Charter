@@ -24,6 +24,9 @@ export type OverlayKind = 'none' | 'settings' | 'diagnostics' | 'about' | 'memor
 /** Contextual tools owned by the active Session. These replace the old
  * app-level workspace shell. */
 export type SessionTool = 'summary' | 'diff' | 'file' | 'preview' | 'terminal' | 'review';
+/** Primary content inside a Commander Session. Fleet is a Session-local view,
+ * never a global navigation destination or a replacement for Home. */
+export type SessionRoomView = 'conversation' | 'fleet';
 /** Project-level tools used before a Session exists. They render inside the
  * persistent Session shell and never recreate the legacy IDE frame.
  * ADR-0029: 'editor' is the plain editor (no context column) — the one
@@ -126,6 +129,7 @@ interface AppStore {
   surface: 'home' | 'workspace';
   /** The managed task selected as the active user-facing Session. */
   taskRoomTaskId: string | null;
+  sessionRoomView: SessionRoomView;
   /**
    * Session-first shell: a terminal can be selected before external-agent
    * detection has created its accounting task. Once detection lands the shell
@@ -187,6 +191,7 @@ interface AppStore {
   init(): Promise<void>;
   setSurface(surface: 'home' | 'workspace'): void;
   openTaskRoom(taskId: string): void;
+  setSessionRoomView(view: SessionRoomView): void;
   openTerminalSession(terminalId: string): void;
   closeTaskRoom(): void;
   setHomePick(inProgress: boolean): void;
@@ -352,6 +357,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     sessionReveal: null,
     surface: 'home',
     taskRoomTaskId: null,
+    sessionRoomView: 'conversation',
     sessionTerminalId: null,
     homePick: false,
     pendingRefs: [],
@@ -526,6 +532,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       const peek = get().peek;
       set({
         taskRoomTaskId: taskId,
+        sessionRoomView: 'conversation',
         sessionTerminalId: null,
         surface: 'home',
         sessionTool: 'summary',
@@ -536,6 +543,10 @@ export const useAppStore = create<AppStore>((set, get) => {
         ...(peek && peek.taskId !== taskId ? { peek: null } : {}),
         ...crossRailPatch('sessions'),
       });
+    },
+
+    setSessionRoomView(sessionRoomView) {
+      set({ sessionRoomView });
     },
 
     revealTaskSession(taskId) {
@@ -555,6 +566,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       set({
         sessionTerminalId: terminalId,
         taskRoomTaskId: null,
+        sessionRoomView: 'conversation',
         surface: 'home',
         peek: null,
         previewRailTaskId: null,
@@ -570,6 +582,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     closeTaskRoom() {
       set({
         taskRoomTaskId: null,
+        sessionRoomView: 'conversation',
         sessionTerminalId: null,
         peek: null,
         previewRailTaskId: null,

@@ -389,26 +389,53 @@
   min-height: 44px;
   padding-block: 5px;
 }
-.sr-orch-chip {
-  flex: none;
-  border: 1px solid color-mix(in srgb, var(--info) 35%, var(--border));
-  border-radius: 999px;
-  padding: 1px 6px;
-  color: var(--info);
-  background: var(--info-bg);
-  font-size: 8.5px;
-  white-space: nowrap;
+.sr-row-wrap.has-fleet .sr-session {
+  padding-right: 54px;
 }
-.sr-orch-needs {
-  min-width: 17px;
-  height: 17px;
-  display: inline-grid;
+.sr-fleet-shortcut {
+  position: absolute;
+  z-index: 3;
+  top: 7px;
+  right: 7px;
+  min-width: 39px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--info) 34%, var(--border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--info-bg) 82%, var(--bg-card));
+  color: var(--info);
+  font: 600 9px var(--font-ui);
+  cursor: pointer;
+}
+.sr-fleet-shortcut:hover,
+.sr-fleet-shortcut.active {
+  border-color: var(--info);
+  background: color-mix(in srgb, var(--info) 14%, var(--bg-card));
+}
+.sr-fleet-shortcut b {
+  font-size: 10px;
+}
+.sr-fleet-shortcut i {
+  position: absolute;
+  top: -6px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  display: grid;
   place-items: center;
-  flex: none;
+  padding: 0 3px;
+  border: 2px solid var(--bg);
   border-radius: 999px;
-  color: var(--warning-fg, #fff);
   background: var(--warning);
-  font: 700 9px var(--font-ui);
+  color: var(--warning-fg, #fff);
+  font: normal 700 8px var(--font-ui);
+}
+.sr-row-wrap.has-fleet .sr-actions {
+  top: 34px;
 }
 .sr-session {
   --completion-tone: var(--info);

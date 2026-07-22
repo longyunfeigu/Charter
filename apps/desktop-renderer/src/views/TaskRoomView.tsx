@@ -1,4 +1,5 @@
 import type { AgentMode } from '@pi-ide/agent-contract';
+import type { PermissionCardDto } from '@pi-ide/ipc-contracts';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { rpcResult } from '../bridge.js';
 import { useTaskStore, RUNNING_TASK_STATES, titleFromIntent } from '../store/taskStore.js';
@@ -6,7 +7,7 @@ import { useActivityStore, currentActionLine } from '../store/activityStore.js';
 import { useAppStore } from '../store/appStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useEditorStore } from '../store/editorStore.js';
-import { StateBadge } from './AgentPanel.js';
+import { PermissionCard, StateBadge } from './AgentPanel.js';
 import { RoomTimeline } from './RoomTimeline.js';
 import { DistillCards } from './DistillCards.js';
 import { ConfirmDangerButton, ModelEffortControl } from './ui.js';
@@ -42,8 +43,10 @@ import { SessionSplitHandle } from './SessionSplitHandle.js';
 import { CodeContextAttachments } from './CodeContextAttachments.js';
 import { sessionDisplayTitle } from '../store/sessionAttention.js';
 import { OrchestrationFleet, OrchestrationWorkerBand } from './OrchestrationFleet.js';
+import { useOrchestrationStore } from '../store/orchestrationStore.js';
 
 const EMPTY_TERMINAL_REFS: TerminalOutputRef[] = [];
+const EMPTY_ORCHESTRATION_PERMISSIONS: PermissionCardDto[] = [];
 
 function sessionAgentLabel(task: {
   external?: { cli: string } | null;
@@ -70,8 +73,27 @@ export function TaskRoomView(): React.JSX.Element {
   const workspace = useWorkspaceStore((s) => s.workspace);
   const workspaceStore = useWorkspaceStore();
   const taskId = useAppStore((s) => s.taskRoomTaskId);
+  const sessionRoomView = useAppStore((s) => s.sessionRoomView);
   const task = store.tasks.find((t) => t.id === taskId) ?? null;
   const activity = useActivityStore((s) => (taskId ? s.perTask[taskId] : undefined));
+  const orchestration = useOrchestrationStore((state) => state.snapshot);
+  const orchestrationPermissions = useOrchestrationStore((state) =>
+    taskId
+      ? (state.permissions[taskId] ?? EMPTY_ORCHESTRATION_PERMISSIONS)
+      : EMPTY_ORCHESTRATION_PERMISSIONS,
+  );
+  const commanderWorkers = useMemo(
+    () =>
+      taskId ? orchestration.workers.filter((worker) => worker.commanderTaskId === taskId) : [],
+    [orchestration.workers, taskId],
+  );
+  const workerRoom = taskId
+    ? orchestration.workers.some((worker) => worker.taskId === taskId)
+    : false;
+  const fleetAvailable = orchestration.enabled && commanderWorkers.length > 0 && !workerRoom;
+  const orchestrationNeeds =
+    orchestrationPermissions.length +
+    commanderWorkers.filter((worker) => worker.status === 'failed').length;
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const canvasBodyRef = useRef<HTMLDivElement>(null);
@@ -98,6 +120,21 @@ export function TaskRoomView(): React.JSX.Element {
     store.init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    useOrchestrationStore.getState().init();
+  }, []);
+
+  useEffect(() => {
+    if (!taskId) return;
+    const orchestrationStore = useOrchestrationStore.getState();
+    orchestrationStore.trackTask(taskId);
+    return () => orchestrationStore.untrackTask(taskId);
+  }, [taskId]);
+
+  useEffect(() => {
+    if (sessionRoomView === 'fleet' && !fleetAvailable) app.setSessionRoomView('conversation');
+  }, [app, fleetAvailable, sessionRoomView]);
 
   // Some external-session entry points (terminal bar / promoted panel) route
   // directly to a room. Keep the task store aligned with the room URL/state so
@@ -259,6 +296,27 @@ export function TaskRoomView(): React.JSX.Element {
             ) : null}
           </div>
         </div>
+        {fleetAvailable ? (
+          <nav className="task-room-switcher" aria-label="Session views">
+            <button
+              className={sessionRoomView === 'conversation' ? 'active' : ''}
+              data-testid="task-room-conversation-tab"
+              aria-current={sessionRoomView === 'conversation' ? 'page' : undefined}
+              onClick={() => app.setSessionRoomView('conversation')}
+            >
+              主会话
+            </button>
+            <button
+              className={sessionRoomView === 'fleet' ? 'active' : ''}
+              data-testid="task-room-fleet-tab"
+              aria-current={sessionRoomView === 'fleet' ? 'page' : undefined}
+              onClick={() => app.setSessionRoomView('fleet')}
+            >
+              <span>⌁ 编队 {commanderWorkers.length}</span>
+              {orchestrationNeeds > 0 ? <b>{orchestrationNeeds}</b> : null}
+            </button>
+          </nav>
+        ) : null}
         <span className="tr-sp" />
         <PreviewBadge task={task} />
         <div className="session-more" ref={moreRef}>
@@ -309,47 +367,62 @@ export function TaskRoomView(): React.JSX.Element {
         </div>
       </div>
 
-      <div
-        ref={canvasBodyRef}
-        className={`tr-body session-canvas-body ${app.sessionToolExpanded ? 'tool-expanded' : ''} ${
-          app.sessionSplit[task.id] !== undefined || app.sessionSplitDragging ? 'split-manual' : ''
-        } ${app.sessionSplitDragging ? 'splitting' : ''}`}
-      >
-        <div className="tr-main">
-          {task.external ? (
-            <OrchestrationWorkerBand taskId={task.id} terminalId={task.external.terminalId} />
-          ) : null}
-          {task.external ? (
-            /* ADR-0017: the conversation with an external agent IS its terminal —
-               it takes the timeline+composer's place; everything else is the
-               same room (rail, peek, review bar). */
-            <ExternalTerminalColumn key={task.id} task={task} sameProject={sameProject} />
-          ) : (
-            <>
-              {/* Mockup A (ADR-0014): mode/model/effort live in the composer foot. */}
-              <RoomTimeline task={task} />
-            </>
-          )}
-          {running && !task.external ? (
-            <ActivityStrip taskId={task.id} taskText={`${task.title}\n${task.goalMd}`} />
-          ) : null}
-          {/* ADR-0028: distill card — a captured review correction offers to
-              become a project rule, inline where the correction happened. */}
-          {task.external ? null : <DistillCards taskId={task.id} />}
-          {task.external ? null : <RoomComposer key={task.id} task={task} running={running} />}
+      {sessionRoomView === 'fleet' && fleetAvailable ? (
+        <div className="tr-body fleet-canvas-body">
           <OrchestrationFleet taskId={task.id} />
         </div>
-        <SessionSplitHandle taskId={task.id} containerRef={canvasBodyRef} />
-        <SessionToolCanvas
-          key={task.id}
-          task={task}
-          files={files}
-          fileStats={fileStats}
-          verifications={verifications}
-          editableInWorkspace={sameProject && task.worktree === null}
-          onOpenFile={openFileInEditor}
-        />
-      </div>
+      ) : (
+        <div
+          ref={canvasBodyRef}
+          className={`tr-body session-canvas-body ${app.sessionToolExpanded ? 'tool-expanded' : ''} ${
+            app.sessionSplit[task.id] !== undefined || app.sessionSplitDragging
+              ? 'split-manual'
+              : ''
+          } ${app.sessionSplitDragging ? 'splitting' : ''}`}
+        >
+          <div className="tr-main">
+            {task.external ? (
+              <OrchestrationWorkerBand taskId={task.id} terminalId={task.external.terminalId} />
+            ) : null}
+            {task.external && !workerRoom && orchestrationPermissions.length > 0 ? (
+              <div className="orch-conversation-approvals" data-testid="orchestration-approvals">
+                <span>⌁ Commander approval</span>
+                {orchestrationPermissions.map((card) => (
+                  <PermissionCard key={card.requestId} card={card} resolution={null} />
+                ))}
+              </div>
+            ) : null}
+            {task.external ? (
+              /* ADR-0017: the conversation with an external agent IS its terminal —
+                 it takes the timeline+composer's place; everything else is the
+                 same room (rail, peek, review bar). */
+              <ExternalTerminalColumn key={task.id} task={task} sameProject={sameProject} />
+            ) : (
+              <>
+                {/* Mockup A (ADR-0014): mode/model/effort live in the composer foot. */}
+                <RoomTimeline task={task} />
+              </>
+            )}
+            {running && !task.external ? (
+              <ActivityStrip taskId={task.id} taskText={`${task.title}\n${task.goalMd}`} />
+            ) : null}
+            {/* ADR-0028: distill card — a captured review correction offers to
+                become a project rule, inline where the correction happened. */}
+            {task.external ? null : <DistillCards taskId={task.id} />}
+            {task.external ? null : <RoomComposer key={task.id} task={task} running={running} />}
+          </div>
+          <SessionSplitHandle taskId={task.id} containerRef={canvasBodyRef} />
+          <SessionToolCanvas
+            key={task.id}
+            task={task}
+            files={files}
+            fileStats={fileStats}
+            verifications={verifications}
+            editableInWorkspace={sameProject && task.worktree === null}
+            onOpenFile={openFileInEditor}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -17,6 +17,7 @@ function reset(): void {
       skills: { kind: 'home' },
     },
     taskRoomTaskId: null,
+    sessionRoomView: 'conversation',
     sessionTerminalId: null,
     archaeology: null,
     projectTool: null,
@@ -114,6 +115,16 @@ describe('setRailView across groups (the stale-main bug class)', () => {
 });
 
 describe('surface openers keep the rail in step (reverse direction)', () => {
+  it('keeps Fleet as a Session-local view and resets normal room entry to conversation', () => {
+    useAppStore.getState().openTaskRoom('t-fleet');
+    useAppStore.getState().setSessionRoomView('fleet');
+    expect(useAppStore.getState().taskRoomTaskId).toBe('t-fleet');
+    expect(useAppStore.getState().sessionRoomView).toBe('fleet');
+
+    useAppStore.getState().openTaskRoom('t-fleet');
+    expect(useAppStore.getState().sessionRoomView).toBe('conversation');
+  });
+
   it('opening a room from the Projects page flips the rail to Sessions and remembers the page', () => {
     useAppStore.getState().setRailView('projects');
     useAppStore.getState().openArchaeology(null);

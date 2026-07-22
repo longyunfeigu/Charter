@@ -4,17 +4,34 @@ import { useAppStore } from '../store/appStore.js';
 import { permissionForWorker, useOrchestrationStore } from '../store/orchestrationStore.js';
 import { useTaskStore } from '../store/taskStore.js';
 import { PermissionCard } from './AgentPanel.js';
-import { directorCandidate, type DirectorCandidate } from './orchestration-director.js';
-import { useTerminalStore } from './TerminalPanel.js';
+import { directorCandidate } from './orchestration-director.js';
+import { mountTerminal, useTerminalStore, type TermInstance } from './TerminalPanel.js';
 import { terminalViewportText } from './terminal-viewport-text.js';
 
-const FLEET_FOLD_KEY = 'charter.orchestration.fleet.folded.v1';
 const EMPTY_PERMISSIONS: PermissionCardDto[] = [];
 
+function workerProvider(worker: OrchestrationWorkerDto): string {
+  return worker.launch === 'shell' ? 'Shell' : worker.launch === 'claude' ? 'Claude' : 'Codex';
+}
+
 function workerName(worker: OrchestrationWorkerDto): string {
-  const provider =
-    worker.launch === 'shell' ? 'Shell' : worker.launch === 'claude' ? 'Claude' : 'Codex';
-  return `${provider} · ${worker.title}`;
+  return `${workerProvider(worker)} · ${worker.title}`;
+}
+
+function workerAge(worker: OrchestrationWorkerDto): string {
+  const elapsed = Math.max(0, Date.now() - Date.parse(worker.updatedAt));
+  if (elapsed < 60_000) return '刚刚';
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)} 分钟前`;
+  return `${Math.floor(elapsed / 3_600_000)} 小时前`;
+}
+
+function outputSnippet(output: string): string {
+  return output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(-3)
+    .join('\n');
 }
 
 function openWorker(worker: OrchestrationWorkerDto): void {
@@ -37,12 +54,49 @@ function StatusPill({ worker }: { worker: OrchestrationWorkerDto }): React.JSX.E
   return <span className={`orch-status ${worker.status}`}>{labels[worker.status]}</span>;
 }
 
-interface CutLogEntry {
+function WorkerDot({ worker }: { worker: OrchestrationWorkerDto }): React.JSX.Element {
+  return <span className={`orch-live ${worker.status}`} aria-hidden />;
+}
+
+function NativeWorkerTerminal({
+  item,
+  terminalId,
+  fallback,
+}: {
+  item: TermInstance | undefined;
   terminalId: string;
-  name: string;
-  reason: string;
-  at: string;
-  snapshot: string;
+  fallback: string;
+}): React.JSX.Element {
+  const hostRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !item) return;
+    mountTerminal(host, item);
+    const observer = new ResizeObserver(() => {
+      try {
+        item.fit.fit();
+      } catch {
+        // Layout can race while switching workers or entering focus mode.
+      }
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [item]);
+
+  return (
+    <div
+      className="orch-native-terminal"
+      data-testid="orchestration-native-terminal"
+      data-terminal-id={terminalId}
+    >
+      {item ? (
+        <div ref={hostRef} className="orch-native-terminal-host" />
+      ) : (
+        <pre>{fallback || '正在连接原生终端…'}</pre>
+      )}
+    </div>
+  );
 }
 
 export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.Element | null {
@@ -58,21 +112,9 @@ export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.El
     () => snapshot.workers.filter((worker) => worker.commanderTaskId === taskId),
     [snapshot.workers, taskId],
   );
-  const [folded, setFolded] = useState(() => {
-    try {
-      return window.localStorage.getItem(FLEET_FOLD_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
   const [automatic, setAutomatic] = useState(true);
-  const [locked, setLocked] = useState(false);
-  const [stagedId, setStagedId] = useState<string | null>(null);
-  const [stageReason, setStageReason] = useState('等待活动');
-  const [pending, setPending] = useState<DirectorCandidate | null>(null);
-  const [cutLog, setCutLog] = useState<CutLogEntry[]>([]);
-  const [reviewIndex, setReviewIndex] = useState<number | null>(null);
-  const previousWorkers = useRef(workers);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [focusOpen, setFocusOpen] = useState(false);
   const terminalById = useMemo(
     () => new Map(terminalItems.map((item) => [item.id, item])),
     [terminalItems],
@@ -84,75 +126,30 @@ export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.El
     },
     [terminalById],
   );
+  const candidate = useMemo(() => directorCandidate(workers, permissions), [permissions, workers]);
 
   useEffect(() => {
     if (!initialized) useOrchestrationStore.getState().init();
   }, [initialized]);
 
   useEffect(() => {
-    const store = useOrchestrationStore.getState();
-    store.trackTask(taskId);
-    return () => store.untrackTask(taskId);
-  }, [taskId]);
+    if (selectedId && workers.some((worker) => worker.terminalId === selectedId)) return;
+    setSelectedId(candidate?.worker.terminalId ?? workers[0]?.terminalId ?? null);
+  }, [candidate?.worker.terminalId, selectedId, workers]);
 
   useEffect(() => {
-    if (stagedId && workers.some((worker) => worker.terminalId === stagedId)) return;
-    setStagedId(workers[0]?.terminalId ?? null);
-  }, [stagedId, workers]);
-
-  const candidate = useMemo(() => directorCandidate(workers, permissions), [permissions, workers]);
-  const staged = workers.find((worker) => worker.terminalId === stagedId) ?? null;
-  const stagedApproval = staged ? permissionForWorker(permissions, staged.terminalId) : null;
+    if (!automatic || !candidate || focusOpen) return;
+    setSelectedId(candidate.worker.terminalId);
+  }, [automatic, candidate, focusOpen]);
 
   useEffect(() => {
-    if (!automatic || locked || !candidate) return;
-    if (stagedApproval && staged && candidate.worker.terminalId !== staged.terminalId) {
-      setPending(candidate);
-      return;
-    }
-    if (candidate.worker.terminalId === stagedId) {
-      setStageReason(candidate.reason);
-      if (!stagedApproval && pending?.worker.terminalId === stagedId) setPending(null);
-      return;
-    }
-    const previous = previousWorkers.current.find((worker) => worker.terminalId === stagedId);
-    if (previous) {
-      setCutLog((entries) =>
-        [
-          ...entries,
-          {
-            terminalId: previous.terminalId,
-            name: workerName(previous),
-            reason: stageReason,
-            at: new Date().toISOString(),
-            snapshot: workerOutput(previous),
-          },
-        ].slice(-12),
-      );
-    }
-    setStagedId(candidate.worker.terminalId);
-    setStageReason(candidate.reason);
-    setPending(null);
-    setReviewIndex(null);
-    void useOrchestrationStore
-      .getState()
-      .recordCut(taskId, candidate.worker.terminalId, candidate.reason);
-  }, [
-    automatic,
-    candidate,
-    locked,
-    pending?.worker.terminalId,
-    stageReason,
-    staged,
-    stagedApproval,
-    stagedId,
-    taskId,
-    workerOutput,
-  ]);
-
-  useEffect(() => {
-    previousWorkers.current = workers;
-  }, [workers]);
+    if (!focusOpen) return;
+    const close = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setFocusOpen(false);
+    };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [focusOpen]);
 
   const workerRoom = snapshot.workers.some((worker) => worker.taskId === taskId);
   if ((!initialized || loading) && !snapshot.enabled) {
@@ -166,41 +163,68 @@ export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.El
   }
   if ((!snapshot.enabled && !error) || workerRoom) return null;
 
-  const setFold = (): void => {
-    const next = !folded;
-    setFolded(next);
-    try {
-      window.localStorage.setItem(FLEET_FOLD_KEY, next ? '1' : '0');
-    } catch {
-      // Fold persistence is best-effort.
-    }
-  };
+  const selected = workers.find((worker) => worker.terminalId === selectedId) ?? workers[0] ?? null;
+  const selectedApproval = selected ? permissionForWorker(permissions, selected.terminalId) : null;
   const fleetPaused = snapshot.fleetPausedTaskIds.includes(taskId);
-  const review = reviewIndex === null ? null : (cutLog[reviewIndex] ?? null);
+  const activeCount = workers.filter(
+    (worker) => worker.status === 'streaming' || worker.status === 'quiet',
+  ).length;
+  const needsCount =
+    permissions.length + workers.filter((worker) => worker.status === 'failed').length;
 
-  const manualCut = (worker: OrchestrationWorkerDto, reason = '手动上屏'): void => {
-    setStagedId(worker.terminalId);
-    setStageReason(reason);
-    setPending(null);
-    setReviewIndex(null);
-    void useOrchestrationStore.getState().recordCut(taskId, worker.terminalId, reason);
+  const selectWorker = (worker: OrchestrationWorkerDto, source = '手动查看'): void => {
+    setSelectedId(worker.terminalId);
+    setAutomatic(false);
+    void useOrchestrationStore.getState().recordCut(taskId, worker.terminalId, source);
   };
+
+  if (error) {
+    return (
+      <section className="orch-fleet" data-testid="orchestration-fleet">
+        <div className="orch-state error" data-testid="orchestration-error">
+          <span>{error}</span>
+          <button onClick={() => void useOrchestrationStore.getState().refresh()}>重试</button>
+        </div>
+      </section>
+    );
+  }
+
+  if (workers.length === 0 || !selected) {
+    return (
+      <section className="orch-fleet" data-testid="orchestration-fleet">
+        <div className="orch-state" data-testid="orchestration-empty">
+          暂无 worker。返回主会话后，Commander 调用 <code>terminal.create</code> 即会加入这里。
+        </div>
+      </section>
+    );
+  }
 
   return (
-    <section className={`orch-fleet ${folded ? 'folded' : ''}`} data-testid="orchestration-fleet">
-      <header className="orch-fleet-head">
-        <button onClick={setFold} aria-expanded={!folded}>
-          <span className="orch-chevron">▾</span>
-          <strong>⌁ 编队 · {workers.length}</strong>
-        </button>
+    <section
+      className={`orch-fleet ${focusOpen ? 'focus-mode' : ''}`}
+      data-testid="orchestration-fleet"
+    >
+      <header className="orch-command-head">
+        <div className="orch-command-heading">
+          <small>Session Fleet</small>
+          <strong>{focusOpen ? 'Worker 聚焦' : '编队指挥台'}</strong>
+        </div>
+        <span className="orch-summary-pill">
+          <span className="orch-live streaming" /> {activeCount} 运行中
+        </span>
+        {needsCount > 0 ? (
+          <span className="orch-summary-pill attention">{needsCount} 待处理</span>
+        ) : null}
         <span className="orch-spacer" />
-        <button
-          className={`orch-chip ${automatic ? 'active' : ''}`}
-          data-testid="orchestration-auto"
-          onClick={() => setAutomatic((value) => !value)}
-        >
-          导播 · {automatic ? '自动' : '手动'}
-        </button>
+        {!focusOpen ? (
+          <button
+            className={`orch-chip ${automatic ? 'active' : ''}`}
+            data-testid="orchestration-auto"
+            onClick={() => setAutomatic((value) => !value)}
+          >
+            导播 · {automatic ? '自动' : '手动'}
+          </button>
+        ) : null}
         <button
           className={`orch-chip ${fleetPaused ? 'warning' : ''}`}
           data-testid="orchestration-pause-all"
@@ -210,138 +234,299 @@ export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.El
         </button>
       </header>
 
-      {folded ? null : (
-        <div className="orch-fleet-body">
-          {loading && workers.length === 0 ? (
-            <div className="orch-state" data-testid="orchestration-loading">
-              正在接入编队…
-            </div>
-          ) : error ? (
-            <div className="orch-state error" data-testid="orchestration-error">
-              <span>{error}</span>
-              <button onClick={() => void useOrchestrationStore.getState().refresh()}>重试</button>
-            </div>
-          ) : workers.length === 0 ? (
-            <>
-              <div className="orch-state" data-testid="orchestration-empty">
-                暂无工人会话。主会话调用 <code>terminal.create</code> 后会在这里出现。
-              </div>
-              {permissions.length > 0 ? (
-                <div className="orch-commander-approvals">
-                  {permissions.map((card) => (
-                    <PermissionCard key={card.requestId} card={card} resolution={null} />
-                  ))}
+      {focusOpen ? (
+        <div className="orch-focus" data-testid="orchestration-focus">
+          <header className="orch-focus-head">
+            <button data-testid="orchestration-focus-back" onClick={() => setFocusOpen(false)}>
+              ‹ 返回编队
+            </button>
+            <span>当前仍是同一个 Session</span>
+            <span className="orch-spacer" />
+            <span className={`orch-observe ${selected.takeover ? 'taken' : ''}`}>
+              {selected.takeover ? '✋ 已接管' : '⌨ 原生终端 · 未接管'}
+            </span>
+            <button className="orch-open-original" onClick={() => openWorker(selected)}>
+              打开独立会话页 ↗
+            </button>
+          </header>
+          <div className="orch-filmstrip" role="tablist" aria-label="Workers">
+            {workers.map((worker) => (
+              <button
+                key={worker.terminalId}
+                className={worker.terminalId === selected.terminalId ? 'active' : ''}
+                role="tab"
+                aria-selected={worker.terminalId === selected.terminalId}
+                onClick={() => selectWorker(worker, '聚焦切换')}
+              >
+                <WorkerDot worker={worker} />
+                <span>
+                  <strong>{workerName(worker)}</strong>
+                  <small>
+                    {worker.takeover
+                      ? '已接管'
+                      : worker.queuedSends > 0
+                        ? `队列 ${worker.queuedSends}`
+                        : workerAge(worker)}
+                  </small>
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="orch-focus-grid">
+            <section className="orch-focus-screen">
+              <header>
+                <WorkerDot worker={selected} />
+                <strong>{workerName(selected)}</strong>
+                <StatusPill worker={selected} />
+                <span className="orch-spacer" />
+                <code>{selected.terminalId}</code>
+              </header>
+              <NativeWorkerTerminal
+                key={`focus:${selected.terminalId}`}
+                item={terminalById.get(selected.terminalId)}
+                terminalId={selected.terminalId}
+                fallback={workerOutput(selected)}
+              />
+              {selectedApproval ? (
+                <div className="orch-focus-approval">
+                  <PermissionCard card={selectedApproval} resolution={null} />
                 </div>
               ) : null}
-            </>
-          ) : staged ? (
-            <>
-              <article className={`orch-stage ${stagedApproval ? 'attention' : ''}`}>
-                <header>
-                  <span className={`orch-live ${staged.status}`} />
-                  <strong>{workerName(staged)}</strong>
-                  <StatusPill worker={staged} />
-                  {staged.takeover ? <span className="orch-taken">✋ 已接管</span> : null}
-                  <span className="orch-reason">
-                    {automatic ? '切入' : '手动'} · {stageReason}
-                  </span>
-                  <span className="orch-spacer" />
-                  <button className={locked ? 'active' : ''} onClick={() => setLocked(!locked)}>
-                    {locked ? '已锁定' : '锁定这路'}
-                  </button>
-                  <button className="orch-open" onClick={() => openWorker(staged)}>
-                    打开房间 ›
-                  </button>
-                </header>
-                {review ? (
-                  <div className="orch-review-band">
-                    回看 {new Date(review.at).toLocaleTimeString()} · {review.name} ·{' '}
-                    {review.reason}
-                    <button onClick={() => setReviewIndex(null)}>回到直播</button>
-                  </div>
-                ) : null}
-                <pre>{review ? review.snapshot : workerOutput(staged) || '等待终端输出…'}</pre>
-                {!review && stagedApproval ? (
-                  <div className="orch-stage-approval">
-                    <PermissionCard card={stagedApproval} resolution={null} />
-                  </div>
-                ) : null}
-              </article>
-
-              {pending ? (
+            </section>
+            <aside className="orch-focus-inspector">
+              <h3>当前 worker</h3>
+              <dl>
+                <div>
+                  <dt>Purpose</dt>
+                  <dd>{selected.title}</dd>
+                </div>
+                <div>
+                  <dt>Provider</dt>
+                  <dd>{workerProvider(selected)}</dd>
+                </div>
+                <div>
+                  <dt>Control</dt>
+                  <dd>
+                    {selected.takeover
+                      ? '用户在原终端控制'
+                      : selected.paused || fleetPaused
+                        ? '远程控制已暂停'
+                        : 'Commander 持有控制权'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Lifetime</dt>
+                  <dd>完成后保持打开</dd>
+                </div>
+              </dl>
+              <p>
+                中间就是 worker 的原生终端，支持 Claude Code / Codex
+                的斜杠命令、@文件、补全和快捷键。查看与切换不会接管；只有实际键盘输入才会改变控制权。
+              </p>
+              {selected.takeover ? (
                 <button
-                  className="orch-pending-cut"
-                  data-testid="orchestration-pending-cut"
-                  onClick={() => manualCut(pending.worker, pending.reason)}
+                  className="orch-hand-back"
+                  onClick={() =>
+                    void useOrchestrationStore.getState().handBack(selected.terminalId)
+                  }
                 >
-                  待切 ▸ {workerName(pending.worker)} · {pending.reason}
+                  交还给 Commander
                 </button>
               ) : null}
-
-              <div className="orch-cutlog" aria-label="导播记录">
-                <span>导播记录</span>
-                {cutLog.length === 0 ? <small>尚无切换</small> : null}
-                {cutLog.map((entry, index) => (
-                  <button key={`${entry.at}:${index}`} onClick={() => setReviewIndex(index)}>
-                    {new Date(entry.at).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit',
-                    })}
-                    {' · '}
-                    {entry.reason}
-                  </button>
-                ))}
-              </div>
-
-              <div className="orch-wall">
-                {workers.map((worker) => {
-                  const approval = permissionForWorker(permissions, worker.terminalId);
-                  const onAir = worker.terminalId === staged.terminalId;
-                  return (
-                    <article
-                      key={worker.terminalId}
-                      className={`orch-tile ${onAir ? 'on-air' : ''} ${approval ? 'attention' : ''}`}
-                    >
-                      <button className="orch-tile-head" onClick={() => manualCut(worker)}>
-                        <span className={`orch-live ${worker.status}`} />
-                        <strong>{workerName(worker)}</strong>
-                        <StatusPill worker={worker} />
-                        {onAir ? <span className="orch-onair">◉ 导播位</span> : null}
-                      </button>
-                      {onAir ? (
-                        <div className="orch-tile-muted">已在导播位放大直播</div>
-                      ) : (
-                        <pre>{workerOutput(worker) || '等待终端输出…'}</pre>
-                      )}
-                      {worker.queuedSends > 0 ? (
-                        <span className="orch-queue">队列 {worker.queuedSends}</span>
-                      ) : null}
-                      {!onAir && approval ? (
-                        <PermissionCard card={approval} resolution={null} />
-                      ) : null}
-                      <footer>
-                        <button onClick={() => openWorker(worker)}>打开房间</button>
-                        <button
-                          onClick={() =>
-                            void useOrchestrationStore
-                              .getState()
-                              .pauseWorker(worker.terminalId, !worker.paused)
-                          }
-                        >
-                          {worker.paused ? '恢复遥控' : '暂停遥控'}
-                        </button>
-                      </footer>
-                    </article>
-                  );
-                })}
-              </div>
-            </>
-          ) : (
-            <div className="orch-state" data-testid="orchestration-cancelled">
-              编队已结束。
+            </aside>
+          </div>
+        </div>
+      ) : (
+        <div className="orch-command-grid">
+          <aside className="orch-roster">
+            <div className="orch-roster-overview">
+              <span>Workers</span>
+              <strong>{workers.length}</strong>
+              <small>
+                {activeCount} active ·{' '}
+                {workers.filter((worker) => worker.status === 'completed').length} completed
+              </small>
             </div>
-          )}
+            <div className="orch-worker-list">
+              {workers.map((worker) => {
+                const approval = permissionForWorker(permissions, worker.terminalId);
+                return (
+                  <button
+                    key={worker.terminalId}
+                    className={`orch-tile ${worker.terminalId === selected.terminalId ? 'on-air' : ''} ${approval ? 'attention' : ''}`}
+                    data-terminal-id={worker.terminalId}
+                    onClick={() => selectWorker(worker)}
+                  >
+                    <WorkerDot worker={worker} />
+                    <span>
+                      <strong>{workerName(worker)}</strong>
+                      <small>
+                        {worker.takeover
+                          ? '用户已接管'
+                          : worker.paused
+                            ? '远程控制已暂停'
+                            : worker.queuedSends > 0
+                              ? `等待发送 ${worker.queuedSends}`
+                              : workerAge(worker)}
+                      </small>
+                    </span>
+                    <StatusPill worker={worker} />
+                  </button>
+                );
+              })}
+            </div>
+            <div className="orch-roster-legend">
+              <span>Commander</span>
+              <strong>当前主会话</strong>
+              <small>Worker 完成后仍保留，可继续追问</small>
+            </div>
+          </aside>
+
+          <section className={`orch-stage ${selectedApproval ? 'attention' : ''}`}>
+            <header>
+              <WorkerDot worker={selected} />
+              <div>
+                <strong>{workerName(selected)}</strong>
+                <small>{selected.title}</small>
+              </div>
+              <StatusPill worker={selected} />
+              <span className="orch-spacer" />
+              <span className={`orch-observe ${selected.takeover ? 'taken' : ''}`}>
+                {selected.takeover ? '✋ 已接管' : '⌨ 原生终端 · 未接管'}
+              </span>
+              <button
+                className="orch-primary"
+                data-testid="orchestration-focus-open"
+                onClick={() => setFocusOpen(true)}
+              >
+                聚焦查看 ↗
+              </button>
+            </header>
+            <div className="orch-stage-context">
+              <span>原生终端</span>
+              <strong>
+                {selected.takeover ? '用户正在控制' : '可直接输入 /skill、@文件或自然语言'}
+              </strong>
+              <small>切换 worker 不接管；键盘输入才接管</small>
+            </div>
+            <NativeWorkerTerminal
+              key={`stage:${selected.terminalId}`}
+              item={terminalById.get(selected.terminalId)}
+              terminalId={selected.terminalId}
+              fallback={workerOutput(selected)}
+            />
+            <footer>
+              <button onClick={() => openWorker(selected)}>打开独立会话页</button>
+              <button
+                onClick={() =>
+                  void useOrchestrationStore
+                    .getState()
+                    .pauseWorker(selected.terminalId, !selected.paused)
+                }
+              >
+                {selected.paused ? '恢复遥控' : '暂停遥控'}
+              </button>
+              <span>这里与独立会话页是同一个 PTY</span>
+            </footer>
+          </section>
+
+          <aside className="orch-signals">
+            <header>
+              <div>
+                <small>Activity intelligence</small>
+                <h3>需要你关注</h3>
+              </div>
+              <span>{needsCount > 0 ? `${needsCount} 项` : '当前无阻塞'}</span>
+            </header>
+            <div className="orch-signal-feed">
+              {permissions.map((card) => {
+                const owner = workers.find(
+                  (worker) => permissionForWorker([card], worker.terminalId) !== null,
+                );
+                return (
+                  <article key={card.requestId} className="orch-signal-card needs">
+                    <div className="orch-signal-kicker">
+                      <span>需要决定</span>
+                      <time>现在</time>
+                    </div>
+                    {owner ? (
+                      <button onClick={() => selectWorker(owner, '从待处理事件查看')}>
+                        {workerName(owner)} · 在中间查看
+                      </button>
+                    ) : null}
+                    <PermissionCard card={card} resolution={null} />
+                  </article>
+                );
+              })}
+              {workers
+                .filter((worker) => worker.status === 'failed')
+                .map((worker) => (
+                  <article key={`failed:${worker.terminalId}`} className="orch-signal-card failed">
+                    <div className="orch-signal-kicker">
+                      <span>执行失败</span>
+                      <time>{workerAge(worker)}</time>
+                    </div>
+                    <h4>{workerName(worker)}</h4>
+                    <pre>
+                      {outputSnippet(workerOutput(worker)) || `退出码 ${worker.exitCode ?? '未知'}`}
+                    </pre>
+                    <button onClick={() => selectWorker(worker, '从失败事件查看')}>
+                      在中间查看
+                    </button>
+                  </article>
+                ))}
+              {workers
+                .filter((worker) => worker.status === 'completed')
+                .map((worker) => (
+                  <article key={`done:${worker.terminalId}`} className="orch-signal-card done">
+                    <div className="orch-signal-kicker">
+                      <span>已完成</span>
+                      <time>{workerAge(worker)}</time>
+                    </div>
+                    <h4>{workerName(worker)}</h4>
+                    <p>任务已经完成，worker 仍保持打开，可以继续发送指令。</p>
+                    <button onClick={() => selectWorker(worker, '从完成事件查看')}>查看结果</button>
+                  </article>
+                ))}
+              {workers
+                .filter((worker) => worker.status === 'streaming')
+                .map((worker) => (
+                  <article key={`live:${worker.terminalId}`} className="orch-signal-card finding">
+                    <div className="orch-signal-kicker">
+                      <span>最新输出</span>
+                      <time>{workerAge(worker)}</time>
+                    </div>
+                    <h4>{workerName(worker)}</h4>
+                    <pre>{outputSnippet(workerOutput(worker)) || '正在输出…'}</pre>
+                    <div className="orch-signal-actions">
+                      <button onClick={() => selectWorker(worker, '从最新输出查看')}>
+                        在中间查看
+                      </button>
+                      <button
+                        onClick={() => {
+                          selectWorker(worker, '从最新输出聚焦');
+                          setFocusOpen(true);
+                        }}
+                      >
+                        聚焦查看 ↗
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              {permissions.length === 0 &&
+              workers.every(
+                (worker) =>
+                  worker.status !== 'failed' &&
+                  worker.status !== 'completed' &&
+                  worker.status !== 'streaming',
+              ) ? (
+                <div className="orch-signals-empty">
+                  <strong>当前没有需要处理的事件</strong>
+                  <span>右侧只保留决策、失败、完成和实时进展，不堆原始日志。</span>
+                </div>
+              ) : null}
+            </div>
+          </aside>
         </div>
       )}
     </section>
@@ -365,6 +550,7 @@ export function OrchestrationWorkerBand({
   const openCommander = (): void => {
     void useTaskStore.getState().openTask(worker.commanderTaskId);
     useAppStore.getState().openTaskRoom(worker.commanderTaskId);
+    useAppStore.getState().setSessionRoomView('fleet');
   };
   return (
     <div
