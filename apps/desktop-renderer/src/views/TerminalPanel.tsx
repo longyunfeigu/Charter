@@ -27,6 +27,7 @@ import { Ic } from './home-icons.js';
 import { useQuickConsoleStore } from '../store/quickConsoleStore.js';
 import { TerminalBlocks, type BlocksHost, type TermBlock } from './terminal-blocks.js';
 import { TerminalUserInputTracker } from './terminal-input-provenance.js';
+import { TerminalInputWriter } from './terminal-input-writer.js';
 import {
   installTerminalUnicode,
   syncTerminalRenderer,
@@ -62,6 +63,7 @@ export interface TermInstance {
   currentInput: string;
   lastCommand: string;
   hidden: boolean;
+  inputWriter: TerminalInputWriter;
 }
 
 interface CreateTerminalRequest {
@@ -743,10 +745,16 @@ function createTermInstance(
   term.parser.registerOscHandler(133, (data) => blocks.handleOsc133(data));
   term.parser.registerOscHandler(9, (data) => blocks.handleOsc9(data));
   const inputTracker = new TerminalUserInputTracker();
+  const inputWriter = new TerminalInputWriter(
+    async (input) => {
+      await rpcResult('terminal.write', input);
+    },
+    { startupDelayMs: 500 },
+  );
   terminalInputTrackers.set(term, inputTracker);
   term.onKey(() => inputTracker.mark());
   term.onData((data) => {
-    void rpcResult('terminal.write', {
+    inputWriter.enqueue({
       id: info.id,
       data,
       userInitiated: inputTracker.consume(),
@@ -766,6 +774,7 @@ function createTermInstance(
     currentInput: '',
     lastCommand: '',
     hidden: false,
+    inputWriter,
   };
   term.onData((data) => {
     if (data === '\r') {
@@ -779,7 +788,10 @@ function createTermInstance(
   });
   term.attachCustomKeyEventHandler((event) => blockNavigationKey(item, event));
   wireFileLinks(item);
-  if (options.outputTail) term.write(options.outputTail);
+  if (options.outputTail) {
+    inputWriter.markReady();
+    term.write(options.outputTail);
+  }
   return item;
 }
 
@@ -820,6 +832,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     onEvent('terminal.data', ({ id, data }) => {
       const item = get().items.find((t) => t.id === id);
       if (!item) return;
+      item.inputWriter.markReady();
       item.term.write(data);
       // ADR-0021: plain-output progress fallback (OSC 9;4 always wins).
       item.blocks.feedOutput(data);
