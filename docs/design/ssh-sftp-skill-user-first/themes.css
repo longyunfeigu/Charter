@@ -1,0 +1,246 @@
+body[data-theme="heritage"] {
+  --ink: #30251e;
+  --ink-soft: #756252;
+  --ink-faint: #a18469;
+  --canvas: #d9c9b2;
+  --surface: #fff4df;
+  --surface-2: #f5e6cb;
+  --surface-3: #ead8bb;
+  --line: #d1b58d;
+  --line-strong: #a87e57;
+  --copper: #c44e2d;
+  --copper-deep: #8f351f;
+  --copper-soft: #f4d8cb;
+  --teal: #4d735f;
+  --teal-soft: #dfe9dc;
+  --amber: #97611d;
+  --amber-soft: #f4e2b8;
+  --red: #a64231;
+  --red-soft: #f1d8cf;
+  --sans: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+}
+
+body[data-theme="heritage"] .study-bar {
+  color: #fff6e9;
+  background: #2d211a;
+  border-color: #75513b;
+}
+
+body[data-theme="heritage"] .study-bar button:hover,
+body[data-theme="heritage"] .study-bar button.active {
+  border-color: #cf7958;
+  background: #58372a;
+}
+
+body[data-theme="heritage"] .host-copy strong,
+body[data-theme="heritage"] .place strong,
+body[data-theme="heritage"] .transfer-center > header strong,
+body[data-theme="heritage"] .conflict-dialog h1 {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -0.01em;
+}
+
+body[data-theme="heritage"] .host-copy strong {
+  font-size: 18px;
+}
+
+body[data-theme="heritage"] .place strong {
+  font-size: 17px;
+}
+
+body[data-theme="heritage"] .file-row {
+  min-height: 61px;
+}
+
+body[data-theme="heritage"] .file-name strong {
+  font-size: 12.5px;
+}
+
+body[data-theme="heritage"] .file-pane,
+body[data-theme="heritage"] .host-bar {
+  background: #fff7e7;
+}
+
+body[data-theme="heritage"] .file-list {
+  background-color: #fff7e7;
+}
+
+body[data-theme="heritage"] .file-row.selected {
+  background: #eedfd3;
+}
+
+body[data-theme="heritage"] .gate-button.upload,
+body[data-theme="heritage"] .primary-button {
+  background: #30231d;
+  border-color: #30231d;
+}
+
+body[data-theme="heritage"] .transfer-center {
+  background: #efe1c9;
+}
+
+body[data-theme="heritage"] .conflict-dialog {
+  border-radius: 6px;
+}
+
+body[data-theme="heritage"] .conflict-dialog > header {
+  background: #fff7e8;
+}
+
+body[data-theme="native"] {
+  --ink: #20252a;
+  --ink-soft: #5e6872;
+  --ink-faint: #8a949f;
+  --canvas: #dce0e5;
+  --surface: #f8f9fa;
+  --surface-2: #edf0f3;
+  --surface-3: #e4e8ec;
+  --line: #cbd1d8;
+  --line-strong: #9fa9b4;
+  --copper: #4778a8;
+  --copper-deep: #2f5e8c;
+  --copper-soft: #dce8f4;
+  --teal: #34786f;
+  --teal-soft: #dcebe8;
+  --amber: #97651d;
+  --amber-soft: #f5e9cc;
+  --red: #b14338;
+  --red-soft: #f5dfdc;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+body[data-theme="native"] .study-bar {
+  color: #f4f6f8;
+  background: #20252b;
+  border-color: #46515c;
+}
+
+body[data-theme="native"] .study-bar button:hover,
+body[data-theme="native"] .study-bar button.active {
+  border-color: #6488aa;
+  background: #354657;
+}
+
+body[data-theme="native"] .host-avatar {
+  background: #4778a8;
+}
+
+body[data-theme="native"] .product-shell,
+body[data-theme="native"] .file-pane,
+body[data-theme="native"] .host-bar {
+  background: #f8f9fa;
+}
+
+body[data-theme="native"] .file-list {
+  background-color: #f8f9fa;
+}
+
+body[data-theme="native"] .file-row {
+  min-height: 53px;
+}
+
+body[data-theme="native"] .file-row.selected {
+  background: #e0ebf5;
+  box-shadow: inset 3px 0 #4778a8;
+}
+
+body[data-theme="native"] .file-row.selected:hover {
+  background: #d7e5f2;
+}
+
+body[data-theme="native"] .file-type {
+  border-radius: 5px;
+}
+
+body[data-theme="native"] .file-type.dmg {
+  color: #375e82;
+  background: #e1ebf5;
+  border-color: #9cb6cd;
+}
+
+body[data-theme="native"] .gate-button,
+body[data-theme="native"] .host-bar button,
+body[data-theme="native"] .transfer-center > header .icon-button {
+  border-radius: 7px;
+}
+
+body[data-theme="native"] .gate-button.upload,
+body[data-theme="native"] .primary-button {
+  background: #29333d;
+  border-color: #29333d;
+}
+
+body[data-theme="native"] .transfer-center {
+  background: #edf0f3;
+}
+
+body[data-theme="native"] .conflict-dialog {
+  border-color: #9fa9b4;
+  border-radius: 12px;
+  background: #f9fafb;
+}
+
+body[data-theme="native"] .dialog-route,
+body[data-theme="native"] .conflict-dialog > footer {
+  background: #edf0f3;
+}
+
+body[data-theme="native"] .policy.selected {
+  border-color: #4778a8;
+  background: #e0ebf5;
+  box-shadow: 0 0 0 1px #4778a8;
+}
+
+body[data-theme="native"] .policy input:checked ~ .radio-ui {
+  border-color: #4778a8;
+}
+
+body[data-theme="synthesis"] {
+  --ink: #29231f;
+  --ink-soft: #6b5f55;
+  --ink-faint: #978779;
+  --canvas: #e3d9cb;
+  --surface: #fcf8f0;
+  --surface-2: #f1e8dc;
+  --surface-3: #eadfce;
+  --line: #d1bda1;
+  --line-strong: #ad8d69;
+  --copper: #b94e33;
+  --copper-deep: #873a28;
+  --copper-soft: #f2ddd5;
+  --teal: #2e7068;
+  --teal-soft: #dceae6;
+  --sans: "Avenir Next", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body[data-theme="synthesis"] .study-bar {
+  background: #231d19;
+}
+
+body[data-theme="synthesis"] .place strong,
+body[data-theme="synthesis"] .transfer-center > header strong {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -0.012em;
+}
+
+body[data-theme="synthesis"] .place strong {
+  font-size: 16px;
+}
+
+body[data-theme="synthesis"] .file-row {
+  min-height: 57px;
+}
+
+body[data-theme="synthesis"] .file-row.selected {
+  background: #f1e0d8;
+}
+
+body[data-theme="synthesis"] .transfer-center {
+  background: #f0e7da;
+}
+
+body[data-theme="synthesis"] .gate-button.upload,
+body[data-theme="synthesis"] .primary-button {
+  background: #2c211d;
+  border-color: #2c211d;
+}

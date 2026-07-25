@@ -1,0 +1,35 @@
+.adaptive-controls {
+  flex-wrap: wrap;
+}
+
+.adaptive-controls .visual-controls {
+  margin-left: auto;
+}
+
+.adaptive-controls > p {
+  flex-basis: 100%;
+  text-align: right;
+}
+
+.version-card.latest {
+  border-top-color: var(--copper);
+}
+
+.version-card.latest header a {
+  color: var(--copper);
+}
+
+.observed article:last-child {
+  border-left-color: var(--copper);
+  background: #f2e5dc;
+}
+
+@media (max-width: 1100px) {
+  .adaptive-controls .visual-controls {
+    margin-left: 0;
+  }
+
+  .adaptive-controls > p {
+    text-align: left;
+  }
+}

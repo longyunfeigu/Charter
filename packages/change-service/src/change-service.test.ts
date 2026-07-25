@@ -297,6 +297,17 @@ describe('external session baselines (ADR-0017)', () => {
     expect(cs.files[0]!.diff).toContain('+externally rewritten');
   });
 
+  it('records unproven filesystem observations as system provenance', async () => {
+    await service.ensureBaselineFromBytes('t1', 'a.txt', Buffer.from('v0\n'));
+    writeFileSync(join(root, 'a.txt'), 'v1\n');
+
+    const change = await service.recordExternalChange('t1', 'a.txt', 'modified', {
+      author: 'system',
+    });
+
+    expect(change.author).toBe('system');
+  });
+
   it('chains every observed write to the previous version and stores both blobs', async () => {
     await service.ensureBaselineFromBytes('t1', 'a.txt', Buffer.from('v0\n'));
     writeFileSync(join(root, 'a.txt'), 'v1\n');

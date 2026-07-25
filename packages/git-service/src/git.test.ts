@@ -176,4 +176,21 @@ describe('GitService snapshotTree/readTreeBlob (ADR-0017)', () => {
     const tree = await git.snapshotTree();
     expect(await git.readTreeBlob(tree, 'ignored.log')).toBeNull();
   });
+
+  it('filters ignored generated paths without hiding tracked files', async () => {
+    writeFileSync(join(root, '.gitignore'), 'dist/\n*.log\ntracked.txt\n');
+    mkdirSync(join(root, 'dist'));
+    writeFileSync(join(root, 'dist/bundle.js'), 'generated\n');
+    writeFileSync(join(root, 'debug.log'), 'noise\n');
+    writeFileSync(join(root, 'source.ts'), 'source\n');
+
+    const ignored = await git.ignoredPaths([
+      'dist/bundle.js',
+      'debug.log',
+      'source.ts',
+      'tracked.txt',
+    ]);
+
+    expect([...ignored].sort()).toEqual(['debug.log', 'dist/bundle.js']);
+  });
 });

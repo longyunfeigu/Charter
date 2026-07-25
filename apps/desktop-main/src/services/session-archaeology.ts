@@ -34,9 +34,11 @@ export interface TranscriptSummary {
   startedAt: string | null;
   endedAt: string | null;
   filesTouched: string[];
+  /** Skill-tool loads, for the discovered-session chips. */
   skills: string[];
-  /** Timestamped Skill invocations (ADR-0040) — `skills` minus the entries
-   * whose transcript line carried no timestamp. */
+  /** Timestamped invocations for usage counting (ADR-0040): Skill-tool loads
+   * plus `/name` slash expansions. Slash entries include built-in CLI
+   * commands (`/clear`, `/model`…) — the catalog join drops those. */
   skillEvents: Array<{ skill: string; at: string }>;
   turnCount: number;
 }
@@ -73,6 +75,29 @@ function plainUserText(content: unknown): string | null {
   const trimmed = text?.trim() ?? '';
   if (!trimmed || trimmed.startsWith('<') || trimmed.startsWith('Caveat:')) return null;
   return trimmed;
+}
+
+const COMMAND_NAME_RE = /<command-name>\/?([^<\s]+)<\/command-name>/;
+
+/** `/name` skill expansions never reach the Skill tool — the CLI records
+ * them as a user entry whose content IS the literal command wrapper tags
+ * (`<command-message>…<command-name>/name</command-name>…`). Requiring the
+ * wrapper at the very start keeps pasted text that merely mentions the tag
+ * from counting. */
+function commandInvocation(content: unknown): string | null {
+  let text: string | null = typeof content === 'string' ? content : null;
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      const p = record(part);
+      if (p.type === 'text' && typeof p.text === 'string') {
+        text = p.text;
+        break;
+      }
+    }
+  }
+  const trimmed = text?.trim() ?? '';
+  if (!trimmed.startsWith('<command-')) return null;
+  return COMMAND_NAME_RE.exec(trimmed)?.[1] ?? null;
 }
 
 function clampTitle(text: string): string {
@@ -127,6 +152,8 @@ export function parseClaudeTranscript(text: string): TranscriptSummary {
         out.turnCount += 1;
         firstUser ??= text0;
       }
+      const command = commandInvocation(message.content);
+      if (command && ts) out.skillEvents.push({ skill: command, at: ts });
       continue;
     }
     if (entry.type === 'assistant') {

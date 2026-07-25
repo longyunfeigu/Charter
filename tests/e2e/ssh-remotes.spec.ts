@@ -9,13 +9,13 @@ import { startFakeSshServer, MemFs, type FakeSshServer } from './helpers/ssh-ser
 /**
  * ADR-0047 SSH Remotes end-to-end against a loopback ssh2 server (no system
  * sshd). Covers the first-connection flow (host book → TOFU → password →
- * live session → connection loss), the multi-session card UX, the SFTP files
+ * live session → connection loss), the host/session explorer UX, the SFTP files
  * panel, and local port forwards.
  */
 
 /** Create the e2e host via the New Host dialog (password auth, saved). */
 async function addHost(page: Page, port: number): Promise<void> {
-  await page.getByTestId('surface-remotes').click();
+  await page.getByTestId('rail-view-remotes').click();
   await expect(page.getByTestId('remotes-view')).toBeVisible();
   await page.getByRole('button', { name: 'New Host' }).first().click();
   await expect(page.getByTestId('rm-dialog')).toBeVisible();
@@ -80,21 +80,27 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       // Disconnect control only renders when the session carries remote info.
       await expect(page.getByTestId('session-terminal-view')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId('ssh-disconnect')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByTestId('remote-explorer-rail')).toBeVisible();
+      await expect(page.getByTestId('rm-host-e2e-host')).toBeVisible();
 
-      // Dropping the transport ends the session (no fake resurrection)…
+      // Dropping the transport deletes the ended Session and returns directly
+      // to its host instead of retaining a dead terminal row.
       sshd.dropConnections();
-      await expect(page.locator('.stv-status.ended')).toBeVisible({ timeout: 15000 });
-
-      // …and with no forwards/panels holding the connection, the host card
-      // goes back to disconnected — Connect is offered again (the bug fix).
-      await page.getByTestId('surface-remotes').click();
+      await expect(page.getByTestId('session-terminal-view')).toBeHidden({ timeout: 15000 });
+      await expect(page.getByTestId('rm-host-overview-e2e-host')).toBeVisible();
+      await expect(page.locator('[data-testid^="rm-session-term_"]')).toHaveCount(0);
       await expect(page.getByTestId('rm-connect-e2e-host')).toBeVisible({ timeout: 20000 });
+
+      // Rail navigation leaves the Remotes surface — switching the left panel
+      // must not leave the main area parked on hosts (dead-click report).
+      await page.getByTestId('rail-needs-you').click();
+      await expect(page.getByTestId('remotes-view')).toBeHidden();
     } finally {
       await app.close();
     }
   });
 
-  test('E2E: one remote multiplexes several sessions from the card', async () => {
+  test('E2E: one remote multiplexes several sessions from the host explorer', async () => {
     const { app, page } = await launchApp();
     try {
       await addHost(page, sshd.port);
@@ -102,23 +108,52 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       await acceptPrompts(page);
       await expect(page.getByTestId('session-terminal-view')).toBeVisible({ timeout: 15000 });
 
-      // Back on the card: connected, one session listed, New Session offered.
-      await page.getByTestId('surface-remotes').click();
+      // Back on the host: connected, one session listed, New Session offered.
+      await page.getByTestId('remote-host-e2e-host').click();
       await expect(page.getByTestId('rm-sessions-e2e-host')).toBeVisible({ timeout: 10000 });
       await expect(page.locator('[data-testid^="rm-session-term_"]')).toHaveCount(1);
 
       // Second session on the same transport (no new TOFU/auth prompts).
       await page.getByTestId('rm-new-session-e2e-host').click();
       await expect(page.getByTestId('session-terminal-view')).toBeVisible({ timeout: 15000 });
-      await page.getByTestId('surface-remotes').click();
-      await expect(page.locator('[data-testid^="rm-session-term_"]')).toHaveCount(2, {
+      await expect(page.getByTestId('remote-explorer-rail')).toBeVisible();
+
+      // End the currently selected shell. Its row is deleted immediately and
+      // the remaining live PTY becomes both the route and TerminalPanel active.
+      const endedTerminalId = await page
+        .getByTestId('session-terminal-view')
+        .getAttribute('data-terminal-id');
+      expect(endedTerminalId).toBeTruthy();
+      const terminalIds = await page
+        .locator('[data-testid^="rm-session-term_"]')
+        .evaluateAll((nodes) =>
+          nodes
+            .map((node) => node.getAttribute('data-testid')?.replace('rm-session-', ''))
+            .filter((id): id is string => Boolean(id)),
+        );
+      const liveTerminalId = terminalIds.find((id) => id !== endedTerminalId);
+      expect(liveTerminalId).toBeTruthy();
+      sshd.closeLatestShell();
+      await expect(page.locator('[data-testid^="rm-session-term_"]')).toHaveCount(1);
+      await expect(page.getByTestId('session-terminal-view')).toHaveAttribute(
+        'data-terminal-id',
+        liveTerminalId!,
+      );
+      await expect(page.getByTestId('terminal-host')).toHaveAttribute(
+        'data-terminal-id',
+        liveTerminalId!,
+      );
+      await expect(page.locator('.stv-status.ended')).toHaveCount(0);
+
+      await page.getByTestId('remote-host-e2e-host').click();
+      await expect(page.locator('[data-testid^="rm-session-term_"]')).toHaveCount(1, {
         timeout: 10000,
       });
 
-      // Remote sessions are shell-only for now — no launch-type menu on the card.
+      // Remote sessions are shell-only for now — no launch-type menu on the host.
       await expect(page.getByTestId('rm-launch-menu-e2e-host')).toHaveCount(0);
 
-      // Disconnect from the card ends every session and restores Connect.
+      // Disconnect deletes the final live Session as soon as its channel exits.
       await page.getByTestId('rm-disconnect-e2e-host').click();
       await expect(page.getByTestId('rm-connect-e2e-host')).toBeVisible({ timeout: 10000 });
       await expect(page.locator('[data-testid^="rm-session-term_"]')).toHaveCount(0, {
@@ -193,7 +228,7 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       await expect(page.getByTestId('transfer-center')).toBeHidden();
 
       await page.getByTestId('sftp-back').click();
-      await expect(page.getByTestId('rm-host-e2e-host')).toBeVisible();
+      await expect(page.getByTestId('rm-host-overview-e2e-host')).toBeVisible();
 
       // --- Port forward (PR3) ---
       const bindPort = 20000 + Math.floor(Math.random() * 20000);

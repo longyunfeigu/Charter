@@ -111,7 +111,7 @@ interface TerminalStore {
   undoCloseId: string | null;
   init(): void;
   create(options?: CreateTerminalRequest): Promise<string | null>;
-  adopt(id: string, outputTail?: string): Promise<void>;
+  adopt(id: string, outputTail?: string): Promise<boolean>;
   setContext(id: string, context: TerminalWorkingContext): Promise<boolean>;
   setActive(id: string): void;
   requestKill(id: string): Promise<void>;
@@ -878,10 +878,40 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     });
     onEvent('terminal.exit', ({ id, exitCode }) => {
       const item = get().items.find((t) => t.id === id);
-      if (item) {
-        item.exited = true;
-        item.term.write(`\r\n\x1b[90m[process exited with code ${exitCode}]\x1b[0m\r\n`);
+      if (!item) return;
+
+      if (item.remote) {
+        const remaining = get().items.filter((entry) => entry.id !== id);
+        const nextRemote = remaining
+          .filter(
+            (entry) =>
+              entry.remote?.hostId === item.remote?.hostId && !entry.hidden && !entry.exited,
+          )
+          .at(-1);
+        item.term.dispose();
+        set({
+          items: remaining,
+          active:
+            get().active === id
+              ? (nextRemote?.id ?? remaining.filter((entry) => !entry.hidden).at(-1)?.id ?? null)
+              : get().active,
+        });
+        useExternalStore.getState().handleTerminalClosed(id);
+
+        const app = useAppStore.getState();
+        if (app.remotesOpen && app.sessionTerminalId === id) {
+          if (nextRemote) app.openRemoteTerminalSession(nextRemote.id, item.remote.hostId);
+          else app.selectRemoteHost(item.remote.hostId);
+        }
+        return;
       }
+
+      item.term.write(`\r\n\x1b[90m[process exited with code ${exitCode}]\x1b[0m\r\n`);
+      // Replace the item so selectors watching this terminal re-render its
+      // status; mutating the existing object left the header stuck on Live.
+      set({
+        items: get().items.map((entry) => (entry.id === id ? { ...entry, exited: true } : entry)),
+      });
     });
     // ADR-0017: closing summary line when an external agent session ends —
     // display-buffer only (never written to the PTY). ADR-0021: session edges
@@ -962,13 +992,15 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   },
 
   async adopt(id, outputTail = '') {
-    if (get().items.some((item) => item.id === id) || adoptingTerminalIds.has(id)) return;
+    if (get().items.some((item) => item.id === id)) return true;
+    if (adoptingTerminalIds.has(id)) return false;
     adoptingTerminalIds.add(id);
     try {
       const result = await rpcResult('terminal.list', {});
-      if (!result.ok) return;
+      if (!result.ok) return false;
       const info = result.data.items.find((item) => item.id === id);
-      if (!info || get().items.some((item) => item.id === id)) return;
+      if (!info) return false;
+      if (get().items.some((item) => item.id === id)) return true;
       // Main and renderer can briefly straddle schema versions during Vite
       // development reloads; fall back to the legacy plain-text snapshot.
       const recentData = result.data.recentData ?? {};
@@ -976,6 +1008,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
         outputTail: recentData[id] ?? outputTail,
       });
       set({ items: [...get().items, item] });
+      return true;
     } finally {
       adoptingTerminalIds.delete(id);
     }

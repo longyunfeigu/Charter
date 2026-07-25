@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SFTP · 上一版与用户优先版对比</title>
+    <link rel="stylesheet" href="./compare.css" />
+  </head>
+  <body>
+    <header class="compare-header">
+      <div>
+        <span>SAME BRIEF · SAME DATA · REVISED SKILL</span>
+        <h1>上一版 vs. 用户优先版</h1>
+        <p>两边都是“双栏 + 第三栏传输中心”。新版只修正普通任务、真实拖放和恢复闭环，不更换用户心智模型。</p>
+      </div>
+      <nav>
+        <button class="active" type="button" data-layout="stack">桌面上下对比</button>
+        <button type="button" data-layout="side">窄窗并排对比</button>
+        <button type="button" id="reload">重置两边</button>
+      </nav>
+    </header>
+
+    <section class="baseline-strip">
+      <span><b>保留</b> 左右空间关系</span>
+      <span><b>保留</b> 直接箭头与拖放</span>
+      <span><b>保留</b> 右侧传输中心</span>
+      <span><b>改进</b> 初始信息重量</span>
+      <span><b>改进</b> 中断后到达完成</span>
+    </section>
+
+    <main class="comparison" id="comparison">
+      <article>
+        <header>
+          <div><span>REFERENCE</span><h2>上一版 · 双栏 + 第三栏传输中心</h2></div>
+          <a href="../mock-html-skill-showcase/sftp-transfer.html" target="_blank" rel="noreferrer">单独打开 ↗</a>
+        </header>
+        <iframe
+          id="previous-frame"
+          src="../mock-html-skill-showcase/sftp-transfer.html"
+          title="上一版 SFTP Mock HTML"
+        ></iframe>
+        <footer>优势：大工作区、方向直接。缺口：没有真实拖放；失败重试没有到达成功终态。</footer>
+      </article>
+
+      <article class="candidate">
+        <header>
+          <div><span>REVISED SKILL OUTPUT</span><h2>用户优先版 · 同一骨架，渐进安全层</h2></div>
+          <a href="./index.html" target="_blank" rel="noreferrer">单独打开 ↗</a>
+        </header>
+        <iframe id="candidate-frame" src="./index.html" title="用户优先版 SFTP Mock HTML"></iframe>
+        <footer>变化：可真实拖到远程栏；冲突按需出现；传输中心从安静空态进入中断、重试和 2/2 完成。</footer>
+      </article>
+    </main>
+
+    <section class="judge">
+      <span>请优先实际操作新版</span>
+      <h2>最短验证路径</h2>
+      <ol>
+        <li><b>1</b>拖动左侧任一已选文件到右侧目录。</li>
+        <li><b>2</b>保持 Keep both，查看结果文件名后开始上传。</li>
+        <li><b>3</b>在右侧 Transfer Center 点击 Resume from 2.8 KB。</li>
+        <li><b>4</b>确认远程列表出现两个新文件，并显示 2 of 2 完成。</li>
+      </ol>
+      <a href="./evaluation.md">查看方法与验收证据 ↗</a>
+    </section>
+
+    <script>
+      const comparison = document.querySelector("#comparison");
+      document.querySelectorAll("[data-layout]").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll("[data-layout]").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+          comparison.classList.toggle("side", button.dataset.layout === "side");
+        });
+      });
+      document.querySelector("#reload").addEventListener("click", () => {
+        document.querySelectorAll("iframe").forEach((frame) => {
+          frame.src = frame.src;
+        });
+      });
+    </script>
+  </body>
+</html>

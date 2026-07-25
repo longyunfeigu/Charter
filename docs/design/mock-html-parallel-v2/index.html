@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>design-mock-html · 递归前后对照</title>
+    <link rel="stylesheet" href="./gallery.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <div>
+        <span class="kicker">DESIGN-MOCK-HTML / FORWARD TEST 02</span>
+        <h1>从“看起来完整”到“行为经得起复验”</h1>
+      </div>
+      <a href="./evaluation.md">打开完整验收记录 ↗</a>
+    </header>
+
+    <main>
+      <section class="method">
+        <div>
+          <span class="section-label">递归规则</span>
+          <strong>任何 blocker 都让整条 Improvement Gate 失败；修 Schema，再修 Mock，只复跑受影响路径。</strong>
+        </div>
+        <ol>
+          <li><b>01</b> 冻结相同任务、对象和视口</li>
+          <li><b>02</b> 独立审查者操作旧版与新版</li>
+          <li><b>03</b> 失败模式写回 Skill 与审计</li>
+          <li><b>04</b> 修订后复跑，不靠平均分放行</li>
+        </ol>
+      </section>
+
+      <nav class="cases" aria-label="选择对比用例">
+        <button type="button" class="active" data-case="screenshot">
+          <small>CASE A · 0→1</small><strong>Screenshot intent loop</strong>
+        </button>
+        <button type="button" data-case="memory">
+          <small>CASE B · CORRECT DEBT</small><strong>Effective memory</strong>
+        </button>
+        <button type="button" data-case="artifact">
+          <small>CASE C · EXTEND</small><strong>Artifact lifecycle</strong>
+        </button>
+      </nav>
+
+      <section class="case-head">
+        <div>
+          <span class="section-label" id="case-kind">CASE A</span>
+          <h2 id="case-title">Screenshot：捕获到可复用上下文</h2>
+          <p id="case-job"></p>
+        </div>
+        <div class="score-pair">
+          <div><small>严格旧版</small><strong id="before-score">—</strong><span>/100</span></div>
+          <i aria-hidden="true">→</i>
+          <div class="after"><small>递归修订</small><strong id="after-score">复验中</strong><span id="after-unit"></span></div>
+        </div>
+      </section>
+
+      <section class="compare" aria-label="旧版与递归修订版交互对照">
+        <article>
+          <header>
+            <div><span class="tag">BEFORE</span><strong id="before-title"></strong></div>
+            <a id="before-link" target="_blank" rel="noreferrer">单独打开 ↗</a>
+          </header>
+          <iframe id="before-frame" title="严格复评的旧版 Mock HTML"></iframe>
+        </article>
+        <article class="recommended">
+          <header>
+            <div><span class="tag">AFTER</span><strong id="after-title"></strong></div>
+            <a id="after-link" target="_blank" rel="noreferrer">交互验收 ↗</a>
+          </header>
+          <iframe id="after-frame" title="使用新版 Skill 递归修订的 Mock HTML"></iframe>
+        </article>
+      </section>
+
+      <section class="evidence">
+        <div>
+          <span class="section-label">已观察到的改进</span>
+          <ul id="improvements"></ul>
+        </div>
+        <div>
+          <span class="section-label">递归修订记录</span>
+          <ol id="iterations"></ol>
+        </div>
+      </section>
+    </main>
+
+    <script src="./gallery.js"></script>
+  </body>
+</html>

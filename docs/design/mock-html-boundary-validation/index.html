@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mock boundary validation · Screenshot Quick Card</title>
+    <link rel="stylesheet" href="./gallery.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="identity">
+          <small>DESIGN-MOCK-HTML / BOUNDARY VALIDATION</small>
+          <h1>旧方案与“最小完整关联面”对照</h1>
+        </div>
+        <nav class="case-tabs" aria-label="Validation cases">
+          <button class="case-tab active" type="button" data-case="screenshot">01 · 0→1 Screenshot</button>
+          <button class="case-tab" type="button" data-case="memory">02 · Legacy Memory</button>
+          <button class="case-tab" type="button" data-case="artifact">03 · Artifact Lifecycle</button>
+        </nav>
+        <a class="method-link" href="./evaluation.md">完整评估 ↗</a>
+      </header>
+
+      <section class="verdict" aria-label="Case verdict">
+        <div class="verdict-copy">
+          <strong>第一性原理：为一个用户意图补齐闭环，不按“页面相关性”无限扩张。</strong>
+          <p id="case-verdict"></p>
+        </div>
+        <div class="score" aria-label="Quality score">
+          <b id="case-score">93</b><span>/ 100<br />rendered evidence</span>
+        </div>
+      </section>
+
+      <section class="compare" aria-label="Historical and recommended mock comparison">
+        <article class="frame-card">
+          <header class="frame-head">
+            <span class="badge">REFERENCE</span>
+            <span class="frame-label"><small>BEFORE</small><strong id="old-title"></strong></span>
+            <a id="old-link" href="../screenshot-quickcard-mock.html">单独打开 ↗</a>
+          </header>
+          <iframe id="old-frame" title="Historical Mock HTML"></iframe>
+        </article>
+
+        <article class="frame-card">
+          <header class="frame-head">
+            <span class="badge recommended">≥ 90</span>
+            <span class="frame-label"><small>AFTER · CONNECTED SET</small><strong id="new-title"></strong></span>
+            <a id="new-link" href="./screenshot-flow.html">交互查看 ↗</a>
+          </header>
+          <iframe id="new-frame" title="Recommended connected Mock HTML"></iframe>
+        </article>
+      </section>
+    </main>
+    <script src="./gallery.js"></script>
+  </body>
+</html>

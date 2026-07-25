@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>推荐版 · 添加项目入口</title>
+    <link rel="stylesheet" href="recommended.css" />
+  </head>
+  <body data-case="projects">
+    <header class="study-bar">
+      <div class="study-title">
+        <small>DESIGN MOCK HTML · CASE 04</small>
+        <strong>添加项目：已有列表用紧凑入口，空态用任务导向入口</strong>
+      </div>
+      <div class="study-actions" aria-label="Mock 场景">
+        <span class="study-readout" id="study-readout">已有项目 · Header 明确入口</span>
+        <button class="study-button active" type="button" data-project-state="populated">
+          已有项目
+        </button>
+        <button class="study-button" type="button" data-project-state="empty">空态</button>
+        <button class="study-button" id="demo-project" type="button">演示添加</button>
+        <button class="study-button" data-reset type="button">重置</button>
+      </div>
+    </header>
+
+    <main class="stage" id="stage">
+      <section class="app projects-app" aria-label="Projects 添加入口推荐方案">
+        <nav class="activity-rail" aria-label="主导航">
+          <div class="activity-mark" aria-label="Charter">C</div>
+          <button class="activity-button active" type="button" aria-label="Projects">P</button>
+          <button class="activity-button" type="button" aria-label="Sessions">S</button>
+          <button class="activity-button" type="button" aria-label="Search">⌕</button>
+          <span class="activity-spacer"></span>
+          <button class="activity-button" type="button" aria-label="Settings">··</button>
+        </nav>
+
+        <aside class="project-rail" aria-label="项目列表">
+          <header class="project-rail-head">
+            <h1>Projects</h1>
+            <span class="badge" id="project-count">3</span>
+            <button
+              class="add-project-button"
+              id="add-project-button"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="add-project-menu"
+            >
+              <span aria-hidden="true">＋</span>
+              Add
+            </button>
+          </header>
+
+          <div class="project-search" id="project-search-wrap">
+            <label class="visually-hidden" for="project-search">搜索项目</label>
+            <input id="project-search" type="search" placeholder="Search projects…" />
+          </div>
+
+          <div class="project-list" id="project-list">
+            <button class="project-row active" type="button" data-project-name="fable5">
+              <span class="project-icon">F5</span>
+              <span class="project-copy">
+                <strong>fable5</strong>
+                <small>3 sessions · active now</small>
+              </span>
+              <span class="badge green">active</span>
+            </button>
+            <button class="project-row" type="button" data-project-name="charter">
+              <span class="project-icon">CH</span>
+              <span class="project-copy">
+                <strong>charter</strong>
+                <small>8 sessions · yesterday</small>
+              </span>
+              <span class="icon-button" aria-label="charter 项目更多操作">··</span>
+            </button>
+            <button class="project-row" type="button" data-project-name="design-lab">
+              <span class="project-icon">DL</span>
+              <span class="project-copy">
+                <strong>design-lab</strong>
+                <small>1 session · Jul 18</small>
+              </span>
+              <span class="icon-button" aria-label="design-lab 项目更多操作">··</span>
+            </button>
+          </div>
+
+          <section class="project-empty" id="project-empty" aria-label="没有项目">
+            <div class="empty-card">
+              <div class="empty-illustration" aria-hidden="true">＋ DIR</div>
+              <h2>从一个项目开始</h2>
+              <p>打开本机文件夹，或者从 Git 地址创建一个新的工作区。</p>
+              <div class="empty-actions">
+                <button class="primary-button project-flow" type="button" data-flow="folder">
+                  打开现有文件夹
+                </button>
+                <button class="soft-button project-flow" type="button" data-flow="clone">
+                  Clone Git repository
+                </button>
+                <button class="quiet-button project-flow" type="button" data-flow="blank">
+                  创建空白项目
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <footer class="rail-footnote">
+            <span>⌘ O</span>
+            <span>快速打开文件夹</span>
+          </footer>
+
+          <div class="add-menu" id="add-project-menu" role="menu" aria-label="添加项目方式">
+            <button class="add-option project-flow" type="button" role="menuitem" data-flow="folder">
+              <span class="option-icon">DIR</span>
+              <span>
+                <strong>打开现有文件夹</strong>
+                <small>使用磁盘上的项目</small>
+              </span>
+              <kbd>⌘O</kbd>
+            </button>
+            <button class="add-option project-flow" type="button" role="menuitem" data-flow="clone">
+              <span class="option-icon">GIT</span>
+              <span>
+                <strong>Clone Git repository</strong>
+                <small>从远程仓库创建项目</small>
+              </span>
+              <kbd>⌘⇧G</kbd>
+            </button>
+            <button class="add-option project-flow" type="button" role="menuitem" data-flow="blank">
+              <span class="option-icon">NEW</span>
+              <span>
+                <strong>创建空白项目</strong>
+                <small>选择名称与保存位置</small>
+              </span>
+              <kbd></kbd>
+            </button>
+          </div>
+        </aside>
+
+        <section class="project-main" aria-label="项目详情">
+          <div class="project-main-state" id="project-populated-main">
+            <header class="project-main-head">
+              <span class="avatar">F</span>
+              <div>
+                <strong>fable5</strong>
+                <small>~/git/fable5 · main</small>
+              </div>
+              <button class="soft-button" type="button">Open workspace</button>
+            </header>
+            <div class="project-content">
+              <article class="project-card">
+                <span class="kicker">Continue working</span>
+                <h2>Checkout polish</h2>
+                <p>Agent 正在检查结账页按钮和优惠券过期状态。你可以回到 Session，或者先查看已修改文件。</p>
+                <button class="primary-button" type="button">Return to session</button>
+              </article>
+              <article class="project-card">
+                <span class="kicker">Recent sessions</span>
+                <h2>3 sessions</h2>
+                <div class="recent-list">
+                  <div class="recent-row">
+                    <strong>Checkout polish</strong>
+                    <small>working</small>
+                  </div>
+                  <div class="recent-row">
+                    <strong>Review cart totals</strong>
+                    <small>18m</small>
+                  </div>
+                  <div class="recent-row">
+                    <strong>Improve empty state</strong>
+                    <small>1h</small>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
+          <div class="project-main-state project-main-empty" id="project-empty-main" hidden>
+            <article class="main-empty-card">
+              <span class="kicker">Workspace boundary</span>
+              <h2>项目让工作保持在正确边界内</h2>
+              <p>文件、Session 和权限都会归属于你选择的项目。先从左侧打开文件夹或创建项目。</p>
+              <div class="main-empty-points" aria-label="项目包含的内容">
+                <span>Files<br />明确工作范围</span>
+                <span>Sessions<br />保留任务上下文</span>
+                <span>Permissions<br />按项目控制</span>
+              </div>
+            </article>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <div
+      class="modal-backdrop"
+      id="project-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="project-dialog-title"
+    >
+      <section class="dialog">
+        <header class="dialog-head">
+          <h2 id="project-dialog-title">Clone Git repository</h2>
+          <button class="icon-button" data-dialog-close type="button" aria-label="关闭">×</button>
+        </header>
+        <div class="dialog-body">
+          <form class="project-dialog-form" id="project-form">
+            <div class="field">
+              <label for="repository-url">Repository URL</label>
+              <input
+                id="repository-url"
+                type="url"
+                value="https://github.com/acme/storefront.git"
+                autocomplete="off"
+              />
+              <small>支持 HTTPS 与 SSH 地址；凭据只在需要时请求。</small>
+            </div>
+            <div class="field">
+              <label for="project-location">保存到</label>
+              <input id="project-location" type="text" value="~/git/storefront" />
+            </div>
+          </form>
+        </div>
+        <footer class="dialog-foot">
+          <small id="project-dialog-note">将创建 storefront 并在完成后打开。</small>
+          <button class="quiet-button" data-dialog-close type="button">取消</button>
+          <button class="primary-button" id="create-project" type="button">Clone and open</button>
+        </footer>
+      </section>
+    </div>
+
+    <script src="recommended.js"></script>
+  </body>
+</html>

@@ -319,9 +319,10 @@ export function projectActivityEvent(event: TimelineEventDto): ActivityItem | nu
         captureGrade: str(p.captureGrade) === 'structured' ? 'structured' : 'observed',
         evidenceKinds: ['file'] as const,
         kind: 'write',
-        label: `${source || 'External'} ${str(p.kind, 'modified')} ${path}`,
+        label: `Workspace observed ${str(p.kind, 'modified')} ${path}`,
         status: 'ok',
         paths: path ? [path] : [],
+        author: 'system',
         ...(changeId ? { changeIds: [changeId] } : {}),
         diffstat: { additions, deletions },
       };

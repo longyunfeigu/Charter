@@ -169,6 +169,21 @@ export function ModelEffortControl(props: {
     if (clamped !== thinking) onThinking(clamped);
   }, [supported, thinking, onThinking]);
 
+  // The pop opens upward: clamp it to the space actually above the trigger so
+  // it never extends past the window top (which clipped long gateway model
+  // lists unreachably and cut the pinned effort chips).
+  const [popMaxHeight, setPopMaxHeight] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const measure = (): void => {
+      const top = triggerRef.current?.getBoundingClientRect().top ?? window.innerHeight;
+      setPopMaxHeight(Math.max(200, Math.min(top - 16, window.innerHeight * 0.6)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [open]);
+
   // Close on any outside interaction (it overlays the composer).
   useEffect(() => {
     if (!open) return;
@@ -217,32 +232,39 @@ export function ModelEffortControl(props: {
         <Ic name="chevron" size={12} className="me-chev" />
       </button>
       {open ? (
-        <div className="me-pop" data-testid={`${testid}-modeleffort-pop`} role="menu">
+        <div
+          className="me-pop"
+          data-testid={`${testid}-modeleffort-pop`}
+          role="menu"
+          style={popMaxHeight !== null ? { maxHeight: `${popMaxHeight}px` } : undefined}
+        >
           <div className="me-cap">Model</div>
           {hasModels ? (
-            groups.map((g) => (
-              <React.Fragment key={g.providerId}>
-                {groups.length > 1 ? <div className="me-prov">{g.providerName}</div> : null}
-                {g.models.map((m) => {
-                  const key = `${m.providerId}::${m.modelId}`;
-                  const on = key === modelKey;
-                  return (
-                    <button
-                      type="button"
-                      key={key}
-                      className={`me-row ${on ? 'on' : ''}`}
-                      data-testid={`${testid}-model-opt-${key}`}
-                      role="menuitemradio"
-                      aria-checked={on}
-                      onClick={() => onModelKey(key)}
-                    >
-                      <Ic name="check" size={13} strokeWidth={2.2} className="ck" />
-                      <span className="mname">{m.displayName}</span>
-                    </button>
-                  );
-                })}
-              </React.Fragment>
-            ))
+            <div className="me-list">
+              {groups.map((g) => (
+                <React.Fragment key={g.providerId}>
+                  {groups.length > 1 ? <div className="me-prov">{g.providerName}</div> : null}
+                  {g.models.map((m) => {
+                    const key = `${m.providerId}::${m.modelId}`;
+                    const on = key === modelKey;
+                    return (
+                      <button
+                        type="button"
+                        key={key}
+                        className={`me-row ${on ? 'on' : ''}`}
+                        data-testid={`${testid}-model-opt-${key}`}
+                        role="menuitemradio"
+                        aria-checked={on}
+                        onClick={() => onModelKey(key)}
+                      >
+                        <Ic name="check" size={13} strokeWidth={2.2} className="ck" />
+                        <span className="mname">{m.displayName}</span>
+                      </button>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </div>
           ) : (
             <div className="me-empty">
               <div>No model — add a provider key in Settings.</div>

@@ -1,0 +1,254 @@
+:root {
+  --ink: #29231f;
+  --muted: #776b60;
+  --canvas: #e8dfd1;
+  --surface: #fbf7ef;
+  --line: #cdb99a;
+  --copper: #b95237;
+  --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: "SFMono-Regular", Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--canvas);
+  font-family: var(--sans);
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid rgba(185, 82, 55, 0.34);
+  outline-offset: 3px;
+}
+
+.compare-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 30px;
+  padding: 24px 28px;
+  color: #f9f1e8;
+  background: #211c19;
+}
+
+.compare-header > div {
+  display: grid;
+  gap: 6px;
+}
+
+.compare-header span,
+article header span,
+.judge > span {
+  color: #b9a99a;
+  font: 750 10px/1 var(--mono);
+  letter-spacing: 0.12em;
+}
+
+.compare-header h1,
+.compare-header p,
+article h2,
+.judge h2 {
+  margin: 0;
+}
+
+.compare-header h1 {
+  font-size: 25px;
+}
+
+.compare-header p {
+  color: #cbbdb0;
+  font-size: 12px;
+}
+
+.compare-header nav {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.compare-header button {
+  min-height: 38px;
+  padding: 0 13px;
+  color: #d9cbc0;
+  background: transparent;
+  border: 1px solid #655044;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.compare-header button.active,
+.compare-header button:hover {
+  color: white;
+  border-color: #a65e48;
+  background: #4a332b;
+}
+
+.baseline-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  min-height: 50px;
+  padding: 8px 20px;
+  color: var(--muted);
+  background: #f4ecdf;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+
+.baseline-strip b {
+  margin-right: 4px;
+  color: var(--copper);
+}
+
+.comparison {
+  display: grid;
+  gap: 22px;
+  padding: 22px;
+}
+
+.comparison.side {
+  grid-template-columns: 1fr 1fr;
+}
+
+article {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: 0 10px 28px rgba(55, 42, 28, 0.1);
+}
+
+article > header {
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+article > header div {
+  display: grid;
+  gap: 5px;
+}
+
+article header span {
+  color: var(--muted);
+}
+
+article h2 {
+  font-size: 16px;
+}
+
+article a,
+.judge a {
+  color: var(--copper);
+  font-size: 11px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+iframe {
+  width: 100%;
+  height: 760px;
+  display: block;
+  background: white;
+  border: 0;
+}
+
+.side iframe {
+  height: 690px;
+}
+
+article > footer {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  padding: 8px 18px;
+  color: var(--muted);
+  background: #f4ecdf;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.candidate {
+  border-top: 3px solid var(--copper);
+}
+
+.judge {
+  margin: 0 22px 30px;
+  padding: 22px 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.judge > span {
+  color: var(--copper);
+}
+
+.judge h2 {
+  margin-top: 7px;
+  font-size: 20px;
+}
+
+.judge ol {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 18px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.judge li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.judge li b {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: white;
+  background: var(--copper);
+  border-radius: 50%;
+  font: 750 9px/1 var(--mono);
+}
+
+@media (max-width: 900px) {
+  .compare-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .baseline-strip {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .comparison.side,
+  .comparison {
+    grid-template-columns: 1fr;
+  }
+
+  .judge ol {
+    grid-template-columns: 1fr 1fr;
+  }
+}

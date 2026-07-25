@@ -27,4 +27,17 @@ describe('presentedMeta (Answered veneer vs external session end)', () => {
     expect(isAnswered(review)).toBe(false);
     expect(presentedMeta(review).short).toBe('Review');
   });
+
+  it('describes a live external process without claiming the agent is working', () => {
+    const live = {
+      state: 'IN_PROGRESS',
+      changedFiles: 0,
+      external: { cli: 'claude', status: 'active' },
+    };
+    expect(presentedMeta(live)).toEqual({
+      label: 'Session live — activity may be idle',
+      short: 'Live',
+      tone: 'run',
+    });
+  });
 });

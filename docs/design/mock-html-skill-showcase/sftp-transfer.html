@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>推荐版 · SFTP 文件传输</title>
+    <link rel="stylesheet" href="recommended.css" />
+  </head>
+  <body data-case="sftp">
+    <header class="study-bar">
+      <div class="study-title">
+        <small>DESIGN MOCK HTML · CASE 03</small>
+        <strong>SFTP 传输：双栏直接操作 + 目标确认 + 冲突预检</strong>
+      </div>
+      <div class="study-actions" aria-label="Mock 场景">
+        <span class="study-readout" id="study-readout">已选 2 项 → /home/deploy/releases</span>
+        <button class="study-button active" type="button" data-viewport="desktop">桌面</button>
+        <button class="study-button" type="button" data-viewport="compact">窄窗口</button>
+        <button class="study-button" id="demo-transfer" type="button">演示预检</button>
+        <button class="study-button" data-reset type="button">重置</button>
+      </div>
+    </header>
+
+    <main class="stage" id="stage">
+      <section class="app sftp-app" aria-label="SFTP 文件传输推荐方案">
+        <header class="sftp-header">
+          <button class="soft-button" type="button">← Hosts</button>
+          <span class="avatar">S</span>
+          <div class="sftp-host">
+            <strong>prod-api-01</strong>
+            <small>root@10.0.3.46 · SFTP · 38 ms</small>
+          </div>
+          <span class="badge green">● 已连接</span>
+          <div class="sftp-header-actions">
+            <button class="soft-button" type="button">新建文件夹</button>
+            <button class="icon-button" type="button" aria-label="刷新目录">↻</button>
+          </div>
+        </header>
+
+        <div class="transfer-workspace">
+          <section class="file-pane local" aria-label="本机文件">
+            <header class="pane-head">
+              <span class="chip-kind">MAC</span>
+              <div>
+                <strong>本机 · This Mac</strong>
+                <small>源文件</small>
+              </div>
+              <span class="badge">可写</span>
+            </header>
+            <nav class="pathbar" aria-label="本机路径">
+              <span>~</span><span>/</span><span>Projects</span><span>/</span><strong>charter</strong>
+            </nav>
+            <div class="file-list" role="list">
+              <label class="file-row" role="listitem">
+                <input type="checkbox" disabled />
+                <span class="file-icon folder">DIR</span>
+                <span class="file-copy"><strong>dist</strong><small>6 items</small></span>
+                <span class="file-size">—</span>
+              </label>
+              <label class="file-row" role="listitem">
+                <input type="checkbox" disabled />
+                <span class="file-icon folder">DIR</span>
+                <span class="file-copy"><strong>src</strong><small>24 items</small></span>
+                <span class="file-size">—</span>
+              </label>
+              <label class="file-row selected" role="listitem">
+                <input class="transfer-select" type="checkbox" checked data-size="98.2" />
+                <span class="file-icon">DMG</span>
+                <span class="file-copy">
+                  <strong>charter-1.0.0.dmg</strong>
+                  <small>modified 10:42</small>
+                </span>
+                <span class="file-size">98.2 MB</span>
+              </label>
+              <label class="file-row selected" role="listitem">
+                <input class="transfer-select" type="checkbox" checked data-size="0.004" />
+                <span class="file-icon">MD</span>
+                <span class="file-copy">
+                  <strong>release-notes.md</strong>
+                  <small>modified 10:39</small>
+                </span>
+                <span class="file-size">4.1 KB</span>
+              </label>
+              <label class="file-row" role="listitem">
+                <input class="transfer-select" type="checkbox" data-size="0.002" />
+                <span class="file-icon">JS</span>
+                <span class="file-copy"><strong>package.json</strong><small>modified Tue</small></span>
+                <span class="file-size">2.3 KB</span>
+              </label>
+              <label class="file-row" role="listitem">
+                <input class="transfer-select" type="checkbox" data-size="0.001" />
+                <span class="file-icon">ENV</span>
+                <span class="file-copy"><strong>.env.production</strong><small>sensitive</small></span>
+                <span class="file-size">612 B</span>
+              </label>
+              <label class="file-row" role="listitem">
+                <input class="transfer-select" type="checkbox" data-size="0.009" />
+                <span class="file-icon">MD</span>
+                <span class="file-copy"><strong>README.md</strong><small>modified Mon</small></span>
+                <span class="file-size">8.9 KB</span>
+              </label>
+            </div>
+            <footer class="pane-foot" id="local-selection">已选择 2 项 · 98.2 MB</footer>
+          </section>
+
+          <aside class="transfer-command" aria-label="传输操作">
+            <span class="direction-label">Upload to remote</span>
+            <button
+              class="transfer-arrow"
+              id="upload-button"
+              type="button"
+              aria-label="上传所选 2 项到远程 releases 文件夹"
+            >
+              →
+            </button>
+            <span class="transfer-summary" id="transfer-summary">2 项<br />98.2 MB</span>
+            <button class="transfer-arrow download" type="button" aria-label="从远程下载所选项目">
+              ←
+            </button>
+          </aside>
+
+          <section class="file-pane remote" aria-label="远程文件">
+            <header class="pane-head">
+              <span class="chip-kind">SSH</span>
+              <div>
+                <strong>远程 · root@10.0.3.46</strong>
+                <small>上传目标</small>
+              </div>
+              <span class="badge green">可写</span>
+            </header>
+            <nav class="pathbar" aria-label="远程路径">
+              <span>/</span><span>home</span><span>/</span><span>deploy</span><span>/</span
+              ><strong>releases</strong>
+            </nav>
+            <div class="file-list" role="list">
+              <label class="file-row" role="listitem">
+                <input type="checkbox" disabled />
+                <span class="file-icon folder">DIR</span>
+                <span class="file-copy"><strong>v0.9.3</strong><small>release archive</small></span>
+                <span class="file-size">—</span>
+              </label>
+              <label class="file-row" role="listitem">
+                <input type="checkbox" disabled />
+                <span class="file-icon folder">DIR</span>
+                <span class="file-copy"><strong>current</strong><small>active release</small></span>
+                <span class="file-size">—</span>
+              </label>
+              <label class="file-row" role="listitem">
+                <input type="checkbox" disabled />
+                <span class="file-icon">DMG</span>
+                <span class="file-copy">
+                  <strong>charter-1.0.0.dmg</strong>
+                  <small>已存在 · 91.7 MB</small>
+                </span>
+                <span class="badge amber">冲突</span>
+              </label>
+              <label class="file-row" role="listitem">
+                <input type="checkbox" disabled />
+                <span class="file-icon">JSON</span>
+                <span class="file-copy"><strong>manifest.json</strong><small>modified 09:21</small></span>
+                <span class="file-size">1.1 KB</span>
+              </label>
+              <label class="file-row" role="listitem">
+                <input type="checkbox" disabled />
+                <span class="file-icon">LOG</span>
+                <span class="file-copy"><strong>deploy.log</strong><small>modified 10:02</small></span>
+                <span class="file-size">44 KB</span>
+              </label>
+            </div>
+            <footer class="pane-foot">目标 · /home/deploy/releases · 剩余 18.4 GB</footer>
+          </section>
+
+          <aside class="queue-panel" aria-label="传输中心">
+            <header class="queue-head">
+              <strong>传输中心</strong>
+              <span class="badge green" id="queue-badge">1 进行中</span>
+            </header>
+            <section class="destination-card">
+              <span class="kicker">Current destination</span>
+              <strong>prod-api-01</strong>
+              <code>/home/deploy/releases</code>
+            </section>
+            <div class="queue-list" id="queue-list">
+              <article class="queue-item" id="active-transfer">
+                <div class="queue-item-head">
+                  <strong>assets-bundle.tar.gz</strong>
+                  <small id="active-percent">64%</small>
+                </div>
+                <div class="progress-track" aria-label="传输进度 64%">
+                  <span id="active-progress" style="--progress: 64%"></span>
+                </div>
+                <small>上传 · 6.8 MB/s · 8 秒</small>
+              </article>
+              <article class="queue-item">
+                <div class="queue-item-head">
+                  <strong>nginx.access.log</strong>
+                  <small class="queue-error">失败</small>
+                </div>
+                <small class="queue-error">连接中断 · 已保留断点</small>
+                <button class="soft-button" id="retry-transfer" type="button">从断点重试</button>
+              </article>
+              <article class="queue-item">
+                <div class="queue-item-head">
+                  <strong>release-notes-v0.9.md</strong>
+                  <small class="badge green">完成</small>
+                </div>
+                <small>上传 · 今天 10:31</small>
+              </article>
+            </div>
+            <footer class="queue-foot">
+              <span class="kicker">跨主机持续可见</span>
+              <button class="quiet-button" type="button">清除已完成</button>
+            </footer>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <div
+      class="modal-backdrop"
+      id="transfer-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="transfer-dialog-title"
+    >
+      <section class="dialog">
+        <header class="dialog-head">
+          <h2 id="transfer-dialog-title">确认上传 2 项</h2>
+          <span class="badge amber">发现 1 个冲突</span>
+          <button class="icon-button" data-dialog-close type="button" aria-label="关闭确认">×</button>
+        </header>
+        <div class="dialog-body">
+          <div class="transfer-route">
+            <span class="route-end">
+              <small>本机来源</small>
+              <code>~/Projects/charter</code>
+            </span>
+            <span aria-hidden="true">→</span>
+            <span class="route-end">
+              <small>远程目标 · prod-api-01</small>
+              <code>/home/deploy/releases</code>
+            </span>
+          </div>
+          <section class="conflict-card">
+            <strong>charter-1.0.0.dmg 已存在</strong>
+            <p>远程文件为 91.7 MB；本机版本为 98.2 MB。请选择这一次上传的处理方式。</p>
+            <div class="radio-row" role="radiogroup" aria-label="文件冲突处理方式">
+              <label class="radio-option">
+                <input type="radio" name="conflict" value="keep" checked />
+                保留两者
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="conflict" value="replace" />
+                替换远程
+              </label>
+              <label class="radio-option">
+                <input type="radio" name="conflict" value="skip" />
+                跳过此项
+              </label>
+            </div>
+          </section>
+        </div>
+        <footer class="dialog-foot">
+          <small>98.2 MB · 预计 14 秒 · 可在传输中心取消</small>
+          <button class="quiet-button" data-dialog-close type="button">取消</button>
+          <button class="primary-button" id="confirm-upload" type="button">开始上传</button>
+        </footer>
+      </section>
+    </div>
+
+    <script src="recommended.js"></script>
+  </body>
+</html>

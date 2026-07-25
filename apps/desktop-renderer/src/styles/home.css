@@ -528,14 +528,29 @@
   bottom: calc(100% + 8px);
   right: 0;
   width: 272px;
+  /* Fallback only — the component measures the space above the trigger and
+     sets an inline max-height so the pop never leaves the window. */
   max-height: 60vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: var(--shadow-card);
   padding: 6px;
   z-index: 30;
+}
+/* Only the model rows scroll; the effort chips stay pinned below. */
+.me-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.me-pop > .me-cap,
+.me-pop > .me-div,
+.me-pop > .me-eff {
+  flex: none;
 }
 .me-cap {
   font-size: 10px;

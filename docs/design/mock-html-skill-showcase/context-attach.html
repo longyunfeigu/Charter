@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>推荐版 · Session 上下文附件</title>
+    <link rel="stylesheet" href="recommended.css" />
+  </head>
+  <body data-case="context">
+    <header class="study-bar">
+      <div class="study-title">
+        <small>DESIGN MOCK HTML · CASE 02</small>
+        <strong>上下文附件：来源常驻，作用域显性，发送后可追溯</strong>
+      </div>
+      <div class="study-actions" aria-label="Mock 场景">
+        <span class="study-readout" id="study-readout">本条消息 · 尚未附加上下文</span>
+        <button class="study-button active" type="button" data-viewport="desktop">桌面</button>
+        <button class="study-button" type="button" data-viewport="compact">窄窗口</button>
+        <button class="study-button" id="demo-context" type="button">演示附加</button>
+        <button class="study-button" data-reset type="button">重置</button>
+      </div>
+    </header>
+
+    <main class="stage" id="stage">
+      <section class="app context-app" aria-label="Charter Session 上下文附件推荐方案">
+        <nav class="activity-rail" aria-label="主导航">
+          <div class="activity-mark" aria-label="Charter">C</div>
+          <button class="activity-button" type="button" aria-label="Home">H</button>
+          <button class="activity-button" type="button" aria-label="Sessions">S</button>
+          <button class="activity-button active" type="button" aria-label="Files">F</button>
+          <button class="activity-button" type="button" aria-label="Search">⌕</button>
+          <span class="activity-spacer"></span>
+          <button class="activity-button" type="button" aria-label="Settings">··</button>
+        </nav>
+
+        <aside class="context-rail" aria-label="Session 与文件">
+          <div class="rail-identity">
+            <span class="avatar">C</span>
+            <span>
+              <strong>Checkout polish</strong>
+              <small>fable5 · task session</small>
+            </span>
+            <span class="badge green">working</span>
+            <button class="icon-button rail-close" id="rail-close" type="button" aria-label="关闭文件抽屉">
+              ×
+            </button>
+          </div>
+
+          <div class="rail-tabs" role="tablist" aria-label="侧栏内容">
+            <button
+              class="rail-tab"
+              id="sessions-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="sessions-panel"
+            >
+              Sessions · 3
+            </button>
+            <button
+              class="rail-tab"
+              id="files-tab"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="files-panel"
+            >
+              Files · 14
+            </button>
+          </div>
+
+          <div class="rail-content" id="files-panel" role="tabpanel" aria-labelledby="files-tab">
+            <label class="visually-hidden" for="file-search">搜索项目文件</label>
+            <input class="search-box" id="file-search" type="search" placeholder="搜索 fable5…" />
+
+            <div class="tree-section">Project files</div>
+            <button class="tree-row" type="button">
+              <span class="caret">⌄</span>
+              <span class="tree-name">public</span>
+              <span></span>
+              <span></span>
+            </button>
+            <div class="tree-indent">
+              <div class="tree-row selected" role="treeitem">
+                <span class="caret">HT</span>
+                <span class="tree-name">index.html</span>
+                <span class="change">+5 −2</span>
+                <span
+                  class="tree-add"
+                  role="button"
+                  tabindex="0"
+                  data-attach="public/index.html"
+                  data-kind="HTML"
+                  aria-label="将 public/index.html 附加到本条消息"
+                  >+</span
+                >
+              </div>
+              <div class="tree-row" role="treeitem">
+                <span class="caret">SV</span>
+                <span class="tree-name">favicon.svg</span>
+                <span></span>
+                <span
+                  class="tree-add"
+                  role="button"
+                  tabindex="0"
+                  data-attach="public/favicon.svg"
+                  data-kind="SVG"
+                  aria-label="将 public/favicon.svg 附加到本条消息"
+                  >+</span
+                >
+              </div>
+            </div>
+
+            <div class="tree-row" role="treeitem">
+              <span class="caret">⌄</span>
+              <span class="tree-name">styles</span>
+              <span></span>
+              <span
+                class="tree-add"
+                role="button"
+                tabindex="0"
+                data-attach="styles/"
+                data-kind="DIR"
+                aria-label="将 styles 文件夹附加到本条消息"
+                >+</span
+              >
+            </div>
+            <div class="tree-indent">
+              <div class="tree-row" role="treeitem">
+                <span class="caret">CS</span>
+                <span class="tree-name">base.css</span>
+                <span class="change">M</span>
+                <span
+                  class="tree-add"
+                  role="button"
+                  tabindex="0"
+                  data-attach="styles/base.css"
+                  data-kind="CSS"
+                  aria-label="将 styles/base.css 附加到本条消息"
+                  >+</span
+                >
+              </div>
+              <div class="tree-row" role="treeitem">
+                <span class="caret">CS</span>
+                <span class="tree-name">checkout.css</span>
+                <span></span>
+                <span
+                  class="tree-add"
+                  role="button"
+                  tabindex="0"
+                  data-attach="styles/checkout.css"
+                  data-kind="CSS"
+                  aria-label="将 styles/checkout.css 附加到本条消息"
+                  >+</span
+                >
+              </div>
+            </div>
+            <button class="tree-row" type="button">
+              <span class="caret">⌄</span>
+              <span class="tree-name">assets</span>
+              <span></span>
+              <span></span>
+            </button>
+            <div class="tree-indent">
+              <div class="tree-row" role="treeitem">
+                <span class="caret">IM</span>
+                <span class="tree-name">coupon-expired@2x.png</span>
+                <span></span>
+                <span
+                  class="tree-add"
+                  role="button"
+                  tabindex="0"
+                  data-attach="assets/coupon-expired@2x.png"
+                  data-kind="IMG"
+                  aria-label="将 coupon-expired 图片附加到本条消息"
+                  >+</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="rail-content" id="sessions-panel" role="tabpanel" aria-labelledby="sessions-tab" hidden>
+            <div class="session-list">
+              <button class="session-row active" type="button">
+                <strong>Checkout polish</strong>
+                <small>Working · 2m</small>
+              </button>
+              <button class="session-row" type="button">
+                <strong>Review cart totals</strong>
+                <small>Ready to review · 18m</small>
+              </button>
+              <button class="session-row" type="button">
+                <strong>Improve empty state</strong>
+                <small>Answered · 1h</small>
+              </button>
+            </div>
+          </div>
+
+          <div class="rail-scope-note">
+            <strong>＋ 只加入“本条消息”</strong>
+            <span>发送后随消息留档，不会悄悄变成长期项目上下文。</span>
+          </div>
+        </aside>
+
+        <section class="conversation" aria-label="Session 对话">
+          <header class="conversation-header">
+            <span class="avatar">C</span>
+            <div>
+              <strong>把“提交订单”按钮改成绿色并补充过期提示</strong>
+              <small>charter · main · managed Agent</small>
+            </div>
+            <span class="badge green conversation-status">working</span>
+          </header>
+
+          <div class="messages" id="messages">
+            <article class="message user">
+              请先查看结账页的相关文件，然后告诉我需要修改哪些位置。先不要改代码。
+            </article>
+            <article class="message agent">
+              <div class="message-label">Charter Agent · 刚刚</div>
+              我会先读取你明确附加的页面与样式文件，确认按钮状态、优惠券过期状态和现有视觉约束，再给出修改计划。
+            </article>
+          </div>
+
+          <div class="composer-wrap" id="composer-dropzone">
+            <div class="drop-overlay" id="drop-overlay">
+              <div>
+                <strong>附加到本条消息</strong>
+                <small>文件、文件夹和图片会先进入可撤销的上下文架</small>
+              </div>
+            </div>
+            <div class="composer">
+              <section class="context-shelf empty" id="context-shelf" aria-label="本条消息上下文">
+                <div class="shelf-head">
+                  <strong>本条消息上下文</strong>
+                  <span class="badge" id="context-count">0 项</span>
+                  <small>发送后随消息留档</small>
+                  <button class="quiet-button" id="clear-context" type="button">全部移除</button>
+                </div>
+                <div class="context-chips" id="context-chips"></div>
+              </section>
+              <label class="visually-hidden" for="composer-input">给 Agent 的消息</label>
+              <textarea id="composer-input" placeholder="补充要做的事情，或把文件拖到这里…"></textarea>
+              <div class="composer-actions">
+                <button class="icon-button" id="attach-menu-button" type="button" aria-label="选择上下文">
+                  @
+                </button>
+                <span class="badge">Read</span>
+                <span class="badge green">Auto</span>
+                <button class="primary-button" id="send-context" type="button">发送</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="context-inspector" aria-label="上下文作用域">
+          <header class="inspector-header">Context · 作用域</header>
+          <section class="scope-card">
+            <span class="kicker">Active scope</span>
+            <h2>本条消息</h2>
+            <p>只有你明确选择的内容会注入下一次请求。发送后可从消息中追溯来源。</p>
+          </section>
+          <div class="scope-list">
+            <article class="scope-item">
+              <span class="chip-kind">MSG</span>
+              <span>
+                <strong>Message attachments</strong>
+                <small id="inspector-message-count">尚未选择</small>
+              </span>
+              <span class="badge green">临时</span>
+            </article>
+            <article class="scope-item">
+              <span class="chip-kind">PRJ</span>
+              <span>
+                <strong>Project context</strong>
+                <small>没有长期固定内容</small>
+              </span>
+              <span class="badge">0</span>
+            </article>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script src="recommended.js"></script>
+  </body>
+</html>

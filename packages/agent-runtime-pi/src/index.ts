@@ -502,6 +502,11 @@ export class PiAgentRuntime implements AgentRuntime {
     const thinkingStarts = new Map<string, number>();
     let lastUsage: ModelUsage | null = null;
     let sawError: string | null = null;
+    // Guards the "provider swallowed the turn" case: some gateways answer a
+    // model they don't serve with HTTP 200 + a non-standard SSE error frame
+    // (observed live: `data: {"type":"error","error":"model: gpt-5.4"}`), which
+    // ends the pi turn as a clean, empty end_turn. Zero output = failure.
+    let sawOutput = false;
 
     const unsubscribe = entry.session.subscribe((event: AgentSessionEvent) => {
       try {
@@ -519,6 +524,7 @@ export class PiAgentRuntime implements AgentRuntime {
               if (delta) {
                 const id = messageIdOf(event.message) ?? 'assistant';
                 messageBuffers.set(id, (messageBuffers.get(id) ?? '') + delta);
+                sawOutput = true;
                 queue.push({ ...base(), type: 'message.delta', messageId: id, text: delta });
               }
             }
@@ -542,6 +548,7 @@ export class PiAgentRuntime implements AgentRuntime {
               const startedAt = thinkingStarts.get(id);
               thinkingStarts.delete(id);
               if (content.trim().length > 0) {
+                sawOutput = true;
                 queue.push({
                   ...base(),
                   type: 'thinking.completed',
@@ -574,6 +581,7 @@ export class PiAgentRuntime implements AgentRuntime {
               .join('');
             const id = messageIdOf(event.message) ?? newId('msg');
             if (text.trim().length > 0) {
+              sawOutput = true;
               queue.push({
                 ...base(),
                 type: 'message.completed',
@@ -594,15 +602,19 @@ export class PiAgentRuntime implements AgentRuntime {
                     : null,
                 costUsd: message.usage.cost?.total ?? null,
               };
+              if ((lastUsage.outputTokens ?? 0) > 0) sawOutput = true;
               queue.push({ ...base(), type: 'usage.updated', usage: lastUsage });
             }
-            if (message.stopReason === 'error' && message.errorMessage) {
-              sawError = message.errorMessage;
+            if (message.stopReason === 'error') {
+              sawError =
+                message.errorMessage?.trim() ||
+                'The model provider reported an error without details.';
             }
             break;
           }
           case 'tool_execution_start': {
             const toolName = entry.toolNameByRuntime.get(event.toolName) ?? event.toolName;
+            sawOutput = true;
             queue.push({
               ...base(),
               type: 'tool.proposed',
@@ -751,6 +763,20 @@ export class PiAgentRuntime implements AgentRuntime {
             type: 'run.failed',
             error: productError('AG_PROVIDER_ERROR', {
               userMessage: sawError.slice(0, 500),
+              retryable: true,
+            }),
+          });
+        } else if (!sawOutput) {
+          // A clean end_turn with zero output is never a real answer — surface
+          // it instead of an empty "Answered" (the gpt-5.4 gateway bug).
+          const { providerId, modelId } = entry.input.model;
+          queue.push({
+            ...base(),
+            type: 'run.failed',
+            error: productError('AG_PROVIDER_ERROR', {
+              userMessage:
+                `The model returned no output — ${providerId}/${modelId} may not actually be ` +
+                'served at this endpoint. Pick another model or check your provider/gateway.',
               retryable: true,
             }),
           });

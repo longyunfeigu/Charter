@@ -138,12 +138,15 @@ export function needsAttention(task: { state: string; changedFiles?: number | nu
 export function presentedMeta(task: {
   state: string;
   changedFiles?: number | null;
-  external?: unknown;
+  external?: { cli?: string; status?: string } | null;
 }): {
   label: string;
   short: string;
   tone: StateTone;
 } {
+  if (task.external?.status === 'active') {
+    return { label: 'Session live — activity may be idle', short: 'Live', tone: 'run' };
+  }
   if (isAnswered(task)) {
     // An external CLI reaching this state means the process exited — say so.
     // "Answered" describes Pi runs, not a session the user (or the CLI) closed.

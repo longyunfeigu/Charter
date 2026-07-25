@@ -91,9 +91,10 @@ function ForwardRow(props: {
  */
 export function ForwardsDialog(props: {
   host: SshHostDto;
-  onClose: () => void;
+  onClose?: () => void;
+  embedded?: boolean;
 }): React.JSX.Element {
-  const { host, onClose } = props;
+  const { host, onClose, embedded = false } = props;
   const live = useSshStore((s) => s.hosts.find((h) => h.id === host.id)) ?? host;
   const saveForward = useSshStore((s) => s.saveForward);
   const startForward = useSshStore((s) => s.startForward);
@@ -134,8 +135,12 @@ export function ForwardsDialog(props: {
   };
 
   return (
-    <div className="rm-backdrop" role="dialog" aria-label={`Port forwards for ${host.label}`}>
-      <div className="rm-dialog wide" data-testid="fwd-dialog">
+    <div
+      className={embedded ? 'rm-forwards-embedded' : 'rm-backdrop'}
+      role={embedded ? 'region' : 'dialog'}
+      aria-label={`Port forwards for ${host.label}`}
+    >
+      <div className={embedded ? 'rm-forwards-surface' : 'rm-dialog wide'} data-testid="fwd-dialog">
         <div className="rm-dialog-head">
           <h2>
             Forwards
@@ -143,9 +148,11 @@ export function ForwardsDialog(props: {
               {host.label} · {host.username}@{host.host}
             </span>
           </h2>
-          <button className="rm-icon-btn" aria-label="Close" onClick={onClose}>
-            <Ic name="x" size={15} />
-          </button>
+          {onClose ? (
+            <button className="rm-icon-btn" aria-label="Close" onClick={onClose}>
+              <Ic name="x" size={15} />
+            </button>
+          ) : null}
         </div>
         <div className="rm-dialog-body">
           {live.forwards.length === 0 ? (
@@ -250,11 +257,13 @@ export function ForwardsDialog(props: {
 
           {error ? <div className="rm-error">{error}</div> : null}
         </div>
-        <div className="rm-dialog-foot">
-          <button className="btn" onClick={onClose}>
-            Close
-          </button>
-        </div>
+        {onClose ? (
+          <div className="rm-dialog-foot">
+            <button className="btn" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

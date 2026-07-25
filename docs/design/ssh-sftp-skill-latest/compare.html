@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SSH / SFTP · 上一版 Skill 与最新版 Skill 对比</title>
+    <link rel="stylesheet" href="./compare.css" />
+  </head>
+  <body>
+    <header class="compare-head">
+      <div>
+        <span>SAME BRIEF / SAME HOST / SAME FAILURE</span>
+        <h1>SSH / SFTP：上一版 Skill 与最新版 Skill</h1>
+        <p>不是比较两套不同需求。两边使用相同主机、文件、目标路径、覆盖冲突和断点恢复任务。</p>
+      </div>
+      <a href="./evaluation.md">查看严格验收记录 ↗</a>
+    </header>
+
+    <main>
+      <section class="frozen-brief">
+        <div>
+          <span>原始需求</span>
+          <strong>保持双栏文件管理习惯，同时让目标路径、覆盖冲突、进度和失败恢复始终清楚。</strong>
+        </div>
+        <dl>
+          <div><dt>Host</dt><dd>prod-api-01</dd></div>
+          <div><dt>Source</dt><dd>2 items · 98.2 MB</dd></div>
+          <div><dt>Target</dt><dd>/home/deploy/releases</dd></div>
+          <div><dt>Edge</dt><dd>1 conflict + interrupted file</dd></div>
+        </dl>
+      </section>
+
+      <section class="compare-controls">
+        <div>
+          <span>VIEW MODE</span>
+          <button class="active" type="button" data-layout="side">并排看窄窗</button>
+          <button type="button" data-layout="stack">上下看桌面</button>
+          <button type="button" id="reload-frames">重置两边</button>
+        </div>
+        <p id="layout-note">当前两列等宽，因此两边都会进入紧凑/窄窗布局；切到“上下看桌面”可比较完整桌面层级。</p>
+      </section>
+
+      <section class="comparison" id="comparison">
+        <article class="version-card previous">
+          <header>
+            <div>
+              <span>PREVIOUS SKILL OUTPUT</span>
+              <h2>上一版 · 双栏 + 第三栏传输中心</h2>
+            </div>
+            <a
+              href="../mock-html-skill-showcase/sftp-transfer.html"
+              target="_blank"
+              rel="noreferrer"
+              >单独打开 ↗</a
+            >
+          </header>
+          <iframe
+            id="previous-frame"
+            src="../mock-html-skill-showcase/sftp-transfer.html"
+            title="上一版 Skill 的 SFTP Mock HTML"
+          ></iframe>
+          <footer>
+            <strong>主要模型</strong>
+            <span>双栏直接操作；传输中心持续常驻；上传时进入冲突预检。</span>
+          </footer>
+        </article>
+
+        <article class="version-card latest">
+          <header>
+            <div>
+              <span>LATEST SKILL OUTPUT</span>
+              <h2>最新版 · 双栏 + Manifest 因果链</h2>
+            </div>
+            <a href="./index.html" target="_blank" rel="noreferrer">单独打开 ↗</a>
+          </header>
+          <iframe
+            id="latest-frame"
+            src="./index.html"
+            title="最新版 Skill 的 SFTP Mock HTML"
+          ></iframe>
+          <footer>
+            <strong>主要模型</strong>
+            <span>双栏负责选择；Manifest 负责写入结果；Ledger 负责失败恢复与不可变回执。</span>
+          </footer>
+        </article>
+      </section>
+
+      <section class="judgment">
+        <header>
+          <span>建议你实际点击后再判断</span>
+          <h2>重点比较这五件事，不要只比较颜色</h2>
+        </header>
+        <ol>
+          <li><b>01</b><strong>第一眼知道什么？</strong><span>文件本身，还是本次写入目的与目标？</span></li>
+          <li><b>02</b><strong>方向是否会看错？</strong><span>本机、SSH 通道和远端路径是否形成稳定关系？</span></li>
+          <li><b>03</b><strong>冲突结果可否预测？</strong><span>Keep both / Replace / Skip 之后，目录里究竟会出现什么？</span></li>
+          <li><b>04</b><strong>失败是否真的闭环？</strong><span>重试是按钮反馈，还是只恢复失败文件并到达完成？</span></li>
+          <li><b>05</b><strong>窄窗口还能不能做事？</strong><span>是压缩三栏，还是切换 Local/Remote 并保留 Manifest？</span></li>
+        </ol>
+      </section>
+
+      <section class="observed">
+        <article>
+          <span>上一版严格复验</span>
+          <h3>干净、直接，但恢复状态停在“正在重试”</h3>
+          <p>旧版的浏览密度更轻，适合快速扫文件；但失败项没有进入最终成功状态，也没有一份执行回执。</p>
+        </article>
+        <article>
+          <span>最新版严格复验</span>
+          <h3>信息更多，但对象、后果和时间边界更完整</h3>
+          <p>新版显式区分当前 Draft 与上一批 Locked Receipt；完成后继续选择文件，不会改写旧批次的证据。</p>
+        </article>
+      </section>
+    </main>
+
+    <script src="./compare.js"></script>
+  </body>
+</html>

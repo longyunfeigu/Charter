@@ -59,10 +59,15 @@ export class GitService {
 
   private run(
     args: string[],
-    options: { allowCodes?: number[]; env?: Record<string, string>; timeoutMs?: number } = {},
+    options: {
+      allowCodes?: number[];
+      env?: Record<string, string>;
+      timeoutMs?: number;
+      input?: string;
+    } = {},
   ): Promise<{ code: number; stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
-      execFile(
+      const child = execFile(
         'git',
         args,
         {
@@ -102,6 +107,7 @@ export class GitService {
           resolve({ code, stdout: stdout.toString(), stderr: stderr.toString() });
         },
       );
+      if (options.input !== undefined) child.stdin?.end(options.input);
     });
   }
 
@@ -375,6 +381,16 @@ export class GitService {
       '-z',
     ]);
     return res.stdout.split('\0').filter(Boolean);
+  }
+
+  /** Return the supplied untracked paths that standard Git ignore rules exclude. */
+  async ignoredPaths(paths: string[]): Promise<Set<string>> {
+    if (paths.length === 0) return new Set();
+    const res = await this.run(['check-ignore', '--stdin', '-z'], {
+      allowCodes: [1],
+      input: `${paths.join('\0')}\0`,
+    });
+    return new Set(res.stdout.split('\0').filter(Boolean));
   }
 
   /**

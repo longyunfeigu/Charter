@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Boundary Validation · Artifact Review Lifecycle</title>
+    <link rel="stylesheet" href="./shared.css" />
+  </head>
+  <body data-suite="artifact">
+    <header class="study-bar">
+      <div class="study-title">
+        <small>LIFECYCLE EXTENSION / VERSIONED OBJECT CONTRACT</small>
+        <strong>Completion, artifact review and return path</strong>
+      </div>
+      <nav class="study-actions" aria-label="Prototype surfaces">
+        <span class="study-readout" data-study-readout></span>
+        <button class="study-button active" type="button" data-surface-target="complete">1 Complete</button>
+        <button class="study-button" type="button" data-surface-target="workspace">2 Review</button>
+        <button class="study-button" type="button" data-surface-target="history">3 Return</button>
+        <button class="study-button" type="button" data-artifact-action="regenerate">Edge: regenerate</button>
+        <button class="study-button" type="button" data-reset>Reset</button>
+      </nav>
+    </header>
+
+    <main class="stage">
+      <section class="app" aria-label="Charter artifact lifecycle prototype">
+        <aside class="activity">
+          <div class="activity-mark">C</div>
+          <button class="activity-button active" type="button" aria-label="Sessions">SS</button>
+          <button class="activity-button" type="button" aria-label="Artifacts">AR</button>
+          <button class="activity-button" type="button" aria-label="Replay">RP</button>
+          <span class="activity-spacer"></span>
+          <button class="activity-button" type="button" aria-label="Settings">ST</button>
+        </aside>
+
+        <div class="product">
+          <header class="product-header">
+            <div class="avatar">QR</div>
+            <div class="product-identity">
+              <strong>Prepare Q2 design review</strong>
+              <small>SESSION SS-211 · 18 MIN · COMPLETED</small>
+            </div>
+            <span class="badge green">completed</span>
+            <div class="header-actions">
+              <button class="button" type="button">Open lane</button>
+              <button class="icon-button" type="button" aria-label="More actions">•••</button>
+            </div>
+          </header>
+
+          <section class="surface completion-surface active" data-surface="complete">
+            <aside class="session-rail">
+              <div class="rail-label">Session timeline</div>
+              <div class="session-row">
+                <span class="session-dot"></span>
+                <span><strong>Brief confirmed</strong><small>14:02 · user</small></span>
+              </div>
+              <div class="session-row">
+                <span class="session-dot"></span>
+                <span><strong>Artifacts generated</strong><small>14:17 · Codex</small></span>
+              </div>
+              <div class="session-row active">
+                <span class="session-dot"></span>
+                <span><strong>Ready for review</strong><small>14:20 · handoff</small></span>
+              </div>
+            </aside>
+
+            <div class="conversation">
+              <div class="messages">
+                <div class="message user">Prepare the Q2 design review with the decision summary and an appendix of evidence.</div>
+                <div class="message agent">
+                  <div class="message-label">CODEX · FINAL HANDOFF</div>
+                  The review package is complete. I kept the decision summary short and put source evidence in the appendix.
+                  <div class="terminal-snippet">
+                    ✓ Q2-review.pdf<br />
+                    ✓ decision-summary.md<br />
+                    ✓ evidence.csv<br />
+                    <span style="color: #9cc7a5">3 versioned artifacts · review state pending</span>
+                  </div>
+                </div>
+              </div>
+              <div class="composer-wrap">
+                <div class="composer">
+                  <textarea aria-label="Follow-up message" placeholder="Ask for a revision or attach review feedback…"></textarea>
+                  <div class="composer-actions">
+                    <span class="badge amber" id="feedback-state">review pending · 3 artifacts</span>
+                    <button class="primary" type="button">Send follow-up</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <aside class="review-panel">
+              <div class="result-card">
+                <span class="kicker">Outcome, not transcript</span>
+                <h2>Review package ready</h2>
+                <p>Accept the Session, or inspect the artifact set and leave feedback anchored to a specific version.</p>
+              </div>
+              <div class="artifact-set">
+                <div class="artifact-set-row">
+                  <span class="file-kind">PDF</span>
+                  <span><strong>Q2-review.pdf</strong><small>v1 · 1.8 MB · primary</small></span>
+                  <span class="badge green">ready</span>
+                </div>
+                <div class="artifact-set-row">
+                  <span class="file-kind">MD</span>
+                  <span><strong>decision-summary.md</strong><small>v1 · 6.4 KB</small></span>
+                  <span>›</span>
+                </div>
+                <div class="artifact-set-row">
+                  <span class="file-kind">CSV</span>
+                  <span><strong>evidence.csv</strong><small>v1 · 42 rows</small></span>
+                  <span>›</span>
+                </div>
+              </div>
+              <div class="review-actions">
+                <button class="primary" id="review-artifacts" type="button">Review artifact set</button>
+                <button class="button" id="accept-session" type="button">Accept Session</button>
+              </div>
+            </aside>
+          </section>
+
+          <section class="surface artifact-workspace" data-surface="workspace">
+            <aside class="artifact-list">
+              <div class="rail-label">Artifact set · SS-211</div>
+              <button class="artifact-option active" type="button">
+                <span class="file-kind">PDF</span>
+                <span><strong>Q2-review.pdf</strong><small>v1 · primary</small></span>
+                <span class="badge green">open</span>
+              </button>
+              <button class="artifact-option" type="button">
+                <span class="file-kind">MD</span>
+                <span><strong>decision-summary.md</strong><small>v1 · supporting</small></span>
+                <span>›</span>
+              </button>
+              <button class="artifact-option" type="button">
+                <span class="file-kind">CSV</span>
+                <span><strong>evidence.csv</strong><small>v1 · source</small></span>
+                <span>›</span>
+              </button>
+              <div class="inspector-card">
+                <h3>Set identity</h3>
+                <p class="mono">artifact_set_01K1A</p>
+                <p>Produced by Session SS-211 at event #438.</p>
+              </div>
+            </aside>
+
+            <div class="artifact-preview">
+              <div class="preview-bar">
+                <strong>Q2-review.pdf</strong>
+                <span class="badge">v1 · page 4 / 12</span>
+                <button class="button" type="button" data-artifact-action="regenerate">Regenerate as v2</button>
+              </div>
+              <div class="pdf-canvas">
+                <article class="pdf-page">
+                  <h2>Adoption by workflow</h2>
+                  <p>Weekly active workspaces increased after the guided Session handoff shipped.</p>
+                  <div class="chart" aria-label="Adoption chart">
+                    <span style="--h: 38%"></span><span style="--h: 50%"></span><span style="--h: 57%"></span
+                    ><span style="--h: 74%"></span><span style="--h: 86%"></span>
+                  </div>
+                  <span class="selection" aria-label="Selected chart region"></span>
+                </article>
+              </div>
+              <div class="preview-status">Selected region · page 4 · x 212–397 · y 284–426</div>
+            </div>
+
+            <aside class="anchor-inspector">
+              <div class="stale-banner" id="stale-banner">
+                <strong>This note targets v1; Q2-review.pdf now has v2.</strong>
+                <small>Do not silently move feedback. Re-anchor it, keep it on v1, or discard it explicitly.</small>
+                <button class="button" id="reanchor-feedback" type="button">Re-anchor to v2</button>
+              </div>
+              <span class="kicker">Anchored feedback</span>
+              <div class="anchor-card">
+                <strong>Q2-review.pdf</strong>
+                <span class="anchor-path" id="anchor-version">Anchored to v1 · page 4 · chart region</span>
+                <textarea aria-label="Artifact feedback">Explain why activation increased after week 3, and cite the evidence row.</textarea>
+                <span class="badge amber">unresolved · author: Edy</span>
+                <button class="primary" id="attach-feedback" type="button">Attach to Session</button>
+              </div>
+              <div class="inspector-card">
+                <h3>Contract</h3>
+                <p>Feedback identity = artifact ID + immutable version + region + author.</p>
+                <p>Regeneration creates v2; it never mutates the reviewed v1 in place.</p>
+              </div>
+            </aside>
+          </section>
+
+          <section class="surface history-surface" data-surface="history">
+            <aside class="history-filter">
+              <div class="rail-label">History</div>
+              <div class="memory-project active">
+                <span class="file-kind">ALL</span><span><strong>All Sessions</strong><small>42 this month</small></span><span>›</span>
+              </div>
+              <div class="memory-project">
+                <span class="file-kind">RV</span><span><strong>Needs review</strong><small>3 Sessions</small></span><span>›</span>
+              </div>
+              <div class="memory-project">
+                <span class="file-kind">OK</span><span><strong>Accepted</strong><small>31 Sessions</small></span><span>›</span>
+              </div>
+            </aside>
+            <div class="history-main">
+              <span class="kicker">Return path after completion</span>
+              <h2>Session history</h2>
+              <article class="history-row featured">
+                <span class="file-kind">QR</span>
+                <span class="history-copy">
+                  <strong>Prepare Q2 design review</strong>
+                  <p>Q2-review.pdf v1 · decision-summary.md v1 · evidence.csv v1</p>
+                  <small>SS-211 · completed today 14:20 · artifact_set_01K1A</small>
+                </span>
+                <span class="history-actions">
+                  <span class="badge amber" id="history-status">Review pending · 3 artifacts</span>
+                  <button class="button" id="history-open-artifacts" type="button">Open artifacts</button>
+                  <button class="button" id="history-replay" type="button">Replay origin</button>
+                </span>
+              </article>
+              <article class="history-row">
+                <span class="file-kind">UX</span>
+                <span class="history-copy">
+                  <strong>Audit settings navigation</strong>
+                  <p>navigation-audit.md v2 · 2 resolved notes</p>
+                  <small>SS-208 · completed yesterday</small>
+                </span>
+                <span class="badge green">accepted</span>
+              </article>
+            </div>
+          </section>
+        </div>
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      </section>
+    </main>
+    <script src="./suite.js"></script>
+  </body>
+</html>

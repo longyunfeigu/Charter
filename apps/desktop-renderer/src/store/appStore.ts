@@ -33,6 +33,7 @@ export type SessionRoomView = 'conversation' | 'fleet';
  * ADR-0029: 'editor' is the plain editor (no context column) — the one
  * project tree lives in the rail's Files pane. */
 export type ProjectTool = 'editor' | 'search' | 'changes';
+export type RemoteSubview = 'overview' | 'files' | 'forwards';
 /** The rail's contextual views inside the single navigation surface.
  * 'files' is the persistent context-feeding tree (ADR-0024, ADR-0029). */
 export type RailView = 'sessions' | 'inbox' | 'projects' | 'files' | 'skills';
@@ -175,11 +176,15 @@ interface AppStore {
   archaeology: { scope: string | null } | null;
   openArchaeology(scope: string | null): void;
   closeArchaeology(): void;
-  /** ADR-0047: the SSH Remotes page (host book). Full-surface like archaeology;
-   * the rail keeps showing sessions so a remote session can be opened alongside. */
+  /** ADR-0047: Remote Explorer is an application navigation mode with its own
+   * host/session hierarchy. Remote terminals keep this mode active. */
   remotesOpen: boolean;
-  openRemotes(): void;
+  remoteSelectedHostId: string | null;
+  remoteSubview: RemoteSubview;
+  openRemotes(hostId?: string): void;
   closeRemotes(): void;
+  selectRemoteHost(hostId: string, view?: RemoteSubview): void;
+  setRemoteSubview(view: RemoteSubview): void;
   /** ADR-0029: the rail's panel view, lifted so commands and flows that mean
    * "show me the project files" can reveal the one tree. */
   railView: RailView;
@@ -206,6 +211,7 @@ interface AppStore {
   openTaskRoom(taskId: string): void;
   setSessionRoomView(view: SessionRoomView): void;
   openTerminalSession(terminalId: string): void;
+  openRemoteTerminalSession(terminalId: string, hostId: string): void;
   closeTaskRoom(): void;
   setHomePick(inProgress: boolean): void;
   setLens(lens: { taskId: string; path: string } | null): void;
@@ -444,6 +450,8 @@ export const useAppStore = create<AppStore>((set, get) => {
     projectBottomTab: null,
     archaeology: null,
     remotesOpen: false,
+    remoteSelectedHostId: null,
+    remoteSubview: 'overview',
     railView: typeof window === 'undefined' ? 'sessions' : loadRailView(),
     savedSurfaces: {
       workbench: { kind: 'home' },
@@ -468,11 +476,11 @@ export const useAppStore = create<AppStore>((set, get) => {
       set({ archaeology: null });
     },
 
-    openRemotes() {
-      // The rail keeps showing sessions so a remote session opened from a host
-      // card lands right beside it (mockup screen 1).
+    openRemotes(hostId) {
       set({
         remotesOpen: true,
+        remoteSelectedHostId: hostId ?? get().remoteSelectedHostId,
+        remoteSubview: 'overview',
         taskRoomTaskId: null,
         sessionTerminalId: null,
         archaeology: null,
@@ -483,7 +491,29 @@ export const useAppStore = create<AppStore>((set, get) => {
       });
     },
     closeRemotes() {
-      set({ remotesOpen: false });
+      set({ remotesOpen: false, sessionTerminalId: null, remoteSubview: 'overview' });
+    },
+    selectRemoteHost(remoteSelectedHostId, remoteSubview = 'overview') {
+      set({
+        remotesOpen: true,
+        remoteSelectedHostId,
+        remoteSubview,
+        sessionTerminalId: null,
+        taskRoomTaskId: null,
+        archaeology: null,
+        projectTool: null,
+        projectBottomTab: null,
+        surface: 'home',
+      });
+    },
+    setRemoteSubview(remoteSubview) {
+      set({
+        remotesOpen: true,
+        remoteSubview,
+        sessionTerminalId: null,
+        taskRoomTaskId: null,
+        surface: 'home',
+      });
     },
 
     setRailView(railView) {
@@ -510,11 +540,15 @@ export const useAppStore = create<AppStore>((set, get) => {
       // Session's tool canvas; otherwise it opens the current project's Files
       // tool beside the persistent global rail.
       if (surface === 'workspace' && get().taskRoomTaskId) {
-        set({ surface: 'home', sessionToolExpanded: true, projectTool: null });
+        set({ surface: 'home', sessionToolExpanded: true, projectTool: null, remotesOpen: false });
         return;
       }
       set({
         surface,
+        // Surface navigation leaves Remotes — it sits above projectTool/home in
+        // mainSurfaceOf, so a stale flag would swallow the switch.
+        remotesOpen: false,
+        ...(get().remotesOpen ? { sessionTerminalId: null } : {}),
         projectTool: surface === 'workspace' ? (get().projectTool ?? 'editor') : null,
         ...(surface === 'workspace' ? crossRailPatch('files') : {}),
       });
@@ -676,6 +710,26 @@ export const useAppStore = create<AppStore>((set, get) => {
         projectBottomTab: null,
         archaeology: null,
         remotesOpen: false,
+        ...crossRailPatch('sessions'),
+      });
+    },
+
+    openRemoteTerminalSession(terminalId, remoteSelectedHostId) {
+      set({
+        sessionTerminalId: terminalId,
+        taskRoomTaskId: null,
+        sessionRoomView: 'conversation',
+        surface: 'home',
+        peek: null,
+        previewRailTaskId: null,
+        sessionTool: 'terminal',
+        sessionToolExpanded: false,
+        projectTool: null,
+        projectBottomTab: null,
+        archaeology: null,
+        remotesOpen: true,
+        remoteSelectedHostId,
+        remoteSubview: 'overview',
         ...crossRailPatch('sessions'),
       });
     },

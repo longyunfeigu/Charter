@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Charter artifact lifecycle prototype for version-trustworthy review."
+    />
+    <title>Charter · Q2 review package</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="titlebar">
+        <div class="brand-lockup" aria-label="Charter">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 4.5h9.5L19 8v11.5H6z" />
+            <path d="M15.5 4.5V8H19M9 11h7M9 14h7M9 17h4" />
+          </svg>
+          <span>Charter</span>
+        </div>
+        <div class="session-crumb">
+          <span class="ended-mark" aria-hidden="true"></span>
+          <span class="mono">SS-211</span>
+          <span aria-hidden="true">/</span>
+          <strong>Prepare Q2 design review</strong>
+        </div>
+        <div class="title-actions">
+          <span class="session-state">SESSION ENDED</span>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <aside class="lifecycle-rail" aria-label="Artifact lifecycle">
+          <div class="rail-kicker">SESSION OUTCOME</div>
+          <h1>Q2 design review</h1>
+          <p class="rail-session mono">SS-211 · ended 16:42</p>
+
+          <nav class="lifecycle-nav" aria-label="Review package steps">
+            <button type="button" class="lifecycle-step active" data-screen-target="completion">
+              <span class="step-index">01</span>
+              <span>
+                <strong>Completion</strong>
+                <small>Package created</small>
+              </span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m9 6 6 6-6 6"></path>
+              </svg>
+            </button>
+            <button type="button" class="lifecycle-step" data-screen-target="review">
+              <span class="step-index">02</span>
+              <span>
+                <strong>Artifact review</strong>
+                <small id="rail-review-status">Ready to review</small>
+              </span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m9 6 6 6-6 6"></path>
+              </svg>
+            </button>
+            <button type="button" class="lifecycle-step" data-screen-target="history">
+              <span class="step-index">03</span>
+              <span>
+                <strong>History return</strong>
+                <small>State retained</small>
+              </span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m9 6 6 6-6 6"></path>
+              </svg>
+            </button>
+          </nav>
+
+          <div class="rail-thread" aria-label="Artifact identity">
+            <span class="thread-line" aria-hidden="true"></span>
+            <span class="thread-node complete" aria-hidden="true"></span>
+            <div>
+              <small>ARTIFACT SET</small>
+              <strong class="mono">artifact_set_01K1A</strong>
+            </div>
+            <span class="thread-node current" aria-hidden="true"></span>
+            <div>
+              <small>PRIMARY ARTIFACT</small>
+              <strong>Q2-review.pdf</strong>
+            </div>
+            <span class="thread-node" id="rail-version-node" aria-hidden="true"></span>
+            <div>
+              <small>CURRENT VERSION</small>
+              <strong id="rail-version-label">v1 · immutable</strong>
+            </div>
+          </div>
+
+          <div class="rail-footer">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3.5 19 6v5.5c0 4.4-2.8 7.2-7 9-4.2-1.8-7-4.6-7-9V6z"></path>
+              <path d="m9 12 2 2 4-4"></path>
+            </svg>
+            <span>Versions and review receipts are retained after the Session ends.</span>
+          </div>
+        </aside>
+
+        <main class="main-stage" id="main-content">
+          <section class="screen active" id="screen-completion" data-screen="completion">
+            <div class="completion-page">
+              <header class="page-heading completion-heading">
+                <div>
+                  <p class="eyebrow success-eyebrow">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m5 12 4 4L19 6"></path>
+                    </svg>
+                    SESSION COMPLETE
+                  </p>
+                  <h2>Review package ready.</h2>
+                  <p class="lede">
+                    Charter assembled the Q2 narrative, decision record, and evidence into one
+                    versioned set. Review can continue after this Session closes.
+                  </p>
+                </div>
+                <div class="completion-time">
+                  <span>COMPLETED</span>
+                  <strong>16:42</strong>
+                  <small>24 Jul 2026</small>
+                </div>
+              </header>
+
+              <div class="completion-grid">
+                <section class="outcome-card" aria-labelledby="outcome-title">
+                  <div class="outcome-card-top">
+                    <div>
+                      <p class="section-label">OUTCOME</p>
+                      <h3 id="outcome-title">A reviewable Q2 decision package</h3>
+                    </div>
+                    <span class="status-seal">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m6 12 4 4 8-9"></path>
+                      </svg>
+                      Delivered
+                    </span>
+                  </div>
+                  <p>
+                    The PDF leads with adoption evidence and resolves the previous disagreement
+                    between research and activation data. Supporting source files remain attached
+                    to this exact package version.
+                  </p>
+                  <div class="result-facts" aria-label="Completion checks">
+                    <span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m5 12 4 4L19 6"></path>
+                      </svg>
+                      12 pages rendered
+                    </span>
+                    <span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m5 12 4 4L19 6"></path>
+                      </svg>
+                      Evidence reconciled
+                    </span>
+                    <span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m5 12 4 4L19 6"></path>
+                      </svg>
+                      3 artifacts retained
+                    </span>
+                  </div>
+                </section>
+
+                <section class="package-section" aria-labelledby="package-title">
+                  <div class="section-heading-row">
+                    <div>
+                      <p class="section-label">VERSIONED ARTIFACT SET</p>
+                      <h3 id="package-title">Q2 design review · v1</h3>
+                    </div>
+                    <span class="set-id mono">artifact_set_01K1A</span>
+                  </div>
+
+                  <div class="artifact-stack">
+                    <button
+                      type="button"
+                      class="artifact-row primary-artifact"
+                      data-open-artifact="pdf"
+                    >
+                      <span class="file-glyph pdf">PDF</span>
+                      <span class="artifact-copy">
+                        <strong>Q2-review.pdf</strong>
+                        <small>Primary · 12 pages · 4.8 MB</small>
+                      </span>
+                      <span class="version-stamp">
+                        <small>CURRENT</small>
+                        <strong>v1</strong>
+                      </span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m9 6 6 6-6 6"></path>
+                      </svg>
+                    </button>
+                    <button type="button" class="artifact-row" data-open-artifact="md">
+                      <span class="file-glyph md">MD</span>
+                      <span class="artifact-copy">
+                        <strong>decision-summary.md</strong>
+                        <small>Supporting · 6.2 KB</small>
+                      </span>
+                      <span class="version-stamp quiet">
+                        <small>CURRENT</small>
+                        <strong>v1</strong>
+                      </span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m9 6 6 6-6 6"></path>
+                      </svg>
+                    </button>
+                    <button type="button" class="artifact-row" data-open-artifact="csv">
+                      <span class="file-glyph csv">CSV</span>
+                      <span class="artifact-copy">
+                        <strong>evidence.csv</strong>
+                        <small>Supporting · 184 rows · 22 KB</small>
+                      </span>
+                      <span class="version-stamp quiet">
+                        <small>CURRENT</small>
+                        <strong>v1</strong>
+                      </span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m9 6 6 6-6 6"></path>
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div class="package-actions">
+                    <button type="button" class="button primary" data-open-artifact="pdf">
+                      Review Q2-review.pdf
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m5 12h14m-5-5 5 5-5 5"></path>
+                      </svg>
+                    </button>
+                    <button type="button" class="button secondary" data-screen-target="history">
+                      Find later in History
+                    </button>
+                  </div>
+                </section>
+
+                <aside class="receipt-card" aria-label="Artifact set receipt">
+                  <p class="section-label">PRODUCING EVENT</p>
+                  <div class="receipt-rule"></div>
+                  <dl>
+                    <div>
+                      <dt>Session</dt>
+                      <dd class="mono">SS-211</dd>
+                    </div>
+                    <div>
+                      <dt>Event</dt>
+                      <dd class="mono">completion.0194</dd>
+                    </div>
+                    <div>
+                      <dt>Created</dt>
+                      <dd>24 Jul · 16:42</dd>
+                    </div>
+                    <div>
+                      <dt>Retention</dt>
+                      <dd>Session history</dd>
+                    </div>
+                  </dl>
+                  <button type="button" class="text-button" data-open-event="completion">
+                    Inspect completion receipt
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m9 6 6 6-6 6"></path>
+                    </svg>
+                  </button>
+                </aside>
+              </div>
+            </div>
+          </section>
+
+          <section class="screen" id="screen-review" data-screen="review">
+            <div class="review-page">
+              <header class="review-header">
+                <div class="review-title-group">
+                  <p class="eyebrow">ARTIFACT REVIEW</p>
+                  <div class="review-title-line">
+                    <h2 id="review-filename">Q2-review.pdf</h2>
+                    <span class="review-version" id="review-version-chip">v1</span>
+                    <span class="current-label" id="current-version-label">CURRENT</span>
+                  </div>
+                  <p class="review-subtitle" id="review-subtitle">
+                    12 pages · produced by completion.0194
+                  </p>
+                </div>
+                <div class="review-actions">
+                  <button type="button" class="button secondary compact" id="show-origin-button">
+                    Producing event
+                  </button>
+                  <button type="button" class="button dark compact" id="regenerate-button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M19 8a7 7 0 1 0 .4 7"></path>
+                      <path d="M19 3v5h-5"></path>
+                    </svg>
+                    Regenerate package
+                  </button>
+                </div>
+              </header>
+
+              <div class="stale-banner" id="stale-banner" role="status" hidden>
+                <div>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 4 21 20H3z"></path>
+                    <path d="M12 9v5m0 3h.01"></path>
+                  </svg>
+                  <span id="stale-message"
+                    ><strong>v2 created.</strong> Your feedback is still anchored to immutable v1.</span
+                  >
+                </div>
+                <button type="button" class="text-button" id="view-v1-button">View v1 receipt</button>
+              </div>
+
+              <div class="review-workspace">
+                <aside class="artifact-index" aria-label="Artifacts in this set">
+                  <div class="index-heading">
+                    <span>ARTIFACT SET</span>
+                    <strong>3</strong>
+                  </div>
+                  <button type="button" class="artifact-index-item selected" data-artifact="pdf">
+                    <span class="file-glyph pdf">PDF</span>
+                    <span>
+                      <strong>Q2-review.pdf</strong>
+                      <small id="index-pdf-version">v1 · 12 pages</small>
+                    </span>
+                    <i id="index-note-dot" hidden aria-label="Feedback attached"></i>
+                  </button>
+                  <button type="button" class="artifact-index-item" data-artifact="md">
+                    <span class="file-glyph md">MD</span>
+                    <span>
+                      <strong>decision-summary.md</strong>
+                      <small>v1 · 6.2 KB</small>
+                    </span>
+                  </button>
+                  <button type="button" class="artifact-index-item" data-artifact="csv">
+                    <span class="file-glyph csv">CSV</span>
+                    <span>
+                      <strong>evidence.csv</strong>
+                      <small>v1 · 184 rows</small>
+                    </span>
+                  </button>
+                  <div class="version-legend">
+                    <span class="legend-mark"></span>
+                    <p>
+                      Every note keeps its artifact, version, page, region, and author receipt.
+                    </p>
+                  </div>
+                </aside>
+
+                <section class="document-stage" aria-label="Artifact preview">
+                  <div class="document-toolbar" id="pdf-toolbar">
+                    <div class="page-controls" aria-label="Page controls">
+                      <span>Page <strong>7</strong> of 12</span>
+                    </div>
+                    <div class="zoom-controls" aria-label="Zoom controls">
+                      <span>Fit · 86%</span>
+                    </div>
+                  </div>
+
+                  <div class="reanchor-guide" id="reanchor-guide" role="status" hidden>
+                    <span>1</span>
+                    <div>
+                      <strong>Select the matching region on v2</strong>
+                      <small>The original v1 anchor will remain unchanged.</small>
+                    </div>
+                    <button type="button" class="text-button" id="cancel-reanchor-button">Cancel</button>
+                  </div>
+
+                  <div class="paper-scroller" id="paper-scroller">
+                    <article class="pdf-page" id="pdf-page" aria-label="Q2 review, page 7">
+                      <header class="pdf-page-header">
+                        <span>NORTHSTAR PRODUCT · Q2 REVIEW</span>
+                        <span>07</span>
+                      </header>
+                      <div class="pdf-page-title">
+                        <p>02 / ADOPTION SIGNALS</p>
+                        <h3>Teams are crossing from trial behavior into weekly habits.</h3>
+                        <span class="pdf-version-watermark" id="pdf-watermark">VERSION 1</span>
+                      </div>
+                      <div class="pdf-rule"></div>
+                      <div class="pdf-content">
+                        <button
+                          type="button"
+                          class="region-target metric-region"
+                          data-region="R-07A"
+                          aria-label="Select region R-07A: activation metric"
+                        >
+                          <span class="metric-number">68%</span>
+                          <span class="metric-label">of pilot teams reached the activation milestone</span>
+                          <i>R-07A</i>
+                        </button>
+
+                        <button
+                          type="button"
+                          class="region-target chart-region selected"
+                          data-region="R-07B"
+                          aria-label="Select region R-07B: weekly retained teams chart"
+                        >
+                          <div class="chart-heading">
+                            <span>WEEKLY RETAINED TEAMS</span>
+                            <strong id="chart-change">+37%</strong>
+                          </div>
+                          <div class="bar-chart" aria-hidden="true">
+                            <span style="--bar: 34%"><i>W1</i></span>
+                            <span style="--bar: 43%"><i>W2</i></span>
+                            <span style="--bar: 52%"><i>W3</i></span>
+                            <span style="--bar: 59%"><i>W4</i></span>
+                            <span style="--bar: 72%"><i>W5</i></span>
+                            <span style="--bar: 84%"><i>W6</i></span>
+                          </div>
+                          <p id="chart-caption">
+                            Teams that shared at least one review artifact retained at nearly twice
+                            the baseline rate.
+                          </p>
+                          <i>R-07B</i>
+                        </button>
+
+                        <button
+                          type="button"
+                          class="region-target quote-region"
+                          data-region="R-07C"
+                          aria-label="Select region R-07C: research quote"
+                        >
+                          <blockquote>
+                            “The handoff stopped feeling like an export and started feeling like
+                            part of the work.”
+                          </blockquote>
+                          <span>DESIGN LEAD · PILOT 04</span>
+                          <i>R-07C</i>
+                        </button>
+
+                        <div class="pdf-footnote">
+                          Source: evidence.csv · cohort n=84 teams · 01 Apr–30 Jun 2026
+                        </div>
+                      </div>
+                    </article>
+
+                    <article class="support-preview markdown-preview" id="markdown-preview" hidden>
+                      <header>
+                        <span class="file-glyph md">MD</span>
+                        <div>
+                          <p>SUPPORTING ARTIFACT</p>
+                          <h3>decision-summary.md</h3>
+                        </div>
+                      </header>
+                      <div class="markdown-body">
+                        <h4>Q2 design review — decision summary</h4>
+                        <p>
+                          Recommend advancing artifact review from pilot to staged rollout, with
+                          version-anchored feedback as a release requirement.
+                        </p>
+                        <h5>Decision</h5>
+                        <ul>
+                          <li>Preserve every review note against an immutable artifact version.</li>
+                          <li>Make regeneration create a new version, never replace the prior file.</li>
+                          <li>Keep review state available from Session history.</li>
+                        </ul>
+                        <h5>Open question</h5>
+                        <p>
+                          Validate whether reviewers prefer re-anchoring in place or side-by-side
+                          comparison for materially changed pages.
+                        </p>
+                      </div>
+                    </article>
+
+                    <article class="support-preview csv-preview" id="csv-preview" hidden>
+                      <header>
+                        <span class="file-glyph csv">CSV</span>
+                        <div>
+                          <p>SUPPORTING ARTIFACT</p>
+                          <h3>evidence.csv</h3>
+                        </div>
+                        <span class="row-count">184 ROWS</span>
+                      </header>
+                      <div class="table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>cohort</th>
+                              <th>week</th>
+                              <th>active_teams</th>
+                              <th>shared_artifact</th>
+                              <th>retained</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr><td>pilot_01</td><td>W1</td><td>18</td><td>true</td><td>0.71</td></tr>
+                            <tr><td>pilot_01</td><td>W2</td><td>21</td><td>true</td><td>0.76</td></tr>
+                            <tr><td>pilot_02</td><td>W3</td><td>14</td><td>false</td><td>0.42</td></tr>
+                            <tr><td>pilot_03</td><td>W4</td><td>23</td><td>true</td><td>0.81</td></tr>
+                            <tr><td>pilot_04</td><td>W5</td><td>19</td><td>true</td><td>0.84</td></tr>
+                            <tr><td>pilot_04</td><td>W6</td><td>22</td><td>true</td><td>0.86</td></tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
+                <aside class="feedback-inspector" aria-labelledby="feedback-heading">
+                  <header class="inspector-heading">
+                    <div>
+                      <p class="section-label">REVIEW THREAD</p>
+                      <h3 id="feedback-heading">Feedback</h3>
+                    </div>
+                    <span class="note-count" id="note-count">0</span>
+                  </header>
+
+                  <div id="pdf-inspector">
+                    <div class="anchor-receipt">
+                      <div class="anchor-receipt-top">
+                        <span class="anchor-pin" aria-hidden="true">
+                          <svg viewBox="0 0 24 24">
+                            <path
+                              d="M20 10c0 4.8-8 11-8 11S4 14.8 4 10a8 8 0 1 1 16 0Z"
+                            ></path>
+                            <circle cx="12" cy="10" r="2.5"></circle>
+                          </svg>
+                        </span>
+                        <div>
+                          <small>SELECTED EVIDENCE</small>
+                          <strong id="selected-region-title">Page 7 · Region R-07B</strong>
+                        </div>
+                      </div>
+                      <div class="anchor-identity mono">
+                        <span>Q2-review.pdf / artifact_01K1A_PDF</span>
+                        <span id="anchor-version">v1 · 7:R-07B</span>
+                      </div>
+                    </div>
+
+                    <div class="thread-panel" id="thread-panel">
+                      <div class="thread-empty" id="thread-empty">
+                        <span class="thread-empty-mark">
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M5 5h14v11H9l-4 4z"></path>
+                          </svg>
+                        </span>
+                        <strong>No feedback here yet</strong>
+                        <p>Your note will be bound to this exact version and region.</p>
+                      </div>
+                      <div class="note-thread" id="note-thread" hidden>
+                        <div class="thread-spine" aria-hidden="true"></div>
+                        <article class="feedback-note original-note">
+                          <span class="note-node">1</span>
+                          <header>
+                            <span class="avatar">YO</span>
+                            <div>
+                              <strong>You</strong>
+                              <small>Just now · <span class="mono">feedback_018</span></small>
+                            </div>
+                            <span class="version-badge">v1</span>
+                          </header>
+                          <p id="saved-note-copy"></p>
+                          <footer>
+                            <span id="origin-region-label">
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path
+                                  d="M20 10c0 4.8-8 11-8 11S4 14.8 4 10a8 8 0 1 1 16 0Z"
+                                ></path>
+                              </svg>
+                              <span>p7 · R-07B</span>
+                            </span>
+                            <span class="immutable-mark">
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <rect x="5" y="10" width="14" height="10" rx="2"></rect>
+                                <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+                              </svg>
+                              immutable
+                            </span>
+                          </footer>
+                        </article>
+
+                        <div class="version-transition" id="version-transition" hidden>
+                          <span class="transition-node" aria-hidden="true"></span>
+                          <div>
+                            <strong>v2 generated</strong>
+                            <small>The original note stayed on v1.</small>
+                          </div>
+                        </div>
+
+                        <article class="feedback-note linked-note" id="linked-note" hidden>
+                          <span class="note-node">2</span>
+                          <header>
+                            <span class="link-avatar">
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7.5l-1 1"></path>
+                                <path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7.5l1-1"></path>
+                              </svg>
+                            </span>
+                            <div>
+                              <strong>Linked anchor</strong>
+                              <small>Created from feedback_018</small>
+                            </div>
+                            <span class="version-badge current">v2</span>
+                          </header>
+                          <p>Same feedback, explicitly anchored to the revised evidence.</p>
+                          <footer>
+                            <span id="linked-region-label">p7 · R-07B</span>
+                            <span class="immutable-mark">receipt retained</span>
+                          </footer>
+                        </article>
+                      </div>
+                    </div>
+
+                    <form class="note-composer" id="note-composer">
+                      <label for="feedback-note">Note on <span id="composer-anchor">p7 · R-07B · v1</span></label>
+                      <textarea
+                        id="feedback-note"
+                        rows="4"
+                        placeholder="Describe what needs to change at this evidence…"
+                      ></textarea>
+                      <div class="composer-footer">
+                        <span>⌘ ↵ to save</span>
+                        <button type="submit" class="button primary" id="save-note-button" disabled>
+                          Save anchored note
+                        </button>
+                      </div>
+                    </form>
+
+                    <div class="stale-actions" id="stale-actions" hidden>
+                      <p>
+                        <strong>This note has not moved.</strong> Choose what should happen against
+                        v2.
+                      </p>
+                      <button type="button" class="button primary" id="start-reanchor-button">
+                        Re-anchor on v2
+                      </button>
+                      <button type="button" class="button secondary" id="preserve-v1-button">
+                        Keep only on v1
+                      </button>
+                    </div>
+
+                    <div class="reanchor-confirm" id="reanchor-confirm" hidden>
+                      <p class="section-label">NEW V2 ANCHOR</p>
+                      <strong id="new-anchor-label">Select a region on the page</strong>
+                      <p>
+                        This creates a linked v2 receipt. The original v1 note and identity remain
+                        unchanged.
+                      </p>
+                      <button type="button" class="button primary" id="confirm-reanchor-button" disabled>
+                        Create linked v2 anchor
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="support-inspector" id="support-inspector" hidden>
+                    <div class="support-fact">
+                      <p class="section-label">SET MEMBERSHIP</p>
+                      <strong id="support-name">decision-summary.md</strong>
+                      <span>Bound to <span class="mono">artifact_set_01K1A</span> · v1</span>
+                    </div>
+                    <p>
+                      This supporting file shares the package receipt with Q2-review.pdf. Review
+                      feedback is currently anchored on the primary PDF.
+                    </p>
+                    <button type="button" class="button primary" id="return-to-pdf-button">
+                      Return to PDF feedback
+                    </button>
+                  </div>
+                </aside>
+              </div>
+            </div>
+          </section>
+
+          <section class="screen" id="screen-history" data-screen="history">
+            <div class="history-page">
+              <header class="page-heading history-heading">
+                <div>
+                  <p class="eyebrow">SESSION HISTORY</p>
+                  <h2>Review state, exactly where you left it.</h2>
+                  <p class="lede">
+                    SS-211 has ended. Its artifact versions, selected evidence, and feedback
+                    receipts remain available without reopening the agent run.
+                  </p>
+                </div>
+                <div class="history-filter" aria-label="History filter">
+                  <button type="button" class="selected">Review packages</button>
+                  <button type="button">All Sessions</button>
+                </div>
+              </header>
+
+              <div class="history-layout">
+                <section class="history-list" aria-label="Session review history">
+                  <p class="section-label">24 JUL 2026</p>
+                  <article class="history-entry selected">
+                    <div class="history-line" aria-hidden="true">
+                      <span></span>
+                    </div>
+                    <div class="history-entry-content">
+                      <header>
+                        <div>
+                          <span class="history-status" id="history-status">READY TO REVIEW</span>
+                          <h3>Prepare Q2 design review</h3>
+                          <p><span class="mono">SS-211</span> · ended at 16:42</p>
+                        </div>
+                        <span class="artifact-total"><strong>3</strong> artifacts</span>
+                      </header>
+
+                      <button type="button" class="history-package" id="resume-review-button">
+                        <span class="file-glyph pdf">PDF</span>
+                        <span>
+                          <strong>Q2-review.pdf</strong>
+                          <small id="history-position">v1 · page 7 · R-07B selected</small>
+                        </span>
+                        <span class="history-review-state" id="history-review-state">
+                          <i></i>
+                          No notes yet
+                        </span>
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="m9 6 6 6-6 6"></path>
+                        </svg>
+                      </button>
+
+                      <div class="history-provenance">
+                        <span class="provenance-node" aria-hidden="true">
+                          <svg viewBox="0 0 24 24">
+                            <path d="M8 5h8M8 12h8M8 19h5"></path>
+                          </svg>
+                        </span>
+                        <div>
+                          <small>PRODUCED BY</small>
+                          <strong>Session completion · 16:42</strong>
+                          <span class="mono">completion.0194 → artifact_set_01K1A</span>
+                        </div>
+                        <button type="button" class="text-button" data-open-event="completion">
+                          View producing event
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="history-entry quiet-entry">
+                    <div class="history-line" aria-hidden="true"><span></span></div>
+                    <div class="history-entry-content">
+                      <header>
+                        <div>
+                          <span class="history-status quiet">SETTLED</span>
+                          <h3>Map onboarding decision points</h3>
+                          <p><span class="mono">SS-204</span> · 22 Jul at 11:08</p>
+                        </div>
+                        <span class="artifact-total"><strong>1</strong> artifact</span>
+                      </header>
+                    </div>
+                  </article>
+                </section>
+
+                <aside class="history-summary" aria-label="Retained review summary">
+                  <p class="section-label">RETAINED REVIEW</p>
+                  <div class="summary-file">
+                    <span class="file-glyph pdf">PDF</span>
+                    <div>
+                      <strong>Q2-review.pdf</strong>
+                      <small id="summary-version">Version 1 · immutable</small>
+                    </div>
+                  </div>
+                  <dl>
+                    <div>
+                      <dt>Last position</dt>
+                      <dd id="summary-position">Page 7 · R-07B</dd>
+                    </div>
+                    <div>
+                      <dt>Feedback</dt>
+                      <dd id="summary-feedback">No notes yet</dd>
+                    </div>
+                    <div>
+                      <dt>Artifact set</dt>
+                      <dd class="mono">artifact_set_01K1A</dd>
+                    </div>
+                  </dl>
+                  <button type="button" class="button primary full" id="summary-resume-button">
+                    Resume review
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m5 12h14m-5-5 5 5-5 5"></path>
+                    </svg>
+                  </button>
+                  <p class="retention-note">
+                    Returning restores the same artifact version, page, region, and thread—not a
+                    new copy.
+                  </p>
+                </aside>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+
+      <footer class="statusbar">
+        <span>
+          <i class="status-dot" aria-hidden="true"></i>
+          Session ended · review remains available
+        </span>
+        <span class="mono">artifact_set_01K1A</span>
+        <span>3 artifacts · local workspace</span>
+      </footer>
+    </div>
+
+    <div class="toast-region" aria-live="polite" aria-atomic="true">
+      <div class="toast" id="toast" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m5 12 4 4L19 6"></path>
+        </svg>
+        <span id="toast-message">Saved</span>
+      </div>
+    </div>
+
+    <dialog class="regenerate-dialog" id="regenerate-dialog">
+      <form method="dialog">
+        <header>
+          <span class="dialog-mark">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M19 8a7 7 0 1 0 .4 7"></path>
+              <path d="M19 3v5h-5"></path>
+            </svg>
+          </span>
+          <div>
+            <p class="section-label">NEW IMMUTABLE VERSION</p>
+            <h2>Create Q2-review.pdf v2?</h2>
+          </div>
+        </header>
+        <p>
+          Regeneration creates a new artifact version. It does not replace v1 or move feedback
+          already attached to it.
+        </p>
+        <div class="dialog-consequence">
+          <div class="consequence-thread" aria-hidden="true">
+            <span class="done"></span>
+            <i></i>
+            <span></span>
+          </div>
+          <div>
+            <strong>v1 remains immutable</strong>
+            <small id="dialog-note-detail">No feedback is attached yet.</small>
+          </div>
+          <div>
+            <strong>v2 becomes current</strong>
+            <small>Review changes and re-anchor explicitly if needed.</small>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="button secondary" id="cancel-regenerate-button">Cancel</button>
+          <button type="button" class="button dark" id="confirm-regenerate-button">
+            Create version 2
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

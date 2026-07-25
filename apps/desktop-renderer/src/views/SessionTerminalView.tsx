@@ -15,6 +15,7 @@ import {
 } from './TerminalPanel.js';
 import { OrchestrationWorkerBand } from './OrchestrationFleet.js';
 import { useSshStore } from '../store/sshStore.js';
+import { openRemoteSession } from './remote-session.js';
 
 function launchName(launch: 'shell' | 'claude' | 'codex'): string {
   if (launch === 'claude') return 'Claude Code';
@@ -37,10 +38,7 @@ function RemoteControls({
   exited: boolean;
 }): React.JSX.Element {
   const reconnect = async (): Promise<void> => {
-    const id = await useTerminalStore
-      .getState()
-      .create({ target: { kind: 'ssh', hostId }, launch });
-    if (id) useAppStore.getState().openTerminalSession(id);
+    await openRemoteSession(hostId, launch);
   };
   const disconnect = (): void => {
     void useSshStore.getState().disconnect(hostId);
@@ -123,8 +121,12 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
               exited={item.exited}
             />
           ) : null}
-          <button onClick={app.closeTaskRoom}>
-            <Ic name="chevron" size={12} /> Sessions
+          <button
+            onClick={
+              item.remote ? () => app.selectRemoteHost(item.remote!.hostId) : app.closeTaskRoom
+            }
+          >
+            <Ic name="chevron" size={12} /> {item.remote ? 'Host' : 'Sessions'}
           </button>
         </header>
         <OrchestrationWorkerBand terminalId={terminalId} />

@@ -232,6 +232,7 @@ export class ChangeService {
     taskId: string,
     relativePath: string,
     kind: Exclude<ChangeKind, 'renamed'>,
+    options: { author?: 'agent' | 'system' } = {},
   ): Promise<FileChangeRecord> {
     const history = this.repo
       .changesFor(taskId)
@@ -271,7 +272,7 @@ export class ChangeService {
       afterHash,
       patch,
       renameTo: null,
-      author: 'agent',
+      author: options.author ?? 'agent',
       createdAt: new Date().toISOString(),
     };
     this.repo.recordChange(record);

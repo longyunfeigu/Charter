@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Interactive Charter effective-memory prototype for the fable5 project."
+    />
+    <title>Charter — Effective memory for fable5</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <aside class="study-bar" aria-label="Prototype controls">
+      <span><strong>Interactive prototype</strong> · Effective memory</span>
+      <button class="study-reset" id="reset-demo" type="button">Reset scenario</button>
+    </aside>
+
+    <div class="app-shell">
+      <header class="titlebar">
+        <div class="brand-mark" aria-hidden="true">C</div>
+        <div class="title-context">
+          <span class="product-name">Charter</span>
+          <span class="title-divider" aria-hidden="true"></span>
+          <span class="project-crumb">fable5</span>
+        </div>
+        <div class="title-state">
+          <span class="sync-dot" aria-hidden="true"></span>
+          Sources read locally
+        </div>
+      </header>
+
+      <div class="workspace">
+        <nav class="side-nav" aria-label="Memory workspace">
+          <div class="nav-heading">
+            <span class="eyebrow">Project context</span>
+            <strong>Memory</strong>
+          </div>
+          <div class="nav-items">
+            <button
+              class="nav-item is-active"
+              type="button"
+              data-view="effective"
+              aria-current="page"
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20">
+                <path d="M4 5h12M4 10h8M4 15h10" />
+                <circle cx="15.5" cy="10" r="1.5" />
+              </svg>
+              <span>Effective set</span>
+              <span class="nav-status conflict" id="nav-conflict-count">1</span>
+            </button>
+            <button class="nav-item" type="button" data-view="receipt">
+              <svg aria-hidden="true" viewBox="0 0 20 20">
+                <path d="M6 3.5h7l2 2V17H6zM13 3.5V6h2M8.5 9h4M8.5 12h4" />
+              </svg>
+              <span>New Session</span>
+            </button>
+          </div>
+
+          <div class="nav-project">
+            <span class="nav-section-label">Current project</span>
+            <div class="project-stamp">
+              <span class="folder-glyph" aria-hidden="true"></span>
+              <span>
+                <strong>fable5</strong>
+                <small>/Users/edy/git/fable5</small>
+              </span>
+            </div>
+          </div>
+
+          <details class="provider-library">
+            <summary>
+              <span>Provider library</span>
+              <span class="library-count">3 sources</span>
+            </summary>
+            <div class="provider-list">
+              <div><span class="provider-dot charter"></span>Charter <b>1</b></div>
+              <div><span class="provider-dot claude"></span>Claude Code <b>1</b></div>
+              <div><span class="provider-dot codex"></span>Codex <b>1</b></div>
+              <p>Provider files are catalogued here. The effective order is set by project context.</p>
+            </div>
+          </details>
+        </nav>
+
+        <main class="main-stage" id="main-stage">
+          <section class="view is-visible" id="effective-view" aria-labelledby="effective-title">
+            <header class="page-header">
+              <div>
+                <p class="eyebrow">Effective memory · fable5</p>
+                <h1 id="effective-title">What will affect the next run</h1>
+                <p class="page-intro">
+                  Three local sources contribute instructions. When they disagree, the lower precedence
+                  number wins.
+                </p>
+              </div>
+              <button class="button primary new-session-button" type="button" data-view="receipt">
+                Review New Session
+                <svg aria-hidden="true" viewBox="0 0 20 20">
+                  <path d="m8 5 5 5-5 5" />
+                </svg>
+              </button>
+            </header>
+
+            <section class="effective-summary" aria-label="Effective instruction summary">
+              <div class="summary-lead">
+                <span class="status-seal warning" id="summary-seal" aria-hidden="true">
+                  <svg viewBox="0 0 20 20"><path d="M10 3 17 16H3zM10 7.5v4M10 14h.01" /></svg>
+                </span>
+                <div>
+                  <span class="summary-label">Effective test command</span>
+                  <strong class="summary-command" id="effective-command">npm run test:e2e</strong>
+                  <span class="summary-reason" id="summary-reason"
+                    >Charter workspace rule wins the conflict.</span
+                  >
+                </div>
+              </div>
+              <dl class="summary-counts">
+                <div>
+                  <dt>Sources</dt>
+                  <dd>3 active</dd>
+                </div>
+                <div>
+                  <dt>Instructions</dt>
+                  <dd id="instruction-count">7 effective</dd>
+                </div>
+                <div>
+                  <dt>Attention</dt>
+                  <dd class="warning-text" id="attention-count">1 conflict</dd>
+                </div>
+              </dl>
+            </section>
+
+            <section class="ledger-section" aria-labelledby="source-ledger-title">
+              <div class="section-heading">
+                <div>
+                  <span class="eyebrow">Precedence trail</span>
+                  <h2 id="source-ledger-title">Effective sources</h2>
+                </div>
+                <span class="trail-legend">01 wins over 02, then 03</span>
+              </div>
+
+              <ol class="source-ledger">
+                <li class="source-row source-charter">
+                  <div class="trail-node">
+                    <span class="trail-number">01</span>
+                    <span class="trail-line" aria-hidden="true"></span>
+                  </div>
+                  <div class="source-body">
+                    <div class="source-heading">
+                      <div>
+                        <strong>Charter workspace rule</strong>
+                        <span class="provider-tag">Charter · workspace</span>
+                      </div>
+                      <span class="source-state managed">Managed</span>
+                    </div>
+                    <code class="source-path">workspace://rules/testing</code>
+                    <p class="source-excerpt">
+                      For Electron renderer changes, build first, then run
+                      <code>npm run test:e2e</code>.
+                    </p>
+                    <div class="source-foot">
+                      <span class="impact-label">Sets the effective test command</span>
+                      <span>Read-only here</span>
+                    </div>
+                  </div>
+                </li>
+
+                <li class="source-row source-project" id="project-source-row">
+                  <div class="trail-node">
+                    <span class="trail-number">02</span>
+                    <span class="trail-line" aria-hidden="true"></span>
+                  </div>
+                  <div class="source-body">
+                    <div class="source-heading">
+                      <div>
+                        <strong>.claude/CLAUDE.md</strong>
+                        <span class="provider-tag">Claude Code · project</span>
+                      </div>
+                      <span class="source-state conflict" id="project-source-state">Conflict</span>
+                    </div>
+                    <code class="source-path">/Users/edy/git/fable5/.claude/CLAUDE.md</code>
+                    <p class="source-excerpt" id="project-excerpt">
+                      Before submitting changes, run <code>npm test</code>. Keep snapshots small and
+                      reviewable.
+                    </p>
+                    <div class="source-foot">
+                      <span class="impact-label project-impact" id="project-impact"
+                        >Contributes 3 instructions; test command is overridden by 01</span
+                      >
+                      <button class="text-button" type="button" id="edit-project-source">
+                        Edit project source
+                        <svg aria-hidden="true" viewBox="0 0 20 20">
+                          <path d="m12.5 4 3.5 3.5L8 15.5 4 16l.5-4zM11 5.5l3.5 3.5" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </li>
+
+                <li class="source-row source-global">
+                  <div class="trail-node">
+                    <span class="trail-number">03</span>
+                  </div>
+                  <div class="source-body">
+                    <div class="source-heading">
+                      <div>
+                        <strong>~/.codex/AGENTS.md</strong>
+                        <span class="provider-tag">Codex · global</span>
+                      </div>
+                      <span class="source-state active">Active</span>
+                    </div>
+                    <code class="source-path">/Users/edy/.codex/AGENTS.md</code>
+                    <p class="source-excerpt">
+                      Prefer <code>rg</code> for repository search. Use <code>apply_patch</code> for
+                      focused edits.
+                    </p>
+                    <div class="source-foot">
+                      <span class="impact-label">Contributes 2 instructions</span>
+                      <span>Global · read-only here</span>
+                    </div>
+                  </div>
+                </li>
+              </ol>
+            </section>
+
+            <aside class="conflict-panel" id="conflict-panel" aria-labelledby="conflict-title">
+              <div class="conflict-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20"><path d="M10 3 17 16H3zM10 7.5v4M10 14h.01" /></svg>
+              </div>
+              <div class="conflict-copy">
+                <span class="eyebrow">Needs attention</span>
+                <h2 id="conflict-title">Two active sources name different test commands</h2>
+                <p>
+                  The run is predictable—precedence 01 uses <code>npm run test:e2e</code>—but the
+                  project source still tells future readers to use <code>npm test</code>.
+                </p>
+                <div class="comparison-lines" aria-label="Conflicting values">
+                  <span><b>01</b> npm run test:e2e <em>effective</em></span>
+                  <span><b>02</b> npm test <em>overridden</em></span>
+                </div>
+              </div>
+              <button class="button warning-button" type="button" id="resolve-conflict">
+                Review project source
+              </button>
+            </aside>
+          </section>
+
+          <section class="view" id="receipt-view" aria-labelledby="receipt-title" hidden>
+            <header class="page-header receipt-header">
+              <div>
+                <p class="eyebrow">New Session · fable5</p>
+                <h1 id="receipt-title">Review what the agent will receive</h1>
+                <p class="page-intro" id="receipt-intro">
+                  This draft reflects the current effective order. You may exclude one source for
+                  this run only.
+                </p>
+              </div>
+              <span class="receipt-status draft" id="receipt-status">
+                <span class="receipt-status-dot"></span>
+                Draft receipt
+              </span>
+            </header>
+
+            <div class="receipt-layout">
+              <section class="receipt-sheet" aria-labelledby="receipt-sources-title">
+                <div class="receipt-sheet-head">
+                  <div>
+                    <span class="eyebrow">Execution input</span>
+                    <h2 id="receipt-sources-title">Instruction sources</h2>
+                  </div>
+                  <span class="receipt-id" id="receipt-id">DRAFT · fable5</span>
+                </div>
+
+                <div class="compact-trail" aria-label="Precedence order">
+                  <span><b>01</b> Workspace</span>
+                  <i aria-hidden="true"></i>
+                  <span class="project"><b>02</b> Project</span>
+                  <i aria-hidden="true"></i>
+                  <span><b>03</b> Global</span>
+                </div>
+
+                <div class="receipt-source-list">
+                  <article class="receipt-source" data-receipt-source="workspace">
+                    <div class="receipt-source-order">01</div>
+                    <div class="receipt-source-copy">
+                      <strong>Charter workspace rule</strong>
+                      <code>workspace://rules/testing</code>
+                      <details>
+                        <summary>Inspect 2 instructions</summary>
+                        <div class="instruction-preview">
+                          <p>Build before running Electron renderer tests.</p>
+                          <p>Run <code>npm run test:e2e</code>.</p>
+                        </div>
+                      </details>
+                    </div>
+                    <button
+                      class="exclude-button"
+                      type="button"
+                      data-exclude="workspace"
+                      aria-pressed="false"
+                    >
+                      Exclude
+                    </button>
+                  </article>
+
+                  <article class="receipt-source project" data-receipt-source="project">
+                    <div class="receipt-source-order">02</div>
+                    <div class="receipt-source-copy">
+                      <strong>.claude/CLAUDE.md</strong>
+                      <code>/Users/edy/git/fable5/.claude/CLAUDE.md</code>
+                      <details>
+                        <summary>Inspect 3 instructions</summary>
+                        <div class="instruction-preview" id="project-receipt-preview">
+                          <p id="project-receipt-command">
+                            Before submitting changes, run <code>npm test</code>.
+                          </p>
+                          <p>Keep snapshots small and reviewable.</p>
+                          <p>Document changes to public behavior.</p>
+                        </div>
+                      </details>
+                    </div>
+                    <button
+                      class="exclude-button"
+                      type="button"
+                      data-exclude="project"
+                      aria-pressed="false"
+                    >
+                      Exclude
+                    </button>
+                  </article>
+
+                  <article class="receipt-source" data-receipt-source="global">
+                    <div class="receipt-source-order">03</div>
+                    <div class="receipt-source-copy">
+                      <strong>~/.codex/AGENTS.md</strong>
+                      <code>/Users/edy/.codex/AGENTS.md</code>
+                      <details>
+                        <summary>Inspect 2 instructions</summary>
+                        <div class="instruction-preview">
+                          <p>Prefer <code>rg</code> for repository search.</p>
+                          <p>Use <code>apply_patch</code> for focused edits.</p>
+                        </div>
+                      </details>
+                    </div>
+                    <button
+                      class="exclude-button"
+                      type="button"
+                      data-exclude="global"
+                      aria-pressed="false"
+                    >
+                      Exclude
+                    </button>
+                  </article>
+                </div>
+
+                <p class="exclusion-note" id="exclusion-note">
+                  Exclusions do not change any source file. At most one source can be excluded from
+                  this run.
+                </p>
+              </section>
+
+              <aside class="run-summary" aria-labelledby="run-summary-title">
+                <span class="eyebrow">Run summary</span>
+                <h2 id="run-summary-title">Ready to start</h2>
+                <dl>
+                  <div>
+                    <dt>Project</dt>
+                    <dd>fable5</dd>
+                  </div>
+                  <div>
+                    <dt>Included</dt>
+                    <dd id="included-count">3 sources · 7 instructions</dd>
+                  </div>
+                  <div>
+                    <dt>Excluded</dt>
+                    <dd id="excluded-summary">None</dd>
+                  </div>
+                  <div>
+                    <dt>Effective test</dt>
+                    <dd><code id="receipt-effective-test">npm run test:e2e</code></dd>
+                  </div>
+                </dl>
+                <div class="immutability-note">
+                  <svg aria-hidden="true" viewBox="0 0 20 20">
+                    <rect x="4.5" y="8.5" width="11" height="8" rx="1" />
+                    <path d="M7 8.5V6a3 3 0 0 1 6 0v2.5" />
+                  </svg>
+                  <p>
+                    Starting the Session freezes this exact receipt. Later source edits will not
+                    change it.
+                  </p>
+                </div>
+                <button class="button primary start-session" type="button" id="start-session">
+                  Start Session with 3 sources
+                  <svg aria-hidden="true" viewBox="0 0 20 20"><path d="m8 5 5 5-5 5" /></svg>
+                </button>
+                <button class="button quiet back-effective" type="button" data-view="effective">
+                  Back to effective set
+                </button>
+              </aside>
+            </div>
+
+            <section class="sent-proof" id="sent-proof" hidden aria-live="polite">
+              <div class="sent-proof-mark" aria-hidden="true">
+                <svg viewBox="0 0 20 20"><path d="m4 10 3.5 3.5L16 5" /></svg>
+              </div>
+              <div>
+                <span class="eyebrow">Sent to agent</span>
+                <h2>Immutable receipt recorded</h2>
+                <p id="sent-proof-copy">
+                  The agent received 3 sources in the order shown above.
+                </p>
+              </div>
+              <dl>
+                <div>
+                  <dt>Run</dt>
+                  <dd>SS-219</dd>
+                </div>
+                <div>
+                  <dt>Receipt</dt>
+                  <dd>mem_01K3F</dd>
+                </div>
+                <div>
+                  <dt>Payload hash</dt>
+                  <dd id="payload-hash">sha256:3db2…8ca1</dd>
+                </div>
+              </dl>
+            </section>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div class="editor-backdrop" id="editor-backdrop" hidden>
+      <section
+        class="source-editor"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="editor-title"
+        aria-describedby="editor-effect"
+      >
+        <header class="editor-header">
+          <div>
+            <p class="eyebrow">Project source · precedence 02</p>
+            <h1 id="editor-title">Edit .claude/CLAUDE.md</h1>
+          </div>
+          <button class="icon-button" type="button" id="close-editor" aria-label="Close source editor">
+            <svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" /></svg>
+          </button>
+        </header>
+
+        <div class="editor-context">
+          <dl>
+            <div>
+              <dt>Scope</dt>
+              <dd>Project · fable5</dd>
+            </div>
+            <div>
+              <dt>Provider</dt>
+              <dd>Claude Code</dd>
+            </div>
+            <div>
+              <dt>Precedence</dt>
+              <dd>02 of 03</dd>
+            </div>
+          </dl>
+          <code>/Users/edy/git/fable5/.claude/CLAUDE.md</code>
+        </div>
+
+        <div class="editor-main">
+          <div class="editor-field">
+            <div class="editor-field-head">
+              <label for="source-content">Source contents</label>
+              <span id="editor-dirty-state">No unsaved changes</span>
+            </div>
+            <textarea id="source-content" spellcheck="false"></textarea>
+          </div>
+
+          <aside class="editor-inspector">
+            <div class="compact-trail editor-trail" aria-label="Precedence order">
+              <span><b>01</b> Workspace</span>
+              <i aria-hidden="true"></i>
+              <span class="project"><b>02</b> This file</span>
+              <i aria-hidden="true"></i>
+              <span><b>03</b> Global</span>
+            </div>
+            <div class="editor-conflict">
+              <span class="source-state conflict" id="editor-conflict-state">Conflict found</span>
+              <h2>Test command</h2>
+              <dl>
+                <div>
+                  <dt>Effective · 01</dt>
+                  <dd><code>npm run test:e2e</code></dd>
+                </div>
+                <div>
+                  <dt>This file · 02</dt>
+                  <dd><code id="editor-project-command">npm test</code></dd>
+                </div>
+              </dl>
+              <button class="button suggestion-button" type="button" id="align-command">
+                Align this file with effective command
+              </button>
+            </div>
+            <p class="safe-effect" id="editor-effect">
+              Saving recalculates the effective set for <strong>fable5</strong>. It will not edit the
+              managed Charter rule or <code>~/.codex/AGENTS.md</code>.
+            </p>
+          </aside>
+        </div>
+
+        <footer class="editor-footer">
+          <span class="save-target">
+            <svg aria-hidden="true" viewBox="0 0 20 20"><path d="M4 3.5h9l3 3V16.5H4zM7 3.5v5h6v-5M7 13h6" /></svg>
+            Only this project file will change
+          </span>
+          <div>
+            <button class="button quiet" type="button" id="cancel-editor">Cancel</button>
+            <button class="button primary" type="button" id="save-source" disabled>
+              Save project source
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+      <div class="toast-mark" aria-hidden="true">
+        <svg viewBox="0 0 20 20"><path d="m4 10 3.5 3.5L16 5" /></svg>
+      </div>
+      <div>
+        <strong>Project source saved</strong>
+        <span>Effective memory recalculated. Managed and global sources were untouched.</span>
+      </div>
+      <button type="button" id="undo-save">Undo</button>
+    </div>
+  </body>
+</html>

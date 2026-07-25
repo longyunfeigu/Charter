@@ -1,0 +1,1700 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Charter - Remote Explorer IA Mock</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --canvas: #f7f5ef;
+        --paper: #fffef9;
+        --paper-raised: #ffffff;
+        --sidebar: #f1efe7;
+        --activity: #ebe9e1;
+        --ink: #22241f;
+        --muted: #73766d;
+        --faint: #a2a49c;
+        --line: #dedbd1;
+        --line-strong: #c8c5ba;
+        --hover: #e8e5dc;
+        --selected: #dfded4;
+        --selected-strong: #d3d5ca;
+        --forest: #25473b;
+        --forest-soft: #dce9e2;
+        --green: #2c8a61;
+        --amber: #c67a21;
+        --amber-soft: #faecd8;
+        --red: #bb554c;
+        --terminal: #171b18;
+        --terminal-line: #29312c;
+        --terminal-ink: #d9e2db;
+        --terminal-muted: #7d8a82;
+        --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+        --ui: "Avenir Next", Avenir, "Gill Sans", "Trebuchet MS", sans-serif;
+        --mono: "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas, monospace;
+        --title-h: 38px;
+        --status-h: 25px;
+        --activity-w: 44px;
+        --rail-w: 286px;
+        --inspector-w: 274px;
+        --ease: 170ms cubic-bezier(0.2, 0.7, 0.2, 1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: var(--canvas);
+        color: var(--ink);
+        font-family: var(--ui);
+        font-size: 13px;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      button:focus-visible,
+      input:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--forest) 70%, white);
+        outline-offset: -2px;
+      }
+
+      .app {
+        width: 100vw;
+        height: 100vh;
+        display: grid;
+        grid-template-columns: var(--activity-w) var(--rail-w) minmax(420px, 1fr) var(--inspector-w);
+        grid-template-rows: var(--title-h) minmax(0, 1fr) var(--status-h);
+        background: var(--canvas);
+      }
+
+      .titlebar {
+        grid-column: 1 / -1;
+        grid-row: 1;
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        padding: 0 13px;
+        border-bottom: 1px solid var(--line);
+        background: #f6f4ee;
+        user-select: none;
+      }
+
+      .traffic {
+        display: flex;
+        gap: 7px;
+        margin-right: 7px;
+      }
+
+      .traffic i {
+        width: 12px;
+        height: 12px;
+        border: 1px solid rgba(0, 0, 0, 0.13);
+        border-radius: 50%;
+      }
+
+      .traffic i:nth-child(1) {
+        background: #ff5f57;
+      }
+
+      .traffic i:nth-child(2) {
+        background: #febc2e;
+      }
+
+      .traffic i:nth-child(3) {
+        background: #28c840;
+      }
+
+      .brand {
+        color: #63665e;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+
+      .crumbs {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+
+      .crumbs strong {
+        max-width: 200px;
+        overflow: hidden;
+        color: var(--ink);
+        font-weight: 700;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .crumbs .remote-mark {
+        width: 21px;
+        height: 21px;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        background: var(--forest-soft);
+        color: var(--forest);
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .title-spacer {
+        flex: 1;
+      }
+
+      .title-action {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: transparent;
+        padding: 4px 10px;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+
+      .mock-chip {
+        border: 1px solid #d7bd8f;
+        border-radius: 999px;
+        background: var(--amber-soft);
+        padding: 3px 8px;
+        color: #845019;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+      }
+
+      .activity {
+        grid-column: 1;
+        grid-row: 2;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        padding: 8px 5px 7px;
+        border-right: 1px solid var(--line);
+        background: var(--activity);
+      }
+
+      .activity-brand {
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        margin-bottom: 4px;
+        border-radius: 8px;
+        background: var(--ink);
+        color: white;
+        font-family: var(--display);
+        font-size: 17px;
+        font-weight: 800;
+      }
+
+      .activity button {
+        position: relative;
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: #6e716a;
+        cursor: pointer;
+        font-family: var(--mono);
+        font-size: 15px;
+        transition: background var(--ease), color var(--ease), transform var(--ease);
+      }
+
+      .activity button:hover {
+        background: var(--hover);
+        color: var(--ink);
+      }
+
+      .activity button.active {
+        background: var(--paper);
+        color: var(--forest);
+        box-shadow: inset 0 0 0 1px var(--line), 0 1px 2px rgba(30, 36, 30, 0.05);
+      }
+
+      .activity button.active::before {
+        content: "";
+        position: absolute;
+        left: -5px;
+        width: 2px;
+        height: 20px;
+        border-radius: 0 2px 2px 0;
+        background: var(--forest);
+      }
+
+      .activity-spacer {
+        flex: 1;
+      }
+
+      .rail {
+        grid-column: 2;
+        grid-row: 2;
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--line);
+        background: var(--sidebar);
+      }
+
+      .rail-head {
+        padding: 14px 12px 11px;
+        border-bottom: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+      }
+
+      .rail-title-row,
+      .rail-actions,
+      .tree-heading,
+      .host-main,
+      .session-main,
+      .detail-row,
+      .hero-actions,
+      .section-heading,
+      .session-line,
+      .forward-line {
+        display: flex;
+        align-items: center;
+      }
+
+      .rail-title-row {
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+
+      .rail-title-row strong {
+        font-family: var(--display);
+        font-size: 17px;
+        font-weight: 700;
+        letter-spacing: -0.015em;
+      }
+
+      .rail-actions {
+        gap: 4px;
+      }
+
+      .icon-button {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .icon-button:hover {
+        border-color: var(--line);
+        background: var(--paper);
+        color: var(--ink);
+      }
+
+      .search {
+        height: 32px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 9px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        color: var(--faint);
+      }
+
+      .search input {
+        width: 100%;
+        min-width: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--ink);
+        font-size: 11.5px;
+      }
+
+      .tree {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 11px 7px 18px;
+      }
+
+      .tree-section + .tree-section {
+        margin-top: 17px;
+      }
+
+      .tree-heading {
+        justify-content: space-between;
+        padding: 0 8px 6px;
+        color: var(--muted);
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .tree-heading small {
+        color: var(--faint);
+        font-size: 9px;
+        letter-spacing: 0;
+      }
+
+      .host {
+        margin-bottom: 3px;
+        border-radius: 9px;
+      }
+
+      .host-main {
+        width: 100%;
+        min-height: 44px;
+        gap: 7px;
+        padding: 6px 8px;
+        border: 1px solid transparent;
+        border-radius: 9px;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+        transition: background var(--ease), border-color var(--ease);
+      }
+
+      .host-main:hover {
+        background: var(--hover);
+      }
+
+      .host.selected > .host-main {
+        border-color: var(--line-strong);
+        background: var(--selected);
+      }
+
+      .chevron {
+        width: 11px;
+        color: var(--faint);
+        font-size: 11px;
+        transform: rotate(0deg);
+        transition: transform var(--ease);
+      }
+
+      .host.collapsed .chevron {
+        transform: rotate(-90deg);
+      }
+
+      .host-icon {
+        width: 25px;
+        height: 25px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--paper);
+        color: var(--forest);
+        font-family: var(--mono);
+        font-size: 10px;
+        font-weight: 800;
+      }
+
+      .host-copy {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .host-copy b,
+      .host-copy small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .host-copy b {
+        margin-bottom: 2px;
+        font-size: 11.5px;
+        font-weight: 750;
+      }
+
+      .host-copy small {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 9.5px;
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--faint);
+      }
+
+      .dot.live {
+        background: var(--green);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 14%, transparent);
+      }
+
+      .host-count {
+        min-width: 19px;
+        padding: 1px 5px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--ink) 7%, transparent);
+        color: var(--muted);
+        font-size: 9px;
+        text-align: center;
+      }
+
+      .host-children {
+        position: relative;
+        display: grid;
+        gap: 2px;
+        margin: 2px 0 6px 30px;
+        padding-left: 10px;
+      }
+
+      .host-children::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 4px;
+        left: 0;
+        border-left: 1px solid var(--line-strong);
+      }
+
+      .host.collapsed .host-children {
+        display: none;
+      }
+
+      .session-main {
+        width: 100%;
+        min-height: 41px;
+        gap: 8px;
+        padding: 6px 8px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .session-main:hover {
+        background: var(--hover);
+      }
+
+      .session-main.active {
+        background: var(--paper);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+
+      .term-icon {
+        width: 20px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        border-radius: 5px;
+        background: #252a27;
+        color: #d9e2db;
+        font-family: var(--mono);
+        font-size: 9px;
+      }
+
+      .session-copy {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .session-copy b,
+      .session-copy small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .session-copy b {
+        font-size: 10.5px;
+        font-weight: 700;
+      }
+
+      .session-copy small {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 9px;
+      }
+
+      .session-state {
+        color: var(--green);
+        font-size: 8px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .session-state.ended {
+        color: var(--faint);
+      }
+
+      .rail-foot {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 7px;
+        padding: 10px 11px;
+        border-top: 1px solid var(--line);
+        background: color-mix(in srgb, var(--paper) 48%, transparent);
+      }
+
+      .button {
+        min-height: 31px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--paper);
+        padding: 0 11px;
+        color: var(--ink);
+        cursor: pointer;
+        font-size: 10.5px;
+        font-weight: 700;
+        transition: transform var(--ease), background var(--ease), border-color var(--ease);
+      }
+
+      .button:hover {
+        border-color: #aca99f;
+        background: white;
+      }
+
+      .button:active {
+        transform: translateY(1px);
+      }
+
+      .button.primary {
+        border-color: var(--forest);
+        background: var(--forest);
+        color: white;
+      }
+
+      .button.ghost {
+        background: transparent;
+      }
+
+      .button.danger {
+        border-color: color-mix(in srgb, var(--red) 35%, var(--line));
+        color: var(--red);
+      }
+
+      .main {
+        grid-column: 3;
+        grid-row: 2;
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        background:
+          linear-gradient(90deg, rgba(54, 76, 63, 0.025) 1px, transparent 1px),
+          linear-gradient(rgba(54, 76, 63, 0.025) 1px, transparent 1px), var(--canvas);
+        background-size: 32px 32px;
+      }
+
+      .view {
+        min-height: 100%;
+        padding: 34px clamp(24px, 4vw, 58px) 50px;
+        animation: reveal 240ms ease-out both;
+      }
+
+      @keyframes reveal {
+        from {
+          opacity: 0;
+          transform: translateY(5px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 24px;
+        align-items: start;
+        padding-bottom: 24px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .hero-kicker {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 9px;
+        color: var(--forest);
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .hero h1 {
+        margin: 0;
+        font-family: var(--display);
+        font-size: clamp(31px, 3.2vw, 46px);
+        font-weight: 640;
+        letter-spacing: -0.045em;
+        line-height: 0.96;
+      }
+
+      .hero-address {
+        margin-top: 11px;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      .hero-actions {
+        gap: 8px;
+      }
+
+      .metric-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin: 22px 0 27px;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        background: color-mix(in srgb, var(--paper) 82%, transparent);
+        overflow: hidden;
+      }
+
+      .metric {
+        min-width: 0;
+        padding: 13px 15px;
+      }
+
+      .metric + .metric {
+        border-left: 1px solid var(--line);
+      }
+
+      .metric small,
+      .metric b {
+        display: block;
+      }
+
+      .metric small {
+        color: var(--muted);
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      .metric b {
+        margin-top: 5px;
+        overflow: hidden;
+        font-family: var(--mono);
+        font-size: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .metric b.good {
+        color: var(--green);
+      }
+
+      .content-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(240px, 0.85fr);
+        gap: 16px;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--paper) 94%, transparent);
+        overflow: hidden;
+      }
+
+      .panel.wide {
+        grid-row: span 2;
+      }
+
+      .section-heading {
+        min-height: 44px;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 15px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .section-heading strong {
+        font-family: var(--display);
+        font-size: 15px;
+      }
+
+      .section-heading small {
+        color: var(--muted);
+        font-size: 9.5px;
+      }
+
+      .session-list,
+      .forward-list {
+        display: grid;
+      }
+
+      .session-line,
+      .forward-line {
+        min-height: 62px;
+        gap: 11px;
+        padding: 10px 14px;
+      }
+
+      .session-line + .session-line,
+      .forward-line + .forward-line {
+        border-top: 1px solid var(--line);
+      }
+
+      .session-line button {
+        margin-left: auto;
+      }
+
+      .session-meta {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .session-meta b,
+      .session-meta small {
+        display: block;
+      }
+
+      .session-meta b {
+        font-size: 11px;
+      }
+
+      .session-meta small {
+        margin-top: 3px;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 9px;
+      }
+
+      .quick-card {
+        padding: 16px;
+        background: linear-gradient(135deg, #25473b, #1a342b);
+        color: white;
+      }
+
+      .quick-card .eyebrow {
+        color: #a9c9ba;
+        font-size: 8.5px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+      }
+
+      .quick-card h3 {
+        margin: 7px 0 6px;
+        font-family: var(--display);
+        font-size: 20px;
+        font-weight: 650;
+      }
+
+      .quick-card p {
+        margin: 0 0 14px;
+        color: #c6d9d0;
+        font-size: 10.5px;
+        line-height: 1.5;
+      }
+
+      .quick-card .button {
+        border-color: rgba(255, 255, 255, 0.34);
+        background: white;
+        color: var(--forest);
+      }
+
+      .forward-line {
+        min-height: 50px;
+        font-family: var(--mono);
+        font-size: 9.5px;
+      }
+
+      .forward-line .arrow {
+        color: var(--faint);
+      }
+
+      .forward-line .forward-status {
+        margin-left: auto;
+        color: var(--green);
+        font-family: var(--ui);
+        font-size: 9px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .terminal-view {
+        height: 100%;
+        min-height: 520px;
+        display: flex;
+        flex-direction: column;
+        padding: 18px;
+      }
+
+      .terminal-shell {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #2e3731;
+        border-radius: 13px;
+        background: var(--terminal);
+        box-shadow: 0 22px 60px rgba(24, 28, 25, 0.14);
+        overflow: hidden;
+      }
+
+      .terminal-head {
+        min-height: 45px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 0 13px;
+        border-bottom: 1px solid var(--terminal-line);
+        color: var(--terminal-muted);
+        font-size: 10px;
+      }
+
+      .terminal-head b {
+        color: var(--terminal-ink);
+        font-weight: 700;
+      }
+
+      .terminal-head .button {
+        min-height: 26px;
+        margin-left: auto;
+        border-color: #3b463f;
+        background: #222824;
+        color: #a6b2aa;
+        font-size: 9px;
+      }
+
+      .terminal-body {
+        flex: 1;
+        overflow: hidden;
+        padding: 20px 22px;
+        color: var(--terminal-ink);
+        font-family: var(--mono);
+        font-size: clamp(10px, 1.05vw, 12px);
+        line-height: 1.75;
+      }
+
+      .terminal-body .dim {
+        color: var(--terminal-muted);
+      }
+
+      .terminal-body .green {
+        color: #72c69a;
+      }
+
+      .terminal-body .amber {
+        color: #e2ae67;
+      }
+
+      .terminal-cursor {
+        display: inline-block;
+        width: 7px;
+        height: 14px;
+        margin-left: 2px;
+        background: #c8d6cd;
+        vertical-align: -2px;
+        animation: blink 1.1s steps(1) infinite;
+      }
+
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+
+      .file-view,
+      .forward-view {
+        padding: 28px clamp(22px, 3.5vw, 48px) 42px;
+      }
+
+      .subview-head {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 20px;
+        margin-bottom: 20px;
+      }
+
+      .subview-head h1 {
+        margin: 0;
+        font-family: var(--display);
+        font-size: 29px;
+        font-weight: 650;
+      }
+
+      .subview-head p {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 10px;
+      }
+
+      .file-browser {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 13px;
+      }
+
+      .file-pane {
+        min-height: 390px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--paper);
+        overflow: hidden;
+      }
+
+      .file-pane header {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+        font-family: var(--mono);
+        font-size: 9.5px;
+      }
+
+      .file-row {
+        display: grid;
+        grid-template-columns: 21px minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        min-height: 38px;
+        padding: 0 13px;
+        border-bottom: 1px solid color-mix(in srgb, var(--line) 58%, transparent);
+        font-size: 10.5px;
+      }
+
+      .file-row small {
+        color: var(--faint);
+        font-family: var(--mono);
+        font-size: 8.5px;
+      }
+
+      .forward-table {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--paper);
+        overflow: hidden;
+      }
+
+      .forward-table .forward-line {
+        display: grid;
+        grid-template-columns: 1fr 24px 1fr 75px 72px;
+        min-height: 52px;
+      }
+
+      .inspector {
+        grid-column: 4;
+        grid-row: 2;
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+        border-left: 1px solid var(--line);
+        background: var(--paper);
+      }
+
+      .inspector-head {
+        padding: 15px 16px 13px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .inspector-head small {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--muted);
+        font-size: 8.5px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .inspector-head strong {
+        font-family: var(--display);
+        font-size: 17px;
+      }
+
+      .inspector-section {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .inspector-section h3 {
+        margin: 0 0 11px;
+        color: var(--muted);
+        font-size: 8.5px;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .detail-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .detail-row {
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .detail-row span:first-child {
+        width: 73px;
+        flex: none;
+        color: var(--muted);
+        font-size: 9.5px;
+      }
+
+      .detail-row span:last-child {
+        min-width: 0;
+        overflow: hidden;
+        font-family: var(--mono);
+        font-size: 9.5px;
+        text-overflow: ellipsis;
+      }
+
+      .detail-row .good {
+        color: var(--green);
+        font-family: var(--ui) !important;
+        font-weight: 800;
+      }
+
+      .inspector-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 7px;
+      }
+
+      .inspector-note {
+        border: 1px solid #e5cfaa;
+        border-radius: 9px;
+        background: #fbf3e4;
+        padding: 10px;
+        color: #7c5c2e;
+        font-size: 9.5px;
+        line-height: 1.5;
+      }
+
+      .statusbar {
+        grid-column: 1 / -1;
+        grid-row: 3;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        padding: 0 11px;
+        border-top: 1px solid var(--line);
+        background: #efede6;
+        color: var(--muted);
+        font-size: 9.5px;
+      }
+
+      .statusbar .spacer {
+        flex: 1;
+      }
+
+      .status-remote {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--forest);
+        font-family: var(--mono);
+        font-weight: 700;
+      }
+
+      .toast {
+        position: fixed;
+        right: 18px;
+        bottom: 39px;
+        z-index: 20;
+        max-width: 330px;
+        border: 1px solid var(--line-strong);
+        border-radius: 10px;
+        background: var(--paper-raised);
+        box-shadow: 0 18px 45px rgba(36, 40, 35, 0.16);
+        padding: 11px 13px;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(8px);
+        transition: opacity var(--ease), transform var(--ease);
+        font-size: 10.5px;
+      }
+
+      .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      @media (max-width: 1080px) {
+        :root {
+          --rail-w: 264px;
+        }
+
+        .app {
+          grid-template-columns: var(--activity-w) var(--rail-w) minmax(390px, 1fr);
+        }
+
+        .inspector {
+          display: none;
+        }
+
+        .main {
+          grid-column: 3;
+        }
+
+        .content-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .panel.wide {
+          grid-row: auto;
+        }
+      }
+
+      @media (max-width: 760px) {
+        :root {
+          --activity-w: 42px;
+          --rail-w: 228px;
+        }
+
+        .app {
+          grid-template-columns: var(--activity-w) var(--rail-w) minmax(330px, 1fr);
+        }
+
+        .title-action,
+        .mock-chip,
+        .crumbs .optional {
+          display: none;
+        }
+
+        .view {
+          padding: 24px 20px 36px;
+        }
+
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .metric-strip {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .metric:nth-child(3) {
+          border-left: 0;
+          border-top: 1px solid var(--line);
+        }
+
+        .metric:nth-child(4) {
+          border-top: 1px solid var(--line);
+        }
+
+        .file-browser {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="titlebar">
+        <span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="brand">Charter</span>
+        <div class="crumbs" aria-label="Current context">
+          <span class="remote-mark">&gt;_</span>
+          <span>Remote</span>
+          <span>/</span>
+          <strong id="title-context">s</strong>
+          <span class="optional" id="title-tail">/ Overview</span>
+        </div>
+        <span class="title-spacer"></span>
+        <span class="mock-chip">CLICKABLE MOCK</span>
+        <button class="title-action" data-toast="Quick Console remains global">&gt;_ Option+Space Quick Console</button>
+      </header>
+
+      <nav class="activity" aria-label="Application">
+        <div class="activity-brand">C</div>
+        <button aria-label="Sessions" title="Sessions" data-toast="Sessions would restore the local Session rail">S</button>
+        <button aria-label="Needs you" title="Needs you" data-toast="Needs You stays a global activity">!</button>
+        <button aria-label="Projects" title="Projects" data-toast="Projects stays a global activity">[]</button>
+        <button aria-label="Search" title="Search" data-toast="Search remains global">?</button>
+        <button class="active" aria-label="Remote Explorer" title="Remote Explorer" data-toast="Remote Explorer is the active application context">&gt;_</button>
+        <span class="activity-spacer"></span>
+        <button aria-label="Settings" title="Settings" data-toast="Settings remains global">*</button>
+      </nav>
+
+      <aside class="rail" aria-label="Remote Explorer">
+        <header class="rail-head">
+          <div class="rail-title-row">
+            <strong>Remote Explorer</strong>
+            <div class="rail-actions">
+              <button class="icon-button" title="Refresh hosts" data-toast="Host state refreshed">R</button>
+              <button class="icon-button" title="More actions" data-toast="Import from ~/.ssh/config">...</button>
+            </div>
+          </div>
+          <label class="search">
+            <span>?</span>
+            <input id="host-search" placeholder="Search hosts and sessions..." />
+          </label>
+        </header>
+
+        <div class="tree" id="host-tree">
+          <section class="tree-section">
+            <div class="tree-heading"><span>Connected</span><small>1 host</small></div>
+            <div class="host selected" data-host="s" data-search="s root 10.0.3.46 active shell deploy logs">
+              <button class="host-main" data-action="host" data-host-id="s">
+                <span class="chevron">v</span>
+                <span class="host-icon">SSH</span>
+                <span class="host-copy"><b>s</b><small>root@10.0.3.46</small></span>
+                <span class="dot live"></span>
+                <span class="host-count">2</span>
+              </button>
+              <div class="host-children">
+                <button class="session-main" data-action="session" data-session-id="ops-shell">
+                  <span class="term-icon">&gt;_</span>
+                  <span class="session-copy"><b>ops shell</b><small>zsh - live now</small></span>
+                  <span class="session-state">Live</span>
+                </button>
+                <button class="session-main" data-action="session" data-session-id="deploy-log">
+                  <span class="term-icon">&gt;_</span>
+                  <span class="session-copy"><b>deploy logs</b><small>ended 12m ago</small></span>
+                  <span class="session-state ended">Ended</span>
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section class="tree-section">
+            <div class="tree-heading"><span>Saved</span><small>3 hosts</small></div>
+            <div class="host collapsed" data-host="staging" data-search="staging edy 10.0.4.21">
+              <button class="host-main" data-action="host" data-host-id="staging">
+                <span class="chevron">v</span>
+                <span class="host-icon">SSH</span>
+                <span class="host-copy"><b>staging</b><small>edy@10.0.4.21</small></span>
+                <span class="dot"></span>
+              </button>
+              <div class="host-children"></div>
+            </div>
+            <div class="host collapsed" data-host="gpu-box" data-search="gpu box edy 192.168.31.60 cuda">
+              <button class="host-main" data-action="host" data-host-id="gpu-box">
+                <span class="chevron">v</span>
+                <span class="host-icon">SSH</span>
+                <span class="host-copy"><b>gpu-box</b><small>edy@192.168.31.60</small></span>
+                <span class="dot"></span>
+              </button>
+              <div class="host-children"></div>
+            </div>
+            <div class="host collapsed" data-host="ci-runner" data-search="ci runner deploy 10.0.6.9">
+              <button class="host-main" data-action="host" data-host-id="ci-runner">
+                <span class="chevron">v</span>
+                <span class="host-icon">SSH</span>
+                <span class="host-copy"><b>ci-runner</b><small>deploy@10.0.6.9</small></span>
+                <span class="dot"></span>
+              </button>
+              <div class="host-children"></div>
+            </div>
+          </section>
+        </div>
+
+        <footer class="rail-foot">
+          <button class="button" data-toast="New Host dialog would open">+ New Host</button>
+          <button class="button ghost" data-toast="Scanning ~/.ssh/config">Import...</button>
+        </footer>
+      </aside>
+
+      <main class="main" id="main-view"></main>
+      <aside class="inspector" id="inspector"></aside>
+
+      <footer class="statusbar">
+        <span>v1.0.0-beta.3</span>
+        <span class="spacer"></span>
+        <span class="status-remote"><span class="dot live"></span><span id="status-context">s - connected - 38 ms</span></span>
+        <span id="status-sessions">2 remote sessions</span>
+      </footer>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+
+    <template id="host-overview-template">
+      <section class="view host-overview">
+        <header class="hero">
+          <div>
+            <div class="hero-kicker"><span class="dot live"></span> Connected remote host</div>
+            <h1>s</h1>
+            <div class="hero-address">root@10.0.3.46:22</div>
+          </div>
+          <div class="hero-actions">
+            <button class="button primary" data-main-action="new-session">+ New Session</button>
+            <button class="button" data-main-action="files">Files</button>
+            <button class="button" data-main-action="forwards">Forwards</button>
+          </div>
+        </header>
+
+        <div class="metric-strip">
+          <div class="metric"><small>Connection</small><b class="good">Healthy</b></div>
+          <div class="metric"><small>Latency</small><b>38 ms</b></div>
+          <div class="metric"><small>Sessions</small><b>1 live / 1 ended</b></div>
+          <div class="metric"><small>Forwards</small><b>1 active</b></div>
+        </div>
+
+        <div class="content-grid">
+          <section class="panel wide">
+            <header class="section-heading"><strong>Sessions on s</strong><small>Terminal work belongs to this host</small></header>
+            <div class="session-list">
+              <div class="session-line">
+                <span class="term-icon">&gt;_</span>
+                <div class="session-meta"><b>ops shell</b><small>zsh - started 5 minutes ago</small></div>
+                <span class="session-state">Live</span>
+                <button class="button" data-main-action="open-ops">Open</button>
+              </div>
+              <div class="session-line">
+                <span class="term-icon">&gt;_</span>
+                <div class="session-meta"><b>deploy logs</b><small>journalctl - ended 12 minutes ago</small></div>
+                <span class="session-state ended">Ended</span>
+                <button class="button" data-main-action="open-log">Open</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel quick-card">
+            <span class="eyebrow">Quick start</span>
+            <h3>Open another shell</h3>
+            <p>The new Session stays nested below this host, so its infrastructure context never disappears.</p>
+            <button class="button" data-main-action="new-session">New terminal session</button>
+          </section>
+
+          <section class="panel">
+            <header class="section-heading"><strong>Active forward</strong><small>1 route</small></header>
+            <div class="forward-list">
+              <div class="forward-line"><span>localhost:3000</span><span class="arrow">-&gt;</span><span>s:3000</span><span class="forward-status">Running</span></div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </template>
+
+    <template id="terminal-template">
+      <section class="terminal-view">
+        <div class="terminal-shell">
+          <header class="terminal-head">
+            <span class="dot live"></span>
+            <b id="terminal-name">ops shell</b>
+            <span>- root@s</span>
+            <span>- zsh</span>
+            <button class="button" data-main-action="host-overview">Host overview</button>
+          </header>
+          <div class="terminal-body" id="terminal-output">
+            <div class="dim">Last login: Fri Jul 24 15:48:31 from 10.0.3.2</div>
+            <div><span class="green">root@s</span>:<span class="amber">~/Pi_Agentic_IDE_Spec_Package_v1.0</span># git status --short</div>
+            <div>&nbsp;M apps/desktop-renderer/src/views/RemotesView.tsx</div>
+            <div>&nbsp;M apps/desktop-renderer/src/store/appStore.ts</div>
+            <div><span class="green">root@s</span>:<span class="amber">~/Pi_Agentic_IDE_Spec_Package_v1.0</span># <span class="terminal-cursor"></span></div>
+          </div>
+        </div>
+      </section>
+    </template>
+
+    <template id="files-template">
+      <section class="file-view view">
+        <header class="subview-head">
+          <div><h1>Files on s</h1><p>root@10.0.3.46:/root</p></div>
+          <button class="button" data-main-action="host-overview">Back to host</button>
+        </header>
+        <div class="file-browser">
+          <section class="file-pane">
+            <header>LOCAL - /Users/edy</header>
+            <div class="file-row"><span>[]</span><span>git</span><small>folder</small></div>
+            <div class="file-row"><span>[]</span><span>Downloads</span><small>folder</small></div>
+            <div class="file-row"><span>#</span><span>.zshrc</span><small>4 KB</small></div>
+          </section>
+          <section class="file-pane">
+            <header>REMOTE - s:/root</header>
+            <div class="file-row"><span>[]</span><span>Pi_Agentic_IDE_Spec_Package_v1.0</span><small>folder</small></div>
+            <div class="file-row"><span>[]</span><span>deploy</span><small>folder</small></div>
+            <div class="file-row"><span>#</span><span>.profile</span><small>1 KB</small></div>
+          </section>
+        </div>
+      </section>
+    </template>
+
+    <template id="forwards-template">
+      <section class="forward-view view">
+        <header class="subview-head">
+          <div><h1>Forwards on s</h1><p>Routes stay attached to the selected host</p></div>
+          <div class="hero-actions"><button class="button primary" data-toast="New forward dialog would open">+ Forward</button><button class="button" data-main-action="host-overview">Back to host</button></div>
+        </header>
+        <div class="forward-table">
+          <div class="forward-line"><b>localhost:3000</b><span>-&gt;</span><span>s:3000</span><span class="session-state">Running</span><button class="button">Stop</button></div>
+          <div class="forward-line"><b>localhost:5432</b><span>-&gt;</span><span>s:5432</span><span class="session-state ended">Stopped</span><button class="button">Start</button></div>
+        </div>
+      </section>
+    </template>
+
+    <template id="host-inspector-template">
+      <header class="inspector-head"><small>Selected host</small><strong>s</strong></header>
+      <section class="inspector-section">
+        <h3>Connection</h3>
+        <div class="detail-list">
+          <div class="detail-row"><span>Status</span><span class="good">Connected</span></div>
+          <div class="detail-row"><span>Address</span><span>10.0.3.46:22</span></div>
+          <div class="detail-row"><span>User</span><span>root</span></div>
+          <div class="detail-row"><span>Auth</span><span>password - keychain</span></div>
+          <div class="detail-row"><span>Last seen</span><span>now</span></div>
+        </div>
+      </section>
+      <section class="inspector-section">
+        <h3>Quick actions</h3>
+        <div class="inspector-actions">
+          <button class="button" data-main-action="files">Files</button>
+          <button class="button" data-main-action="forwards">Forwards</button>
+          <button class="button" data-toast="Edit Host dialog would open">Edit</button>
+          <button class="button danger" data-toast="Disconnect would ask for confirmation while sessions are live">Disconnect</button>
+        </div>
+      </section>
+      <section class="inspector-section">
+        <h3>Design rule</h3>
+        <div class="inspector-note">Hosts are navigation objects in the left tree. This inspector only explains the currently selected host or Session.</div>
+      </section>
+    </template>
+
+    <template id="session-inspector-template">
+      <header class="inspector-head"><small>Selected session</small><strong id="inspector-session-name">ops shell</strong></header>
+      <section class="inspector-section">
+        <h3>Context</h3>
+        <div class="detail-list">
+          <div class="detail-row"><span>Host</span><span>s</span></div>
+          <div class="detail-row"><span>Shell</span><span>zsh</span></div>
+          <div class="detail-row"><span>Working dir</span><span>~/Pi_Agentic_IDE_Spec_Package_v1.0</span></div>
+          <div class="detail-row"><span>Status</span><span class="good" id="inspector-session-status">Live</span></div>
+        </div>
+      </section>
+      <section class="inspector-section">
+        <h3>Host actions</h3>
+        <div class="inspector-actions">
+          <button class="button" data-main-action="host-overview">Overview</button>
+          <button class="button" data-main-action="files">Files</button>
+          <button class="button" data-main-action="forwards">Forwards</button>
+          <button class="button danger" data-toast="Only this terminal Session would close">Close Session</button>
+        </div>
+      </section>
+    </template>
+
+    <script>
+      const state = {
+        view: "host",
+        host: "s",
+        session: null,
+      };
+
+      const hostData = {
+        s: { label: "s", address: "root@10.0.3.46", connected: true },
+        staging: { label: "staging", address: "edy@10.0.4.21", connected: false },
+        "gpu-box": { label: "gpu-box", address: "edy@192.168.31.60", connected: false },
+        "ci-runner": { label: "ci-runner", address: "deploy@10.0.6.9", connected: false },
+      };
+
+      const main = document.querySelector("#main-view");
+      const inspector = document.querySelector("#inspector");
+      const titleContext = document.querySelector("#title-context");
+      const titleTail = document.querySelector("#title-tail");
+      const statusContext = document.querySelector("#status-context");
+      const toast = document.querySelector("#toast");
+      let toastTimer = null;
+
+      function cloneTemplate(id) {
+        return document.querySelector(id).content.cloneNode(true);
+      }
+
+      function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add("show");
+        window.clearTimeout(toastTimer);
+        toastTimer = window.setTimeout(() => toast.classList.remove("show"), 2200);
+      }
+
+      function clearSelections() {
+        document.querySelectorAll(".host").forEach((node) => node.classList.remove("selected"));
+        document.querySelectorAll(".session-main").forEach((node) => node.classList.remove("active"));
+      }
+
+      function selectHost(hostId) {
+        const host = hostData[hostId];
+        if (!host) return;
+        state.host = hostId;
+        state.session = null;
+        clearSelections();
+        const node = document.querySelector(`[data-host="${hostId}"]`);
+        node.classList.add("selected");
+        node.classList.remove("collapsed");
+
+        if (hostId !== "s") {
+          state.view = "host";
+          renderSavedHost(host);
+          return;
+        }
+        state.view = "host";
+        render();
+      }
+
+      function selectSession(sessionId) {
+        state.host = "s";
+        state.session = sessionId;
+        state.view = "terminal";
+        clearSelections();
+        document.querySelector('[data-host="s"]').classList.add("selected");
+        document.querySelector(`[data-session-id="${sessionId}"]`).classList.add("active");
+        render();
+      }
+
+      function renderSavedHost(host) {
+        titleContext.textContent = host.label;
+        titleTail.textContent = "/ Host overview";
+        statusContext.textContent = `${host.label} - disconnected`;
+        main.innerHTML = `
+          <section class="view host-overview">
+            <header class="hero">
+              <div>
+                <div class="hero-kicker"><span class="dot"></span> Saved remote host</div>
+                <h1>${host.label}</h1>
+                <div class="hero-address">${host.address}:22</div>
+              </div>
+              <div class="hero-actions"><button class="button primary" id="connect-saved">Connect</button><button class="button" data-toast="Edit Host dialog would open">Edit host</button></div>
+            </header>
+            <div class="metric-strip">
+              <div class="metric"><small>Connection</small><b>Offline</b></div>
+              <div class="metric"><small>Sessions</small><b>0 active</b></div>
+              <div class="metric"><small>Last connected</small><b>5h ago</b></div>
+              <div class="metric"><small>Authentication</small><b>SSH agent</b></div>
+            </div>
+            <section class="panel quick-card" style="max-width:440px">
+              <span class="eyebrow">Connect first</span>
+              <h3>Start a remote shell</h3>
+              <p>After connection, the new terminal will appear below ${host.label} in the Remote Explorer tree.</p>
+              <button class="button" id="connect-saved-secondary">Connect and open shell</button>
+            </section>
+          </section>`;
+        inspector.innerHTML = `
+          <header class="inspector-head"><small>Selected host</small><strong>${host.label}</strong></header>
+          <section class="inspector-section"><h3>Connection</h3><div class="detail-list">
+            <div class="detail-row"><span>Status</span><span>Disconnected</span></div>
+            <div class="detail-row"><span>Address</span><span>${host.address}</span></div>
+            <div class="detail-row"><span>Port</span><span>22</span></div>
+          </div></section>
+          <section class="inspector-section"><div class="inspector-note">Connecting creates a Session under this host; it does not switch back to an unrelated global Session list.</div></section>`;
+        document.querySelectorAll("#connect-saved, #connect-saved-secondary").forEach((button) => {
+          button.addEventListener("click", () => showToast(`Prototype: connect to ${host.label}, then create and select its first Session`));
+        });
+        bindActions();
+      }
+
+      function render() {
+        if (state.view === "host") {
+          main.replaceChildren(cloneTemplate("#host-overview-template"));
+          inspector.replaceChildren(cloneTemplate("#host-inspector-template"));
+          titleContext.textContent = "s";
+          titleTail.textContent = "/ Overview";
+          statusContext.textContent = "s - connected - 38 ms";
+        } else if (state.view === "terminal") {
+          main.replaceChildren(cloneTemplate("#terminal-template"));
+          inspector.replaceChildren(cloneTemplate("#session-inspector-template"));
+          const ended = state.session === "deploy-log";
+          const name = ended ? "deploy logs" : "ops shell";
+          document.querySelector("#terminal-name").textContent = name;
+          document.querySelector("#inspector-session-name").textContent = name;
+          document.querySelector("#inspector-session-status").textContent = ended ? "Ended" : "Live";
+          if (ended) {
+            document.querySelector("#inspector-session-status").classList.remove("good");
+            document.querySelector("#terminal-output").innerHTML = `
+              <div class="dim">Session ended 12 minutes ago - retained for reference</div>
+              <div><span class="green">root@s</span>:<span class="amber">/var/log</span># journalctl -u charter --since today</div>
+              <div class="dim">Jul 24 15:20:14 s charter[1821]: deploy completed</div>
+              <div class="dim">Jul 24 15:21:03 s charter[1821]: session closed</div>`;
+          }
+          titleContext.textContent = "s";
+          titleTail.textContent = `/ ${name}`;
+          statusContext.textContent = ended ? "s - session ended" : "s - connected - 38 ms";
+        } else if (state.view === "files") {
+          main.replaceChildren(cloneTemplate("#files-template"));
+          inspector.replaceChildren(cloneTemplate("#host-inspector-template"));
+          titleContext.textContent = "s";
+          titleTail.textContent = "/ Files";
+        } else if (state.view === "forwards") {
+          main.replaceChildren(cloneTemplate("#forwards-template"));
+          inspector.replaceChildren(cloneTemplate("#host-inspector-template"));
+          titleContext.textContent = "s";
+          titleTail.textContent = "/ Forwards";
+        }
+        bindActions();
+      }
+
+      function bindActions() {
+        document.querySelectorAll("[data-toast]").forEach((button) => {
+          button.addEventListener("click", () => showToast(button.dataset.toast));
+        });
+        document.querySelectorAll("[data-main-action]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const action = button.dataset.mainAction;
+            if (action === "new-session") {
+              showToast("New terminal would be created under host s and selected here");
+            } else if (action === "files") {
+              state.view = "files";
+              state.session = null;
+              render();
+            } else if (action === "forwards") {
+              state.view = "forwards";
+              state.session = null;
+              render();
+            } else if (action === "host-overview") {
+              selectHost("s");
+            } else if (action === "open-ops") {
+              selectSession("ops-shell");
+            } else if (action === "open-log") {
+              selectSession("deploy-log");
+            }
+          });
+        });
+      }
+
+      document.querySelector("#host-tree").addEventListener("click", (event) => {
+        const hostButton = event.target.closest('[data-action="host"]');
+        if (hostButton) {
+          const hostNode = hostButton.closest(".host");
+          if (hostNode.classList.contains("selected")) hostNode.classList.toggle("collapsed");
+          selectHost(hostButton.dataset.hostId);
+          return;
+        }
+        const sessionButton = event.target.closest('[data-action="session"]');
+        if (sessionButton) selectSession(sessionButton.dataset.sessionId);
+      });
+
+      document.querySelector("#host-search").addEventListener("input", (event) => {
+        const query = event.target.value.trim().toLowerCase();
+        document.querySelectorAll(".host").forEach((host) => {
+          host.hidden = Boolean(query) && !host.dataset.search.includes(query);
+        });
+      });
+
+      bindActions();
+      render();
+    </script>
+  </body>
+</html>

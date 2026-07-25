@@ -76,6 +76,9 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
     const res = await rpcResult('skills.rescan', {});
     if (res.ok) {
       set({ skills: res.data.skills, sources: res.data.sources, loaded: true });
+      // Usage counts come from transcript evidence, not the catalog — a
+      // manual rescan must refresh both or the numbers look frozen.
+      void get().refreshUsage();
       useAppStore.getState().pushToast('success', 'Skill sources rescanned.');
     } else {
       useAppStore.getState().pushToast('error', res.error.userMessage);

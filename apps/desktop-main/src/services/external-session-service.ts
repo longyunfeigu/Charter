@@ -39,6 +39,10 @@ const OBSERVED_REPLY_QUIET_MS = 1_000;
 const PROMPT_SETTLE_QUIET_MS = 600;
 /** …and delivered regardless after this, so a quiet TUI never swallows it. */
 const PROMPT_DELIVERY_DEADLINE_MS = 8_000;
+/** Let delayed fs events land just after a terminal turn reports completion. */
+const FILE_ATTRIBUTION_GRACE_MS = 2_000;
+/** Covers one-shot `claude -p`-style commands whose prompt preceded detection. */
+const INITIAL_COMMAND_ATTRIBUTION_MS = 10_000;
 /**
  * The Enter must be its own PTY write: a CR in the same chunk as a bracketed
  * paste is treated by TUI paste handling as pasted text — the exact "typed
@@ -106,6 +110,10 @@ interface LiveSession {
   presenceTimer: ReturnType<typeof setTimeout> | null;
   presenceAwaitingReply: boolean;
   presenceSawOutput: boolean;
+  /** Filesystem observations may belong to this terminal only during a real turn. */
+  fileAttributionActive: boolean;
+  lastAgentActivityAtMs: number;
+  fileAttributionGraceUntilMs: number;
   /** Composer first prompt awaiting a ready TUI (product launch intent). */
   pendingPrompt: string | null;
   promptSettleTimer: ReturnType<typeof setTimeout> | null;
@@ -176,13 +184,39 @@ export function externalTitleFromPrompt(prompt: string): string | null {
   return cleaned.length <= 64 ? cleaned : `${cleaned.slice(0, 61)}…`;
 }
 
+interface FileAttributionCandidate {
+  root: string;
+  ended: boolean;
+  fileAttributionActive: boolean;
+  fileAttributionGraceUntilMs: number;
+  lastAgentActivityAtMs: number;
+}
+
+/** A raw filesystem batch can belong to at most one recently active terminal turn. */
+export function selectFileAttributionOwner<T extends FileAttributionCandidate>(
+  sessions: Iterable<T>,
+  root: string,
+  now = Date.now(),
+): T | null {
+  const candidates = [...sessions]
+    .filter(
+      (session) =>
+        !session.ended &&
+        session.root === root &&
+        (session.fileAttributionActive || session.fileAttributionGraceUntilMs >= now),
+    )
+    .sort((a, b) => b.lastAgentActivityAtMs - a.lastAgentActivityAtMs);
+  return candidates[0] ?? null;
+}
+
 /**
  * ADR-0017 — external CLI agent sessions. Listens for agent enter/exit on user
  * terminals; on enter snapshots the project (temp-index write-tree), creates
- * the backing task and starts watcher accounting: every touched path gets a
- * baseline from the snapshot blob, so the existing change-set / review /
- * byte-exact rollback machinery works unchanged. On exit the task lands in
- * REVIEW_READY — external work is never auto-accepted.
+ * the backing task and starts watcher accounting. Git-ignored paths are
+ * excluded, and ambiguous root-level changes are assigned to at most one
+ * active terminal turn before the existing change-set / review / byte-exact
+ * rollback machinery takes over. On exit the task lands in REVIEW_READY —
+ * external work is never auto-accepted.
  */
 export class ExternalSessionService {
   private readonly byTerminal = new Map<string, LiveSession>();
@@ -253,9 +287,28 @@ export class ExternalSessionService {
     return this.byTerminal.get(terminalId)?.taskId ?? null;
   }
 
+  private markFileAttributionActive(session: LiveSession): void {
+    session.fileAttributionActive = true;
+    session.lastAgentActivityAtMs = Date.now();
+    session.fileAttributionGraceUntilMs = 0;
+  }
+
+  private settleFileAttribution(session: LiveSession): void {
+    session.fileAttributionActive = false;
+    session.fileAttributionGraceUntilMs = Date.now() + FILE_ATTRIBUTION_GRACE_MS;
+  }
+
+  /** Raw fs events carry no pid. Attribute a root batch to at most one live, active turn. */
+  private fileAttributionOwner(root: string, now = Date.now()): LiveSession | null {
+    return selectFileAttributionOwner(this.byTerminal.values(), root, now);
+  }
+
   private onTerminalData(terminalId: string, data: string): void {
     const session = this.byTerminal.get(terminalId);
     if (!session || session.ended) return;
+    if (session.fileAttributionActive && cleanTerminalText(data).replace(/\s/g, '')) {
+      session.lastAgentActivityAtMs = Date.now();
+    }
 
     // A painting TUI is a booting TUI — keep deferring the first prompt until
     // its output settles, then deliver (see armPromptDelivery).
@@ -270,6 +323,7 @@ export class ExternalSessionService {
     }
     if (parsed.structured && !session.structuredStream) {
       session.structuredStream = true;
+      this.markFileAttributionActive(session);
       this.clearObservedPresence(session);
       if (session.captureGrade !== 'structured') {
         session.captureGrade = 'structured';
@@ -297,6 +351,7 @@ export class ExternalSessionService {
       // result) become terminal blocks. Observed-grade sessions never get
       // fabricated turns — their enter/exit edges are the only block marks.
       if (observation.kind === 'report' && observation.evidenceKinds.includes('result')) {
+        this.settleFileAttribution(session);
         broadcast('external.turn', {
           terminalId,
           taskId: session.taskId,
@@ -342,8 +397,9 @@ export class ExternalSessionService {
         }
       }
     }
-    if (session.structuredStream) return;
     if (!/[\r\n]/.test(data)) return;
+    this.markFileAttributionActive(session);
+    if (session.structuredStream) return;
     if (session.presenceTimer) clearTimeout(session.presenceTimer);
     session.presenceTimer = null;
     session.presenceAwaitingReply = true;
@@ -382,6 +438,7 @@ export class ExternalSessionService {
       }
       session.presenceAwaitingReply = false;
       session.presenceSawOutput = false;
+      this.settleFileAttribution(session);
       broadcast('external.activitySettled', {
         terminalId: session.terminalId,
         taskId: session.taskId,
@@ -438,6 +495,7 @@ export class ExternalSessionService {
     if (!prompt || session.ended) return;
     this.tasks.recordEvent(session.taskId, 'user.message', { text: prompt, kind: 'external' });
     session.lastUserLine = prompt;
+    this.markFileAttributionActive(session);
     this.writeProduct(session, `\u001b[200~${prompt}\u001b[201~`);
     session.promptEnterTimer = setTimeout(() => {
       session.promptEnterTimer = null;
@@ -633,6 +691,9 @@ export class ExternalSessionService {
       presenceTimer: null,
       presenceAwaitingReply: false,
       presenceSawOutput: false,
+      fileAttributionActive: false,
+      lastAgentActivityAtMs: Date.now(),
+      fileAttributionGraceUntilMs: Date.now() + INITIAL_COMMAND_ATTRIBUTION_MS,
       pendingPrompt: null,
       promptSettleTimer: null,
       promptDeadlineTimer: null,
@@ -666,6 +727,7 @@ export class ExternalSessionService {
           kind: 'external',
         });
         session.lastUserLine = intent.prompt;
+        this.markFileAttributionActive(session);
       } else {
         this.armPromptDelivery(session, intent.prompt);
       }
@@ -689,55 +751,70 @@ export class ExternalSessionService {
 
   private onBatch(session: LiveSession, changes: FsChange[]): void {
     if (session.ended) return;
-    const fresh = changes.filter((c) => !c.isDirectory && isAccountablePath(c.relativePath));
-    if (fresh.length === 0) return;
-    session.work = session.work.then(async () => {
-      const context = this.tasks.contextForTask(session.taskId);
-      for (const change of fresh) {
-        try {
-          if (!session.seen.has(change.relativePath)) {
-            session.seen.add(change.relativePath);
-            if (session.git && session.snapshotRef) {
-              const bytes = await session.git.readTreeBlob(
-                session.snapshotRef,
-                change.relativePath,
-              );
-              await context.changes.ensureBaselineFromBytes(
-                session.taskId,
-                change.relativePath,
-                bytes,
-              );
-            } else {
-              // Non-git degradation (ADR-0017): first-seen content is the baseline.
-              await context.changes.ensureBaseline(session.taskId, change.relativePath);
+    if (this.fileAttributionOwner(session.root) !== session) return;
+    const candidates = changes.filter(
+      (change) => !change.isDirectory && isAccountablePath(change.relativePath),
+    );
+    if (candidates.length === 0) return;
+    session.work = session.work
+      .then(async () => {
+        const ignored = session.git
+          ? await session.git.ignoredPaths(candidates.map((change) => change.relativePath))
+          : new Set<string>();
+        const fresh = candidates.filter((change) => !ignored.has(change.relativePath));
+        const context = this.tasks.contextForTask(session.taskId);
+        for (const change of fresh) {
+          try {
+            if (!session.seen.has(change.relativePath)) {
+              session.seen.add(change.relativePath);
+              if (session.git && session.snapshotRef) {
+                const bytes = await session.git.readTreeBlob(
+                  session.snapshotRef,
+                  change.relativePath,
+                );
+                await context.changes.ensureBaselineFromBytes(
+                  session.taskId,
+                  change.relativePath,
+                  bytes,
+                );
+              } else {
+                // Non-git degradation (ADR-0017): first-seen content is the baseline.
+                await context.changes.ensureBaseline(session.taskId, change.relativePath);
+              }
             }
+            const record = await context.changes.recordExternalChange(
+              session.taskId,
+              change.relativePath,
+              change.kind,
+              { author: 'system' },
+            );
+            const stats = countPatchLines(record.patch);
+            this.tasks.recordEvent(session.taskId, 'external.fileChanged', {
+              cli: session.cli,
+              captureGrade: session.captureGrade,
+              changeId: record.id,
+              path: record.relativePath,
+              kind: record.kind,
+              additions: stats.additions,
+              deletions: stats.deletions,
+              beforeHash: record.beforeHash,
+              afterHash: record.afterHash,
+            });
+          } catch (e) {
+            this.logger.warn('external accounting skipped a path', {
+              taskId: session.taskId,
+              path: change.relativePath,
+              error: errorMessage(e),
+            });
           }
-          const record = await context.changes.recordExternalChange(
-            session.taskId,
-            change.relativePath,
-            change.kind,
-          );
-          const stats = countPatchLines(record.patch);
-          this.tasks.recordEvent(session.taskId, 'external.fileChanged', {
-            cli: session.cli,
-            captureGrade: session.captureGrade,
-            changeId: record.id,
-            path: record.relativePath,
-            kind: record.kind,
-            additions: stats.additions,
-            deletions: stats.deletions,
-            beforeHash: record.beforeHash,
-            afterHash: record.afterHash,
-          });
-        } catch (e) {
-          this.logger.warn('external accounting skipped a path', {
-            taskId: session.taskId,
-            path: change.relativePath,
-            error: errorMessage(e),
-          });
         }
-      }
-    });
+      })
+      .catch((error) => {
+        this.logger.warn('external accounting batch failed', {
+          taskId: session.taskId,
+          error: errorMessage(error),
+        });
+      });
     if (!session.recomputeTimer) {
       session.recomputeTimer = setTimeout(() => {
         session.recomputeTimer = null;
@@ -752,12 +829,16 @@ export class ExternalSessionService {
       await session.work;
       const context = this.tasks.contextForTask(session.taskId);
       const cs: ChangeSet = await context.changes.changeSet(session.taskId);
-      session.lastFiles = cs.files.map((f) => ({
+      const files = cs.files.map((f) => ({
         path: f.path,
         status: f.status,
         additions: f.additions,
         deletions: f.deletions,
       }));
+      const ignored = session.git
+        ? await session.git.ignoredPaths(files.map((file) => file.path))
+        : new Set<string>();
+      session.lastFiles = files.filter((file) => !ignored.has(file.path));
       broadcast('external.sessionChanged', {
         taskId: session.taskId,
         terminalId: session.terminalId,
@@ -1073,6 +1154,9 @@ export class ExternalSessionService {
       presenceTimer: null,
       presenceAwaitingReply: false,
       presenceSawOutput: false,
+      fileAttributionActive: false,
+      lastAgentActivityAtMs: Date.now(),
+      fileAttributionGraceUntilMs: Date.now() + INITIAL_COMMAND_ATTRIBUTION_MS,
       pendingPrompt: null,
       promptSettleTimer: null,
       promptDeadlineTimer: null,

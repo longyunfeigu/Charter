@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Boundary Validation · Effective Memory System</title>
+    <link rel="stylesheet" href="./shared.css" />
+  </head>
+  <body data-suite="memory">
+    <header class="study-bar">
+      <div class="study-title">
+        <small>LEGACY MODEL CORRECTION / CONNECTED CONTRACT</small>
+        <strong>Effective memory, source edit and run receipt</strong>
+      </div>
+      <nav class="study-actions" aria-label="Prototype surfaces">
+        <span class="study-readout" data-study-readout></span>
+        <button class="study-button active" type="button" data-surface-target="effective">1 Effective</button>
+        <button class="study-button" type="button" data-surface-target="file">2 Source</button>
+        <button class="study-button" type="button" data-surface-target="receipt">3 Run</button>
+        <button class="study-button" id="toggle-conflict" type="button">Edge: conflict</button>
+        <button class="study-button" type="button" data-reset>Reset</button>
+      </nav>
+    </header>
+
+    <main class="stage">
+      <section class="app" aria-label="Charter memory workflow prototype">
+        <aside class="activity">
+          <div class="activity-mark">C</div>
+          <button class="activity-button" type="button" aria-label="Sessions">SS</button>
+          <button class="activity-button active" type="button" aria-label="Memory">MM</button>
+          <button class="activity-button" type="button" aria-label="Skills">SK</button>
+          <span class="activity-spacer"></span>
+          <button class="activity-button" type="button" aria-label="Settings">ST</button>
+        </aside>
+
+        <div class="product">
+          <header class="product-header">
+            <div class="avatar">MM</div>
+            <div class="product-identity">
+              <strong>Memory · fable5</strong>
+              <small>WHAT WILL A NEW RUN INHERIT?</small>
+            </div>
+            <span class="badge green">3 effective sources</span>
+            <div class="header-actions">
+              <button class="primary" type="button" data-memory-action="start-run">Start Session</button>
+            </div>
+          </header>
+
+          <section class="surface memory-effective active" data-surface="effective">
+            <aside class="memory-nav">
+              <div class="scope-switch" aria-label="Memory view">
+                <button class="active" id="effective-tab" type="button">Effective here</button>
+                <button id="library-tab" type="button">Source library</button>
+              </div>
+              <div class="rail-label">Workspace</div>
+              <div class="memory-project active">
+                <span class="file-kind">P</span>
+                <span><strong>fable5</strong><small>3 active · 1 inherited</small></span>
+                <span class="badge green">here</span>
+              </div>
+              <div class="memory-project">
+                <span class="file-kind">P</span>
+                <span><strong>charter</strong><small>4 active · no conflict</small></span>
+                <span>›</span>
+              </div>
+              <div class="rail-label">Providers</div>
+              <div class="memory-project">
+                <span class="file-kind">CL</span>
+                <span><strong>Claude</strong><small>2 source files</small></span>
+                <span>›</span>
+              </div>
+              <div class="memory-project">
+                <span class="file-kind">CX</span>
+                <span><strong>Codex</strong><small>1 source file</small></span>
+                <span>›</span>
+              </div>
+            </aside>
+
+            <div class="memory-main">
+              <div data-memory-mode="effective">
+                <div class="memory-main-head">
+                  <div>
+                    <span class="kicker">Resolved for the next run</span>
+                    <h2>Effective in fable5</h2>
+                    <p>Ordered by actual precedence. Provider ownership remains visible but is not the primary mental model.</p>
+                  </div>
+                  <button class="button" type="button" data-memory-action="open-file">Edit project source</button>
+                </div>
+                <div class="conflict-banner" id="memory-conflict">
+                  <span class="file-kind">!</span>
+                  <span>
+                    <strong>Conflict: test command differs across two active sources</strong>
+                    <small>Project memory says “npm test”; Charter rule requires the targeted Playwright command.</small>
+                  </span>
+                  <button class="button" id="resolve-conflict" type="button">Resolve for this project</button>
+                </div>
+                <div class="layer-stack">
+                  <article class="memory-layer effective">
+                    <span class="layer-order">01</span>
+                    <span class="layer-copy">
+                      <strong>Charter workspace rule</strong>
+                      <p>Use Playwright Electron helpers and an isolated user-data directory.</p>
+                      <small>highest precedence · managed · applies to Electron UI work</small>
+                    </span>
+                    <span class="badge green">effective</span>
+                  </article>
+                  <article class="memory-layer effective">
+                    <span class="layer-order">02</span>
+                    <span class="layer-copy">
+                      <strong>.claude/CLAUDE.md</strong>
+                      <p>Build before E2E when renderer, preload or shared source changes.</p>
+                      <small>project · Claude · modified 2 days ago</small>
+                    </span>
+                    <button class="quiet" type="button" data-memory-action="open-file">Open</button>
+                  </article>
+                  <article class="memory-layer effective">
+                    <span class="layer-order">03</span>
+                    <span class="layer-copy">
+                      <strong>~/.codex/AGENTS.md</strong>
+                      <p>Store screenshots and traces under /tmp unless explicitly requested.</p>
+                      <small>global · Codex · inherited</small>
+                    </span>
+                    <span class="badge">inherited</span>
+                  </article>
+                </div>
+              </div>
+
+              <div data-memory-mode="library" hidden>
+                <div class="memory-main-head">
+                  <div>
+                    <span class="kicker">Source inventory</span>
+                    <h2>Memory library</h2>
+                    <p>Provider-led browsing is retained for maintenance, not used as the default answer to “what affects my run?”</p>
+                  </div>
+                </div>
+                <div class="layer-stack">
+                  <article class="memory-layer">
+                    <span class="layer-order">CL</span>
+                    <span class="layer-copy"><strong>Claude project memory</strong><p>.claude/CLAUDE.md</p><small>project source · active in 2 workspaces</small></span>
+                    <button class="button" type="button">Inspect</button>
+                  </article>
+                  <article class="memory-layer">
+                    <span class="layer-order">CX</span>
+                    <span class="layer-copy"><strong>Codex global instructions</strong><p>~/.codex/AGENTS.md</p><small>global source · inherited by 6 workspaces</small></span>
+                    <button class="button" type="button">Inspect</button>
+                  </article>
+                  <article class="memory-layer">
+                    <span class="layer-order">CH</span>
+                    <span class="layer-copy"><strong>Charter managed rules</strong><p>Electron validation contract</p><small>managed source · cannot be silently edited</small></span>
+                    <span class="badge">managed</span>
+                  </article>
+                </div>
+              </div>
+            </div>
+
+            <aside class="memory-inspector">
+              <span class="kicker">Why these sources?</span>
+              <div class="effective-receipt">
+                <h3>Next run receipt</h3>
+                <p>This is the exact ordered set a new Session in <strong>fable5</strong> will receive.</p>
+                <div class="receipt-list">
+                  <div class="receipt-row"><span class="file-kind">CH</span><span>Charter workspace rule</span><span>01</span></div>
+                  <div class="receipt-row"><span class="file-kind">CL</span><span>.claude/CLAUDE.md</span><span>02</span></div>
+                  <div class="receipt-row"><span class="file-kind">CX</span><span>~/.codex/AGENTS.md</span><span>03</span></div>
+                </div>
+                <button class="primary" type="button" data-memory-action="start-run">Preview in new Session</button>
+              </div>
+              <div class="inspector-card">
+                <h3>Legacy correction</h3>
+                <p><strong>Preserve:</strong> source files and provider ownership.</p>
+                <p><strong>Correct:</strong> the default view becomes task/effect-first.</p>
+                <p><strong>Deprecate:</strong> no hidden, provider-only precedence model.</p>
+              </div>
+            </aside>
+          </section>
+
+          <section class="surface memory-file-surface" data-surface="file">
+            <div class="memory-dialog" role="dialog" aria-labelledby="memory-dialog-title">
+              <div class="dialog-head">
+                <span class="file-kind">MD</span>
+                <div>
+                  <h2 id="memory-dialog-title">Project memory</h2>
+                  <small>/Users/edy/git/fable5/.claude/CLAUDE.md</small>
+                </div>
+                <span class="badge amber">precedence 02</span>
+                <button class="icon-button" id="close-memory-file" type="button" aria-label="Close">×</button>
+              </div>
+              <div class="scope-strip">
+                <div class="scope-cell"><small>SCOPE</small><strong>fable5 only</strong></div>
+                <div class="scope-cell"><small>PROVIDER</small><strong>Claude</strong></div>
+                <div class="scope-cell"><small>EFFECT</small><strong>New runs after save</strong></div>
+              </div>
+              <textarea class="memory-editor" aria-label="Memory file content"># Project instructions
+
+- Run `npm run build` before Electron E2E when renderer, preload, main-process, or shared package source has changed.
+- Use the helpers in `tests/e2e/helpers/launch.ts`.
+- Keep temporary screenshots and traces under `/tmp`.
+
+## Product vocabulary
+
+- “Session” means one user intent carried through execution and review.
+- “Artifact” means a versioned output produced by a Session.</textarea
+              >
+              <div class="dialog-foot">
+                <small>Saving recalculates the effective set. Existing Session receipts remain immutable.</small>
+                <button class="quiet" id="promote-memory" type="button">Propose as Charter rule</button>
+                <button class="primary" id="save-memory" type="button">Save and recalculate</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="surface run-receipt-surface" data-surface="receipt">
+            <aside class="session-rail">
+              <div class="rail-label">New Session</div>
+              <div class="session-row active">
+                <span class="session-dot"></span>
+                <span><strong>Investigate flaky screenshot test</strong><small>draft · fable5</small></span>
+              </div>
+            </aside>
+            <div class="conversation">
+              <div class="messages">
+                <div class="message agent">
+                  <div class="message-label">MEMORY RECEIPT · BEFORE EXECUTION</div>
+                  You can see and adjust inherited context before the first message. Exclusion applies only to this run.
+                </div>
+                <div class="message user" id="memory-run-proof" hidden>
+                  Investigate why the screenshot Quick Card test is flaky.
+                  <div class="sent-shot">Receipt: Charter rule → project memory → global Codex instructions</div>
+                </div>
+              </div>
+              <div class="composer-wrap">
+                <div class="composer">
+                  <div class="run-context">
+                    <div class="run-context-head">
+                      <strong>Memory for this run</strong>
+                      <small id="source-count">3 sources</small>
+                      <button class="quiet" type="button" data-surface-target="effective">Inspect precedence</button>
+                    </div>
+                    <div class="run-source-list">
+                      <span class="run-source">01 · Charter Electron rule</span>
+                      <span class="run-source" id="optional-source">02 · .claude/CLAUDE.md <button class="quiet" id="exclude-source" type="button">exclude</button></span>
+                      <span class="run-source">03 · ~/.codex/AGENTS.md</span>
+                    </div>
+                  </div>
+                  <textarea aria-label="First Session message">Investigate why the screenshot Quick Card test is flaky.</textarea>
+                  <div class="composer-actions">
+                    <span class="badge green">receipt will be saved</span>
+                    <button class="primary" id="send-memory-run" type="button">Start with this memory</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      </section>
+    </main>
+    <script src="./suite.js"></script>
+  </body>
+</html>

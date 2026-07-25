@@ -16,6 +16,8 @@ export interface FakeSshServer {
   fs: MemFs;
   /** Drop every live connection (simulate a network loss). */
   dropConnections(): void;
+  /** Gracefully end only the most recently opened shell channel. */
+  closeLatestShell(): void;
   close(): Promise<void>;
 }
 
@@ -37,6 +39,7 @@ export async function startFakeSshServer(opts: FakeSshOptions = {}): Promise<Fak
   const installed = opts.installedClis ?? ['claude', 'codex'];
   const claudeMarker = opts.claudeMarker ?? 'REMOTE-CLI-STARTED';
   const fs = opts.fs ?? new MemFs('/home/tester');
+  const shellChannels: Array<{ exit(code: number): void; end(): void }> = [];
 
   const execReplies: Record<string, string> = {};
   for (const cli of installed) {
@@ -49,6 +52,7 @@ export async function startFakeSshServer(opts: FakeSshOptions = {}): Promise<Fak
     fs,
     tcpip: 'echo',
     onShell: (channel) => {
+      shellChannels.push(channel);
       channel.write(`${banner}\r\n`);
       // Echo nothing; when the app sends `exec <cli>`, print the marker line.
       channel.on('data', (data: Buffer) => {
@@ -66,6 +70,11 @@ export async function startFakeSshServer(opts: FakeSshOptions = {}): Promise<Fak
       // Raw-socket destroy: a graceful Connection.end() flushes its outgoing
       // queue first, which can defer the client's 'close' past e2e timeouts.
       server.dropConnections();
+    },
+    closeLatestShell() {
+      const channel = shellChannels.at(-1);
+      channel?.exit(0);
+      channel?.end();
     },
     close: () => server.close(),
   };

@@ -326,6 +326,9 @@ describe('projectActivityEvent (ADR-0006 pure projection)', () => {
     expect(file.captureGrade).toBe('observed');
     expect(file.changeIds).toEqual(['chg-1']);
     expect(file.evidenceKinds).toEqual(['file']);
+    expect(file.kind).toBe('write');
+    expect(file.author).toBe('system');
+    expect(file.label).toBe('Workspace observed modified report.md');
 
     const structured = projectActivityEvent(
       evt('external.observation', {

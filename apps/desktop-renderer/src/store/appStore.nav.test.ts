@@ -20,6 +20,9 @@ function reset(): void {
     sessionRoomView: 'conversation',
     sessionTerminalId: null,
     archaeology: null,
+    remotesOpen: false,
+    remoteSelectedHostId: null,
+    remoteSubview: 'overview',
     projectTool: null,
     projectBottomTab: null,
     surface: 'home',
@@ -147,6 +150,34 @@ describe('surface openers keep the rail in step (reverse direction)', () => {
     useAppStore.getState().openTerminalSession('term1');
     expect(useAppStore.getState().railView).toBe('sessions');
     expect(useAppStore.getState().sessionTerminalId).toBe('term1');
+  });
+
+  it('keeps a remote terminal inside its host context', () => {
+    useAppStore.getState().openRemotes('host-1');
+    useAppStore.getState().openRemoteTerminalSession('term-remote', 'host-1');
+    const state = useAppStore.getState();
+    expect(state.remotesOpen).toBe(true);
+    expect(state.remoteSelectedHostId).toBe('host-1');
+    expect(state.sessionTerminalId).toBe('term-remote');
+    expect(mainSurfaceOf(state)).toEqual({ kind: 'terminal', terminalId: 'term-remote' });
+  });
+
+  it('leaves Remote Explorer when a regular terminal opens', () => {
+    useAppStore.getState().openRemoteTerminalSession('term-remote', 'host-1');
+    useAppStore.getState().openTerminalSession('term-local');
+    const state = useAppStore.getState();
+    expect(state.remotesOpen).toBe(false);
+    expect(state.sessionTerminalId).toBe('term-local');
+  });
+
+  it('returns from a remote terminal to the selected host overview', () => {
+    useAppStore.getState().openRemoteTerminalSession('term-remote', 'host-1');
+    useAppStore.getState().selectRemoteHost('host-1');
+    const state = useAppStore.getState();
+    expect(state.remotesOpen).toBe(true);
+    expect(state.remoteSelectedHostId).toBe('host-1');
+    expect(state.remoteSubview).toBe('overview');
+    expect(state.sessionTerminalId).toBeNull();
   });
 
   it('opening a project tool from Projects pairs the rail Files view (ADR-0029)', () => {

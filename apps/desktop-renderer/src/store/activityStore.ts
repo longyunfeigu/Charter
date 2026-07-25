@@ -58,6 +58,7 @@ function fold(prev: TaskActivity, item: ActivityItem): TaskActivity {
   // "What is the agent DOING" — message/state/system noise never becomes the
   // action line (fixes the room header overflowing with reply prose).
   const isAction =
+    item.author === 'agent' &&
     item.kind !== 'state' &&
     item.kind !== 'system' &&
     item.kind !== 'report' &&
@@ -100,7 +101,11 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
     const perTask = get().perTask;
     const next = fold(perTask[item.taskId] ?? EMPTY, item);
     const patch: Partial<ActivityStore> = { perTask: { ...perTask, [item.taskId]: next } };
-    if ((item.kind === 'write' || item.kind === 'review') && item.paths.length > 0) {
+    if (
+      item.author === 'agent' &&
+      (item.kind === 'write' || item.kind === 'review') &&
+      item.paths.length > 0
+    ) {
       patch.pulses = [
         ...get().pulses.slice(-(MAX_PULSES - 1)),
         { taskId: item.taskId, paths: item.paths, at: Date.now() },

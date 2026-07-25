@@ -43,12 +43,36 @@ export function ExternalTerminalColumn({
   // session until the user resumes or dismisses it.
   const [dragOver, setDragOver] = useState(false);
   const [endedPrompt, setEndedPrompt] = useState(false);
+  const [reconnectState, setReconnectState] = useState<'idle' | 'connecting' | 'missing'>('idle');
+  const reconnectingRef = useRef(false);
+
+  const reconnectTerminal = (): void => {
+    if (reconnectingRef.current) return;
+    reconnectingRef.current = true;
+    setReconnectState('connecting');
+    void useTerminalStore
+      .getState()
+      .adopt(external.terminalId)
+      .then((connected) => setReconnectState(connected ? 'idle' : 'missing'))
+      .catch(() => setReconnectState('missing'))
+      .finally(() => {
+        reconnectingRef.current = false;
+      });
+  };
 
   useEffect(() => {
     useExternalStore.getState().init();
     termStore.init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The PTY lives in main and can outlive this renderer (reloads and terminals
+  // created by another product surface both exercise this path).
+  useEffect(() => {
+    if (live && !superseded && !item && reconnectState === 'idle') reconnectTerminal();
+    // reconnectTerminal intentionally keys only off the terminal identity/state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [external.terminalId, item, live, reconnectState, superseded]);
 
   // Live auto-follow (mock chapter ⑤ / direction B): while the peek is open,
   // it follows whatever the CLI is writing right now. Opt-out via the LIVE pill.
@@ -157,7 +181,9 @@ export function ExternalTerminalColumn({
           <div className="tr-extgone" data-testid="external-terminal-gone">
             <div className="tr-extgone-title">
               {live
-                ? 'The session terminal lives in another surface.'
+                ? reconnectState === 'connecting'
+                  ? 'Reconnecting the live session terminal…'
+                  : 'The live session terminal is not connected to this view.'
                 : superseded
                   ? 'This session is over — its terminal moved on to a newer session.'
                   : 'This session is over.'}
@@ -167,6 +193,16 @@ export function ExternalTerminalColumn({
                 ? `${session?.files.length ?? task.changedFiles} file${(session?.files.length ?? task.changedFiles) === 1 ? '' : 's'} changed — use the rail to peek, or Review to close out.`
                 : 'No tracked file changes.'}
             </div>
+            {live && reconnectState !== 'connecting' ? (
+              <button
+                type="button"
+                className="btn"
+                data-testid="external-terminal-reconnect"
+                onClick={reconnectTerminal}
+              >
+                Reconnect terminal
+              </button>
+            ) : null}
           </div>
         )}
         {dragOver && live ? (

@@ -29,6 +29,7 @@ import {
   type RailGroup,
   type SessionEntry,
 } from './rail-groups.js';
+import { ActivityBar } from './ActivityBar.js';
 
 export { isHistoryEntry, type SessionEntry } from './rail-groups.js';
 
@@ -321,7 +322,7 @@ export function SessionRail(): React.JSX.Element {
   // ADR-0029: the rail view lives in the app store so commands (⌘⇧E) and
   // "open project files" flows can reveal the Files tree.
   const view = app.railView;
-  const [projectsPanelOpen, setProjectsPanelOpen] = useState(false);
+  const [projectsPanelOpen, setProjectsPanelOpen] = useState(view === 'projects');
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(loadCollapsed);
   const [query, setQuery] = useState('');
   const [needsOnly, setNeedsOnly] = useState(false);
@@ -346,6 +347,9 @@ export function SessionRail(): React.JSX.Element {
 
   const setView = (next: RailView): void => {
     app.setRailView(next);
+    // Rail navigation dismisses the Remotes surface — switching the left panel
+    // while the main area stays parked on hosts reads as a dead click.
+    if (useAppStore.getState().remotesOpen) useAppStore.getState().closeRemotes();
     if (next !== 'projects') setProjectsPanelOpen(false);
     setAddMenuOpen(false);
   };
@@ -1079,89 +1083,16 @@ export function SessionRail(): React.JSX.Element {
       data-testid="home-sidebar"
       aria-label={view === 'skills' ? 'Skills' : 'Sessions'}
     >
-      <nav className="sr-activity" aria-label="Application">
-        <div className="sr-activity-brand" aria-label="Charter">
-          <Ic name="flag" size={15} />
-        </div>
-        <button
-          className={`sr-activity-item ${view === 'sessions' ? 'active' : ''}`}
-          data-testid="rail-view-sessions"
-          aria-label="Sessions"
-          title="Sessions"
-          onClick={() => setView('sessions')}
-        >
-          <Ic name="terminal" size={16} />
-        </button>
-        <button
-          className={`sr-activity-item ${view === 'inbox' ? 'active' : ''}`}
-          data-testid="rail-needs-you"
-          aria-label="Needs attention"
-          title="Needs attention"
-          onClick={() => setView('inbox')}
-        >
-          <Ic name="inbox" size={16} />
-          {inbox.length > 0 ? <span className="sr-mini-badge">{inbox.length}</span> : null}
-        </button>
-        <button
-          className={`sr-activity-item ${view === 'projects' ? 'active' : ''}`}
-          data-testid="rail-view-projects"
-          aria-label="Projects"
-          title="Projects"
-          aria-pressed={view === 'projects' && projectsPanelOpen}
-          onClick={() => {
-            if (view === 'projects') setProjectsPanelOpen((open) => !open);
-            else showProjects();
-          }}
-        >
-          <Ic name="folder" size={16} />
-        </button>
-        <button
-          className="sr-activity-item"
-          data-testid="rail-search"
-          aria-label="Search everything"
-          title="Search everything · ⌘K"
-          onClick={() => app.setLauncherOpen(true)}
-        >
-          <Ic name="search" size={16} />
-        </button>
-        <button
-          className={`sr-activity-item ${app.overlay === 'memory' ? 'active' : ''}`}
-          data-testid="rail-view-memory"
-          aria-label="Memory"
-          title="Memory — project rules & agent memories"
-          onClick={() => app.setOverlay('memory')}
-        >
-          <Ic name="brain" size={16} />
-        </button>
-        <button
-          className={`sr-activity-item ${view === 'skills' ? 'active' : ''}`}
-          data-testid="rail-view-skills"
-          aria-label="Skills"
-          title="Skills — usage and Agent installations"
-          onClick={() => setView('skills')}
-        >
-          <Ic name="puzzle" size={17} />
-        </button>
-        <span className="sr-activity-spacer" />
-        <button
-          className="sr-activity-item"
-          data-testid="home-open-ide"
-          aria-label="Editor"
-          title="Editor · ⌘E"
-          onClick={() => app.setSurface('workspace')}
-        >
-          <Ic name="layout" size={16} />
-        </button>
-        <button
-          className="sr-activity-item"
-          data-testid="home-settings"
-          aria-label="Settings"
-          title="Settings"
-          onClick={() => app.openSettings()}
-        >
-          <Ic name="sliders" size={16} />
-        </button>
-      </nav>
+      <ActivityBar
+        active={view}
+        projectsOpen={projectsPanelOpen}
+        onSelect={setView}
+        onProjects={() => {
+          if (view === 'projects') setProjectsPanelOpen((open) => !open);
+          else showProjects();
+        }}
+        onRemotes={() => app.openRemotes()}
+      />
       <section className="sr-panel">
         {view === 'inbox' ? (
           inboxPanel

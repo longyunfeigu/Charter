@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SSH / SFTP · 上一版与自适应 Skill 对比</title>
+    <link rel="stylesheet" href="../ssh-sftp-skill-latest/compare.css" />
+    <link rel="stylesheet" href="./compare.css" />
+  </head>
+  <body>
+    <header class="compare-head">
+      <div>
+        <span>SAME FEATURE / PREVIOUS OUTPUT / ADAPTIVE RERUN</span>
+        <h1>不是让新版自动赢，而是让差异可以操作</h1>
+        <p>左边保留上一版，右边可以切换本轮三个视觉假设；交互任务仍是双栏上传、冲突处理和中断恢复。</p>
+      </div>
+      <a href="./index.html">进入完整方向实验室 ↗</a>
+    </header>
+
+    <main>
+      <section class="frozen-brief">
+        <div>
+          <span>同一功能需求</span>
+          <strong>保持本机与远端的空间关系，让普通用户看得懂上传方向、冲突后果、进度和失败恢复。</strong>
+        </div>
+        <dl>
+          <div><dt>Host</dt><dd>prod-api-01</dd></div>
+          <div><dt>Source</dt><dd>2 items · 98.2 MB</dd></div>
+          <div><dt>Target</dt><dd>/home/deploy/releases</dd></div>
+          <div><dt>Edge</dt><dd>1 conflict + interrupted file</dd></div>
+        </dl>
+      </section>
+
+      <section class="compare-controls adaptive-controls">
+        <div>
+          <span>VIEW MODE</span>
+          <button type="button" data-layout="side">并排看窄窗</button>
+          <button class="active" type="button" data-layout="stack">上下看桌面</button>
+          <button type="button" id="reload-frames">重置两边</button>
+        </div>
+        <div class="visual-controls" aria-label="选择右侧视觉方向">
+          <span>NEW VISUAL</span>
+          <button type="button" data-theme="heritage">A 温暖</button>
+          <button type="button" data-theme="native">B 原生</button>
+          <button class="active" type="button" data-theme="synthesis">C 融合</button>
+        </div>
+        <p id="layout-note">当前两版各占完整页面宽度，适合比较桌面信息层级；向下滚动查看本轮重跑版本。</p>
+      </section>
+
+      <section class="comparison stack" id="comparison">
+        <article class="version-card previous">
+          <header>
+            <div>
+              <span>PREVIOUS SKILL OUTPUT</span>
+              <h2>上一版 · 双栏 + 第三栏传输中心</h2>
+            </div>
+            <a
+              href="../mock-html-skill-showcase/sftp-transfer.html"
+              target="_blank"
+              rel="noreferrer"
+              >单独打开 ↗</a
+            >
+          </header>
+          <iframe
+            id="previous-frame"
+            src="../mock-html-skill-showcase/sftp-transfer.html"
+            title="上一版 Skill 的 SFTP Mock HTML"
+          ></iframe>
+          <footer>
+            <strong>保留为基线</strong>
+            <span>它的双栏关系、第三栏传输中心和轻快浏览体验仍然是有效优点，不因版本旧而被否定。</span>
+          </footer>
+        </article>
+
+        <article class="version-card latest">
+          <header>
+            <div>
+              <span>ADAPTIVE SKILL RERUN · CURRENT PREVIEW, NOT A WINNER</span>
+              <h2 id="latest-title">本轮 C · Warm Precision</h2>
+            </div>
+            <a
+              id="latest-link"
+              href="../ssh-sftp-skill-user-first/index.html?theme=synthesis"
+              target="_blank"
+              rel="noreferrer"
+              >单独打开 ↗</a
+            >
+          </header>
+          <iframe
+            id="latest-frame"
+            src="../ssh-sftp-skill-user-first/index.html?theme=synthesis"
+            title="自适应 Skill 重跑的 SFTP Mock HTML"
+          ></iframe>
+          <footer>
+            <strong>本轮变化</strong>
+            <span id="latest-note"
+              >在保留双栏和第三栏的前提下，用暖中性表面、克制的衬线锚点和适中密度测试“个性 + 清晰度”的融合假设。</span
+            >
+          </footer>
+        </article>
+      </section>
+
+      <section class="judgment">
+        <header>
+          <span>普通用户视角的比较顺序</span>
+          <h2>先完成任务，再判断哪种视觉更适合</h2>
+        </header>
+        <ol>
+          <li><b>01</b><strong>能否立即辨认两端？</strong><span>本机、远端和传输方向不靠猜。</span></li>
+          <li><b>02</b><strong>不拖拽能否上传？</strong><span>普通用户拥有可见按钮 fallback。</span></li>
+          <li><b>03</b><strong>冲突后果是否明确？</strong><span>默认不覆盖，并预告最终文件名。</span></li>
+          <li><b>04</b><strong>中断后能否继续？</strong><span>Resume 只处理失败项并到达 2/2。</span></li>
+          <li><b>05</b><strong>视觉是否帮助扫描？</strong><span>比较字体、密度、色温与材料感，而非只看配色。</span></li>
+        </ol>
+      </section>
+
+      <section class="observed">
+        <article>
+          <span>上一版的有效资产</span>
+          <h3>空间模型清楚，仍值得保留</h3>
+          <p>这次没有为了“创新”丢掉左右双栏、可直接拖放和持续可见的传输中心。</p>
+        </article>
+        <article>
+          <span>这轮 Skill 真正修正的事</span>
+          <h3>把成熟模式、行为验证与审美选择分开</h3>
+          <p>外部证据决定交互关系；真实 Electron 路径验证可用性；视觉方向保持可拒绝，不把专家偏好冒充用户结论。</p>
+        </article>
+      </section>
+    </main>
+
+    <script src="./compare.js"></script>
+  </body>
+</html>

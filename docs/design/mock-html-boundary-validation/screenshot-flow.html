@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Boundary Validation · Screenshot Intent Loop</title>
+    <link rel="stylesheet" href="./shared.css" />
+  </head>
+  <body data-suite="screenshot">
+    <header class="study-bar">
+      <div class="study-title">
+        <small>0→1 / MINIMUM COHERENT SURFACE SET</small>
+        <strong>Screenshot intent loop</strong>
+      </div>
+      <nav class="study-actions" aria-label="Prototype surfaces">
+        <span class="study-readout" data-study-readout></span>
+        <button class="study-button active" type="button" data-surface-target="capture">1 Capture</button>
+        <button class="study-button" type="button" data-surface-target="composer">2 Session</button>
+        <button class="study-button" type="button" data-surface-target="assets">3 Recover</button>
+        <button class="study-button" id="edge-no-session" type="button">Edge: no Session</button>
+        <button class="study-button" type="button" data-reset>Reset</button>
+      </nav>
+    </header>
+
+    <main class="stage">
+      <section class="app" aria-label="Charter screenshot workflow prototype">
+        <aside class="activity" aria-label="Primary navigation">
+          <div class="activity-mark">C</div>
+          <button class="activity-button active" type="button" aria-label="Sessions">SS</button>
+          <button class="activity-button" type="button" aria-label="Artifacts">AR</button>
+          <button class="activity-button" type="button" aria-label="Assets">AS</button>
+          <span class="activity-spacer"></span>
+          <button class="activity-button" type="button" aria-label="Settings">ST</button>
+        </aside>
+
+        <div class="product">
+          <header class="product-header">
+            <div class="avatar">FA</div>
+            <div class="product-identity">
+              <strong>fable5 · Fix failing Electron test</strong>
+              <small>SESSION SS-184 · local workspace</small>
+            </div>
+            <span class="badge green">active</span>
+            <div class="header-actions">
+              <button class="button" type="button">Open lane</button>
+              <button class="icon-button" type="button" aria-label="More actions">•••</button>
+            </div>
+          </header>
+
+          <section class="surface session-surface active" data-surface="capture">
+            <aside class="session-rail">
+              <div class="rail-label">Active now</div>
+              <div class="session-row active" id="active-session-row">
+                <span class="session-dot"></span>
+                <span>
+                  <strong>Fix failing Electron test</strong>
+                  <small>fable5 · 2 min ago</small>
+                </span>
+              </div>
+              <div class="rail-label">Recent</div>
+              <div class="session-row">
+                <span class="session-dot" style="background: #a0866f"></span>
+                <span>
+                  <strong>Review replay states</strong>
+                  <small>charter · yesterday</small>
+                </span>
+              </div>
+            </aside>
+
+            <div class="conversation">
+              <div class="messages">
+                <div class="message user">The Electron test still fails after the first window closes.</div>
+                <div class="message agent">
+                  <div class="message-label">CODEX · 10:41</div>
+                  The trace suggests the second window is reusing a disposed context. I’m checking the helper lifecycle.
+                  <div class="terminal-snippet">
+                    <span>$ npm run test:e2e -- screenshot-card.spec.ts</span><br />
+                    <span class="error">Error: page.waitForEvent: Target page has been closed</span>
+                  </div>
+                </div>
+              </div>
+              <div class="composer-wrap">
+                <div class="composer">
+                  <textarea aria-label="Message" placeholder="Ask Codex about this Session…"></textarea>
+                  <div class="composer-actions">
+                    <button class="icon-button" type="button" aria-label="Attach">＋</button>
+                    <span class="badge">auto context</span>
+                    <button class="primary" type="button">Send</button>
+                  </div>
+                </div>
+              </div>
+
+              <aside class="quick-card" id="quick-card" aria-label="Screenshot Quick Card">
+                <div class="quick-head">
+                  <span class="file-kind">PNG</span>
+                  <span>
+                    <strong>Screenshot captured</strong>
+                    <small>Clipboard 2026-07-21 10.42.31.png · 1440 × 900</small>
+                  </span>
+                  <button class="icon-button" id="close-shot" type="button" aria-label="Dismiss">×</button>
+                </div>
+                <div class="shot-preview">
+                  <div class="shot-terminal">
+                    <b>✓ renderer ready</b><br />
+                    run 2 / reopen workspace<br />
+                    <em>Target page has been closed</em>
+                  </div>
+                  <span class="annotation-mark" aria-hidden="true"></span>
+                </div>
+                <div class="quick-actions">
+                  <button class="quick-action primary-action" id="feed-shot" type="button">
+                    <span class="action-icon">CTX</span>
+                    <span>
+                      <strong id="feed-shot-label">Add to active Session</strong>
+                      <small>Fix failing Electron test · visible before send</small>
+                    </span>
+                    <kbd>↵</kbd>
+                  </button>
+                  <button class="quick-action" id="annotate-shot" type="button">
+                    <span class="action-icon">ANN</span>
+                    <span>
+                      <strong>Mark the failing region</strong>
+                      <small>Annotation stays attached to this capture</small>
+                    </span>
+                    <kbd>A</kbd>
+                  </button>
+                  <button class="quick-action" id="save-shot" type="button">
+                    <span class="action-icon">LIB</span>
+                    <span>
+                      <strong>Save to Session assets</strong>
+                      <small>Keep provenance for reuse and recovery</small>
+                    </span>
+                    <kbd>S</kbd>
+                  </button>
+                </div>
+              </aside>
+            </div>
+          </section>
+
+          <section class="surface session-surface" data-surface="composer">
+            <aside class="session-rail">
+              <div class="rail-label">Destination</div>
+              <div class="session-row active">
+                <span class="session-dot"></span>
+                <span>
+                  <strong>Fix failing Electron test</strong>
+                  <small>Session scope · fable5</small>
+                </span>
+              </div>
+            </aside>
+            <div class="conversation">
+              <div class="messages">
+                <div class="message agent">
+                  <div class="message-label">CODEX · READY FOR CONTEXT</div>
+                  Add the screenshot with a short instruction. The image is not sent until you submit this message.
+                </div>
+                <div class="message user" id="sent-shot-proof" hidden>
+                  Focus on the boxed failure from the second Electron window.
+                  <span class="sent-shot"><span class="file-kind">PNG</span> Clipboard 2026-07-21 10.42.31.png · Session scoped</span>
+                </div>
+              </div>
+              <div class="composer-wrap">
+                <div class="composer">
+                  <div class="pending-banner" id="pending-banner">
+                    No Session was active at capture time.
+                    <button class="button" id="choose-session" type="button">Use this Session</button>
+                  </div>
+                  <div class="context-shelf" id="context-shelf">
+                    <div class="image-chip">
+                      <span class="chip-thumb">ERR</span>
+                      <span class="chip-copy">
+                        <strong>Clipboard 2026-07-21 10.42.31.png</strong>
+                        <small>captured locally · destination: SS-184 · 1 annotation</small>
+                      </span>
+                      <span class="badge green">attached</span>
+                    </div>
+                  </div>
+                  <textarea aria-label="Message with screenshot">Focus on the boxed failure from the second Electron window.</textarea>
+                  <div class="composer-actions">
+                    <button class="icon-button" type="button" aria-label="Attach">＋</button>
+                    <span class="badge">1 image · Session only</span>
+                    <button class="primary" id="send-shot" type="button">Send with image</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="surface assets-surface" data-surface="assets">
+            <aside class="asset-nav">
+              <div class="rail-label">Session assets</div>
+              <div class="folder-row active">
+                <span class="file-kind">SS</span>
+                <span class="asset-copy"><strong>Fix failing Electron test</strong><small>3 assets · SS-184</small></span>
+                <span>›</span>
+              </div>
+              <div class="folder-row">
+                <span class="file-kind">PR</span>
+                <span class="asset-copy"><strong>Project library</strong><small>48 assets · fable5</small></span>
+                <span>›</span>
+              </div>
+            </aside>
+            <div class="asset-main">
+              <div class="memory-main-head">
+                <div>
+                  <span class="kicker">Selected asset</span>
+                  <h2>Clipboard 2026-07-21 10.42.31.png</h2>
+                  <p>One capture object; no duplicate was created when it moved through the composer.</p>
+                </div>
+                <button class="primary" id="reuse-shot" type="button">Reuse in Session</button>
+              </div>
+              <div class="asset-preview-large">
+                <div class="shot-terminal">
+                  <b style="color: #9cc7a5">✓ renderer ready</b><br />
+                  run 2 / reopen workspace<br />
+                  <span style="color: #ec8d77">Error: page.waitForEvent: Target page has been closed</span>
+                </div>
+              </div>
+            </div>
+            <aside class="asset-inspector">
+              <span class="kicker">Provenance</span>
+              <div class="inspector-card">
+                <h3>Capture identity</h3>
+                <p class="mono">asset_01K0X · sha256 1e6…a91</p>
+                <p>Captured at 10:42:31 from the local clipboard. Original pixels remain intact.</p>
+              </div>
+              <div class="inspector-card">
+                <h3>Usage</h3>
+                <p>Attached to <strong>SS-184</strong></p>
+                <p>Annotation layer: 1 region · authored at 10:43</p>
+              </div>
+              <div class="inspector-card">
+                <h3>Retention</h3>
+                <p>Session-scoped by default. Promote to the project library only when reuse is intentional.</p>
+              </div>
+            </aside>
+          </section>
+        </div>
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      </section>
+    </main>
+    <script src="./suite.js"></script>
+  </body>
+</html>

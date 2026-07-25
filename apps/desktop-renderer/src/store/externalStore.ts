@@ -338,10 +338,10 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
           sequence: Date.now() + seq,
           at: new Date().toISOString(),
           kind: 'write',
-          label: `${session.cli} edited ${delta.length} file${delta.length === 1 ? '' : 's'}`,
+          label: `Workspace changed ${delta.length} file${delta.length === 1 ? '' : 's'} during this session`,
           status: 'ok',
           paths: delta,
-          author: 'agent',
+          author: 'system',
         });
       }
       set({

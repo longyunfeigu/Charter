@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { SshConfigCandidate, SshHostDto, SshHostInput } from '@pi-ide/ipc-contracts';
 import { useAppStore } from '../store/appStore.js';
 import { forwardKey, useSshStore } from '../store/sshStore.js';
@@ -7,6 +7,7 @@ import { Ic } from './home-icons.js';
 import { RemoteHostDialog } from './RemoteHostDialog.js';
 import { ForwardsDialog } from './ForwardsDialog.js';
 import { SftpPanel } from './SftpPanel.js';
+import { focusRemoteSession, openRemoteSession } from './remote-session.js';
 
 /** The trailing path segment of an identity file, for the auth badge. */
 function baseName(path: string | null): string {
@@ -44,210 +45,8 @@ function authLabel(host: SshHostDto): string {
   return host.hasPassword ? 'password · keychain' : 'password';
 }
 
-/** Open (and implicitly connect) a remote shell session, then leave the
- * Remotes surface. Remote sessions are shell-only for now (user decision
- * 2026-07-24) — the launch×target engine stays, the UI doesn't offer it.
- * Routed through the terminal store so the renderer builds the xterm instance —
- * calling the IPC directly would leave a session id with no live terminal. */
-async function openRemote(hostId: string): Promise<void> {
-  const id = await useTerminalStore
-    .getState()
-    .create({ launch: 'shell', target: { kind: 'ssh', hostId }, reveal: false });
-  if (!id) return; // create() already surfaced the failure as a toast
-  useAppStore.getState().openTerminalSession(id);
-  useAppStore.getState().closeRemotes?.();
-}
-
-/** Primary card action: Connect / New Session — always a shell. */
-function LaunchButton(props: {
-  host: SshHostDto;
-  connected: boolean;
-  pending: boolean;
-  busy: boolean;
-  onLaunch: () => void;
-}): React.JSX.Element {
-  const { host, connected, pending, busy, onLaunch } = props;
-  return (
-    <button
-      className="btn sm primary"
-      data-testid={connected ? `rm-new-session-${host.id}` : `rm-connect-${host.id}`}
-      disabled={busy || pending}
-      onClick={onLaunch}
-    >
-      {pending ? 'Connecting…' : busy ? 'Opening…' : connected ? '+ New Session' : 'Connect'}
-    </button>
-  );
-}
-
-function HostCard(props: {
-  host: SshHostDto;
-  onEdit: () => void;
-  onFiles: () => void;
-  onForwards: () => void;
-}): React.JSX.Element {
-  const { host, onEdit, onFiles, onForwards } = props;
-  const disconnect = useSshStore((s) => s.disconnect);
-  const deleteHost = useSshStore((s) => s.deleteHost);
-  const forwardStates = useSshStore((s) => s.forwardStates);
-  const termItems = useTerminalStore((s) => s.items);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [busy, setBusy] = useState<'open' | 'disconnect' | null>(null);
-
-  const state = host.connection.state;
-  const connected = state === 'connected';
-  const pending = state === 'connecting' || state === 'reconnecting';
-
-  const sessions = termItems.filter((t) => t.remote?.hostId === host.id && !t.exited && !t.hidden);
-  const activeForwards = host.forwards.filter((f) => {
-    const s = forwardStates[forwardKey(host.id, f.id)];
-    return s !== undefined && s.status !== 'stopped';
-  });
-
-  const run = async (): Promise<void> => {
-    setBusy('open');
-    await openRemote(host.id);
-    setBusy(null);
-  };
-
-  const focusSession = (id: string): void => {
-    useAppStore.getState().openTerminalSession(id);
-    useAppStore.getState().closeRemotes?.();
-  };
-
-  return (
-    <div className="rm-card" data-testid={`rm-host-${host.id}`}>
-      <div className="rm-card-row1">
-        <span className={`rm-dot ${state}`} title={state} />
-        <span className="rm-card-name" title={host.label}>
-          {host.label}
-        </span>
-        <button className="rm-icon-btn" title="Edit host" aria-label="Edit host" onClick={onEdit}>
-          <Ic name="pencil" size={14} />
-        </button>
-        <button
-          className="rm-icon-btn danger"
-          title={confirmDelete ? 'Click again to delete' : 'Delete host'}
-          aria-label="Delete host"
-          onClick={() => {
-            if (!confirmDelete) {
-              setConfirmDelete(true);
-              window.setTimeout(() => setConfirmDelete(false), 3000);
-              return;
-            }
-            void deleteHost(host.id);
-          }}
-        >
-          <Ic name={confirmDelete ? 'check' : 'trash'} size={14} />
-        </button>
-      </div>
-
-      <div className="rm-addr">
-        {host.username}@{host.host}:{host.port}
-      </div>
-
-      <div className="rm-badges">
-        {host.tags.map((t) => (
-          <span className="rm-badge tag" key={t}>
-            {t}
-          </span>
-        ))}
-        <span className="rm-badge auth">{authLabel(host)}</span>
-        {host.proxyJump ? (
-          <span className="rm-badge jump" title={`Single hop via ${host.proxyJump}`}>
-            jump: {host.proxyJump}
-          </span>
-        ) : null}
-        {activeForwards.length > 0 ? (
-          <span
-            className="rm-badge fwd"
-            title={activeForwards
-              .map((f) => `${f.bindHost}:${f.bindPort} → ${f.targetHost}:${f.targetPort}`)
-              .join('\n')}
-          >
-            {activeForwards.length} fwd
-          </span>
-        ) : null}
-      </div>
-
-      {host.connection.error ? <div className="rm-error">{host.connection.error}</div> : null}
-
-      {sessions.length > 0 ? (
-        <div className="rm-sessions" data-testid={`rm-sessions-${host.id}`}>
-          {sessions.map((s) => (
-            <button
-              key={s.id}
-              className="rm-session-row"
-              title="Go to session"
-              data-testid={`rm-session-${s.id}`}
-              onClick={() => focusSession(s.id)}
-            >
-              <Ic name={s.launch === 'shell' ? 'terminal' : s.launch} size={12} />
-              <span className="rm-session-name">{s.title}</span>
-              <span className="rm-session-kind">{s.launch}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="rm-foot">
-        <span className="rm-last">
-          {connected
-            ? sessions.length > 0
-              ? `connected · ${sessions.length} session${sessions.length === 1 ? '' : 's'}`
-              : activeForwards.length > 0
-                ? 'connected · forwards active'
-                : 'connected · idle'
-            : pending
-              ? state === 'reconnecting'
-                ? 'reconnecting…'
-                : 'connecting…'
-              : relativeTime(host.lastConnectedAt)}
-        </span>
-        <div className="rm-actions">
-          <LaunchButton
-            host={host}
-            connected={connected}
-            pending={pending}
-            busy={busy !== null}
-            onLaunch={() => void run()}
-          />
-          <button
-            className="btn sm"
-            data-testid={`rm-files-${host.id}`}
-            title="Browse files over SFTP"
-            onClick={onFiles}
-          >
-            Files
-          </button>
-          <button
-            className="btn sm"
-            data-testid={`rm-forwards-${host.id}`}
-            title="Local port forwards"
-            onClick={onForwards}
-          >
-            Forwards{activeForwards.length > 0 ? ` · ${activeForwards.length}` : ''}
-          </button>
-          {connected ? (
-            <button
-              className="btn sm danger"
-              data-testid={`rm-disconnect-${host.id}`}
-              disabled={busy === 'disconnect'}
-              onClick={() => {
-                setBusy('disconnect');
-                void disconnect(host.id).finally(() => setBusy(null));
-              }}
-            >
-              Disconnect
-            </button>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /** Import preview: choose ~/.ssh/config entries to add to the host book. */
-function ImportPanel(props: {
+export function ImportPanel(props: {
   candidates: SshConfigCandidate[];
   onClose: () => void;
 }): React.JSX.Element {
@@ -373,38 +172,36 @@ function ImportPanel(props: {
   );
 }
 
-/**
- * Remotes — the SSH host library (mockup b, screen 1). Lists saved hosts as
- * cards with connect / Claude / Codex launches, host create/edit, and a
- * ~/.ssh/config import flow. Secrets never live here (see RemoteHostDialog).
- */
+/** The main surface for the host selected in Remote Explorer. */
 export function RemotesView(): React.JSX.Element {
+  const app = useAppStore();
   const hosts = useSshStore((s) => s.hosts);
   const loaded = useSshStore((s) => s.loaded);
   const importConfig = useSshStore((s) => s.importConfig);
-
-  const [query, setQuery] = useState('');
+  const disconnect = useSshStore((s) => s.disconnect);
+  const deleteHost = useSshStore((s) => s.deleteHost);
+  const forwardStates = useSshStore((s) => s.forwardStates);
+  const terminals = useTerminalStore((s) => s.items);
   const [dialog, setDialog] = useState<{ mode: 'create' | 'edit'; host?: SshHostDto } | null>(null);
-  const [filesHostId, setFilesHostId] = useState<string | null>(null);
-  const [forwardsHostId, setForwardsHostId] = useState<string | null>(null);
   const [importState, setImportState] = useState<
     { status: 'loading' } | { status: 'open'; candidates: SshConfigCandidate[] } | null
   >(null);
+  const [busy, setBusy] = useState<'open' | 'disconnect' | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     useSshStore.getState().init();
   }, []);
 
-  const filesHost = filesHostId ? (hosts.find((h) => h.id === filesHostId) ?? null) : null;
-  const forwardsHost = forwardsHostId ? (hosts.find((h) => h.id === forwardsHostId) ?? null) : null;
+  useEffect(() => {
+    if (!loaded || hosts.length === 0) return;
+    if (!hosts.some((host) => host.id === app.remoteSelectedHostId)) {
+      const connected = hosts.find((host) => host.connection.state !== 'disconnected');
+      app.selectRemoteHost((connected ?? hosts[0]!).id);
+    }
+  }, [app, hosts, loaded]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return hosts;
-    return hosts.filter((h) =>
-      [h.label, h.host, h.username, ...h.tags].join(' ').toLowerCase().includes(q),
-    );
-  }, [hosts, query]);
+  const host = hosts.find((candidate) => candidate.id === app.remoteSelectedHostId) ?? null;
 
   const openImport = async (): Promise<void> => {
     setImportState({ status: 'loading' });
@@ -412,118 +209,262 @@ export function RemotesView(): React.JSX.Element {
     setImportState({ status: 'open', candidates });
   };
 
-  if (filesHost) {
+  const launch = async (): Promise<void> => {
+    if (!host) return;
+    setBusy('open');
+    await openRemoteSession(host.id);
+    setBusy(null);
+  };
+
+  const remove = async (): Promise<void> => {
+    if (!host) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      window.setTimeout(() => setConfirmDelete(false), 3000);
+      return;
+    }
+    await deleteHost(host.id);
+    setConfirmDelete(false);
+  };
+
+  const dialogs = (
+    <>
+      {dialog ? (
+        <RemoteHostDialog mode={dialog.mode} host={dialog.host} onClose={() => setDialog(null)} />
+      ) : null}
+      {importState?.status === 'open' ? (
+        <ImportPanel candidates={importState.candidates} onClose={() => setImportState(null)} />
+      ) : null}
+    </>
+  );
+
+  if (!loaded || (hosts.length > 0 && !host)) {
     return (
       <div className="rm-page" data-testid="remotes-view">
-        <div className="rm-inner">
-          <SftpPanel host={filesHost} onBack={() => setFilesHostId(null)} />
+        <div className="rm-host-loading">
+          <span className="rm-dot connecting" /> Loading Remote Explorer…
         </div>
       </div>
     );
   }
 
+  if (!host) {
+    return (
+      <div className="rm-page" data-testid="remotes-view">
+        <div className="rm-empty rm-empty-hosts">
+          <Ic name="server" size={28} />
+          <strong>No remote hosts yet</strong>
+          <p>Add an SSH host or import the hosts already defined in ~/.ssh/config.</p>
+          <div className="rm-actions">
+            <button className="btn primary" onClick={() => setDialog({ mode: 'create' })}>
+              New Host
+            </button>
+            <button
+              className="btn"
+              onClick={() => void openImport()}
+              disabled={importState?.status === 'loading'}
+            >
+              {importState?.status === 'loading' ? 'Scanning…' : 'Import SSH Config'}
+            </button>
+          </div>
+        </div>
+        {dialogs}
+      </div>
+    );
+  }
+
+  const state = host.connection.state;
+  const connected = state === 'connected';
+  const pending = state === 'connecting' || state === 'reconnecting';
+  const sessions = terminals.filter(
+    (terminal) => terminal.remote?.hostId === host.id && !terminal.hidden && !terminal.exited,
+  );
+  const activeForwards = host.forwards.filter((forward) => {
+    const current = forwardStates[forwardKey(host.id, forward.id)];
+    return current !== undefined && current.status !== 'stopped';
+  });
+
+  const subviewTitle =
+    app.remoteSubview === 'overview'
+      ? 'Overview'
+      : app.remoteSubview === 'files'
+        ? 'Files'
+        : 'Forwards';
+
   return (
     <div className="rm-page" data-testid="remotes-view">
-      <div className="rm-inner">
-        <div className="rm-head">
-          <h1>Remotes</h1>
-          <div className="rm-search">
-            <Ic name="search" size={14} />
-            <input
-              placeholder="Search hosts, tags…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Search hosts"
-            />
-          </div>
-          <button className="btn primary" onClick={() => setDialog({ mode: 'create' })}>
-            New Host
-          </button>
+      <header className="rm-context-head">
+        <div className="rm-breadcrumb">
+          <span>Remote</span>
+          <Ic name="chevron" size={10} />
+          <strong>{host.label}</strong>
+          <Ic name="chevron" size={10} />
+          <span>{subviewTitle}</span>
         </div>
-
-        {!loaded ? (
-          <div className="rm-grid">
-            {[0, 1, 2].map((i) => (
-              <div className="rm-skeleton" key={i} />
-            ))}
-          </div>
-        ) : hosts.length === 0 ? (
-          <div className="rm-empty">
-            <strong>No remotes yet</strong>
-            <p>
-              Add an SSH host to open remote shells, Claude or Codex sessions — or import the hosts
-              you already have in ~/.ssh/config.
-            </p>
-            <div className="rm-actions">
-              <button className="btn primary" onClick={() => setDialog({ mode: 'create' })}>
-                New Host
-              </button>
-              <button
-                className="btn"
-                onClick={() => void openImport()}
-                disabled={importState?.status === 'loading'}
-              >
-                {importState?.status === 'loading' ? 'Scanning…' : 'Import…'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="rm-grid">
-            {filtered.map((host) => (
-              <HostCard
-                key={host.id}
-                host={host}
-                onEdit={() => setDialog({ mode: 'edit', host })}
-                onFiles={() => setFilesHostId(host.id)}
-                onForwards={() => setForwardsHostId(host.id)}
-              />
-            ))}
-            <div
-              className="rm-card import"
-              role="button"
-              tabIndex={0}
-              onClick={() => void openImport()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') void openImport();
-              }}
+        <nav aria-label="Remote host views">
+          {(['overview', 'files', 'forwards'] as const).map((view) => (
+            <button
+              key={view}
+              className={app.remoteSubview === view ? 'active' : ''}
+              data-testid={`remote-tab-${view}`}
+              onClick={() => app.setRemoteSubview(view)}
             >
-              <b>Import from ~/.ssh/config</b>
-              <span>
-                {importState?.status === 'loading'
-                  ? 'Scanning…'
-                  : 'Keys and ProxyJump are mapped automatically'}
-              </span>
+              {view === 'overview' ? 'Overview' : view === 'files' ? 'Files' : 'Forwards'}
+              {view === 'forwards' && activeForwards.length > 0
+                ? ` · ${activeForwards.length}`
+                : ''}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      {app.remoteSubview === 'files' ? (
+        <div className="rm-subview rm-files-subview">
+          <SftpPanel host={host} onBack={() => app.setRemoteSubview('overview')} />
+        </div>
+      ) : app.remoteSubview === 'forwards' ? (
+        <div className="rm-subview">
+          <ForwardsDialog host={host} embedded />
+        </div>
+      ) : (
+        <div className="rm-overview" data-testid={`rm-host-overview-${host.id}`}>
+          <section className="rm-overview-hero">
+            <div className="rm-host-mark">
+              <Ic name="server" size={24} />
+              <span className={`rm-dot ${state}`} />
+            </div>
+            <div className="rm-overview-title">
+              <span className="rm-eyebrow">Selected host</span>
+              <h1>{host.label}</h1>
+              <p>
+                {host.username}@{host.host}:{host.port}
+              </p>
+              <div className="rm-badges">
+                <span className="rm-badge auth">{authLabel(host)}</span>
+                {host.tags.map((tag) => (
+                  <span className="rm-badge tag" key={tag}>
+                    {tag}
+                  </span>
+                ))}
+                {host.proxyJump ? (
+                  <span className="rm-badge jump">via {host.proxyJump}</span>
+                ) : null}
+              </div>
+            </div>
+            <div className="rm-overview-actions">
               <button
-                className="btn sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void openImport();
-                }}
+                className="btn primary"
+                data-testid={connected ? `rm-new-session-${host.id}` : `rm-connect-${host.id}`}
+                disabled={busy !== null || pending}
+                onClick={() => void launch()}
               >
-                Import…
+                <Ic name="terminal" size={13} />
+                {pending
+                  ? 'Connecting…'
+                  : busy === 'open'
+                    ? 'Opening…'
+                    : connected
+                      ? 'New Session'
+                      : 'Connect'}
+              </button>
+              <button className="btn" onClick={() => setDialog({ mode: 'edit', host })}>
+                <Ic name="pencil" size={13} /> Edit
+              </button>
+              {connected ? (
+                <button
+                  className="btn danger"
+                  data-testid={`rm-disconnect-${host.id}`}
+                  disabled={busy === 'disconnect'}
+                  onClick={() => {
+                    setBusy('disconnect');
+                    void disconnect(host.id).finally(() => setBusy(null));
+                  }}
+                >
+                  Disconnect
+                </button>
+              ) : (
+                <button className="btn danger" onClick={() => void remove()}>
+                  {confirmDelete ? 'Confirm delete' : 'Delete'}
+                </button>
+              )}
+            </div>
+          </section>
+
+          {host.connection.error ? <div className="rm-error">{host.connection.error}</div> : null}
+
+          <section className="rm-overview-grid">
+            <article className="rm-info-card">
+              <span className="rm-eyebrow">Connection</span>
+              <strong className="rm-capitalize">{state}</strong>
+              <p>
+                {connected
+                  ? `${sessions.filter((session) => !session.exited).length} live sessions`
+                  : relativeTime(host.lastConnectedAt)}
+              </p>
+            </article>
+            <article className="rm-info-card">
+              <span className="rm-eyebrow">Remote workspace</span>
+              <strong className="rm-mono">{host.remoteWorkdir ?? '~'}</strong>
+              <p>{host.proxyJump ? `ProxyJump ${host.proxyJump}` : 'Direct SSH connection'}</p>
+            </article>
+            <button
+              className="rm-info-card actionable"
+              data-testid={`rm-files-${host.id}`}
+              onClick={() => app.setRemoteSubview('files')}
+            >
+              <span className="rm-eyebrow">SFTP</span>
+              <strong>Browse Files</strong>
+              <p>Local and remote file transfer</p>
+            </button>
+            <button
+              className="rm-info-card actionable"
+              data-testid={`rm-forwards-${host.id}`}
+              onClick={() => app.setRemoteSubview('forwards')}
+            >
+              <span className="rm-eyebrow">Port forwarding</span>
+              <strong>{activeForwards.length} active</strong>
+              <p>{host.forwards.length} saved tunnels</p>
+            </button>
+          </section>
+
+          <section className="rm-overview-sessions">
+            <div className="rm-section-head">
+              <span>
+                <span className="rm-eyebrow">On this host</span>
+                <strong>Sessions</strong>
+              </span>
+              <button className="btn sm" disabled={busy !== null} onClick={() => void launch()}>
+                <Ic name="plus" size={12} /> New Session
               </button>
             </div>
-          </div>
-        )}
-
-        {loaded && hosts.length > 0 && filtered.length === 0 ? (
-          <div className="rm-empty">
-            <p>No hosts match “{query}”.</p>
-          </div>
-        ) : null}
-      </div>
-
-      {dialog ? (
-        <RemoteHostDialog mode={dialog.mode} host={dialog.host} onClose={() => setDialog(null)} />
-      ) : null}
-
-      {forwardsHost ? (
-        <ForwardsDialog host={forwardsHost} onClose={() => setForwardsHostId(null)} />
-      ) : null}
-
-      {importState?.status === 'open' ? (
-        <ImportPanel candidates={importState.candidates} onClose={() => setImportState(null)} />
-      ) : null}
+            {sessions.length === 0 ? (
+              <div className="rm-session-empty">
+                No sessions yet. Connect to open a shell on {host.label}.
+              </div>
+            ) : (
+              <div className="rm-session-list">
+                {sessions.map((session) => (
+                  <button
+                    key={session.id}
+                    data-testid={`rm-overview-session-${session.id}`}
+                    onClick={() => focusRemoteSession(session.id, host.id)}
+                  >
+                    <span className="rm-dot connected" />
+                    <Ic name="terminal" size={13} />
+                    <span>
+                      <strong>{session.title}</strong>
+                      <small>{session.cwd || host.remoteWorkdir || '~'}</small>
+                    </span>
+                    <em>Live</em>
+                    <Ic name="chevron" size={11} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+      {dialogs}
     </div>
   );
 }

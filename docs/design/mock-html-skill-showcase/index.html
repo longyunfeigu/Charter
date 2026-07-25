@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Design Mock HTML Skill · 四案例前向测试</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --page: #e5dac7;
+        --paper: #fff8ea;
+        --paper-2: #f3e5ce;
+        --ink: #35251e;
+        --muted: #7a6251;
+        --faint: #a1846e;
+        --line: #d1b994;
+        --accent: #bd5033;
+        --green: #557d58;
+        --green-soft: #deebd9;
+        --bark: #2b201a;
+        --serif: Iowan Old Style, "Noto Serif SC", "Songti SC", Georgia, serif;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+        --mono: "SFMono-Regular", Consolas, Menlo, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-width: 320px;
+        min-height: 100%;
+        margin: 0;
+      }
+
+      body {
+        background: var(--page);
+        color: var(--ink);
+        font-family: var(--sans);
+      }
+
+      button,
+      a {
+        color: inherit;
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      button:focus-visible,
+      a:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .topbar {
+        position: sticky;
+        z-index: 100;
+        top: 0;
+        min-height: 66px;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 10px 18px;
+        border-bottom: 1px solid #60483a;
+        background: var(--bark);
+        color: #f8ead0;
+      }
+
+      .brand {
+        min-width: 0;
+        display: grid;
+        gap: 3px;
+      }
+
+      .brand small {
+        color: #cbb395;
+        font: 8px var(--mono);
+        letter-spacing: 0.13em;
+      }
+
+      .brand strong {
+        font: 600 14px var(--serif);
+      }
+
+      .role-contract {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-left: 12px;
+      }
+
+      .role-contract span {
+        padding: 5px 7px;
+        border: 1px solid #725745;
+        border-radius: 999px;
+        color: #e6d3b7;
+        font-size: 9px;
+      }
+
+      .pass-badge {
+        margin-left: auto;
+        padding: 7px 10px;
+        border: 1px solid #779071;
+        border-radius: 7px;
+        background: #3a5039;
+        color: #e7f3df;
+        font: 9px var(--mono);
+      }
+
+      .shell {
+        display: grid;
+        gap: 14px;
+        padding: 14px;
+      }
+
+      .case-nav {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .case-button {
+        min-height: 70px;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: #f7ead4;
+        text-align: left;
+      }
+
+      .case-button:hover {
+        border-color: #b9946d;
+        background: var(--paper);
+      }
+
+      .case-button.active {
+        border-color: var(--accent);
+        background: var(--paper);
+        box-shadow: inset 3px 0 var(--accent);
+      }
+
+      .case-no {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        border-radius: 7px;
+        background: var(--bark);
+        color: #fff3df;
+        font: 700 9px var(--mono);
+      }
+
+      .case-copy {
+        min-width: 0;
+        display: grid;
+        gap: 3px;
+      }
+
+      .case-copy strong {
+        overflow: hidden;
+        font: 600 11px var(--serif);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .case-copy small {
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 8px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .case-score {
+        color: var(--green);
+        font: 700 18px var(--mono);
+      }
+
+      .case-score small {
+        font-size: 7px;
+      }
+
+      .viewer-card,
+      .analysis-card {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        background: var(--paper);
+        box-shadow: 0 12px 32px rgb(56 39 25 / 9%);
+      }
+
+      .viewer-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 58px;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .viewer-title {
+        min-width: 0;
+        display: grid;
+        gap: 3px;
+      }
+
+      .viewer-title h1 {
+        margin: 0;
+        font: 600 16px var(--serif);
+      }
+
+      .viewer-title p {
+        margin: 0;
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 9px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .view-tabs {
+        display: flex;
+        gap: 3px;
+        margin-left: auto;
+        padding: 3px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper-2);
+      }
+
+      .view-tab {
+        min-height: 30px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 9px;
+      }
+
+      .view-tab.active {
+        background: var(--paper);
+        box-shadow: 0 1px 4px rgb(55 38 24 / 15%);
+        color: var(--ink);
+        font-weight: 650;
+      }
+
+      .comparison {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1px;
+        background: var(--line);
+      }
+
+      .mock-panel {
+        min-width: 0;
+        background: #e9dfce;
+      }
+
+      .mock-panel-head {
+        height: 44px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 10px;
+        border-bottom: 1px solid var(--line);
+        background: #fff8ea;
+      }
+
+      .mock-panel-head strong {
+        font: 600 10px var(--serif);
+      }
+
+      .mock-panel-head span {
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 8px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .mock-link {
+        min-height: 28px;
+        display: inline-flex;
+        align-items: center;
+        margin-left: auto;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--paper);
+        font-size: 8px;
+        text-decoration: none;
+      }
+
+      .mock-frame {
+        position: relative;
+        width: 100%;
+        overflow: hidden;
+        background: #e7dcc9;
+      }
+
+      .mock-frame iframe {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 1440px;
+        height: 900px;
+        border: 0;
+        transform-origin: top left;
+      }
+
+      .viewer-card[data-view="old"] .recommended-panel,
+      .viewer-card[data-view="recommended"] .old-panel {
+        display: none;
+      }
+
+      .viewer-card[data-view="old"] .comparison,
+      .viewer-card[data-view="recommended"] .comparison {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .analysis-grid {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr 1.45fr;
+        gap: 12px;
+      }
+
+      .analysis-card {
+        padding: 14px;
+      }
+
+      .analysis-card h2 {
+        margin: 4px 0 8px;
+        font: 600 14px var(--serif);
+      }
+
+      .analysis-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 9px;
+        line-height: 1.65;
+      }
+
+      .kicker {
+        color: var(--faint);
+        font: 8px var(--mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .iteration-list {
+        display: grid;
+        gap: 7px;
+        margin-top: 10px;
+      }
+
+      .iteration-row {
+        display: grid;
+        grid-template-columns: 22px minmax(0, 1fr);
+        gap: 8px;
+        padding-top: 7px;
+        border-top: 1px solid #e4d2b6;
+      }
+
+      .iteration-row b {
+        width: 22px;
+        height: 22px;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        background: var(--paper-2);
+        color: var(--accent);
+        font: 700 8px var(--mono);
+      }
+
+      .iteration-row span {
+        color: var(--muted);
+        font-size: 8px;
+        line-height: 1.5;
+      }
+
+      .score-head {
+        display: flex;
+        align-items: end;
+        gap: 8px;
+        margin: 3px 0 10px;
+      }
+
+      .score-head strong {
+        color: var(--green);
+        font: 700 32px/1 var(--mono);
+      }
+
+      .score-head span {
+        color: var(--muted);
+        font: 8px var(--mono);
+      }
+
+      .score-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+      }
+
+      .score-cell {
+        display: grid;
+        gap: 3px;
+        padding: 8px;
+        border: 1px solid #d7c3a4;
+        border-radius: 7px;
+        background: #f7ead5;
+      }
+
+      .score-cell span {
+        color: var(--muted);
+        font-size: 8px;
+      }
+
+      .score-cell strong {
+        font: 700 12px var(--mono);
+      }
+
+      .score-cell small {
+        color: var(--faint);
+        font-size: 7px;
+      }
+
+      .evidence-note {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 10px 12px;
+        border: 1px solid #c6ad88;
+        border-radius: 9px;
+        background: #f1e2c7;
+        color: var(--muted);
+        font-size: 8px;
+        line-height: 1.55;
+      }
+
+      .evidence-note strong {
+        color: var(--ink);
+      }
+
+      @media (max-width: 1050px) {
+        .role-contract {
+          display: none;
+        }
+
+        .case-nav {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .analysis-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .analysis-card.score-card {
+          grid-column: 1 / -1;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .pass-badge {
+          display: none;
+        }
+
+        .shell {
+          padding: 8px;
+        }
+
+        .case-nav,
+        .comparison,
+        .analysis-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .viewer-head {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .view-tabs {
+          margin-left: 0;
+        }
+
+        .score-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <small>DESIGN-MOCK-HTML · FORWARD TEST</small>
+        <strong>同一套 Skill，四种产品问题，统一 90 分发布门槛</strong>
+      </div>
+      <div class="role-contract" aria-label="Skill 的四重职责">
+        <span>产品负责人</span>
+        <span>交互架构师</span>
+        <span>审美工程师</span>
+        <span>可用性审查员</span>
+      </div>
+      <div class="pass-badge">4 / 4 推荐稿通过质量门槛</div>
+    </header>
+
+    <main class="shell">
+      <nav class="case-nav" aria-label="四个 Mock HTML 案例">
+        <button class="case-button active" type="button" data-case="split">
+          <span class="case-no">01</span>
+          <span class="case-copy">
+            <strong>Session 分栏</strong>
+            <small>直接操作、预设、Focus 与窄窗</small>
+          </span>
+          <span class="case-score">92<small>/100</small></span>
+        </button>
+        <button class="case-button" type="button" data-case="context">
+          <span class="case-no">02</span>
+          <span class="case-copy">
+            <strong>上下文附件</strong>
+            <small>来源、作用域与发送留档</small>
+          </span>
+          <span class="case-score">93<small>/100</small></span>
+        </button>
+        <button class="case-button" type="button" data-case="sftp">
+          <span class="case-no">03</span>
+          <span class="case-copy">
+            <strong>SFTP 传输</strong>
+            <small>目标确认、冲突预检与恢复</small>
+          </span>
+          <span class="case-score">94<small>/100</small></span>
+        </button>
+        <button class="case-button" type="button" data-case="projects">
+          <span class="case-no">04</span>
+          <span class="case-copy">
+            <strong>添加项目</strong>
+            <small>已有列表与零项目空态</small>
+          </span>
+          <span class="case-score">92<small>/100</small></span>
+        </button>
+      </nav>
+
+      <section class="viewer-card" id="viewer-card" data-view="compare">
+        <header class="viewer-head">
+          <div class="viewer-title">
+            <h1 id="case-title">01 · Session 对话区与工具画布分栏</h1>
+            <p id="case-brief">需要手动调节空间，但不接受打开 Diff 后界面擅自覆盖用户选择。</p>
+          </div>
+          <div class="view-tabs" role="tablist" aria-label="对比视图">
+            <button class="view-tab active" type="button" data-view="compare">并排对比</button>
+            <button class="view-tab" type="button" data-view="old">历史交互</button>
+            <button class="view-tab" type="button" data-view="recommended">推荐交互</button>
+          </div>
+        </header>
+
+        <div class="comparison">
+          <article class="mock-panel old-panel">
+            <header class="mock-panel-head">
+              <strong>历史版本</strong>
+              <span id="old-summary">自由拖拽，但恢复、作用域和窄窗策略较隐式</span>
+              <a class="mock-link" id="old-link" href="../session-split-mockups/a-free-drag.html"
+                >全尺寸打开 ↗</a
+              >
+            </header>
+            <div class="mock-frame">
+              <iframe
+                id="old-frame"
+                title="历史版本 Mock HTML"
+                src="../session-split-mockups/a-free-drag.html"
+              ></iframe>
+            </div>
+          </article>
+
+          <article class="mock-panel recommended-panel">
+            <header class="mock-panel-head">
+              <strong>Skill 推荐版</strong>
+              <span id="new-summary">自由拖拽 + 命名预设 + 可逆 Focus + 窄窗重排</span>
+              <a class="mock-link" id="new-link" href="../session-split-skill-v1/recommended.html"
+                >全尺寸打开 ↗</a
+              >
+            </header>
+            <div class="mock-frame">
+              <iframe
+                id="new-frame"
+                title="Skill 推荐版本 Mock HTML"
+                src="../session-split-skill-v1/recommended.html"
+              ></iframe>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="analysis-grid">
+        <article class="analysis-card">
+          <span class="kicker">Product frame</span>
+          <h2 id="model-title">纠正式融合，不推翻熟悉范式</h2>
+          <p id="model-copy">
+            保留 IDE 用户熟悉的拖拽，只补足可发现性、命名布局、恢复路径和窄窗重排；拒绝焦点跟随自动改宽。
+          </p>
+        </article>
+
+        <article class="analysis-card">
+          <span class="kicker">Recursive critique</span>
+          <h2>实际看图后改了什么</h2>
+          <div class="iteration-list" id="iteration-list">
+            <div class="iteration-row">
+              <b>1</b><span>旧版把关键能力藏在悬停与双击中 → 增加可见把手和语义布局菜单。</span>
+            </div>
+            <div class="iteration-row">
+              <b>2</b><span>Focus 返回文案曾写死为 56/44 → 改为恢复实际自定义比例。</span>
+            </div>
+            <div class="iteration-row">
+              <b>3</b><span>模式切换残留比例浮层 → 在 Focus 与窄窗状态立即移除。</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="analysis-card score-card">
+          <span class="kicker">Evidence-based score</span>
+          <div class="score-head">
+            <strong id="total-score">92</strong>
+            <span>/ 100 · 所有分类达到 floor · blocker = 0</span>
+          </div>
+          <div class="score-grid" id="score-grid"></div>
+        </article>
+      </section>
+
+      <aside class="evidence-note">
+        <strong>证据边界</strong>
+        <span>
+          ADE 当前聊天索引没有 chat 文档，因此“历史版本”来自仓库中成组的 Mock、README、ADR
+          与实现记录，不冒充聊天原文。旧版未按本轮完整 proof 路径复测，故不伪造同口径旧版总分；推荐版分数来自统一量表、渲染截图与实际交互结果。
+        </span>
+      </aside>
+    </main>
+
+    <script>
+      const cases = {
+        split: {
+          title: "01 · Session 对话区与工具画布分栏",
+          brief: "需要手动调节空间，但不接受打开 Diff 后界面擅自覆盖用户选择。",
+          old: "../session-split-mockups/a-free-drag.html",
+          recommended: "../session-split-skill-v1/recommended.html",
+          oldSummary: "自由拖拽，但恢复、作用域和窄窗策略较隐式",
+          newSummary: "自由拖拽 + 命名预设 + 可逆 Focus + 窄窗重排",
+          modelTitle: "纠正式融合，不推翻熟悉范式",
+          modelCopy:
+            "保留 IDE 用户熟悉的拖拽，只补足可发现性、命名布局、恢复路径和窄窗重排；拒绝焦点跟随自动改宽。",
+          score: 92,
+          scores: [23, 23, 18, 14, 9, 5],
+          deductions: ["缺真实使用数据", "仍需实机验证拖拽偏好", "延续既有皮肤", "未做读屏器实测", "假设已标注", "路径已自动化"],
+          iterations: [
+            "旧版把关键能力藏在悬停与双击中 → 增加可见把手和语义布局菜单。",
+            "Focus 返回文案曾写死为 56/44 → 改为恢复实际自定义比例。",
+            "模式切换残留比例浮层 → 在 Focus 与窄窗状态立即移除。",
+          ],
+        },
+        context: {
+          title: "02 · 给 Session 附加文件、文件夹与图片",
+          brief: "用户需要看到来源、明确这次发送会带上什么，并确认它不会悄悄成为长期上下文。",
+          old: "../context-attach-mockups/bd-fusion.html",
+          recommended: "context-attach.html",
+          oldSummary: "常驻文件树完整，但本条消息与项目长期上下文的边界偏弱",
+          newSummary: "常驻来源 + 本条消息上下文架 + 发送后随消息留档",
+          modelTitle: "保留 B+D 决策，强化作用域与闭环",
+          modelCopy:
+            "不推翻已确认的 Sessions/Files 常驻树；把附件先放入可撤销的“本条消息上下文架”，并在右侧明确与 Project context 的区别。",
+          score: 93,
+          scores: [23, 24, 18, 14, 9, 5],
+          deductions: ["未验证大文件策略", "外部文件复制仍需实现确认", "信息密度略高", "未做读屏器实测", "尊重已确认 ADR", "发送与窄窗已验证"],
+          iterations: [
+            "第一稿只有 chips，没有明确作用域 → 增加“本条消息”标题和 Project context 对照。",
+            "窄窗隐藏文件栏后 @ 无法恢复来源 → 增加可关闭的文件抽屉。",
+            "发现树行中嵌套交互控件 → 拆成语义容器与独立添加按钮。",
+          ],
+        },
+        sftp: {
+          title: "03 · 本机与远程主机之间上传文件",
+          brief: "保持双栏文件管理习惯，同时让目标路径、覆盖冲突、进度和失败恢复始终清楚。",
+          old: "../ssh-mockups/upload-fused-dualpane-transfercenter.html",
+          recommended: "sftp-transfer.html",
+          oldSummary: "双栏熟悉，但方向按钮语义弱，传输中心覆盖远程列表",
+          newSummary: "明确源/目标 + 上传预检 + 冲突策略 + 非遮挡传输中心",
+          modelTitle: "直接操作与风险确认分层",
+          modelCopy:
+            "浏览和选择保持 FileZilla 式双栏直接操作；真正产生远程写入时才进入一次轻量预检，集中确认目标和覆盖策略。",
+          score: 94,
+          scores: [24, 24, 18, 14, 9, 5],
+          deductions: ["权限失败尚未展开", "批量规则仍可增强", "队列密度可再实测", "未做读屏器实测", "沿用桌面传输范式", "预检/重试已验证"],
+          iterations: [
+            "旧版队列浮层遮挡目标目录 → 改成稳定第三栏并在窄窗进入文档流。",
+            "仅用箭头表达上传容易误判 → 增加源/目标标题、目标卡和可读按钮名称。",
+            "首张预检截图处于过渡中显得透明 → 稳定动画后复查，并保留 reduced-motion。",
+          ],
+        },
+        projects: {
+          title: "04 · 添加、打开或克隆一个项目",
+          brief: "已有项目时入口要紧凑；没有项目时，新用户不应先理解抽象的“Add project”菜单。",
+          old: "../projects-add-c-single-entry.html",
+          recommended: "project-entry.html",
+          oldSummary: "固定底部入口安静，但空态与已有项目共享同一优先级",
+          newSummary: "已有列表用 Header Add，空态直接呈现三个用户任务",
+          modelTitle: "入口随任务阶段改变，不让用户先学术语",
+          modelCopy:
+            "已有项目时使用桌面侧栏常见的 Header Add；零项目时去掉搜索，把“打开文件夹、Clone、空白项目”直接变成下一步。",
+          score: 92,
+          scores: [23, 23, 19, 14, 8, 5],
+          deductions: ["未验证项目规模极值", "文件选择器为示意", "视觉层级完整", "未做读屏器实测", "需用户验证任务排序", "菜单/空态/键盘已验证"],
+          iterations: [
+            "固定底栏没有随用户阶段变化 → 拆成已有列表 Header 入口与零项目任务空态。",
+            "第一稿切空态后仍显示 fable5 详情 → 同步切换主画布，消除状态矛盾。",
+            "菜单只能鼠标选择 → 增加 ArrowUp/Down、Escape 与焦点返回。",
+          ],
+        },
+      };
+
+      const categoryNames = [
+        ["产品适配", 25],
+        ["交互质量", 25],
+        ["视觉工艺", 20],
+        ["无障碍/适配", 15],
+        ["证据完整", 10],
+        ["原型证明", 5],
+      ];
+      const viewer = document.getElementById("viewer-card");
+      let activeCase = "split";
+
+      function resizeFrames() {
+        document.querySelectorAll(".mock-frame").forEach((frame) => {
+          if (frame.closest(".mock-panel").offsetParent === null) return;
+          const scale = frame.clientWidth / 1440;
+          const iframe = frame.querySelector("iframe");
+          iframe.style.transform = `scale(${scale})`;
+          frame.style.height = `${900 * scale}px`;
+        });
+      }
+
+      function renderCase(id) {
+        activeCase = id;
+        const data = cases[id];
+        document.querySelectorAll(".case-button").forEach((button) => {
+          button.classList.toggle("active", button.dataset.case === id);
+        });
+        document.getElementById("case-title").textContent = data.title;
+        document.getElementById("case-brief").textContent = data.brief;
+        document.getElementById("old-summary").textContent = data.oldSummary;
+        document.getElementById("new-summary").textContent = data.newSummary;
+        document.getElementById("old-frame").src = data.old;
+        document.getElementById("new-frame").src = data.recommended;
+        document.getElementById("old-link").href = data.old;
+        document.getElementById("new-link").href = data.recommended;
+        document.getElementById("model-title").textContent = data.modelTitle;
+        document.getElementById("model-copy").textContent = data.modelCopy;
+        document.getElementById("total-score").textContent = data.score;
+        document.getElementById("iteration-list").innerHTML = data.iterations
+          .map(
+            (text, index) =>
+              `<div class="iteration-row"><b>${index + 1}</b><span>${text}</span></div>`,
+          )
+          .join("");
+        document.getElementById("score-grid").innerHTML = data.scores
+          .map(
+            (score, index) => `
+              <div class="score-cell">
+                <span>${categoryNames[index][0]}</span>
+                <strong>${score} / ${categoryNames[index][1]}</strong>
+                <small>${data.deductions[index]}</small>
+              </div>
+            `,
+          )
+          .join("");
+        requestAnimationFrame(resizeFrames);
+      }
+
+      document.querySelectorAll(".case-button").forEach((button) => {
+        button.addEventListener("click", () => renderCase(button.dataset.case));
+      });
+
+      document.querySelectorAll(".view-tab").forEach((button) => {
+        button.addEventListener("click", () => {
+          viewer.dataset.view = button.dataset.view;
+          document.querySelectorAll(".view-tab").forEach((candidate) => {
+            candidate.classList.toggle("active", candidate === button);
+          });
+          requestAnimationFrame(resizeFrames);
+        });
+      });
+
+      window.addEventListener("resize", resizeFrames);
+      renderCase(activeCase);
+    </script>
+  </body>
+</html>

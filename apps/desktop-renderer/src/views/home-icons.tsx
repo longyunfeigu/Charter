@@ -272,6 +272,13 @@ const PATHS: Record<string, React.JSX.Element> = {
       <line x1="12" x2="20" y1="19" y2="19" />
     </>
   ),
+  server: (
+    <>
+      <rect x="3" y="3" width="18" height="7" rx="2" />
+      <rect x="3" y="14" width="18" height="7" rx="2" />
+      <path d="M7 6.5h.01M7 17.5h.01M11 6.5h7M11 17.5h7" />
+    </>
+  ),
   eye: (
     <>
       <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />

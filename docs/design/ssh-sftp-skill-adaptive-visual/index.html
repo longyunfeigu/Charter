@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SFTP · 自适应视觉方向实验室</title>
+    <link rel="stylesheet" href="./lab.css" />
+  </head>
+  <body>
+    <header class="lab-header">
+      <div>
+        <span>ADAPTIVE VISUAL EXPLORATION · SAME BEHAVIOR</span>
+        <h1>这次不先宣布“最好看”</h1>
+        <p>交互已经冻结。下面三个方向来自两个已知偏好极点和一个有理由的融合假设，不是为了凑够三个。</p>
+      </div>
+      <nav>
+        <a href="./compare.html">和上一版对比 ↗</a>
+        <a href="./contract.md">查看方向依据 ↗</a>
+        <a href="./research.md">查看产品研究 ↗</a>
+        <a href="./evaluation.md">查看验收记录 ↗</a>
+      </nav>
+    </header>
+
+    <section class="fixed-strip" aria-label="固定比较条件">
+      <strong>固定不变</strong>
+      <span>双栏结构</span>
+      <span>拖放与 Upload</span>
+      <span>冲突处理</span>
+      <span>中断恢复</span>
+      <span>相同数据与视口</span>
+      <b>三个方向都可以不选</b>
+    </section>
+
+    <main>
+      <section class="directions" aria-labelledby="directions-title">
+        <header>
+          <span>ROUND 1 · HOLISTIC VOICE</span>
+          <h2 id="directions-title">选择一个方向查看完整交互</h2>
+          <p>本轮比较整体视觉语言。若你喜欢 A 的字体、B 的间距，下一轮应拆开比较这些轴，而不是继续堆皮肤。</p>
+        </header>
+
+        <div class="direction-grid">
+          <button
+            class="direction-card active"
+            type="button"
+            data-theme="heritage"
+            aria-pressed="true"
+          >
+            <span class="card-index">A</span>
+            <span class="card-copy">
+              <small>COMFORTABLE · EDITORIAL</small>
+              <strong>Warm Archive</strong>
+              <span>温暖纸张感、衬线锚点、舒展列表</span>
+            </span>
+            <span class="swatches" aria-label="色彩样本">
+              <i style="--swatch: #fff4df"></i><i style="--swatch: #f5e6cb"></i
+              ><i style="--swatch: #c44e2d"></i><i style="--swatch: #4d735f"></i>
+            </span>
+            <span class="tradeoff"><b>获得</b> 个性与舒适度 <em>代价</em> 同屏文件更少</span>
+          </button>
+
+          <button class="direction-card" type="button" data-theme="native" aria-pressed="false">
+            <span class="card-index">B</span>
+            <span class="card-copy">
+              <small>COMPACT · SYSTEM-FAMILIAR</small>
+              <strong>Mac Utility</strong>
+              <span>冷静中性色、系统字体、紧凑扫描</span>
+            </span>
+            <span class="swatches" aria-label="色彩样本">
+              <i style="--swatch: #f8f9fa"></i><i style="--swatch: #edf0f3"></i
+              ><i style="--swatch: #4778a8"></i><i style="--swatch: #34786f"></i>
+            </span>
+            <span class="tradeoff"><b>获得</b> 熟悉与效率 <em>代价</em> 产品辨识度较弱</span>
+          </button>
+
+          <button class="direction-card" type="button" data-theme="synthesis" aria-pressed="false">
+            <span class="card-index">C</span>
+            <span class="card-copy">
+              <small>BALANCED · CRAFTED UTILITY</small>
+              <strong>Warm Precision</strong>
+              <span>暖中性表面、少量衬线、平衡密度</span>
+            </span>
+            <span class="swatches" aria-label="色彩样本">
+              <i style="--swatch: #fcf8f0"></i><i style="--swatch: #f1e8dc"></i
+              ><i style="--swatch: #b94e33"></i><i style="--swatch: #2e7068"></i>
+            </span>
+            <span class="tradeoff"><b>获得</b> 个性与清晰度 <em>风险</em> 融合原则不稳会像折中</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="preview-section">
+        <header class="preview-head">
+          <div>
+            <span>LIVE MOCK · 1440 × 900 TARGET</span>
+            <h2 id="preview-title">A · Warm Archive</h2>
+            <p id="preview-hypothesis">
+              假设：更温暖、舒展的桌面工具感，会让长时间文件操作更安静、更有记忆点。
+            </p>
+          </div>
+          <div>
+            <button id="reset-frame" type="button">重置交互</button>
+            <a id="open-full" href="../ssh-sftp-skill-user-first/index.html?theme=heritage" target="_blank" rel="noreferrer"
+              >单独打开 ↗</a
+            >
+          </div>
+        </header>
+        <div class="preview-frame">
+          <iframe
+            id="mock-frame"
+            src="../ssh-sftp-skill-user-first/index.html?theme=heritage"
+            title="SFTP 视觉方向完整交互预览"
+          ></iframe>
+        </div>
+        <footer>
+          <span>建议路径：拖动左侧已选文件 → Keep both → Upload → Resume from 2.8 KB</span>
+          <button id="reject-all" type="button">三个都不合适</button>
+        </footer>
+      </section>
+
+      <section class="rejection-panel" id="rejection-panel" hidden aria-live="polite">
+        <div>
+          <span>VALID OUTCOME</span>
+          <h2>“都不合适”不是失败</h2>
+          <p>它说明当前假设空间没有命中。下一轮应该从你指出的具体喜欢与不喜欢中生成新方向，而不是强迫选择。</p>
+        </div>
+        <dl>
+          <div><dt>字体</dt><dd>哪一版的层级或气质更接近？</dd></div>
+          <div><dt>色温</dt><dd>偏暖、偏冷，还是需要真正的深色？</dd></div>
+          <div><dt>密度</dt><dd>希望一屏看到更多，还是更舒展？</dd></div>
+          <div><dt>材料感</dt><dd>更像原生工具、编辑器，还是有品牌感的工作台？</dd></div>
+        </dl>
+      </section>
+
+      <section class="method-note">
+        <article>
+          <span>为什么停在这里</span>
+          <h3>新方向已经不再增加新的、有证据的假设</h3>
+          <p>更多颜色换皮不会提高覆盖度。若需要下一轮，应根据你的反馈拆分变量，或提出新的视觉假设。</p>
+        </article>
+        <article>
+          <span>研究如何影响结果</span>
+          <h3>借鉴关系与披露策略，不复制成熟产品外观</h3>
+          <p>双栏、直接拖放、可见 fallback 和按需活动详情来自成熟模式证据；颜色、字体与间距仍由本产品语境决定。</p>
+        </article>
+        <article>
+          <span>这不是什么</span>
+          <h3>不是用户研究，也不是审美真理</h3>
+          <p>这是专家启发式与可交互比较。最终偏好由你的判断决定，真实上线仍可用目标用户任务测试验证。</p>
+        </article>
+      </section>
+    </main>
+
+    <script src="./lab.js"></script>
+  </body>
+</html>

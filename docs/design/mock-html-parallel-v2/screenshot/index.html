@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Screenshot intent loop · v2</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="study">
+      <div><strong>Interactive prototype</strong><span>Screenshot intent loop</span></div>
+      <nav aria-label="Prototype states">
+        <button class="study-tab active" type="button" data-view="capture">1 Capture</button>
+        <button class="study-tab" type="button" data-view="session">2 Session</button>
+        <button class="study-tab" type="button" data-view="assets">3 Recover</button>
+        <button id="toggle-session" type="button">Edge: no Session</button>
+        <button id="reset" type="button">Reset</button>
+      </nav>
+    </header>
+
+    <main class="app">
+      <header class="appbar">
+        <span class="brand">C</span>
+        <strong>Charter</strong>
+        <span class="crumb">fable5</span>
+        <span class="session-state" id="session-state"><i></i> SS-184 active</span>
+      </header>
+
+      <aside class="rail">
+        <div class="rail-title"><span>Project context</span><strong>Session</strong></div>
+        <button class="rail-item active" type="button" data-view="capture"><b>01</b><span>Capture</span></button>
+        <button class="rail-item" type="button" data-view="session"><b>02</b><span>Session</span></button>
+        <button class="rail-item" type="button" data-view="assets"><b>03</b><span>Assets</span></button>
+        <div class="rail-session">
+          <span>ACTIVE DESTINATION</span>
+          <strong id="rail-destination">Fix failing Electron test</strong>
+          <small id="rail-session-id">SS-184 · fable5</small>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <div class="provenance" aria-label="Capture lifecycle">
+          <span class="trace-node current" data-trace="capture"><b>01</b> Captured</span>
+          <i></i>
+          <span class="trace-node" data-trace="attached"><b>02</b> Session context</span>
+          <i></i>
+          <span class="trace-node" data-trace="saved"><b>03</b> Recoverable</span>
+          <code>asset_01K0X</code>
+        </div>
+
+        <section class="view active" data-surface="capture">
+          <div class="capture-copy">
+            <span class="eyebrow">LOCAL CAPTURE · NOT SENT</span>
+            <h1>Turn the failure into context</h1>
+            <p>
+              The screenshot is still local. Choose where it belongs before Charter adds it to an agent run.
+            </p>
+            <dl class="capture-facts">
+              <div><dt>Object</dt><dd>asset_01K0X</dd></div>
+              <div><dt>Captured</dt><dd>10:42:31 · local clipboard</dd></div>
+              <div><dt>Default retention</dt><dd>Pending locally until sent or saved</dd></div>
+            </dl>
+          </div>
+
+          <article class="capture-card" id="capture-card">
+            <header>
+              <span class="file-mark">PNG</span>
+              <div><strong>Screenshot captured</strong><small>Clipboard 2026-07-21 10.42.31.png · 1440 × 900</small></div>
+              <button id="dismiss" type="button" aria-label="Dismiss Quick Card">×</button>
+            </header>
+            <div class="preview">
+              <div class="window-dots"><i></i><i></i><i></i></div>
+              <code>
+                ✓ renderer ready<br />
+                run 2 / reopen workspace<br />
+                <em>Error: Target page has been closed</em>
+              </code>
+              <span class="annotation" aria-label="Annotated failure region"></span>
+            </div>
+            <div class="destination" id="destination">
+              <span>
+                <small>DESTINATION</small>
+                <strong id="destination-name">Fix failing Electron test</strong>
+                <code id="destination-id">SS-184 · fable5</code>
+              </span>
+              <span class="status" id="destination-status">ready</span>
+            </div>
+            <div class="card-actions">
+              <button class="primary" id="attach" type="button"><span>Add to active Session</span><kbd>↵</kbd></button>
+              <button id="annotate" type="button"><span>Mark failure region</span><kbd>A</kbd></button>
+              <button id="save" type="button"><span>Save for recovery</span><kbd>S</kbd></button>
+            </div>
+            <footer>Nothing is sent until you review the attachment in the composer.</footer>
+          </article>
+
+          <button class="pending-tray" id="pending-tray" type="button" hidden>
+            <span class="file-mark">PNG</span>
+            <span><strong>1 pending capture</strong><small>asset_01K0X · retained locally</small></span>
+            <b>Restore Quick Card</b>
+          </button>
+        </section>
+
+        <section class="view" data-surface="session">
+          <header class="view-head">
+            <div><span class="eyebrow">SESSION COMPOSER</span><h1>Review context before send</h1></div>
+            <span class="scope-pill" id="scope-pill">SS-184 · Session only</span>
+          </header>
+          <div class="session-layout">
+            <aside class="session-list">
+              <span class="eyebrow">DESTINATION</span>
+              <button class="session-option selected" id="select-session" type="button">
+                <i></i><span><strong>Fix failing Electron test</strong><small>SS-184 · fable5</small></span><b>Use</b>
+              </button>
+              <p id="destination-help">The capture will become context for this Session only.</p>
+            </aside>
+            <div class="conversation">
+              <div class="messages">
+                <article class="agent-message">
+                  <span>CODEX · 10:41</span>
+                  <p>The second Electron window may be reusing a disposed context. Add the failure image if it shows a different state.</p>
+                </article>
+                <article class="sent-message" id="sent-proof" hidden>
+                  <p>Focus on the marked failure from the second Electron window.</p>
+                  <div><span class="file-mark">PNG</span><strong>Clipboard 2026-07-21 10.42.31.png</strong><small>asset_01K0X · SS-184 · sent</small></div>
+                </article>
+              </div>
+              <div class="composer">
+                <div class="attachment" id="attachment">
+                  <span class="thumb">ERR</span>
+                  <span><strong>Clipboard 2026-07-21 10.42.31.png</strong><small id="attachment-meta">asset_01K0X · no annotation · SS-184</small></span>
+                  <button id="remove-attachment" type="button">Remove</button>
+                </div>
+                <textarea aria-label="Message">Focus on the marked failure from the second Electron window.</textarea>
+                <div class="composer-foot">
+                  <span id="send-reason">Ready · image is attached to SS-184</span>
+                  <button class="primary" id="send" type="button">Send with image</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" data-surface="assets">
+          <header class="view-head">
+            <div><span class="eyebrow" id="assets-eyebrow">RECOVERY LIBRARY</span><h1 id="assets-title">Capture not saved yet</h1></div>
+            <button class="primary" id="reuse" type="button">Reuse in composer</button>
+          </header>
+          <div class="asset-empty" id="asset-empty">
+            <span class="file-mark">PNG</span>
+            <div>
+              <span class="eyebrow">LOCAL · PENDING</span>
+              <h2>This capture is not in the recovery library</h2>
+              <p>It still exists in the pending Quick Card. Save it before relying on Assets as a return path.</p>
+            </div>
+            <button class="primary" id="save-from-assets" type="button">Save for recovery</button>
+          </div>
+          <div class="asset-layout" id="asset-layout" hidden>
+            <div class="asset-preview">
+              <div class="preview large">
+                <div class="window-dots"><i></i><i></i><i></i></div>
+                <code>✓ renderer ready<br />run 2 / reopen workspace<br /><em>Error: Target page has been closed</em></code>
+                <span class="annotation" id="asset-annotation"></span>
+              </div>
+            </div>
+            <aside class="asset-ledger">
+              <span class="eyebrow">PROVENANCE LEDGER</span>
+              <h2>Clipboard 2026-07-21 10.42.31.png</h2>
+              <dl>
+                <div><dt>Asset ID</dt><dd>asset_01K0X</dd></div>
+                <div><dt>Origin</dt><dd>Local clipboard · 10:42:31</dd></div>
+                <div><dt>Scope</dt><dd id="asset-scope">Local recovery library</dd></div>
+                <div><dt>Annotation</dt><dd id="asset-annotation-copy">No annotation</dd></div>
+                <div><dt>Usage</dt><dd id="asset-usage">Saved for recovery</dd></div>
+              </dl>
+              <p>The original pixels never change. Annotation and Session usage remain auditable metadata.</p>
+            </aside>
+          </div>
+        </section>
+      </section>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1272,11 +1272,11 @@ function SessionActionDock({
     return (
       <footer className="session-action-dock compact" data-testid="session-action-dock">
         <span className="session-action-live">
-          <i /> Agent working
+          <i /> {task.external ? 'Session live' : 'Agent working'}
         </span>
         <span className="session-action-note">
           {task.external
-            ? `You can steer it from the ${task.external.cli} terminal.`
+            ? `Open the ${task.external.cli} terminal to see whether it is working or waiting.`
             : 'You can steer it from the composer.'}
         </span>
         {!task.external ? (

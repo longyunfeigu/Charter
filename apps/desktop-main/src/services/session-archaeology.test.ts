@@ -100,9 +100,52 @@ describe('parseClaudeTranscript (ADR-0038)', () => {
       '/Users/dev/git/blog/config.toml',
     ]);
     expect(summary.skills).toEqual(['baoyu-format-markdown']);
+    // The `/clear` built-in lands as a raw event here; the catalog join in
+    // skill-usage is what drops non-skill command names.
     expect(summary.skillEvents).toEqual([
+      { skill: 'clear', at: '2026-07-17T09:00:01.000Z' },
       { skill: 'baoyu-format-markdown', at: '2026-07-17T09:01:00.000Z' },
     ]);
+  });
+
+  it('counts `/skill` slash expansions as invocations (the Skill tool never fires)', () => {
+    const extended =
+      claudeTranscript() +
+      '\n' +
+      lines(
+        // Real slash expansion: content is exactly the command wrapper tags.
+        {
+          type: 'user',
+          timestamp: '2026-07-17T09:05:00.000Z',
+          message: {
+            content:
+              '<command-message>web-access</command-message>\n' +
+              '<command-name>/web-access</command-name>\n' +
+              '<command-args>打开 example.com</command-args>',
+          },
+        },
+        // Pasted text that merely mentions the tag mid-content never counts.
+        {
+          type: 'user',
+          timestamp: '2026-07-17T09:06:00.000Z',
+          message: { content: '帮我看下 <command-name>/web-access</command-name> 是什么意思' },
+        },
+        // Sidechain expansions stay out, like every other sidechain entry.
+        {
+          type: 'user',
+          isSidechain: true,
+          timestamp: '2026-07-17T09:07:00.000Z',
+          message: { content: '<command-name>/web-access</command-name>' },
+        },
+      );
+    const summary = parseClaudeTranscript(extended);
+    expect(summary.skillEvents).toEqual([
+      { skill: 'clear', at: '2026-07-17T09:00:01.000Z' },
+      { skill: 'baoyu-format-markdown', at: '2026-07-17T09:01:00.000Z' },
+      { skill: 'web-access', at: '2026-07-17T09:05:00.000Z' },
+    ]);
+    // Chips stay Skill-tool-only; the expansion is a usage event, not a load.
+    expect(summary.skills).toEqual(['baoyu-format-markdown']);
   });
 
   it('skill events skip sidechains and unstamped lines (ADR-0040)', () => {
@@ -130,6 +173,7 @@ describe('parseClaudeTranscript (ADR-0038)', () => {
     const summary = parseClaudeTranscript(extended);
     expect(summary.skills).toEqual(['baoyu-format-markdown', 'unstamped']);
     expect(summary.skillEvents).toEqual([
+      { skill: 'clear', at: '2026-07-17T09:00:01.000Z' },
       { skill: 'baoyu-format-markdown', at: '2026-07-17T09:01:00.000Z' },
     ]);
   });
@@ -337,6 +381,7 @@ describe('SessionArchaeologyService.scan (read-only fs discovery)', () => {
     // The codex rollout in the fake home has no skill traces; the non-uuid
     // agenda.jsonl is not a session transcript and must not be walked.
     await expect(service.skillUsageEvents()).resolves.toEqual([
+      { skill: 'clear', at: '2026-07-17T09:00:01.000Z', consumer: 'claude' },
       { skill: 'baoyu-format-markdown', at: '2026-07-17T09:01:00.000Z', consumer: 'claude' },
     ]);
   });

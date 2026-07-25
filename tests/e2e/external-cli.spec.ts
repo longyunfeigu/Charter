@@ -32,16 +32,20 @@ async function switchReplayDepth(page: Page, depth: 'recap' | 'explore' | 'verif
 function createFakeAgentBin(fixture: string): string {
   const bin = mkdtempSync(join(tmpdir(), 'pi-ide-fakebin-'));
   const target = join(fixture, 'src/util.ts').replace(/\\/g, '/');
+  const generated = join(fixture, 'dist/bundle.js').replace(/\\/g, '/');
   writeFileSync(
     join(bin, 'fakeagent'),
     [
       '#!/usr/bin/env node',
       "const fs = require('fs');",
       `const target = ${JSON.stringify(target)};`,
+      `const generated = ${JSON.stringify(generated)};`,
       "console.log('✳ fake agent session started');",
       'setTimeout(() => {',
       "  const src = fs.readFileSync(target, 'utf8');",
       "  fs.writeFileSync(target, src + 'export const externalTouch = 1;\\n');",
+      "  fs.mkdirSync(require('path').dirname(generated), { recursive: true });",
+      "  fs.writeFileSync(generated, 'generated build output\\n');",
       "  console.log('✏ edited src/util.ts');",
       '}, 1500);',
       // Long enough to promote the pane and type into the live PTY mid-session.
@@ -168,6 +172,65 @@ type E2ETerminalListResult =
   { ok: true; data: { items: E2ETerminalInfo[] } } | { ok: false; data?: undefined };
 
 test.describe('ADR-0017 external CLI agent sessions', () => {
+  test('a live external terminal reconnects after the renderer reloads', async () => {
+    const fixture = createGitFixture();
+    const bin = createParallelAgentBin();
+    const { app, page } = await launchApp({
+      env: {
+        PI_IDE_OPEN_WORKSPACE: fixture,
+        PI_IDE_EXTERNAL_CLIS: 'claude',
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        ZDOTDIR: bin,
+      },
+    });
+    try {
+      await page.keyboard.press('Control+`');
+      await expect(page.locator('.xterm')).toBeVisible({ timeout: 15_000 });
+      await page.getByTestId('terminal-host').locator('.xterm').click();
+      await page.keyboard.type(join(bin, 'claude'));
+      await page.keyboard.press('Enter');
+      await expect(page.locator('[data-testid^="terminal-agent-"]')).toContainText('Claude', {
+        timeout: 15_000,
+      });
+
+      const beforeReload = await page.evaluate(async () => {
+        const terminalResult = (await window.product.rpc['terminal.list']!(
+          {},
+        )) as E2ETerminalListResult;
+        const taskResult = (await window.product.rpc['task.list']!({
+          filter: 'all',
+          includeArchived: false,
+        })) as {
+          ok: true;
+          data: { tasks: Array<{ id: string; external: { terminalId: string } | null }> };
+        };
+        const task = taskResult.data.tasks.find((candidate) => candidate.external);
+        return {
+          terminalId: terminalResult.ok ? terminalResult.data.items[0]?.id : null,
+          taskId: task?.id ?? null,
+        };
+      });
+      expect(beforeReload.terminalId).toBeTruthy();
+      expect(beforeReload.taskId).toBeTruthy();
+
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const row = page.getByTestId(`home-task-${beforeReload.taskId}`);
+      await expect(row).toBeVisible({ timeout: 15_000 });
+      await row.click();
+      await expect(page.getByTestId('external-terminal-host')).toHaveAttribute(
+        'data-terminal-id',
+        beforeReload.terminalId!,
+        { timeout: 15_000 },
+      );
+      await expect(page.getByTestId('external-terminal-gone')).toHaveCount(0);
+      await waitForTerminalOutput(page, 'claude-pty-live', {
+        terminalId: beforeReload.terminalId!,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   test('Codex and Claude survive editor focus changes and atomically swap the side slot', async () => {
     const charter = createGitFixture();
     const writing = createGitFixture();
@@ -803,6 +866,9 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
 
   test('detect → badge → account → session room → REVIEW_READY', async () => {
     const fixture = createGitFixture();
+    writeFileSync(join(fixture, '.gitignore'), 'dist/\n');
+    execFileSync('git', ['add', '.gitignore'], { cwd: fixture });
+    execFileSync('git', ['commit', '-qm', 'ignore generated output'], { cwd: fixture });
     const bin = createFakeAgentBin(fixture);
     const { app, page } = await launchApp({
       env: {
@@ -1033,6 +1099,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       const utilFile = cs!.files.find((f) => f.path === 'src/util.ts');
       expect(utilFile?.status).toBe('modified');
       expect(utilFile?.additions).toBe(1);
+      expect(cs!.files.find((f) => f.path === 'dist/bundle.js')).toBeUndefined();
 
       // Disk really has the CLI's edit (the session was real, not simulated).
       expect(readFileSync(join(fixture, 'src/util.ts'), 'utf8')).toContain('externalTouch');

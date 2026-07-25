@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>用户优先版 · SFTP 文件传输</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./themes.css" />
+  </head>
+  <body>
+    <header class="study-bar">
+      <div>
+        <span>DESIGN-MOCK-HTML · ORDINARY-USER GATE</span>
+        <strong id="style-label">SSH / SFTP · 用户优先重做</strong>
+      </div>
+      <nav aria-label="原型场景">
+        <button class="active" type="button" data-demo="browse">1 浏览</button>
+        <button type="button" data-demo="conflict">2 冲突</button>
+        <button type="button" data-demo="failure">3 中断</button>
+        <button type="button" data-demo="complete">4 完成</button>
+        <button type="button" id="reset-demo">重置</button>
+      </nav>
+    </header>
+
+    <main class="product-shell" aria-label="Charter SFTP 文件工作区">
+      <header class="host-bar">
+        <button class="back-button" type="button" aria-label="返回远程主机列表">
+          <svg aria-hidden="true"><use href="#icon-back"></use></svg>
+          <span>Remotes</span>
+        </button>
+        <span class="host-avatar" aria-hidden="true">S</span>
+        <div class="host-copy">
+          <strong>prod-api-01</strong>
+          <span>root@10.0.3.46</span>
+        </div>
+        <span class="connection-state"><i></i>Connected <small>SFTP · 38 ms</small></span>
+        <div class="host-actions">
+          <button type="button">
+            <svg aria-hidden="true"><use href="#icon-folder-plus"></use></svg>
+            New folder
+          </button>
+          <button class="icon-button" type="button" aria-label="刷新两个目录">
+            <svg aria-hidden="true"><use href="#icon-refresh"></use></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="compact-tabs" role="tablist" aria-label="切换文件位置">
+        <button class="active" id="local-tab" type="button" role="tab" aria-selected="true">
+          This Mac <span id="compact-selection">2 selected</span>
+        </button>
+        <button id="remote-tab" type="button" role="tab" aria-selected="false">
+          prod-api-01 <span>releases</span>
+        </button>
+      </div>
+
+      <section class="transfer-workspace">
+        <article class="file-pane local-pane compact-active" id="local-pane" aria-labelledby="local-title">
+          <header class="pane-header">
+            <div class="place">
+              <span class="place-mark local">MAC</span>
+              <span>
+                <small>LOCAL</small>
+                <strong id="local-title">This Mac</strong>
+              </span>
+            </div>
+            <span class="pane-hint">
+              <svg aria-hidden="true"><use href="#icon-grip"></use></svg>
+              拖到右侧上传
+            </span>
+          </header>
+
+          <nav class="path-bar" aria-label="本机路径">
+            <button type="button">~</button><span>/</span><button type="button">Projects</button
+            ><span>/</span><strong>charter</strong>
+            <button class="path-edit" type="button" aria-label="编辑本机路径">
+              <svg aria-hidden="true"><use href="#icon-edit"></use></svg>
+            </button>
+          </nav>
+
+          <div class="column-head" aria-hidden="true">
+            <span>Name</span><span>Modified</span><span>Size</span>
+          </div>
+
+          <div class="file-list" role="list" aria-label="本机文件">
+            <button class="file-row folder-row" type="button" role="listitem">
+              <span class="select-space"></span><span class="file-type folder">DIR</span>
+              <span class="file-name"><strong>dist</strong><small>6 items</small></span>
+              <span class="modified">Today, 10:42</span><span class="size">—</span>
+            </button>
+            <button class="file-row folder-row" type="button" role="listitem">
+              <span class="select-space"></span><span class="file-type folder">DIR</span>
+              <span class="file-name"><strong>src</strong><small>24 items</small></span>
+              <span class="modified">Yesterday</span><span class="size">—</span>
+            </button>
+            <div
+              class="file-row selected draggable"
+              role="listitem"
+              draggable="true"
+              data-file="dmg"
+              tabindex="0"
+              aria-label="charter-1.0.0.dmg，已选择，可拖到远程目录上传"
+            >
+              <label class="selection">
+                <input class="file-check" type="checkbox" value="dmg" checked />
+                <span aria-hidden="true"></span>
+              </label>
+              <span class="file-type dmg">DMG</span>
+              <span class="file-name"><strong>charter-1.0.0.dmg</strong><small>Signed build</small></span>
+              <span class="modified">Today, 10:42</span><span class="size">98.2 MB</span>
+              <span class="drag-grip" aria-hidden="true"><svg><use href="#icon-grip"></use></svg></span>
+            </div>
+            <div
+              class="file-row selected draggable"
+              role="listitem"
+              draggable="true"
+              data-file="notes"
+              tabindex="0"
+              aria-label="release-notes.md，已选择，可拖到远程目录上传"
+            >
+              <label class="selection">
+                <input class="file-check" type="checkbox" value="notes" checked />
+                <span aria-hidden="true"></span>
+              </label>
+              <span class="file-type md">MD</span>
+              <span class="file-name"><strong>release-notes.md</strong><small>Release notes</small></span>
+              <span class="modified">Today, 10:39</span><span class="size">4.1 KB</span>
+              <span class="drag-grip" aria-hidden="true"><svg><use href="#icon-grip"></use></svg></span>
+            </div>
+            <div class="file-row" role="listitem">
+              <label class="selection">
+                <input class="file-check" type="checkbox" value="package" />
+                <span aria-hidden="true"></span>
+              </label>
+              <span class="file-type js">JS</span>
+              <span class="file-name"><strong>package.json</strong><small>Package manifest</small></span>
+              <span class="modified">Tuesday</span><span class="size">2.3 KB</span>
+              <span class="drag-grip" aria-hidden="true"><svg><use href="#icon-grip"></use></svg></span>
+            </div>
+            <div class="file-row sensitive" role="listitem">
+              <label class="selection">
+                <input class="file-check" type="checkbox" value="env" />
+                <span aria-hidden="true"></span>
+              </label>
+              <span class="file-type env">ENV</span>
+              <span class="file-name"><strong>.env.production</strong><small>Sensitive</small></span>
+              <span class="modified">Monday</span><span class="size">612 B</span>
+              <span class="drag-grip" aria-hidden="true"><svg><use href="#icon-grip"></use></svg></span>
+            </div>
+            <div class="file-row" role="listitem">
+              <label class="selection">
+                <input class="file-check" type="checkbox" value="readme" />
+                <span aria-hidden="true"></span>
+              </label>
+              <span class="file-type md">MD</span>
+              <span class="file-name"><strong>README.md</strong><small>Documentation</small></span>
+              <span class="modified">Monday</span><span class="size">8.9 KB</span>
+              <span class="drag-grip" aria-hidden="true"><svg><use href="#icon-grip"></use></svg></span>
+            </div>
+          </div>
+
+          <footer class="pane-footer">
+            <span id="selection-summary"><strong>2 selected</strong> · 98.2 MB</span>
+            <span>12 items</span>
+          </footer>
+        </article>
+
+        <aside class="transfer-gate" aria-label="文件传输操作">
+          <span class="gate-route" aria-hidden="true"><i></i></span>
+          <button class="gate-button upload" id="upload-button" type="button">
+            <svg aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
+            <span>Upload</span>
+            <small id="upload-count">2 items</small>
+          </button>
+          <button class="gate-button download" id="download-button" type="button">
+            <svg aria-hidden="true"><use href="#icon-arrow-left"></use></svg>
+            <span>Download</span>
+          </button>
+          <span class="gate-route bottom" aria-hidden="true"><i></i></span>
+        </aside>
+
+        <article
+          class="file-pane remote-pane"
+          id="remote-pane"
+          aria-labelledby="remote-title"
+          data-drop-target
+        >
+          <header class="pane-header">
+            <div class="place">
+              <span class="place-mark remote">SSH</span>
+              <span>
+                <small>REMOTE</small>
+                <strong id="remote-title">prod-api-01</strong>
+              </span>
+            </div>
+            <span class="writable"><i></i>Writable</span>
+          </header>
+
+          <nav class="path-bar" aria-label="远程路径">
+            <button type="button">/</button><button type="button">home</button><span>/</span
+            ><button type="button">deploy</button><span>/</span><strong>releases</strong>
+            <button class="path-edit" type="button" aria-label="编辑远程路径">
+              <svg aria-hidden="true"><use href="#icon-edit"></use></svg>
+            </button>
+          </nav>
+
+          <div class="column-head" aria-hidden="true">
+            <span>Name</span><span>Modified</span><span>Size</span>
+          </div>
+
+          <div class="drop-prompt" id="drop-prompt" aria-hidden="true">
+            <svg><use href="#icon-upload-cloud"></use></svg>
+            <strong>上传到 releases</strong>
+            <span>松开即可检查 2 个文件</span>
+          </div>
+
+          <div class="file-list" id="remote-list" role="list" aria-label="远程文件">
+            <button class="file-row folder-row" type="button" role="listitem">
+              <span class="select-space"></span><span class="file-type folder">DIR</span>
+              <span class="file-name"><strong>v0.9.3</strong><small>Release archive</small></span>
+              <span class="modified">May 08</span><span class="size">—</span>
+            </button>
+            <button class="file-row folder-row" type="button" role="listitem">
+              <span class="select-space"></span><span class="file-type folder">DIR</span>
+              <span class="file-name"><strong>current</strong><small>Active release</small></span>
+              <span class="modified">Today, 09:18</span><span class="size">—</span>
+            </button>
+            <div class="file-row conflict-row" role="listitem" data-remote-dmg>
+              <span class="select-space"></span><span class="file-type dmg">DMG</span>
+              <span class="file-name"><strong>charter-1.0.0.dmg</strong><small>Existing build</small></span>
+              <span class="modified">Today, 09:18</span><span class="size">91.7 MB</span>
+              <span class="status-label warning">Same name</span>
+            </div>
+            <div class="file-row" role="listitem">
+              <span class="select-space"></span><span class="file-type json">JSON</span>
+              <span class="file-name"><strong>manifest.json</strong><small>Release manifest</small></span>
+              <span class="modified">Today, 09:21</span><span class="size">1.1 KB</span>
+            </div>
+            <div class="file-row" role="listitem">
+              <span class="select-space"></span><span class="file-type log">LOG</span>
+              <span class="file-name"><strong>deploy.log</strong><small>Deployment log</small></span>
+              <span class="modified">Today, 10:02</span><span class="size">44 KB</span>
+            </div>
+            <div class="file-row uploaded-row" role="listitem" id="uploaded-dmg" hidden>
+              <span class="select-space"></span><span class="file-type dmg">DMG</span>
+              <span class="file-name"><strong>charter-1.0.0 (1).dmg</strong><small>Uploaded just now</small></span>
+              <span class="modified">Just now</span><span class="size">98.2 MB</span>
+              <span class="status-label success">New</span>
+            </div>
+            <div class="file-row uploaded-row" role="listitem" id="uploaded-notes" hidden>
+              <span class="select-space"></span><span class="file-type md">MD</span>
+              <span class="file-name"><strong>release-notes.md</strong><small>Uploaded just now</small></span>
+              <span class="modified">Just now</span><span class="size">4.1 KB</span>
+              <span class="status-label success">New</span>
+            </div>
+          </div>
+
+          <footer class="pane-footer">
+            <span><strong>/home/deploy/releases</strong></span>
+            <span>18.4 GB free</span>
+          </footer>
+        </article>
+
+        <aside class="transfer-center" id="transfer-center" aria-labelledby="transfer-center-title">
+          <header>
+            <div>
+              <small>ACTIVITY</small>
+              <strong id="transfer-center-title">Transfer Center</strong>
+            </div>
+            <button class="icon-button center-collapse" id="center-collapse" type="button" aria-label="收起传输中心">
+              <svg aria-hidden="true"><use href="#icon-panel-right"></use></svg>
+            </button>
+          </header>
+
+          <section class="center-empty" id="center-empty">
+            <span class="empty-mark">
+              <svg aria-hidden="true"><use href="#icon-transfer"></use></svg>
+            </span>
+            <strong>No active transfers</strong>
+            <p>Drag files between the two panes. Progress and retry actions will stay here.</p>
+          </section>
+
+          <section class="batch-view" id="batch-view" hidden>
+            <header class="batch-head">
+              <span>
+                <small>CURRENT BATCH</small>
+                <strong>To prod-api-01</strong>
+              </span>
+              <span class="batch-state" id="batch-state"><i></i>Running</span>
+            </header>
+            <code>/home/deploy/releases</code>
+
+            <article class="transfer-item" id="dmg-transfer">
+              <header><strong>charter-1.0.0 (1).dmg</strong><span id="dmg-percent">100%</span></header>
+              <div class="progress"><i id="dmg-progress" style="--progress: 100%"></i></div>
+              <footer><span id="dmg-state">Verified</span><span>98.2 MB</span></footer>
+            </article>
+
+            <article class="transfer-item interrupted" id="notes-transfer">
+              <header><strong>release-notes.md</strong><span id="notes-percent">68%</span></header>
+              <div class="progress"><i id="notes-progress" style="--progress: 68%"></i></div>
+              <footer><span id="notes-state">Connection interrupted</span><span>2.8 / 4.1 KB</span></footer>
+              <button class="retry-button" id="retry-button" type="button">
+                <svg aria-hidden="true"><use href="#icon-refresh"></use></svg>
+                Resume from 2.8 KB
+              </button>
+            </article>
+
+            <section class="receipt" id="receipt" hidden>
+              <span class="receipt-check">
+                <svg aria-hidden="true"><use href="#icon-check"></use></svg>
+              </span>
+              <div><small>COMPLETED</small><strong>2 of 2 files arrived</strong><code>TX_01KSSH · verified</code></div>
+            </section>
+          </section>
+
+          <button class="center-peek" id="center-peek" type="button" hidden>
+            <svg aria-hidden="true"><use href="#icon-transfer"></use></svg>
+            <span><strong id="peek-title">Transfers</strong><small id="peek-copy">No active transfers</small></span>
+          </button>
+        </aside>
+      </section>
+    </main>
+
+    <div class="dialog-backdrop" id="conflict-dialog" hidden>
+      <section
+        class="conflict-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="conflict-title"
+        aria-describedby="conflict-description"
+      >
+        <header>
+          <span class="dialog-icon">
+            <svg aria-hidden="true"><use href="#icon-copy"></use></svg>
+          </span>
+          <div>
+            <small>1 NAME CONFLICT</small>
+            <h1 id="conflict-title">A file with this name already exists</h1>
+          </div>
+          <button class="icon-button" id="dialog-close" type="button" aria-label="关闭">
+            <svg aria-hidden="true"><use href="#icon-close"></use></svg>
+          </button>
+        </header>
+
+        <div class="dialog-route" id="conflict-description">
+          <span><small>FROM</small><code>~/Projects/charter</code></span>
+          <svg aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
+          <span><small>TO · PROD-API-01</small><code>/home/deploy/releases</code></span>
+        </div>
+
+        <section class="conflict-file">
+          <div class="file-comparison">
+            <span><small>LOCAL · NEW</small><strong>charter-1.0.0.dmg</strong><b>98.2 MB · 10:42</b></span>
+            <span><small>REMOTE · EXISTING</small><strong>charter-1.0.0.dmg</strong><b>91.7 MB · 09:18</b></span>
+          </div>
+          <fieldset>
+            <legend>What should Charter do?</legend>
+            <label class="policy selected">
+              <input type="radio" name="conflict-policy" value="keep" checked />
+              <span class="radio-ui" aria-hidden="true"></span>
+              <span><strong>Keep both</strong><small>Upload as <code>charter-1.0.0 (1).dmg</code></small></span>
+              <em>Safest</em>
+            </label>
+            <label class="policy">
+              <input type="radio" name="conflict-policy" value="replace" />
+              <span class="radio-ui" aria-hidden="true"></span>
+              <span><strong>Replace remote file</strong><small>The existing 91.7 MB file will be overwritten</small></span>
+            </label>
+            <label class="policy">
+              <input type="radio" name="conflict-policy" value="skip" />
+              <span class="radio-ui" aria-hidden="true"></span>
+              <span><strong>Skip this file</strong><small>Only release-notes.md will upload</small></span>
+            </label>
+          </fieldset>
+        </section>
+
+        <footer>
+          <span id="result-preview">Result: 2 files · no existing file overwritten</span>
+          <div>
+            <button class="secondary-button" id="dialog-cancel" type="button">Cancel</button>
+            <button class="primary-button" id="start-upload" type="button">
+              Upload 2 files
+              <svg aria-hidden="true"><use href="#icon-arrow-right"></use></svg>
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <svg class="svg-sprite" aria-hidden="true">
+      <symbol id="icon-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6M9 12h10" /></symbol>
+      <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5" /></symbol>
+      <symbol id="icon-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5m5-5-5 5 5 5" /></symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5" /><path d="M6.1 9A7 7 0 0 1 18.2 6.2L20 11M4 13l1.8 4.8A7 7 0 0 0 17.9 15" /></symbol>
+      <symbol id="icon-folder-plus" viewBox="0 0 24 24"><path d="M3 7h7l2 2h9v10H3zM15 12v5m-2.5-2.5h5" /></symbol>
+      <symbol id="icon-edit" viewBox="0 0 24 24"><path d="m5 16-1 4 4-1L19 8l-3-3zM14 7l3 3" /></symbol>
+      <symbol id="icon-grip" viewBox="0 0 24 24"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" /></symbol>
+      <symbol id="icon-upload-cloud" viewBox="0 0 24 24"><path d="M7 18H6a4 4 0 0 1-.5-8A6 6 0 0 1 17 8a5 5 0 0 1 1 9.9M12 17V9m-3 3 3-3 3 3" /></symbol>
+      <symbol id="icon-panel-right" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M16 4v16m-4-5 3-3-3-3" /></symbol>
+      <symbol id="icon-transfer" viewBox="0 0 24 24"><path d="M4 8h14m-4-4 4 4-4 4M20 16H6m4-4-4 4 4 4" /></symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></symbol>
+      <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></symbol>
+    </svg>
+    <script src="./app.js"></script>
+  </body>
+</html>

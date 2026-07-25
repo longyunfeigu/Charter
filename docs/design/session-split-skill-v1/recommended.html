@@ -1,0 +1,266 @@
+<!doctype html>
+<!-- Session split redesign generated as a manual forward-test of the proposed design-mock-html skill. -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Charter · Session 分栏 Skill 推荐方案</title>
+    <link rel="stylesheet" href="./recommended.css" />
+  </head>
+  <body>
+    <main class="mock-shell">
+      <nav class="study-bar" aria-label="Mock 场景控制器">
+        <div class="study-title">
+          <small>SKILL STUDY · RECOMMENDED</small>
+          <strong>可控分栏：自由拖拽 + 命名布局 + 可逆 Focus</strong>
+        </div>
+        <div class="scenario-switcher" role="group" aria-label="演示场景">
+          <button class="scenario-button active" type="button" data-scenario="desktop">桌面</button>
+          <button class="scenario-button" type="button" data-scenario="narrow">窄窗口</button>
+        </div>
+        <div class="study-rule" aria-hidden="true"></div>
+        <span class="study-readout" id="study-readout">均衡 · 对话 56 / 工具 44</span>
+        <button class="study-reset" id="study-reset" type="button">重置演示</button>
+      </nav>
+
+      <section class="stage" id="stage">
+        <section class="app-window" id="app-window" aria-label="Charter Session 分栏推荐方案">
+          <aside class="session-rail" aria-label="Sessions">
+            <div class="rail-head">
+              <span class="brand-mark" aria-hidden="true">C</span>
+              <strong>Sessions</strong>
+              <button type="button" aria-label="新建 Session">＋</button>
+            </div>
+
+            <button class="new-session" type="button">
+              <span aria-hidden="true">＋</span>
+              <strong>New Session</strong>
+            </button>
+
+            <div class="rail-section">
+              <span>CHARTER</span>
+              <small>3</small>
+            </div>
+
+            <button class="session-row active" type="button">
+              <span class="agent-mark" aria-hidden="true">C</span>
+              <span class="session-copy">
+                <strong>Refine Session canvas</strong>
+                <small><i class="status-dot running"></i>Working · 2m</small>
+              </span>
+            </button>
+
+            <button class="session-row" type="button">
+              <span class="agent-mark codex" aria-hidden="true">X</span>
+              <span class="session-copy">
+                <strong>Review terminal lifecycle</strong>
+                <small><i class="status-dot review"></i>Review ready</small>
+              </span>
+            </button>
+
+            <button class="session-row" type="button">
+              <span class="agent-mark quiet" aria-hidden="true">A</span>
+              <span class="session-copy">
+                <strong>Improve empty state</strong>
+                <small><i class="status-dot"></i>Answered · 12m</small>
+              </span>
+            </button>
+
+            <div class="rail-spacer"></div>
+            <button class="rail-footer" type="button">
+              <span class="keyboard-key" aria-hidden="true">⌘</span>
+              <span>Search everything</span>
+              <small>K</small>
+            </button>
+          </aside>
+
+          <section class="workspace" id="workspace">
+            <section class="conversation-pane" id="conversation-pane" aria-label="Session conversation">
+              <header class="session-header">
+                <div class="session-identity">
+                  <span class="agent-avatar" aria-hidden="true">C</span>
+                  <span>
+                    <strong>Refine Session canvas</strong>
+                    <small>charter · main · managed Agent</small>
+                  </span>
+                </div>
+                <div class="session-state"><i></i> Working</div>
+              </header>
+
+              <div class="conversation-scroll">
+                <article class="message user-message">
+                  <div class="message-role">You</div>
+                  <p>
+                    对话和 Diff 同时打开时，中间经常太窄。希望我能调整宽度，但不要因为点开
+                    Diff 就把刚调好的比例覆盖掉。
+                  </p>
+                </article>
+
+                <article class="message agent-message">
+                  <div class="message-role">
+                    <span>Charter Agent</span>
+                    <small>刚刚</small>
+                  </div>
+                  <p>
+                    我会保留你为这个 Session 选择的布局。打开工具不会覆盖手动比例；需要完整查看
+                    Diff 时，可以临时进入 Focus，返回后恢复原来的分栏。
+                  </p>
+
+                  <section class="work-card" aria-label="Agent 当前工作">
+                    <header>
+                      <span class="pulse" aria-hidden="true"></span>
+                      <strong>Editing layout behavior</strong>
+                      <small>2 files</small>
+                    </header>
+                    <div class="work-file">
+                      <span>SessionSplitHandle.tsx</span>
+                      <small>+34 −8</small>
+                    </div>
+                    <div class="work-file">
+                      <span>session-canvas.css</span>
+                      <small>+41 −12</small>
+                    </div>
+                  </section>
+                </article>
+              </div>
+
+              <form class="composer" onsubmit="return false">
+                <label class="visually-hidden" for="reply">回复 Agent</label>
+                <textarea id="reply" rows="1" placeholder="Reply — steer the agent or add context…"></textarea>
+                <div class="composer-actions">
+                  <button type="button" aria-label="添加上下文">＋</button>
+                  <span>⌘ Enter to send</span>
+                  <button class="send-button" type="submit">Send</button>
+                </div>
+              </form>
+            </section>
+
+            <div
+              class="split-handle"
+              id="split-handle"
+              role="separator"
+              aria-label="调整对话与工具面板宽度"
+              aria-orientation="vertical"
+              aria-valuemin="34"
+              aria-valuemax="66"
+              aria-valuenow="56"
+              tabindex="0"
+              title="拖动调整宽度。方向键微调，Shift + 方向键快速调整。"
+            >
+              <span class="split-grip" aria-hidden="true"><i></i><i></i><i></i></span>
+            </div>
+
+            <aside class="tool-pane" id="tool-pane" aria-label="Session tools">
+              <header class="tool-header">
+                <nav class="tool-tabs" aria-label="Session tool">
+                  <button type="button">Summary</button>
+                  <button class="active" type="button" aria-current="page">Diff</button>
+                  <button type="button">Preview</button>
+                  <button type="button">Terminal</button>
+                  <button type="button">Review</button>
+                </nav>
+
+                <div class="tool-actions">
+                  <div class="layout-control">
+                    <button
+                      class="layout-button"
+                      id="layout-button"
+                      type="button"
+                      aria-haspopup="menu"
+                      aria-expanded="false"
+                    >
+                      <span class="layout-icon" aria-hidden="true"><i></i><i></i></span>
+                      <span id="layout-button-label">均衡</span>
+                      <span class="chevron" aria-hidden="true">⌄</span>
+                    </button>
+
+                    <div class="layout-menu" id="layout-menu" role="menu" hidden>
+                      <header>
+                        <strong>Session layout</strong>
+                        <small>只记住当前 Session</small>
+                      </header>
+                      <button type="button" role="menuitemradio" aria-checked="false" data-layout="conversation">
+                        <span class="preset-icon conversation" aria-hidden="true"><i></i><i></i></span>
+                        <span><strong>对话优先</strong><small>适合阅读与继续追问 · 64 / 36</small></span>
+                        <i class="check" aria-hidden="true"></i>
+                      </button>
+                      <button type="button" role="menuitemradio" aria-checked="true" data-layout="balanced">
+                        <span class="preset-icon balanced" aria-hidden="true"><i></i><i></i></span>
+                        <span><strong>均衡</strong><small>对话保持主位，工具可完整工作 · 56 / 44</small></span>
+                        <i class="check" aria-hidden="true"></i>
+                      </button>
+                      <button type="button" role="menuitemradio" aria-checked="false" data-layout="tools">
+                        <span class="preset-icon tools" aria-hidden="true"><i></i><i></i></span>
+                        <span><strong>工具优先</strong><small>适合 Diff、Preview 与 Review · 40 / 60</small></span>
+                        <i class="check" aria-hidden="true"></i>
+                      </button>
+                      <div class="menu-rule"></div>
+                      <button class="reset-layout" type="button" role="menuitem" data-layout="reset">
+                        <span class="reset-icon" aria-hidden="true">↺</span>
+                        <span><strong>恢复应用默认</strong><small>清除这个 Session 的自定义比例</small></span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <button class="focus-button" id="focus-button" type="button">
+                    <span class="focus-icon" aria-hidden="true"></span>
+                    <span id="focus-label">Focus</span>
+                  </button>
+                </div>
+              </header>
+
+              <section class="tool-body">
+                <header class="diff-summary">
+                  <div>
+                    <small>UNCOMMITTED CHANGES</small>
+                    <h1>2 files changed</h1>
+                  </div>
+                  <div class="diff-stats"><span>+75</span><span>−20</span></div>
+                </header>
+
+                <button class="changed-file" type="button">
+                  <span class="file-icon" aria-hidden="true">TS</span>
+                  <span><strong>SessionSplitHandle.tsx</strong><small>apps/desktop-renderer/src/views</small></span>
+                  <span class="file-stat">+34&nbsp; −8</span>
+                </button>
+
+                <article class="diff-card">
+                  <header>
+                    <div>
+                      <span class="file-icon" aria-hidden="true">TS</span>
+                      <strong>SessionSplitHandle.tsx</strong>
+                    </div>
+                    <button type="button">Open file</button>
+                  </header>
+                  <div class="hunk">@@ -91,8 +108,17 @@ export function SessionSplitHandle</div>
+                  <div class="diff-line context"><span>108</span><span> </span><code>return (</code></div>
+                  <div class="diff-line add"><span>109</span><span>+</span><code>&lt;div role="separator"</code></div>
+                  <div class="diff-line add"><span>110</span><span>+</span><code> aria-valuenow={Math.round(effective)}</code></div>
+                  <div class="diff-line add"><span>111</span><span>+</span><code> aria-label="Resize conversation and tools"</code></div>
+                  <div class="diff-line add"><span>112</span><span>+</span><code> onKeyDown={handleKeyboardResize}&gt;</code></div>
+                  <div class="diff-line context"><span>113</span><span> </span><code> &lt;SplitGrip /&gt;</code></div>
+                  <div class="diff-line add"><span>114</span><span>+</span><code> &lt;LayoutReadout ratio={effective} /&gt;</code></div>
+                  <div class="diff-line context"><span>115</span><span> </span><code>&lt;/div&gt;</code></div>
+                </article>
+              </section>
+
+              <button class="return-split" id="return-split" type="button" hidden>
+                <span aria-hidden="true">←</span>
+                返回分栏
+                <small id="return-layout-label">恢复均衡 · 56 / 44</small>
+              </button>
+            </aside>
+
+            <output class="ratio-chip" id="ratio-chip" aria-live="polite">
+              <strong>自定义</strong>
+              <span>对话 56 / 工具 44</span>
+              <small>当前 Session</small>
+            </output>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="./recommended.js"></script>
+  </body>
+</html>

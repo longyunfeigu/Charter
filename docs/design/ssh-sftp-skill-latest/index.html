@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>最新版 Skill · SSH / SFTP 安全传输</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="study-bar">
+      <div>
+        <span>DESIGN-MOCK-HTML · LATEST SKILL</span>
+        <strong>SSH / SFTP · 同一案例重新生成</strong>
+      </div>
+      <nav aria-label="Prototype states">
+        <button class="study-active" type="button" data-demo="browse">1 浏览</button>
+        <button type="button" data-demo="preflight">2 预检</button>
+        <button type="button" data-demo="failure">3 中断</button>
+        <button type="button" data-demo="complete">4 完成</button>
+        <button type="button" id="reset-demo">重置</button>
+      </nav>
+    </header>
+
+    <main class="app-shell">
+      <header class="app-bar">
+        <div class="brand" aria-label="Charter">
+          <span>C</span>
+          <strong>Charter</strong>
+        </div>
+        <span class="app-divider"></span>
+        <span class="crumb">Remotes</span>
+        <span class="crumb-separator">/</span>
+        <strong class="crumb-current">prod-api-01</strong>
+        <div class="connection">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <span><strong>Connected</strong><small>SFTP · 38 ms</small></span>
+        </div>
+      </header>
+
+      <aside class="activity-rail" aria-label="Application sections">
+        <button type="button" aria-label="Sessions">S</button>
+        <button class="active" type="button" aria-label="Remote Explorer">R</button>
+        <button type="button" aria-label="Skills">K</button>
+        <span></span>
+        <button type="button" aria-label="Settings">G</button>
+      </aside>
+
+      <aside class="host-rail" aria-label="Remote host navigation">
+        <div class="rail-heading">
+          <span>REMOTE HOST</span>
+          <strong>prod-api-01</strong>
+          <small>root@10.0.3.46</small>
+        </div>
+        <nav>
+          <button class="active" type="button"><span>01</span>Files<small>2 selected</small></button>
+          <button type="button"><span>02</span>Terminal<small>1 shell</small></button>
+          <button type="button"><span>03</span>Forwards<small>2 active</small></button>
+          <button type="button"><span>04</span>History<small>12 batches</small></button>
+        </nav>
+        <div class="trust-card">
+          <span>CONNECTION TRUST</span>
+          <strong><i aria-hidden="true"></i> Host key verified</strong>
+          <code>SHA256:5x1f…9a2c</code>
+          <small>Target directory is writable</small>
+        </div>
+      </aside>
+
+      <section class="main-stage">
+        <header class="task-head">
+          <div>
+            <span class="eyebrow" id="task-state-label">TRANSFER BATCH · DRAFT</span>
+            <h1>Ship the build to <em>prod-api-01</em></h1>
+            <p>Review the exact write result before Charter changes the remote release directory.</p>
+          </div>
+          <div class="target-status">
+            <span>REMOTE TARGET</span>
+            <strong>/home/deploy/releases</strong>
+            <small><i aria-hidden="true"></i> Writable · 18.4 GB free</small>
+          </div>
+        </header>
+
+        <section class="route-strip" aria-label="Transfer route">
+          <div>
+            <span class="route-mark local-mark">M</span>
+            <span><small>SOURCE · THIS MAC</small><strong>~/Projects/charter</strong></span>
+          </div>
+          <span class="route-line" aria-hidden="true"><i></i></span>
+          <div class="route-security">
+            <small>ENCRYPTED ROUTE</small>
+            <strong>SSH · verified</strong>
+          </div>
+          <span class="route-line" aria-hidden="true"><i></i></span>
+          <div>
+            <span class="route-mark remote-mark">R</span>
+            <span><small>DESTINATION · PROD-API-01</small><strong>/home/deploy/releases</strong></span>
+          </div>
+        </section>
+
+        <div class="pane-switch" role="tablist" aria-label="Choose file pane">
+          <button class="active" id="local-tab" type="button" role="tab" aria-selected="true">This Mac</button>
+          <button id="remote-tab" type="button" role="tab" aria-selected="false">Remote target</button>
+        </div>
+
+        <section class="file-workspace">
+          <article class="file-pane local-pane compact-active" id="local-pane" aria-labelledby="local-pane-title">
+            <header class="pane-head">
+              <div>
+                <span class="pane-tag">THIS MAC · SOURCE</span>
+                <h2 id="local-pane-title">charter</h2>
+              </div>
+              <button type="button" aria-label="Refresh local files">Refresh</button>
+            </header>
+            <nav class="path-bar" aria-label="Local path">
+              <button type="button">~</button><span>/</span><button type="button">Projects</button
+              ><span>/</span><strong>charter</strong>
+            </nav>
+            <div class="file-list" role="list" aria-label="Local files">
+              <label class="file-row folder-row" role="listitem">
+                <span class="file-type folder">DIR</span>
+                <span><strong>dist</strong><small>6 items · modified 10:42</small></span>
+                <span>—</span>
+              </label>
+              <label class="file-row selected" role="listitem">
+                <input type="checkbox" class="file-check" value="dmg" checked />
+                <span class="file-type">DMG</span>
+                <span><strong>charter-1.0.0.dmg</strong><small>modified 10:42 · signed</small></span>
+                <span>98.2 MB</span>
+              </label>
+              <label class="file-row selected" role="listitem">
+                <input type="checkbox" class="file-check" value="notes" checked />
+                <span class="file-type note">MD</span>
+                <span><strong>release-notes.md</strong><small>modified 10:39</small></span>
+                <span>4.1 KB</span>
+              </label>
+              <label class="file-row" role="listitem">
+                <input type="checkbox" value="package" disabled />
+                <span class="file-type code">JS</span>
+                <span><strong>package.json</strong><small>modified Tuesday</small></span>
+                <span>2.3 KB</span>
+              </label>
+              <label class="file-row sensitive" role="listitem">
+                <input type="checkbox" value="env" disabled />
+                <span class="file-type secret">ENV</span>
+                <span><strong>.env.production</strong><small>Sensitive file · confirmation required</small></span>
+                <span>612 B</span>
+              </label>
+            </div>
+            <footer><span id="local-count">2 selected</span><strong id="local-size">98.2 MB</strong></footer>
+          </article>
+
+          <aside class="manifest" aria-label="Transfer manifest">
+            <header>
+              <span>TRANSFER MANIFEST</span>
+              <strong id="manifest-count">2 items</strong>
+            </header>
+            <div class="manifest-files" id="manifest-files"></div>
+            <dl>
+              <div><dt>Total</dt><dd id="manifest-size">98.2 MB</dd></div>
+              <div><dt>Conflicts</dt><dd id="manifest-conflicts" class="warning-copy">1 needs a decision</dd></div>
+              <div><dt>Write mode</dt><dd>Resumable · verify after write</dd></div>
+            </dl>
+            <button class="primary-action" id="review-upload" type="button">
+              <span>Review upload</span>
+              <small>to prod-api-01</small>
+              <b aria-hidden="true">→</b>
+            </button>
+            <p id="review-reason">Review one filename conflict before upload.</p>
+          </aside>
+
+          <article class="file-pane remote-pane" id="remote-pane" aria-labelledby="remote-pane-title">
+            <header class="pane-head">
+              <div>
+                <span class="pane-tag remote">SSH · DESTINATION</span>
+                <h2 id="remote-pane-title">releases</h2>
+              </div>
+              <span class="write-state"><i aria-hidden="true"></i>Writable</span>
+            </header>
+            <nav class="path-bar" aria-label="Remote path">
+              <button type="button">/</button><button type="button">home</button><span>/</span
+              ><button type="button">deploy</button><span>/</span><strong>releases</strong>
+            </nav>
+            <div class="file-list" role="list" aria-label="Remote files">
+              <div class="file-row folder-row" role="listitem">
+                <span class="file-type folder">DIR</span>
+                <span><strong>v0.9.3</strong><small>release archive</small></span>
+                <span>—</span>
+              </div>
+              <div class="file-row conflict-row" role="listitem">
+                <span class="file-type">DMG</span>
+                <span><strong>charter-1.0.0.dmg</strong><small>modified 09:18 · 91.7 MB</small></span>
+                <span class="conflict-label">CONFLICT</span>
+              </div>
+              <div class="file-row" role="listitem">
+                <span class="file-type code">JSON</span>
+                <span><strong>manifest.json</strong><small>modified 09:21</small></span>
+                <span>1.1 KB</span>
+              </div>
+              <div class="file-row" role="listitem">
+                <span class="file-type log">LOG</span>
+                <span><strong>deploy.log</strong><small>modified 10:02</small></span>
+                <span>44 KB</span>
+              </div>
+            </div>
+            <footer><span>18.4 GB free</span><strong>Remote · Linux arm64</strong></footer>
+          </article>
+        </section>
+
+        <section class="transfer-ledger" aria-labelledby="ledger-title">
+          <header>
+            <div>
+              <span class="eyebrow">TRANSFER ACTIVITY</span>
+              <h2 id="ledger-title">Batch evidence stays with the route</h2>
+            </div>
+            <span class="ledger-status draft" id="ledger-status"><i></i>Draft</span>
+          </header>
+
+          <div class="ledger-empty" id="ledger-empty">
+            <span class="empty-route" aria-hidden="true"><i></i><b></b><i></i></span>
+            <div>
+              <strong>No write has started</strong>
+              <p>The selected files remain local until you confirm the destination and conflict policy.</p>
+            </div>
+            <button type="button" id="empty-review">Review this upload</button>
+          </div>
+
+          <div class="ledger-run" id="ledger-run" hidden>
+            <article class="transfer-item" id="dmg-transfer">
+              <span class="transfer-state" aria-hidden="true"></span>
+              <div>
+                <strong id="dmg-result-name">charter-1.0.0 (1).dmg</strong>
+                <small id="dmg-detail">98.2 MB · Keep both</small>
+                <div class="progress" role="progressbar" aria-label="DMG upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                  <i id="dmg-progress"></i>
+                </div>
+              </div>
+              <b id="dmg-status">Queued</b>
+            </article>
+            <article class="transfer-item" id="notes-transfer">
+              <span class="transfer-state" aria-hidden="true"></span>
+              <div>
+                <strong>release-notes.md</strong>
+                <small id="notes-detail">4.1 KB · waits for current write</small>
+                <div class="progress" role="progressbar" aria-label="Release notes upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                  <i id="notes-progress"></i>
+                </div>
+              </div>
+              <b id="notes-status">Queued</b>
+              <button id="retry-failed" type="button" hidden>Retry from 2.8 KB</button>
+            </article>
+            <aside class="receipt" id="completion-receipt" hidden>
+              <span class="receipt-mark" aria-hidden="true">✓</span>
+              <div>
+                <span>LOCKED RECEIPT · TX_01KSSH</span>
+                <strong id="receipt-title">2 of 2 files verified on prod-api-01</strong>
+                <small id="receipt-detail">/home/deploy/releases · Keep both · completed 10:44:18</small>
+              </div>
+              <code>sha256:96bd…31f0</code>
+            </aside>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <dialog class="preflight" id="preflight-dialog" aria-labelledby="preflight-title">
+      <form method="dialog">
+        <header>
+          <div>
+            <span>WRITE PREFLIGHT · TX_01KSSH</span>
+            <h2 id="preflight-title">Review the remote result</h2>
+          </div>
+          <button class="close-dialog" value="cancel" type="submit" aria-label="Close preflight">×</button>
+        </header>
+
+        <div class="preflight-route">
+          <div><small>FROM</small><strong>~/Projects/charter</strong></div>
+          <span aria-hidden="true"><i></i>SSH<i></i></span>
+          <div><small>WRITE TO · PROD-API-01</small><strong>/home/deploy/releases</strong></div>
+        </div>
+
+        <section class="preflight-section">
+          <header><span>01</span><strong>Batch manifest</strong><small id="dialog-count">2 items · 98.2 MB</small></header>
+          <div id="dialog-manifest"></div>
+        </section>
+
+        <section class="preflight-section conflict-section" id="dialog-conflict">
+          <header><span>02</span><strong>Resolve 1 filename conflict</strong><small>Required</small></header>
+          <div class="conflict-compare">
+            <div><small>LOCAL · NEW</small><strong>98.2 MB</strong><span>signed · modified 10:42</span></div>
+            <span>charter-1.0.0.dmg</span>
+            <div><small>REMOTE · EXISTING</small><strong>91.7 MB</strong><span>modified 09:18</span></div>
+          </div>
+          <fieldset>
+            <legend>What should the remote directory contain?</legend>
+            <label>
+              <input type="radio" name="policy" value="keep" checked />
+              <span><strong>Keep both</strong><small>Write the new build as charter-1.0.0 (1).dmg</small></span>
+              <b>Recommended</b>
+            </label>
+            <label>
+              <input type="radio" name="policy" value="replace" />
+              <span><strong>Replace atomically</strong><small>Swap only after the full new file verifies</small></span>
+            </label>
+            <label>
+              <input type="radio" name="policy" value="skip" />
+              <span><strong>Skip the DMG</strong><small>Upload release-notes.md only</small></span>
+            </label>
+          </fieldset>
+        </section>
+
+        <section class="result-preview" aria-live="polite">
+          <span>RESULT PREVIEW</span>
+          <strong id="result-preview-copy">2 new files · no overwrite</strong>
+          <small id="result-preview-detail">Existing DMG remains unchanged; new DMG receives “(1)”.</small>
+        </section>
+
+        <footer>
+          <div><i aria-hidden="true"></i><span><strong>Host key verified</strong><small>Writes are resumable and verified after transfer.</small></span></div>
+          <button value="cancel" type="submit">Cancel</button>
+          <button class="start-upload" id="start-upload" value="default" type="button">Start upload</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <script src="./app.js"></script>
+  </body>
+</html>

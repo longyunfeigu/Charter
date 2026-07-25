@@ -1,0 +1,452 @@
+<!doctype html>
+<!-- Comparison surface: original historical mock vs design-skill recommended redesign. -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Session 分栏 · 原版与 Skill 推荐版对比</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --page: #e6dece;
+        --card: #fffaf0;
+        --border: #cbb99c;
+        --text: #392a21;
+        --muted: #795f4f;
+        --faint: #a48570;
+        --accent: #b94e32;
+        --success: #4f754d;
+        --bark: #2d211b;
+        --bark-fg: #f9ead2;
+        --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+        --font-mono: Menlo, Monaco, 'SF Mono', Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        background: var(--page);
+        color: var(--text);
+        font-family: var(--font-ui);
+      }
+
+      button,
+      a {
+        color: inherit;
+        font: inherit;
+      }
+
+      button:focus-visible,
+      a:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .page {
+        height: 100%;
+        display: grid;
+        grid-template-rows: 64px minmax(0, 1fr);
+      }
+
+      .topbar {
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 0 18px;
+        border-bottom: 1px solid #594337;
+        background: var(--bark);
+        color: var(--bark-fg);
+      }
+
+      .title {
+        min-width: 0;
+        display: grid;
+        gap: 3px;
+      }
+
+      .title small {
+        color: #c9b496;
+        font: 8px var(--font-mono);
+        letter-spacing: 0.12em;
+      }
+
+      .title strong {
+        overflow: hidden;
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .views {
+        display: flex;
+        gap: 3px;
+        margin-left: auto;
+        padding: 3px;
+        border: 1px solid #5f493c;
+        border-radius: 8px;
+        background: #241a15;
+      }
+
+      .views button {
+        min-height: 32px;
+        padding: 0 13px;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: #cdb99c;
+        font-size: 11px;
+        cursor: pointer;
+      }
+
+      .views button.active {
+        background: #513b30;
+        color: #fff4dd;
+      }
+
+      .content {
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .compare-view {
+        height: 100%;
+        display: grid;
+        grid-template-rows: minmax(0, 1fr) 150px;
+        gap: 12px;
+        padding: 14px;
+      }
+
+      .canvases {
+        min-width: 0;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .candidate {
+        min-width: 0;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: 44px minmax(0, 1fr);
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--card);
+        box-shadow: 0 12px 34px rgba(57, 42, 33, 0.12);
+      }
+
+      .candidate-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 11px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .candidate-head strong {
+        font-size: 11px;
+      }
+
+      .candidate-head span {
+        overflow: hidden;
+        color: var(--faint);
+        font-size: 9px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .candidate-head button {
+        flex: none;
+        min-height: 28px;
+        margin-left: auto;
+        padding: 0 9px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--muted);
+        font-size: 9px;
+        cursor: pointer;
+      }
+
+      .frame-viewport {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        background: #d9cdb8;
+      }
+
+      .frame-viewport iframe {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 1440px;
+        height: 1400px;
+        border: 0;
+        transform-origin: top left;
+        pointer-events: none;
+      }
+
+      .review-strip {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 1.1fr 1fr 1fr;
+        gap: 12px;
+      }
+
+      .review-card {
+        min-width: 0;
+        padding: 12px 14px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: rgba(255, 250, 240, 0.86);
+      }
+
+      .review-card > small {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--faint);
+        font: 8px var(--font-mono);
+        letter-spacing: 0.08em;
+      }
+
+      .review-card strong {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 11px;
+      }
+
+      .review-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 9px;
+        line-height: 1.55;
+      }
+
+      .review-card.recommend {
+        border-color: #9fb397;
+        background: #eef4e8;
+      }
+
+      .score {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+      }
+
+      .score b {
+        color: var(--success);
+        font: 24px var(--font-mono);
+      }
+
+      .score span {
+        color: var(--faint);
+        font-size: 9px;
+      }
+
+      .full-view {
+        height: 100%;
+        display: none;
+        grid-template-rows: 38px minmax(0, 1fr);
+        background: #d9cdb8;
+      }
+
+      .full-view.active {
+        display: grid;
+      }
+
+      .full-note {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--border);
+        background: #fffaf0;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .full-note strong {
+        color: var(--text);
+      }
+
+      .full-note span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .full-note a {
+        margin-left: auto;
+        color: var(--accent);
+        font-size: 9px;
+        text-decoration: none;
+      }
+
+      .full-view iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+      }
+
+      @media (max-width: 980px) {
+        .title small {
+          display: none;
+        }
+
+        .views button {
+          padding: 0 9px;
+        }
+
+        .compare-view {
+          grid-template-rows: minmax(0, 1fr) 190px;
+        }
+
+        .review-strip {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .review-card:first-child {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar">
+        <div class="title">
+          <small>DESIGN-SKILL FORWARD TEST · SESSION SPLIT</small>
+          <strong>历史原版与 Skill 推荐版：比较交互判断，不比较皮肤</strong>
+        </div>
+        <nav class="views" aria-label="对比模式">
+          <button class="active" type="button" data-view="compare">并排总览</button>
+          <button type="button" data-view="original">原版交互</button>
+          <button type="button" data-view="recommended">新版交互</button>
+        </nav>
+      </header>
+
+      <section class="content">
+        <section class="compare-view" id="compare-view">
+          <div class="canvases">
+            <article class="candidate">
+              <header class="candidate-head">
+                <strong>原版 A</strong>
+                <span>自由拖拽 · 双击复位 · 隐式记忆</span>
+                <button type="button" data-open="original">进入操作</button>
+              </header>
+              <div class="frame-viewport">
+                <iframe
+                  title="历史原版：自由拖拽"
+                  src="../session-split-mockups/a-free-drag.html"
+                  loading="eager"
+                ></iframe>
+              </div>
+            </article>
+
+            <article class="candidate">
+              <header class="candidate-head">
+                <strong>Skill 推荐版</strong>
+                <span>自由拖拽 · 命名预设 · 可逆 Focus · 窄窗重排</span>
+                <button type="button" data-open="recommended">进入操作</button>
+              </header>
+              <div class="frame-viewport">
+                <iframe title="Skill 推荐方案" src="./recommended.html" loading="eager"></iframe>
+              </div>
+            </article>
+          </div>
+
+          <div class="review-strip">
+            <article class="review-card">
+              <small>同一设计命题</small>
+              <strong>“让我掌控空间，但不要替我反复改布局”</strong>
+              <p>
+                两版都保留 IDE 用户熟悉的直接拖拽。新版只修正可发现性、恢复路径、布局语义和窄窗口行为。
+              </p>
+            </article>
+            <article class="review-card">
+              <small>原版启发式评分</small>
+              <div class="score"><b>67</b><span>/ 100</span></div>
+              <p>直接操作很好；主要扣分在隐藏手势、Balance 语义、记忆范围和窄窗适配。</p>
+            </article>
+            <article class="review-card recommend">
+              <small>推荐结论</small>
+              <div class="score"><b>88</b><span>/ 100</span></div>
+              <p>采用纠正式融合。拒绝焦点自动改宽，保留手动比例，并用命名预设与可逆 Focus 提供捷径。</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="full-view" id="original-view">
+          <div class="full-note">
+            <strong>历史原版</strong>
+            <span>请尝试拖动中线、按方向键、双击复位，并观察 980px 窗口。</span>
+            <a href="../session-split-mockups/a-free-drag.html" target="_blank" rel="noreferrer">新窗口打开</a>
+          </div>
+          <iframe title="历史原版完整交互" src="../session-split-mockups/a-free-drag.html"></iframe>
+        </section>
+
+        <section class="full-view" id="recommended-view">
+          <div class="full-note">
+            <strong>Skill 推荐版</strong>
+            <span>请尝试拖动中线、打开“均衡”菜单、进入 Focus，再切换顶部“窄窗口”。</span>
+            <a href="./recommended.html" target="_blank" rel="noreferrer">新窗口打开</a>
+          </div>
+          <iframe title="Skill 推荐版完整交互" src="./recommended.html"></iframe>
+        </section>
+      </section>
+    </main>
+
+    <script>
+      const viewButtons = [...document.querySelectorAll('[data-view]')];
+      const compareView = document.getElementById('compare-view');
+      const originalView = document.getElementById('original-view');
+      const recommendedView = document.getElementById('recommended-view');
+
+      function setView(name) {
+        compareView.style.display = name === 'compare' ? 'grid' : 'none';
+        originalView.classList.toggle('active', name === 'original');
+        recommendedView.classList.toggle('active', name === 'recommended');
+        viewButtons.forEach((button) => {
+          button.classList.toggle('active', button.dataset.view === name);
+        });
+      }
+
+      function fitFrames() {
+        document.querySelectorAll('.frame-viewport').forEach((viewport) => {
+          const frame = viewport.querySelector('iframe');
+          const scale = Math.min(viewport.clientWidth / 1440, viewport.clientHeight / 1400);
+          frame.style.transform = `scale(${scale})`;
+          frame.style.left = `${Math.max(0, (viewport.clientWidth - 1440 * scale) / 2)}px`;
+        });
+      }
+
+      viewButtons.forEach((button) => {
+        button.addEventListener('click', () => setView(button.dataset.view));
+      });
+
+      document.querySelectorAll('[data-open]').forEach((button) => {
+        button.addEventListener('click', () => setView(button.dataset.open));
+      });
+
+      window.addEventListener('resize', fitFrames);
+      window.addEventListener('load', fitFrames);
+      new ResizeObserver(fitFrames).observe(compareView);
+      setView('compare');
+    </script>
+  </body>
+</html>

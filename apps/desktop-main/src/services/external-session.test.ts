@@ -5,6 +5,7 @@ import {
   externalResumeCommand,
   externalTitleFromPrompt,
   isAccountablePath,
+  selectFileAttributionOwner,
 } from './external-session-service.js';
 import { ExternalLaunchIntents } from './external-launch-intents.js';
 
@@ -37,6 +38,42 @@ describe('isAccountablePath (ADR-0017)', () => {
     expect(isAccountablePath('notes.tmp.md')).toBe(true);
     expect(isAccountablePath('data.tmp.2.csv')).toBe(true);
     expect(isAccountablePath('src/tmp.7fa33.ts')).toBe(true);
+  });
+});
+
+describe('selectFileAttributionOwner', () => {
+  const session = (
+    id: string,
+    root: string,
+    activityAt: number,
+    active = true,
+    graceUntil = 0,
+  ) => ({
+    id,
+    root,
+    ended: false,
+    fileAttributionActive: active,
+    fileAttributionGraceUntilMs: graceUntil,
+    lastAgentActivityAtMs: activityAt,
+  });
+
+  it('does not attribute background workspace writes while every terminal is idle', () => {
+    const idle = session('idle', '/repo', 100, false);
+    expect(selectFileAttributionOwner([idle], '/repo', 1_000)).toBeNull();
+  });
+
+  it('assigns a shared-root batch only to the most recently active turn', () => {
+    const older = session('older', '/repo', 100);
+    const owner = session('owner', '/repo', 200);
+    const elsewhere = session('elsewhere', '/other', 300);
+
+    expect(selectFileAttributionOwner([older, owner, elsewhere], '/repo', 250)).toBe(owner);
+  });
+
+  it('keeps a short grace window for fs events delivered after turn completion', () => {
+    const settling = session('settling', '/repo', 100, false, 1_500);
+    expect(selectFileAttributionOwner([settling], '/repo', 1_000)).toBe(settling);
+    expect(selectFileAttributionOwner([settling], '/repo', 1_501)).toBeNull();
   });
 });
 

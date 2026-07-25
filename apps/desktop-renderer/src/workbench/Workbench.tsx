@@ -9,6 +9,7 @@ import { MemoryView } from '../views/MemoryView.js';
 import { DiagnosticsView } from '../views/DiagnosticsView.js';
 import { Ic } from '../views/home-icons.js';
 import { SessionRail } from '../views/SessionRail.js';
+import { RemoteRail } from '../views/RemoteRail.js';
 import { SkillsView } from '../views/SkillsView.js';
 import { ScreenshotQuickCard } from '../views/ScreenshotQuickCard.js';
 import { SshPromptHost } from '../views/SshPromptHost.js';
@@ -298,27 +299,23 @@ export function Workbench(): React.JSX.Element {
           className="tb-chip"
           data-testid="surface-home"
           title={
-            railView === 'skills' ? 'Skills usage and installations' : 'Open the selected Session'
+            remotesOpen
+              ? 'Return to the selected remote host overview'
+              : railView === 'skills'
+                ? 'Skills usage and installations'
+                : 'Open the selected Session'
           }
           onClick={() => {
+            if (remotesOpen) {
+              useAppStore.getState().setRemoteSubview('overview');
+              return;
+            }
             if (railView === 'skills') return;
             useAppStore.getState().setSurface('home');
           }}
         >
-          <Ic name={railView === 'skills' ? 'puzzle' : 'home'} size={12} />{' '}
-          {railView === 'skills' ? 'Skills' : 'Sessions'}
-        </button>
-        <button
-          className={`tb-chip ${remotesOpen ? 'active' : ''}`}
-          data-testid="surface-remotes"
-          title="SSH Remotes — manage hosts and open remote sessions"
-          onClick={() => {
-            const store = useAppStore.getState();
-            if (store.remotesOpen) store.closeRemotes();
-            else store.openRemotes();
-          }}
-        >
-          <Ic name="terminal" size={12} /> Remotes
+          <Ic name={remotesOpen ? 'server' : railView === 'skills' ? 'puzzle' : 'home'} size={12} />{' '}
+          {remotesOpen ? 'Remote Explorer' : railView === 'skills' ? 'Skills' : 'Sessions'}
         </button>
         {titleBarRegistry.center.map((C, i) => (
           <C key={i} />
@@ -342,7 +339,7 @@ export function Workbench(): React.JSX.Element {
       </header>
 
       <div className="wb-main" inert={overlay !== 'none'}>
-        <SessionRail />
+        {remotesOpen ? <RemoteRail /> : <SessionRail />}
         {railView === 'skills' ? (
           <SkillsView />
         ) : homeSurfaceRegistry.main ? (
