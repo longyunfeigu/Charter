@@ -3,7 +3,7 @@ import type { TaskDto } from '@pi-ide/ipc-contracts';
 import { pathForDroppedFile, rpcResult } from '../bridge.js';
 import { okOrToast, useAppStore } from '../store/appStore.js';
 import { useExternalStore, type ExternalSessionFile } from '../store/externalStore.js';
-import { useTerminalStore, mountTerminal } from './TerminalPanel.js';
+import { useTerminalStore, mountTerminal, observeTerminalFit } from './TerminalPanel.js';
 import { hasDragRef, readDragRef } from './dragRefs.js';
 import { Ic } from './home-icons.js';
 
@@ -91,15 +91,7 @@ export function ExternalTerminalColumn({
     const host = hostRef.current;
     if (!host || !item) return;
     mountTerminal(host, item);
-    const observer = new ResizeObserver(() => {
-      try {
-        item.fit.fit();
-      } catch {
-        // fit races during teardown are harmless
-      }
-    });
-    observer.observe(host);
-    return () => observer.disconnect();
+    return observeTerminalFit(host, item);
   }, [item]);
 
   const acceptsDrag = (e: React.DragEvent): boolean =>

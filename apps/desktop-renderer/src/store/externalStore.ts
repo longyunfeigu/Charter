@@ -49,6 +49,8 @@ interface ExternalStore {
   taskByTerminal: Record<string, string>;
   /** Live sessions by task id (kept after end for the bar/room summary). */
   sessions: Record<string, ExternalSession>;
+  /** Submitted external turns that have not reached a reply/quiet boundary. */
+  working: Record<string, boolean>;
   /** Latest accounting delta — drives the peek's live auto-follow in the room. */
   lastDelta: { taskId: string; paths: string[]; seq: number } | null;
   /** Peek auto-follow per external task (absent = on). */
@@ -139,6 +141,7 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
   agentByTerminal: {},
   taskByTerminal: {},
   sessions: {},
+  working: {},
   lastDelta: null,
   follow: {},
   promoted: null,
@@ -225,10 +228,13 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
   handleTerminalClosed(terminalId) {
     const agents = { ...get().agentByTerminal };
     const tasks = { ...get().taskByTerminal };
+    const taskId = tasks[terminalId];
+    const working = { ...get().working };
+    if (taskId) working[taskId] = false;
     delete agents[terminalId];
     delete tasks[terminalId];
     if (get().promoted?.terminalId === terminalId) get().unpromote();
-    set({ agentByTerminal: agents, taskByTerminal: tasks });
+    set({ agentByTerminal: agents, taskByTerminal: tasks, working });
   },
 
   async resumeTask(task) {
@@ -258,13 +264,22 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
       // A settled source task continues as a NEW task (fresh baseline, same
       // CLI conversation) — follow the session to where it actually lives.
       const continuedAs = result.data.taskId !== task.id ? result.data.taskId : null;
+      const restoredWorkers = result.data.fleet.resumed + result.data.fleet.reused;
+      const fleetNote =
+        result.data.fleet.requested === 0
+          ? ''
+          : result.data.fleet.failed.length > 0
+            ? ` Restored ${restoredWorkers}/${result.data.fleet.requested} workers; ${result.data.fleet.failed.length} need attention.`
+            : ` Restored ${restoredWorkers} worker${restoredWorkers === 1 ? '' : 's'}.`;
       useAppStore
         .getState()
         .pushToast(
-          'success',
-          continuedAs
-            ? `Continuing the ${external.cli} conversation as a new session.`
-            : `Resumed the previous ${external.cli} session.`,
+          result.data.fleet.failed.length > 0 ? 'warning' : 'success',
+          `${
+            continuedAs
+              ? `Continuing the ${external.cli} conversation as a new session.`
+              : `Resumed the previous ${external.cli} session.`
+          }${fleetNote}`,
         );
       await useTaskStore.getState().refreshTasks();
       if (continuedAs) {
@@ -311,6 +326,7 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
         // ended state and the room entry stays reachable. The pane also stays
         // wherever the user put it (决策 4 rev.2: no automatic return).
         if (endedTask) {
+          set({ working: { ...get().working, [endedTask]: false } });
           const files = get().sessions[endedTask]?.files.length ?? 0;
           app.pushToast(
             'info',
@@ -346,6 +362,9 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
       }
       set({
         sessions: { ...sessions, [session.taskId]: session },
+        ...(session.status === 'ended'
+          ? { working: { ...get().working, [session.taskId]: false } }
+          : {}),
         ...(delta.length > 0 && session.status === 'active'
           ? { lastDelta: { taskId: session.taskId, paths: delta, seq } }
           : {}),
@@ -356,6 +375,7 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
     // Reflect it on the exact Session row instead of animating whichever room
     // happens to be selected at the time.
     onEvent('external.turn', ({ terminalId, taskId, status, lastUserMessage }) => {
+      set({ working: { ...get().working, [taskId]: false } });
       seq += 1;
       const edgeKey = `external-turn:${terminalId}:${seq}`;
       void signalExternalReply(taskId, edgeKey, 'structured', status, lastUserMessage ?? null);
@@ -365,9 +385,14 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
     // The host therefore emits a presence-only output-settled edge after a
     // submitted prompt; it must never be promoted into semantic Replay data.
     onEvent('external.activitySettled', ({ terminalId, taskId, lastUserMessage }) => {
+      set({ working: { ...get().working, [taskId]: false } });
       seq += 1;
       const edgeKey = `external-settled:${terminalId}:${seq}`;
       void signalExternalReply(taskId, edgeKey, 'observed', 'ok', lastUserMessage ?? null);
+    });
+
+    onEvent('external.activityStarted', ({ taskId }) => {
+      set({ working: { ...get().working, [taskId]: true } });
     });
 
     // Focused-workspace changes intentionally do not clear terminal/session

@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -19,6 +20,13 @@ import { terminalPtySnapshot, waitForTerminalOutput } from './helpers/terminal';
 async function switchReplayDepth(page: Page, depth: 'recap' | 'explore' | 'verify') {
   await page.getByTestId('replay-menu-toggle').click();
   await page.getByTestId(`replay-depth-${depth}`).click();
+}
+
+async function useSoftwareTerminalRenderer(page: Page): Promise<void> {
+  await page.getByTestId('home-settings').click();
+  await page.getByTestId('settings-section-terminal').click();
+  await page.getByTestId('settings-terminal-renderer').selectOption('software');
+  await page.keyboard.press('Escape');
 }
 
 /**
@@ -128,7 +136,7 @@ function createComposerClaudeBin(): { bin: string; probe: string } {
       '    // Canonical-mode PTY stdin only releases a line once Enter arrives —',
       '    // seeing the prompt here proves the paste AND the separate Enter.',
       "    fs.appendFileSync(probe, 'got-prompt-line\\n');",
-      '    setTimeout(() => process.exit(0), 1500);',
+      '    setTimeout(() => process.exit(0), 3000);',
       '  }',
       '});',
       'process.stdin.resume();',
@@ -161,6 +169,87 @@ function createParallelAgentBin(): string {
   return bin;
 }
 
+function createReloadTuiClaudeBin(): { bin: string; freeze: string; frozen: string } {
+  const bin = mkdtempSync(join(tmpdir(), 'pi-ide-reload-tui-bin-'));
+  const freeze = join(bin, 'freeze');
+  const frozen = join(bin, 'frozen');
+  writeFileSync(
+    join(bin, 'claude'),
+    [
+      '#!/usr/bin/env node',
+      "const fs = require('node:fs');",
+      `const freeze = ${JSON.stringify(freeze)};`,
+      `const frozen = ${JSON.stringify(frozen)};`,
+      'let isFrozen = false;',
+      'let frozenCols = 0;',
+      "function draw(label = 'RELOAD_TUI_BOTTOM') {",
+      '  const cols = process.stdout.columns || 80;',
+      '  const rows = process.stdout.rows || 24;',
+      "  process.stdout.write('\\u001b[?1049h\\u001b[2J\\u001b[HRELOAD_TUI_TOP');",
+      '  process.stdout.write(`\\u001b[${rows};1H${label} rows=${rows} cols=${cols}`);',
+      '}',
+      'const timer = setInterval(() => {',
+      '  if (fs.existsSync(freeze)) {',
+      '    clearInterval(timer);',
+      '    isFrozen = true;',
+      '    frozenCols = process.stdout.columns || 80;',
+      "    fs.writeFileSync(frozen, 'frozen');",
+      '    return;',
+      '  }',
+      '  draw();',
+      '}, 100);',
+      "process.on('SIGWINCH', () => {",
+      '  if (!isFrozen) return;',
+      "  if ((process.stdout.columns || 80) !== frozenCols) draw('RELOAD_TUI_RECOVERED');",
+      '});',
+      'draw();',
+      'process.stdin.resume();',
+      'setTimeout(() => process.exit(0), 30000);',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(join(bin, 'claude'), 0o755);
+  pinFixtureCliPath(bin);
+  return { bin, freeze, frozen };
+}
+
+function createDecReplayClaudeBin(): string {
+  const bin = mkdtempSync(join(tmpdir(), 'pi-ide-dec-replay-bin-'));
+  writeFileSync(
+    join(bin, 'claude'),
+    [
+      '#!/usr/bin/env node',
+      // Keep G0 in DEC Special Graphics while the raw tail crosses 64 KiB.
+      // A renderer that adopts this PTY without the restored designation
+      // renders the final box as literal l/q/k/x/m/j characters.
+      "console.log('DEC AGENT READY');",
+      'setTimeout(() => {',
+      "  process.stdout.write('\\u001b(0' + 'q'.repeat(70 * 1024));",
+      "  process.stdout.write('\\u001b[2J\\u001b[HDEC REPLAY TOP\\r\\nlqqqqqqk\\r\\nx      x\\r\\nmqqqqqqj');",
+      '}, 1500);',
+      'process.stdin.resume();',
+      'setTimeout(() => process.exit(0), 30000);',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(join(bin, 'claude'), 0o755);
+  pinFixtureCliPath(bin);
+  return bin;
+}
+
+async function tuiMarkerPosition(page: Page): Promise<{ index: number; rows: number }> {
+  const lines = await page
+    .getByTestId('external-terminal-host')
+    .locator('.xterm-rows > div')
+    .allTextContents();
+  return {
+    index: lines.findIndex(
+      (line) => line.includes('RELOAD_TUI_BOTTOM') || line.includes('RELOAD_TUI_RECOVERED'),
+    ),
+    rows: lines.length,
+  };
+}
+
 interface E2ETerminalInfo {
   id: string;
   pid: number;
@@ -174,20 +263,21 @@ type E2ETerminalListResult =
 test.describe('ADR-0017 external CLI agent sessions', () => {
   test('a live external terminal reconnects after the renderer reloads', async () => {
     const fixture = createGitFixture();
-    const bin = createParallelAgentBin();
+    const tui = createReloadTuiClaudeBin();
     const { app, page } = await launchApp({
       env: {
         PI_IDE_OPEN_WORKSPACE: fixture,
         PI_IDE_EXTERNAL_CLIS: 'claude',
-        PATH: `${bin}:${process.env.PATH ?? ''}`,
-        ZDOTDIR: bin,
+        PATH: `${tui.bin}:${process.env.PATH ?? ''}`,
+        ZDOTDIR: tui.bin,
       },
     });
     try {
+      await useSoftwareTerminalRenderer(page);
       await page.keyboard.press('Control+`');
       await expect(page.locator('.xterm')).toBeVisible({ timeout: 15_000 });
       await page.getByTestId('terminal-host').locator('.xterm').click();
-      await page.keyboard.type(join(bin, 'claude'));
+      await page.keyboard.type(join(tui.bin, 'claude'));
       await page.keyboard.press('Enter');
       await expect(page.locator('[data-testid^="terminal-agent-"]')).toContainText('Claude', {
         timeout: 15_000,
@@ -213,19 +303,114 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       expect(beforeReload.terminalId).toBeTruthy();
       expect(beforeReload.taskId).toBeTruthy();
 
+      const rowBeforeReload = page.getByTestId(`home-task-${beforeReload.taskId}`);
+      await expect(rowBeforeReload).toBeVisible({ timeout: 15_000 });
+      await rowBeforeReload.click();
+      await expect(page.getByTestId('external-terminal-host')).toHaveAttribute(
+        'data-terminal-id',
+        beforeReload.terminalId!,
+      );
+      await expect
+        .poll(() => tuiMarkerPosition(page), { timeout: 15_000 })
+        .toMatchObject({ index: expect.any(Number), rows: expect.any(Number) });
+      await expect
+        .poll(async () => {
+          const marker = await tuiMarkerPosition(page);
+          return marker.index >= marker.rows - 2;
+        })
+        .toBe(true);
+      writeFileSync(tui.freeze, 'freeze');
+      await expect.poll(() => existsSync(tui.frozen)).toBe(true);
+
       await page.reload({ waitUntil: 'domcontentloaded' });
-      const row = page.getByTestId(`home-task-${beforeReload.taskId}`);
-      await expect(row).toBeVisible({ timeout: 15_000 });
-      await row.click();
+      const rowAfterReload = page.getByTestId(`home-task-${beforeReload.taskId}`);
+      await expect(rowAfterReload).toBeVisible({ timeout: 15_000 });
+      await rowAfterReload.click();
       await expect(page.getByTestId('external-terminal-host')).toHaveAttribute(
         'data-terminal-id',
         beforeReload.terminalId!,
         { timeout: 15_000 },
       );
       await expect(page.getByTestId('external-terminal-gone')).toHaveCount(0);
-      await waitForTerminalOutput(page, 'claude-pty-live', {
-        terminalId: beforeReload.terminalId!,
+      await expect(page.getByTestId('external-terminal-host').locator('.xterm-rows')).toContainText(
+        'RELOAD_TUI_RECOVERED',
+      );
+      await expect
+        .poll(async () => {
+          const marker = await tuiMarkerPosition(page);
+          return marker.index >= marker.rows - 2;
+        })
+        .toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('a truncated DEC line-drawing tail survives renderer reload', async () => {
+    const fixture = createGitFixture();
+    const bin = createDecReplayClaudeBin();
+    const { app, page } = await launchApp({
+      env: {
+        PI_IDE_OPEN_WORKSPACE: fixture,
+        PI_IDE_EXTERNAL_CLIS: 'claude',
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        ZDOTDIR: bin,
+      },
+    });
+    try {
+      await useSoftwareTerminalRenderer(page);
+      await page.keyboard.press('Control+`');
+      await expect(page.locator('.xterm')).toBeVisible({ timeout: 15_000 });
+      await page.getByTestId('terminal-host').locator('.xterm').click();
+      await page.keyboard.type(join(bin, 'claude'));
+      await page.keyboard.press('Enter');
+      await expect(page.locator('[data-testid^="terminal-agent-"]')).toContainText('Claude', {
+        timeout: 15_000,
       });
+
+      const session = await page.evaluate(async () => {
+        const terminalResult = (await window.product.rpc['terminal.list']!(
+          {},
+        )) as E2ETerminalListResult;
+        const taskResult = (await window.product.rpc['task.list']!({
+          filter: 'all',
+          includeArchived: false,
+        })) as {
+          ok: true;
+          data: { tasks: Array<{ id: string; external: { terminalId: string } | null }> };
+        };
+        const task = taskResult.data.tasks.find((candidate) => candidate.external);
+        return {
+          terminalId: terminalResult.ok ? terminalResult.data.items[0]?.id : null,
+          taskId: task?.id ?? null,
+        };
+      });
+      expect(session.terminalId).toBeTruthy();
+      expect(session.taskId).toBeTruthy();
+      await waitForTerminalOutput(page, 'DEC REPLAY TOP', {
+        terminalId: session.terminalId!,
+      });
+
+      const openSession = async (): Promise<void> => {
+        const row = page.getByTestId(`home-task-${session.taskId}`);
+        await expect(row).toBeVisible({ timeout: 15_000 });
+        await row.click();
+        await expect(page.getByTestId('external-terminal-host')).toHaveAttribute(
+          'data-terminal-id',
+          session.terminalId!,
+        );
+      };
+      const screen = page.getByTestId('external-terminal-host').locator('.xterm-rows');
+
+      await openSession();
+      await expect(screen).toContainText('DEC REPLAY TOP');
+      await expect(screen).toContainText('┌──────┐');
+
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await openSession();
+      await expect(screen).toContainText('DEC REPLAY TOP');
+      await expect(screen).toContainText('┌──────┐');
+      await expect(screen).not.toContainText('lqqqqqqk');
     } finally {
       await app.close();
     }
@@ -560,6 +745,8 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
 
       const row = page.getByTestId(`home-task-${task!.id}`);
       await expect(row).toContainText('hi from composer');
+      await expect(row).toHaveAttribute('data-working', 'true');
+      await expect(row.locator('.sr-provider')).toHaveClass(/is-working/);
 
       // CLI exit closes the session as "Ended", never "Answered" — and an
       // ended session with nothing to decide parks under History in the rail.
@@ -569,6 +756,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
         await historyToggle.click();
       }
       await expect(row).toHaveAttribute('data-state', 'REVIEW_READY', { timeout: 25000 });
+      await expect(row).toHaveAttribute('data-working', 'false');
       await expect(row).toContainText('Ended');
       await expect(row).toContainText('Session ended · no file changes');
 

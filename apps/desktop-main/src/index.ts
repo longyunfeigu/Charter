@@ -561,6 +561,15 @@ if (!gotLock) {
         maxSendsPerMinute: () => settings.effective.orchestration.maxSendsPerMinute,
         launchIntents: externalLaunchIntents,
         taskForTerminal: (id) => externalSessionsRef?.taskIdForTerminal(id) ?? null,
+        taskTitleForTerminal: (id) => {
+          const taskId = externalSessionsRef?.taskIdForTerminal(id);
+          if (!taskId || !taskServiceRef) return null;
+          try {
+            return taskServiceRef.getTask(taskId).title;
+          } catch {
+            return null;
+          }
+        },
         onChanged: (snapshot) => broadcast('orchestration.changed', snapshot),
         recordEvent: (taskId, type, payload) => taskServiceRef?.recordEvent(taskId, type, payload),
       });
@@ -827,6 +836,38 @@ if (!gotLock) {
         workspaceHost,
         logger.child('external'),
         externalLaunchIntents,
+        ({ terminalId, taskId, status, source }) =>
+          terminalControlRef?.notifyTurnSettled(terminalId, {
+            taskId,
+            status,
+            source,
+          }),
+        ({ terminalId, taskId, source }) =>
+          terminalControlRef?.notifyTurnStarted(terminalId, {
+            taskId,
+            source,
+          }),
+        ({ terminalId, taskId }) => terminalControlRef?.bindWorkerTask(terminalId, taskId),
+        async ({ sourceTaskId, targetTaskId, commanderTerminalId }) => {
+          const control = terminalControlRef;
+          if (!control) {
+            return { requested: 0, resumed: 0, reused: 0, failed: [] };
+          }
+          return control.resumeFleet({
+            sourceTaskId,
+            targetTaskId,
+            commanderTerminalId,
+            members: taskService.orchestrationFleetForTask(sourceTaskId),
+            resumeWorker: async (workerTaskId, terminalId) => {
+              const sessions = externalSessionsRef;
+              if (!sessions) throw new Error('External session service is unavailable.');
+              const resumed = await sessions.resume(workerTaskId, terminalId, {
+                resumeFleet: false,
+              });
+              return { taskId: resumed.taskId, cli: resumed.cli };
+            },
+          });
+        },
       );
       registerExternalHandlers(externalSessionsRef, logger.child('ipc'), artifactService);
       ctlServerRef = new CtlServer({

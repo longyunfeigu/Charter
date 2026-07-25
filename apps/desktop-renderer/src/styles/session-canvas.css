@@ -176,6 +176,44 @@
   background: var(--bg-hover);
 }
 
+.session-rename-modal {
+  width: min(440px, 90vw);
+}
+.session-rename-body {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+}
+.session-rename-body label {
+  color: var(--fg);
+  font: 600 11px var(--font-ui);
+}
+.session-rename-body input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  outline: none;
+  background: var(--bg-input);
+  color: var(--fg);
+  font: 13px var(--font-ui);
+}
+.session-rename-body input:focus {
+  border-color: var(--info);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--info) 15%, transparent);
+}
+.session-rename-body small {
+  color: var(--fg-muted);
+  font: 10.5px/1.4 var(--font-ui);
+}
+.session-rename-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+
 /* ---------- three-region Session Canvas ---------- */
 .session-canvas-body {
   min-width: 0;

@@ -179,6 +179,29 @@ describe('IPC channel registry', () => {
     ).toBe(false);
   });
 
+  it('task.rename trims and bounds Session names', () => {
+    const channel = getChannel('task.rename');
+    expect(channel.request.safeParse({ taskId: 'task_1', title: '  Focused work  ' }).data).toEqual(
+      {
+        taskId: 'task_1',
+        title: 'Focused work',
+      },
+    );
+    expect(validateChannelRequest('task.rename', { taskId: 'task_1', title: '   ' }).ok).toBe(
+      false,
+    );
+    expect(
+      validateChannelRequest('task.rename', { taskId: 'task_1', title: 'x'.repeat(301) }).ok,
+    ).toBe(false);
+    expect(
+      validateChannelRequest('task.rename', {
+        taskId: 'task_1',
+        title: 'Focused work',
+        archived: true,
+      }).ok,
+    ).toBe(false);
+  });
+
   it('skills.usage bounds the window and rejects extra fields (ADR-0037)', () => {
     expect(validateChannelRequest('skills.usage', {}).ok).toBe(true);
     expect(validateChannelRequest('skills.usage', { windowDays: 45 }).ok).toBe(true);

@@ -81,7 +81,7 @@ Session = 项目 + Agent + Worktree + 对话 + 计划
 
 受管 Agent 通过 Charter 的 Tool Gateway 工作。已安装的 Claude Code 与 Codex CLI 保留原生终端体验和原始会话身份；Charter 负责保留 PTY、核算仓库改动，并把结果带入同一套审查模型。
 
-一个 Session 还可以指挥由 shell、Claude Code 和 Codex 组成的可见 Worker 编队。Worker 始终有明确归属，任务结束后也会保持打开以便追问；审批、暂停、接管和控制动作都留在台面上，而不是消失在后台任务里。
+一个 Session 还可以指挥由 shell、Claude Code 和 Codex 组成的可见 Worker 编队。Terminal 编排调用默认直接执行，不再逐次弹权限确认；身份校验、层级与频率限制、暂停/接管队列和证据账本仍然生效。Worker 的回合完成事件会立即唤醒等待中的协调者，不需要轮询状态。Worker 始终有明确归属，任务结束后也会保持打开以便追问，而不是消失在后台任务里。
 
 ### 在真实产品里预览，直接指出哪里不对
 
@@ -144,7 +144,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 - **Claude Code / Codex：** 直接启动本机已经安装的 CLI 和真实 PTY，不套一层假的聊天界面；Charter 会识别 CLI 进程、会话 ID、工作目录和结束状态，并把仓库改动带入 Review。
 - **四种模式有明确区别：** `Read` 只回答问题，不写文件也不执行命令；`Approve` 先给计划，每次写入或命令都询问；`Auto` 自动执行低风险动作、遇到风险暂停；`Full` 自动执行并应用结果，但禁止动作、验证失败和合并冲突仍会被拦下，事后也可以回滚。
 - **计划不是一段普通回复：** 写入前会出现结构化计划卡；你可以查看步骤和验证方式，再点击 **Approve plan** 放行。计划未批准时，受计划保护的写入不会开始。
-- **一个 Session 可以指挥多个 Worker：** 主 Agent 可以创建 shell、Claude Code 或 Codex 子会话。工作间会显示 Worker 监看墙、当前输出、待审批和失败状态，并提供 **Pause all**、单 Worker 暂停与接管。
+- **一个 Session 可以指挥多个 Worker：** 主 Agent 可以创建 shell、Claude Code 或 Codex 子会话。Worker 回合完成后通过事件即时通知等待中的主 Agent；工作间会显示监看墙、当前输出、完成/失败状态，并提供 **Pause all**、单 Worker 暂停与接管。
 - **会话可以接着聊：** 受管 Session 完成后可在同一个 Room 继续追问；已结束的 Claude Code / Codex 会话会出现 **Resume Claude/Codex session**，使用记录下来的会话身份和目录继续工作。
 - **多个仓库也不会混在一起：** 左侧会话栏按项目组织 Session，显示运行中、Needs you、Review 和 History；切换 Session 时，项目、Worktree、终端和 Preview 上下文会一起切换。
 

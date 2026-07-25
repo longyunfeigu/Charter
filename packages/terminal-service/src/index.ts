@@ -113,8 +113,220 @@ interface Session {
    * its existing pty-based semantics. */
   pty?: IPty;
   tracker: AgentStateTracker;
-  recentData: string;
+  recentData: TerminalReplayBuffer;
   knownAgent: 'claude' | 'codex' | null;
+}
+
+const TERMINAL_REPLAY_LIMIT = 64 * 1024;
+const TERMINAL_REPLAY_HARD_LIMIT = 96 * 1024;
+
+interface VtCharsetState {
+  g0: string;
+  g1: string;
+  gl: 0 | 1;
+}
+
+type VtParserMode =
+  | 'ground'
+  | 'escape'
+  | 'escape-intermediate'
+  | 'csi'
+  | 'osc'
+  | 'osc-escape'
+  | 'string'
+  | 'string-escape';
+
+interface VtParserState {
+  charset: VtCharsetState;
+  mode: VtParserMode;
+  intermediates: string;
+}
+
+interface VtSafePoint {
+  cut: number;
+  charset: VtCharsetState;
+}
+
+function defaultVtCharset(): VtCharsetState {
+  return { g0: 'B', g1: 'B', gl: 0 };
+}
+
+function cloneVtCharset(state: VtCharsetState): VtCharsetState {
+  return { ...state };
+}
+
+function newVtParser(charset: VtCharsetState): VtParserState {
+  return { charset: cloneVtCharset(charset), mode: 'ground', intermediates: '' };
+}
+
+function isUnicodeBoundary(value: string, index: number): boolean {
+  if (index <= 0 || index >= value.length) return true;
+  const previous = value.charCodeAt(index - 1);
+  const next = value.charCodeAt(index);
+  return !(previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff);
+}
+
+function advanceVtParser(parser: VtParserState, char: string): void {
+  const code = char.charCodeAt(0);
+  const isCancel = char === '\u0018' || char === '\u001a';
+  const isIntermediate = code >= 0x20 && code <= 0x2f;
+  const isFinal = code >= 0x30 && code <= 0x7e;
+
+  if (parser.mode === 'osc') {
+    if (char === '\u0007' || char === '\u009c') parser.mode = 'ground';
+    else if (char === '\u001b') parser.mode = 'osc-escape';
+    return;
+  }
+  if (parser.mode === 'osc-escape') {
+    if (char === '\\' || char === '\u0007' || char === '\u009c') parser.mode = 'ground';
+    else if (char !== '\u001b') parser.mode = 'osc';
+    return;
+  }
+  if (parser.mode === 'string') {
+    if (char === '\u009c') parser.mode = 'ground';
+    else if (char === '\u001b') parser.mode = 'string-escape';
+    return;
+  }
+  if (parser.mode === 'string-escape') {
+    if (char === '\\' || char === '\u009c') parser.mode = 'ground';
+    else if (char !== '\u001b') parser.mode = 'string';
+    return;
+  }
+
+  if (char === '\u000e') {
+    parser.charset.gl = 1;
+    return;
+  }
+  if (char === '\u000f') {
+    parser.charset.gl = 0;
+    return;
+  }
+  if (isCancel) {
+    parser.mode = 'ground';
+    parser.intermediates = '';
+    return;
+  }
+  if (char === '\u001b') {
+    parser.mode = 'escape';
+    parser.intermediates = '';
+    return;
+  }
+
+  if (parser.mode === 'ground') {
+    if (char === '\u009b') parser.mode = 'csi';
+    else if (char === '\u009d') parser.mode = 'osc';
+    else if (['\u0090', '\u0098', '\u009e', '\u009f'].includes(char)) parser.mode = 'string';
+    return;
+  }
+
+  if (parser.mode === 'escape') {
+    if (char === '[') parser.mode = 'csi';
+    else if (char === ']') parser.mode = 'osc';
+    else if (['P', 'X', '^', '_'].includes(char)) parser.mode = 'string';
+    else if (isIntermediate) {
+      parser.mode = 'escape-intermediate';
+      parser.intermediates = char;
+    } else if (isFinal) {
+      if (char === 'c') parser.charset = defaultVtCharset();
+      parser.mode = 'ground';
+    }
+    return;
+  }
+
+  if (parser.mode === 'escape-intermediate') {
+    if (isIntermediate) {
+      parser.intermediates += char;
+    } else if (isFinal) {
+      if (parser.intermediates === '(') parser.charset.g0 = char;
+      else if (parser.intermediates === ')') parser.charset.g1 = char;
+      parser.mode = 'ground';
+      parser.intermediates = '';
+    }
+    return;
+  }
+
+  if (parser.mode === 'csi' && code >= 0x40 && code <= 0x7e) {
+    parser.mode = 'ground';
+  }
+}
+
+function scanVtCut(
+  value: string,
+  charsetAtStart: VtCharsetState,
+  minimumCut: number,
+): {
+  after: VtSafePoint | null;
+  before: VtSafePoint;
+  endParser: VtParserState;
+} {
+  const parser = newVtParser(charsetAtStart);
+  let before: VtSafePoint = { cut: 0, charset: cloneVtCharset(charsetAtStart) };
+  for (let index = 0; index < value.length; index += 1) {
+    advanceVtParser(parser, value[index]!);
+    const cut = index + 1;
+    if (parser.mode !== 'ground' || !isUnicodeBoundary(value, cut)) continue;
+    const point = { cut, charset: cloneVtCharset(parser.charset) };
+    if (cut >= minimumCut) return { after: point, before, endParser: parser };
+    before = point;
+  }
+  return { after: null, before, endParser: parser };
+}
+
+function vtReplayPrefix(state: VtCharsetState): string {
+  let prefix = '';
+  if (state.g0 !== 'B') prefix += `\u001b(${state.g0}`;
+  if (state.g1 !== 'B') prefix += `\u001b)${state.g1}`;
+  if (state.gl === 1) prefix += '\u000e';
+  return prefix;
+}
+
+/** A bounded raw PTY tail whose replay always starts at a complete VT sequence. */
+class TerminalReplayBuffer {
+  private value = '';
+  private charsetAtStart = defaultVtCharset();
+  private discarding: VtParserState | null = null;
+
+  append(data: string): void {
+    if (!data) return;
+    if (this.discarding) {
+      let retainedAt = -1;
+      for (let index = 0; index < data.length; index += 1) {
+        advanceVtParser(this.discarding, data[index]!);
+        const cut = index + 1;
+        if (this.discarding.mode === 'ground' && isUnicodeBoundary(data, cut)) {
+          retainedAt = cut;
+          this.charsetAtStart = cloneVtCharset(this.discarding.charset);
+          this.discarding = null;
+          break;
+        }
+      }
+      if (this.discarding) return;
+      data = data.slice(retainedAt);
+      if (!data) return;
+    }
+
+    this.value += data;
+    if (this.value.length <= TERMINAL_REPLAY_LIMIT) return;
+
+    const scan = scanVtCut(
+      this.value,
+      this.charsetAtStart,
+      this.value.length - TERMINAL_REPLAY_LIMIT,
+    );
+    const safe = scan.after ?? scan.before;
+    if (this.value.length - safe.cut > TERMINAL_REPLAY_HARD_LIMIT) {
+      this.value = '';
+      this.discarding = scan.endParser;
+      return;
+    }
+    this.value = this.value.slice(safe.cut);
+    this.charsetAtStart = safe.charset;
+  }
+
+  replay(): string {
+    if (this.discarding) return '';
+    return `${vtReplayPrefix(this.charsetAtStart)}${this.value}`;
+  }
 }
 
 // ---------- terminal environment hygiene ----------
@@ -500,7 +712,7 @@ export class TerminalManager {
 
   private emitData(id: string, data: string): void {
     const session = this.sessions.get(id);
-    if (session) session.recentData = `${session.recentData}${data}`.slice(-64 * 1024);
+    if (session) session.recentData.append(data);
     this.onData(id, data);
     for (const listener of this.dataListeners) listener({ id, data });
   }
@@ -512,7 +724,7 @@ export class TerminalManager {
 
   /** Small in-memory lead-in so session detection cannot miss fast JSON init events. */
   recentData(id: string): string {
-    return this.sessions.get(id)?.recentData ?? '';
+    return this.sessions.get(id)?.recentData.replay() ?? '';
   }
 
   /** One detection sample across all sessions (interval-driven; public for tests). */
@@ -629,7 +841,14 @@ export class TerminalManager {
   ): TerminalInfo {
     const tracker = new AgentStateTracker();
     if (knownAgent) tracker.update(knownAgent);
-    const session: Session = { info, backend, pty, tracker, recentData: '', knownAgent };
+    const session: Session = {
+      info,
+      backend,
+      pty,
+      tracker,
+      recentData: new TerminalReplayBuffer(),
+      knownAgent,
+    };
     backend.onData((data) => this.emitData(id, data));
     backend.onExit((exitCode) => {
       const liveSession = this.sessions.get(id);

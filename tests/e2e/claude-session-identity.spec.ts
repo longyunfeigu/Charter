@@ -71,6 +71,14 @@ function createObservedAgentBin(provider: 'claude' | 'codex'): string {
       '    clearInterval(progress);',
       "    console.log('observed-reply-complete');",
       '    replying = false;',
+      '    let repaint = 0;',
+      '    setTimeout(() => {',
+      '      const idleRepaints = setInterval(() => {',
+      "        console.log('observed-idle-repaint');",
+      '        repaint += 1;',
+      '        if (repaint >= 8) clearInterval(idleRepaints);',
+      '      }, 200);',
+      '    }, 1400);',
       '  }, 260);',
       '});',
       'setInterval(() => {}, 1000);',
@@ -143,6 +151,7 @@ test.describe('External Session identity and presence', () => {
         const task = (await externalTasks(page, provider))[0]!;
         const row = page.getByTestId(`home-task-${task.id}`);
         await expect(row).toBeVisible();
+        await expect(row).toHaveAttribute('data-working', 'false');
         await expect(row).not.toHaveAttribute('data-reply', 'true');
         await row.click();
         await expect(row).toHaveClass(/selected/);
@@ -159,6 +168,7 @@ test.describe('External Session identity and presence', () => {
         await page.getByTestId('external-terminal-host').locator('.xterm').click();
         await page.keyboard.type('finish this observed turn');
         await page.keyboard.press('Enter');
+        await expect(row).toHaveAttribute('data-working', 'true');
         // Leave before the observed quiet-window edge: background Sessions
         // announce completion, while an open Session owns its local status.
         await page.getByTestId('task-room-back').click();
@@ -177,6 +187,7 @@ test.describe('External Session identity and presence', () => {
         await expect(notice).toContainText('Terminal output settled');
 
         await expect(row).toHaveAttribute('data-reply', 'true', { timeout: 8_000 });
+        await expect(row).toHaveAttribute('data-working', 'false');
         await expect(row).toHaveClass(/reply-shake/);
         await expect(row).toHaveCSS('animation-name', 'srSessionReplyShake');
         await expect(row).toHaveCSS('animation-duration', '2.2s');
@@ -184,6 +195,16 @@ test.describe('External Session identity and presence', () => {
           (element) => getComputedStyle(element, '::after').animationName,
         );
         expect(cardWave).toBe('srSessionCardWave');
+
+        // Claude/Codex may repaint an idle status line long after the reply
+        // settled. With no submitted input, those bytes must not restart the
+        // Session spinner or the fleet worker state.
+        await waitForTerminalOutput(page, 'observed-idle-repaint', {
+          terminalId: task.external!.terminalId,
+          timeout: 8_000,
+        });
+        await page.waitForTimeout(450);
+        await expect(row).toHaveAttribute('data-working', 'false');
 
         // Match the reported Archive surface and retain a desktop artifact of
         // both pieces of completion presence in one real Electron frame.

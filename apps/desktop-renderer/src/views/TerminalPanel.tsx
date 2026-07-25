@@ -75,6 +75,10 @@ export interface TermInstance {
   lastCommand: string;
   hidden: boolean;
   inputWriter: TerminalInputWriter;
+  /** ANSI/VT state captured by main while this renderer was unavailable. */
+  pendingReplay: string | null;
+  /** Adopted TUIs need a real SIGWINCH repaint after replay. */
+  restoreRepaintPending: boolean;
 }
 
 interface CreateTerminalRequest {
@@ -111,7 +115,7 @@ interface TerminalStore {
   undoCloseId: string | null;
   init(): void;
   create(options?: CreateTerminalRequest): Promise<string | null>;
-  adopt(id: string, outputTail?: string): Promise<boolean>;
+  adopt(id: string): Promise<boolean>;
   setContext(id: string, context: TerminalWorkingContext): Promise<boolean>;
   setActive(id: string): void;
   requestKill(id: string): Promise<void>;
@@ -464,7 +468,7 @@ export function terminalAppearance(): TerminalAppearance {
  */
 export function mountTerminal(
   host: HTMLElement,
-  item: Pick<TermInstance, 'term' | 'fit'>,
+  item: Pick<TermInstance, 'id' | 'term' | 'fit' | 'pendingReplay' | 'restoreRepaintPending'>,
   appearance: 'normal' | 'quick' = 'normal',
 ): void {
   applyTerminalAppearance(item, appearance);
@@ -494,7 +498,27 @@ export function mountTerminal(
     if (!host.isConnected || item.term.element?.parentElement !== host) return;
     try {
       item.fit.fit();
-      item.term.refresh(0, item.term.rows - 1);
+      const replay = item.pendingReplay;
+      item.pendingReplay = null;
+      const finishRestore = (): void => {
+        item.term.refresh(0, item.term.rows - 1);
+        if (!item.restoreRepaintPending) return;
+        item.restoreRepaintPending = false;
+        // A bounded PTY tail can start between full-screen TUI paints. Nudge
+        // the backend size and restore it so the agent redraws one clean frame.
+        const cols = item.term.cols;
+        const rows = item.term.rows;
+        const nudgeCols = cols > 2 ? cols - 1 : cols + 1;
+        void rpcResult('terminal.resize', { id: item.id, cols: nudgeCols, rows }).then(() => {
+          // Give the foreground TUI one event-loop turn at the changed size;
+          // back-to-back SIGWINCH signals may otherwise be coalesced by the OS.
+          setTimeout(() => {
+            void rpcResult('terminal.resize', { id: item.id, cols, rows });
+          }, 32);
+        });
+      };
+      if (replay) item.term.write(replay, finishRestore);
+      else finishRestore();
     } catch {
       // fit/refresh races during teardown are harmless
     }
@@ -815,6 +839,8 @@ function createTermInstance(
     lastCommand: '',
     hidden: false,
     inputWriter,
+    pendingReplay: options.outputTail !== undefined ? options.outputTail : null,
+    restoreRepaintPending: options.outputTail !== undefined,
   };
   term.onData((data) => {
     if (data === '\r') {
@@ -828,9 +854,8 @@ function createTermInstance(
   });
   term.attachCustomKeyEventHandler((event) => blockNavigationKey(item, event));
   wireFileLinks(item);
-  if (options.outputTail) {
+  if (options.outputTail !== undefined) {
     inputWriter.markReady();
-    term.write(options.outputTail);
   }
   return item;
 }
@@ -872,7 +897,10 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     onEvent('terminal.data', ({ id, data }) => {
       const item = get().items.find((t) => t.id === id);
       if (!item) return;
-      item.term.write(data);
+      // Keep live bytes behind the restored tail until the first real fit.
+      // Reversing that order leaves full-screen TUI cursor state corrupted.
+      if (item.pendingReplay !== null) item.pendingReplay += data;
+      else item.term.write(data);
       // ADR-0021: plain-output progress fallback (OSC 9;4 always wins).
       item.blocks.feedOutput(data);
     });
@@ -991,7 +1019,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     return item.id;
   },
 
-  async adopt(id, outputTail = '') {
+  async adopt(id) {
     if (get().items.some((item) => item.id === id)) return true;
     if (adoptingTerminalIds.has(id)) return false;
     adoptingTerminalIds.add(id);
@@ -1001,11 +1029,12 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       const info = result.data.items.find((item) => item.id === id);
       if (!info) return false;
       if (get().items.some((item) => item.id === id)) return true;
-      // Main and renderer can briefly straddle schema versions during Vite
-      // development reloads; fall back to the legacy plain-text snapshot.
+      // A lossy ANSI-stripped orchestration tail is not a valid VT stream.
+      // During a main/renderer version straddle, repaint an empty xterm rather
+      // than rendering DEC line-drawing bytes as literal q/x/l/k characters.
       const recentData = result.data.recentData ?? {};
       const item = createTermInstance(info, {
-        outputTail: recentData[id] ?? outputTail,
+        outputTail: recentData[id] ?? '',
       });
       set({ items: [...get().items, item] });
       return true;

@@ -889,7 +889,7 @@ export function HomeView(): React.JSX.Element {
               </div>
             ) : (
               <span className="hm-native-chip">
-                <Ic name="terminal" size={12} /> Native CLI permissions
+                <Ic name="terminal" size={12} /> Native CLI · terminal tools auto-allowed
               </span>
             )}
             <button

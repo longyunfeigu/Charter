@@ -2683,7 +2683,7 @@ button.tr-extlive {
 .orch-worker-list .orch-tile:hover {
   background: var(--bg-hover);
 }
-.orch-worker-list .orch-tile.on-air {
+.orch-worker-list .orch-tile.selected {
   border-color: color-mix(in srgb, var(--info) 40%, var(--border));
   background: color-mix(in srgb, var(--info-bg) 72%, transparent);
 }

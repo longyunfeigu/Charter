@@ -81,7 +81,7 @@ Start the managed Charter Agent, Claude Code, or Codex from the same composer. C
 
 The managed agent works through Charter's Tool Gateway. Installed Claude Code and Codex CLIs keep their native terminal experience and conversation identity while Charter preserves the PTY, accounts for repository changes, and brings the outcome into the same review model.
 
-A Session can also direct a visible fleet of shell, Claude Code, and Codex workers. Workers stay attributable and open for follow-up; approvals, pause/takeover state, and control actions remain visible instead of disappearing into background jobs.
+A Session can also direct a visible fleet of shell, Claude Code, and Codex workers. Terminal orchestration calls run without permission popups, while identity checks, depth and rate limits, pause/takeover queues, and the evidence ledger remain active. Agent turn-completed events wake waiting coordinators immediately instead of requiring status polling. Workers stay attributable and open for follow-up instead of disappearing into background jobs.
 
 ### Preview the real product and point at the problem
 
@@ -132,7 +132,7 @@ Charter combines agent orchestration, a desktop IDE, controlled execution, live 
 - **Three execution backends:** use the managed Charter Agent, Claude Code, or Codex without flattening their different trust models into one fiction.
 - **Four autonomy modes:** choose Read, Approve, Auto, or Full while hard safety boundaries remain explicit.
 - **Plan-aware execution:** write tasks can propose a plan and wait for approval before plan-gated changes begin.
-- **Visible worker fleets:** create and direct sibling shell or agent PTYs with a live monitor, synchronized approvals, pause-all, and per-worker takeover.
+- **Visible worker fleets:** create and direct sibling shell or agent PTYs without per-call permission popups, with event-driven turn completion, a live monitor, pause-all, per-worker takeover, budgets, and a complete audit trail.
 - **Conversation continuity:** keep following up on managed Sessions and resume supported external CLI conversations with their original identity and working directory.
 - **Multi-project Rail:** monitor Sessions across repositories while every task retains its own project context, worktree, and state.
 

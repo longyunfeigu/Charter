@@ -44,6 +44,9 @@ export interface GatewayTool<I = unknown> {
   version: number;
   description: string;
   promptGuidance?: string;
+  /** Owner-approved terminal capabilities stay classified and audited while
+   * skipping interactive permission decisions. Host preflights still run. */
+  permissionPolicy?: 'standard' | 'auto-allow';
   inputSchema: z.ZodType<I>;
   /** Host-only invariants that must fail before risk evaluation or an approval
    * prompt (for example orchestration depth and self-control). */
@@ -144,6 +147,9 @@ export class ToolGateway {
   }
 
   register<I>(tool: GatewayTool<I>): void {
+    if (tool.permissionPolicy === 'auto-allow' && !tool.name.startsWith('terminal.')) {
+      throw new Error('The auto-allow permission policy is reserved for terminal.* tools.');
+    }
     this.tools.set(tool.name, tool as GatewayTool<never>);
   }
 
@@ -160,7 +166,9 @@ export class ToolGateway {
     const entries: ToolCatalogEntry[] = [];
     for (const tool of this.tools.values()) {
       const minimalRisk = safeMinimalRisk(tool);
-      if (mode === 'ask' && minimalRisk !== 'R0') continue;
+      if (mode === 'ask' && minimalRisk !== 'R0' && tool.permissionPolicy !== 'auto-allow') {
+        continue;
+      }
       entries.push({
         name: tool.name,
         description: tool.description,
@@ -286,7 +294,7 @@ export class ToolGateway {
     }
     auditRecord('PROPOSED', risk.level, null, null);
 
-    // R4 is refused at the product layer — no permission prompt, no override (PERM-008).
+    // R4 remains a product boundary for every capability lane.
     if (risk.level === 'R4') {
       auditRecord('DENIED', risk.level, 'forbidden (R4)', false);
       return {
@@ -298,45 +306,46 @@ export class ToolGateway {
       };
     }
 
-    // Ask mode is a hard read-only boundary regardless of registration (AG-001).
-    // The mode is resolved per task so concurrent runs never share a mode (ADR-0006).
-    const mode = this.modeForTask(call.taskId);
-    if (mode === 'ask' && risk.level !== 'R0') {
-      auditRecord('DENIED', risk.level, 'ask mode is read-only', false);
-      return {
-        callId: call.callId,
-        ok: false,
-        code: 'PERMISSION_DENIED',
-        summary: 'Ask mode is read-only: writing files or running commands is not available.',
-        data: { risk: risk.level, permanent: true },
-      };
-    }
+    if (tool.permissionPolicy !== 'auto-allow') {
+      // The mode is resolved per task so concurrent runs never share a mode (ADR-0006).
+      const mode = this.modeForTask(call.taskId);
+      if (mode === 'ask' && risk.level !== 'R0') {
+        auditRecord('DENIED', risk.level, 'ask mode is read-only', false);
+        return {
+          callId: call.callId,
+          ok: false,
+          code: 'PERMISSION_DENIED',
+          summary: 'Ask mode is read-only: writing files or running commands is not available.',
+          data: { risk: risk.level, permanent: true },
+        };
+      }
 
-    let preview: ToolPreview;
-    try {
-      preview = await tool.preview(input);
-    } catch {
-      preview = { summary: `${tool.name}` };
-    }
+      let preview: ToolPreview;
+      try {
+        preview = await tool.preview(input);
+      } catch {
+        preview = { summary: `${tool.name}` };
+      }
 
-    const decision = await this.permission.decide({
-      call,
-      tool: { name: tool.name, version: tool.version, description: tool.description },
-      risk,
-      preview,
-      mode,
-      signal,
-      onWaiting: () => auditRecord('WAITING_PERMISSION', risk.level, null, null),
-    });
-    if (decision.kind === 'deny') {
-      auditRecord('DENIED', risk.level, decision.reason, false);
-      return {
-        callId: call.callId,
-        ok: false,
-        code: 'PERMISSION_DENIED',
-        summary: decision.reason,
-        data: { risk: risk.level, permanent: decision.permanent },
-      };
+      const decision = await this.permission.decide({
+        call,
+        tool: { name: tool.name, version: tool.version, description: tool.description },
+        risk,
+        preview,
+        mode,
+        signal,
+        onWaiting: () => auditRecord('WAITING_PERMISSION', risk.level, null, null),
+      });
+      if (decision.kind === 'deny') {
+        auditRecord('DENIED', risk.level, decision.reason, false);
+        return {
+          callId: call.callId,
+          ok: false,
+          code: 'PERMISSION_DENIED',
+          summary: decision.reason,
+          data: { risk: risk.level, permanent: decision.permanent },
+        };
+      }
     }
 
     if (signal.aborted) {

@@ -57,6 +57,7 @@ interface TaskStore {
   refreshTasks(): Promise<void>;
   refreshModels(): Promise<void>;
   openTask(taskId: string): Promise<void>;
+  renameTask(taskId: string, title: string): Promise<boolean>;
   /** Archive (hide) a finished task; answered tasks are closed out (accepted) first. */
   archiveTask(taskId: string): Promise<boolean>;
   setNewTaskOpen(open: boolean): void;
@@ -257,12 +258,17 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     });
     onEvent('task.stateChanged', ({ taskId, state, task }) => {
       const tasks = get().tasks;
+      const previous = tasks.find((candidate) => candidate.id === taskId);
       set({
-        tasks: tasks.some((candidate) => candidate.id === taskId)
+        tasks: previous
           ? tasks.map((candidate) => (candidate.id === taskId ? task : candidate))
           : [task, ...tasks],
       });
-      useAppStore.getState().signalSessionCompletion(task);
+      // Metadata-only refreshes (automatic title capture and user rename)
+      // reuse this projection channel but are not completion edges.
+      if (!previous || previous.state !== state) {
+        useAppStore.getState().signalSessionCompletion(task);
+      }
       if (
         taskId === get().activeTaskId &&
         (state === 'REVIEW_READY' || state === 'FAILED' || state === 'INTERRUPTED')
@@ -327,6 +333,19 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     } else if (get().activeTaskId === taskId) {
       set({ loadingTimeline: false });
     }
+  },
+
+  async renameTask(taskId, title) {
+    const res = await rpcResult('task.rename', { taskId, title });
+    if (!res.ok) {
+      useAppStore.getState().pushToast('error', res.error.userMessage);
+      return false;
+    }
+    set({
+      tasks: get().tasks.map((task) => (task.id === taskId ? res.data.task : task)),
+    });
+    useAppStore.getState().pushToast('success', 'Session renamed.');
+    return true;
   },
 
   async archiveTask(taskId) {

@@ -51,6 +51,22 @@ describe('ToolGateway core (TOOL-001..007)', () => {
     expect(readFile.inputJsonSchema).toBeTruthy();
   });
 
+  it('reserves the auto-allow capability lane for terminal tools', async () => {
+    const { z } = await import('zod');
+    expect(() =>
+      gateway.register({
+        name: 'fake_write',
+        version: 1,
+        description: 'pretend write',
+        permissionPolicy: 'auto-allow',
+        risk: () => ({ level: 'R1', reasons: ['writes'] }),
+        inputSchema: z.object({}).strict(),
+        preview: async () => ({ summary: 'write' }),
+        execute: async () => ({ code: 'OK', summary: 'wrote', data: {} }),
+      }),
+    ).toThrow(/reserved for terminal\.\*/i);
+  });
+
   it('rejects unknown tools with a structured result, not a crash', async () => {
     const result = await gateway.executeCall(
       call('run_anything', {}),

@@ -111,6 +111,9 @@ export function registerM6Handlers(
         task: tasks.getTask(taskId),
         timeline: tasks.timeline(taskId, eventsAfter),
       }),
+      'task.rename': async ({ taskId, title }) => ({
+        task: tasks.renameTask(taskId, title),
+      }),
       'task.archive': async ({ taskId, confirmConflicts }) => {
         // ADR-0032: archive closes the Session; worktree merge-back happens
         // here and can surface conflicts for explicit confirmation.

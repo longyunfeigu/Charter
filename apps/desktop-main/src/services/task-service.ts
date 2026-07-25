@@ -135,6 +135,90 @@ export interface CreateTaskInput {
   conversationRefTaskIds?: string[];
 }
 
+export interface HistoricalOrchestrationWorker {
+  terminalId: string;
+  workerTaskId: string | null;
+  launch: 'shell' | 'claude' | 'codex';
+  root: string;
+  projectPath: string;
+  title: string;
+}
+
+interface HistoricalOrchestrationEvent {
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+interface HistoricalExternalTask {
+  taskId: string;
+  title: string;
+  projectPath: string;
+  external: NonNullable<TaskDto['external']>;
+}
+
+/** Fold the durable orchestration ledger into the fleet that should follow a resume. */
+export function projectHistoricalOrchestrationFleet(
+  events: HistoricalOrchestrationEvent[],
+  externalTasks: HistoricalExternalTask[],
+  fallbackRoot: string,
+): HistoricalOrchestrationWorker[] {
+  const externalByTerminal = new Map<string, HistoricalExternalTask>();
+  const externalByTaskId = new Map<string, HistoricalExternalTask>();
+  for (const task of externalTasks) {
+    externalByTaskId.set(task.taskId, task);
+    if (!externalByTerminal.has(task.external.terminalId)) {
+      externalByTerminal.set(task.external.terminalId, task);
+    }
+  }
+  const workers = new Map<
+    string,
+    {
+      terminalId: string;
+      workerTaskId: string | null;
+      launch: 'shell' | 'claude' | 'codex';
+      root: string | null;
+      title: string | null;
+    }
+  >();
+  for (const event of events) {
+    const terminalId =
+      typeof event.payload.terminalId === 'string' ? event.payload.terminalId : null;
+    if (!terminalId) continue;
+    if (event.type === 'orchestration.workerCreated') {
+      const launch = event.payload.launch;
+      if (launch !== 'shell' && launch !== 'claude' && launch !== 'codex') continue;
+      workers.set(terminalId, {
+        terminalId,
+        workerTaskId:
+          typeof event.payload.workerTaskId === 'string' ? event.payload.workerTaskId : null,
+        launch,
+        root: typeof event.payload.root === 'string' ? event.payload.root : null,
+        title: typeof event.payload.title === 'string' ? event.payload.title : null,
+      });
+    } else if (event.type === 'orchestration.workerBound') {
+      const worker = workers.get(terminalId);
+      if (worker && typeof event.payload.workerTaskId === 'string') {
+        worker.workerTaskId = event.payload.workerTaskId;
+      }
+    } else if (event.type === 'orchestration.workerKilled') {
+      workers.delete(terminalId);
+    }
+  }
+  return [...workers.values()].map((worker) => {
+    const externalTask =
+      (worker.workerTaskId ? externalByTaskId.get(worker.workerTaskId) : null) ??
+      externalByTerminal.get(worker.terminalId);
+    return {
+      terminalId: worker.terminalId,
+      workerTaskId: worker.workerTaskId ?? externalTask?.taskId ?? null,
+      launch: worker.launch,
+      root: worker.root ?? externalTask?.external.cwd ?? fallbackRoot,
+      projectPath: externalTask?.projectPath ?? fallbackRoot,
+      title: worker.title ?? externalTask?.title ?? `${worker.launch} worker`,
+    };
+  });
+}
+
 interface TaskRow {
   id: string;
   workspace_id: string;
@@ -243,7 +327,7 @@ export class TaskService {
     private readonly skills: SkillStore,
     private readonly appPaths: AppPaths,
     private readonly logger: Logger,
-    terminalControl?: TerminalControlService,
+    private readonly terminalControl?: TerminalControlService,
   ) {
     const paths = appPaths;
     this.worktrees = new WorktreeService(paths, logger);
@@ -1741,6 +1825,27 @@ export class TaskService {
     return this.rowToDto(this.getRow(taskId));
   }
 
+  /** Rename any managed or external Session and notify every open renderer. */
+  renameTask(taskId: string, title: string): TaskDto {
+    const row = this.getRow(taskId);
+    const cleaned = title.trim();
+    if (!cleaned || cleaned.length > 300) {
+      throw new ProductFailure(
+        productError('TASK_TITLE_INVALID', {
+          userMessage: 'Session names must contain between 1 and 300 characters.',
+        }),
+      );
+    }
+    if (row.title === cleaned) return this.rowToDto(row);
+    this.db
+      .prepare('UPDATE tasks SET title = ?, updated_at = ? WHERE id = ?')
+      .run(cleaned, new Date().toISOString(), taskId);
+    const task = this.getTask(taskId);
+    broadcast('task.stateChanged', { taskId, state: task.state, task });
+    this.terminalControl?.publishSnapshot();
+    return task;
+  }
+
   listTasks(
     filter: 'all' | 'active' | 'review' | 'done' | 'failed',
     includeArchived: boolean,
@@ -2271,6 +2376,41 @@ export class TaskService {
 
   // ---------- external CLI sessions (ADR-0017) ----------
 
+  /** Durable projection of the worker fleet attached to one commander task. */
+  orchestrationFleetForTask(taskId: string): HistoricalOrchestrationWorker[] {
+    const commander = this.getTask(taskId);
+    const rows = this.db
+      .prepare(
+        "SELECT type, payload_json FROM task_events WHERE task_id = ? AND type IN ('orchestration.workerCreated','orchestration.workerBound','orchestration.workerKilled') ORDER BY sequence",
+      )
+      .all(taskId) as Array<{ type: string; payload_json: string }>;
+    const events = rows.flatMap((row): HistoricalOrchestrationEvent[] => {
+      try {
+        const payload = JSON.parse(row.payload_json) as unknown;
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return [];
+        return [{ type: row.type, payload: payload as Record<string, unknown> }];
+      } catch {
+        return [];
+      }
+    });
+    const externalRows = this.db
+      .prepare(`${TASK_SELECT} WHERE t.external_json IS NOT NULL ORDER BY t.updated_at DESC`)
+      .all() as unknown as TaskRow[];
+    const externalTasks = externalRows.flatMap((row): HistoricalExternalTask[] => {
+      const task = this.rowToDto(row);
+      if (!task.external) return [];
+      return [
+        {
+          taskId: task.id,
+          title: task.title,
+          projectPath: task.projectPath,
+          external: task.external,
+        },
+      ];
+    });
+    return projectHistoricalOrchestrationFleet(events, externalTasks, commander.projectPath);
+  }
+
   /** Create the task row backing an external CLI agent session. */
   async createExternalTask(input: {
     cli: string;
@@ -2441,11 +2581,7 @@ export class TaskService {
     const row = this.getRow(taskId);
     const cleaned = title.trim();
     if (!row.external_json || !cleaned || row.title === cleaned) return;
-    this.db
-      .prepare('UPDATE tasks SET title = ?, updated_at = ? WHERE id = ?')
-      .run(cleaned, new Date().toISOString(), taskId);
-    const task = this.getTask(taskId);
-    broadcast('task.stateChanged', { taskId, state: task.state, task });
+    this.renameTask(taskId, cleaned);
   }
 
   /**

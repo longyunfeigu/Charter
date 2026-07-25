@@ -810,6 +810,17 @@ interface ProductTool<I, O> {
 | R3 外部或难逆 | 安装依赖、网络命令、删除文件、commit、修改配置、shell 字符串 | 每次显式确认，不能 Workspace 永久放行 |
 | R4 禁止 | sudo、git push、Workspace 外写、读取凭据目录、根目录破坏性命令 | 产品层拒绝，不提供“仍然运行”按钮 |
 
+ADR-0044 的 `terminal.*` 会话编排工具是产品 Owner 明确授权的能力通道：R0-R3 保留真实
+风险分类和审计，但默认直接执行，不创建权限卡，也不读取 standing allow/deny。该例外不
+扩展到普通文件、命令、网络或 Git 工具；R4 分类、自控/层级限制、身份校验、预算、暂停和
+接管队列仍由宿主硬性执行。
+
+Worker 完成传播采用事件驱动：Claude/Codex 的结构化回合完成事件（交互式 TUI 无结构化
+事件时使用已校准的活动静默边缘）直接唤醒 `terminal.wait(mode=turn)`，不做固定间隔轮询。
+每个 Terminal 保存单调递增的内存 sequence，覆盖 send/create 后“事件先到、wait 后到”的
+竞态；常驻 TUI 的进程级 `busy=true` 与回合级 `completed/failed` 分开表达。Shell create
+立即返回，启动保护窗内的 send 暂存后按序释放，避免把 350ms PTY settle 变成控制面延迟。
+
 ## 10.3 核心工具语义
 
 ### `read_file`
@@ -1253,7 +1264,7 @@ npm run release:verify
 
 - Renderer：`nodeIntegration=false`、`contextIsolation=true`、`sandbox=true`，CSP 测试通过。
 - 路径遍历、编码绕过、符号链接/联接、TOCTOU fixture 全部阻止越界。
-- R3 未批准执行次数 0；R4 执行次数 0。
+- 标准工具 R3 未批准执行次数 0；ADR-0044 明确免审的 terminal.* R0-R3 调用必须完整审计；R4 执行次数 0。
 - API Key 在 Renderer heap snapshot、localStorage、普通日志、支持包中均不可检出。
 - 外部导航、未知协议、恶意 Markdown 链接无法在应用内执行脚本或本地命令。
 - 依赖与许可证扫描无未处置的 Critical/High 发布阻断问题。

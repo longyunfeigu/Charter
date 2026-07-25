@@ -4,7 +4,7 @@ import { useAppStore } from '../store/appStore.js';
 import { permissionForWorker, useOrchestrationStore } from '../store/orchestrationStore.js';
 import { useTaskStore } from '../store/taskStore.js';
 import { PermissionCard } from './AgentPanel.js';
-import { directorCandidate } from './orchestration-director.js';
+import { directorCandidate, shouldDirectorCut } from './orchestration-director.js';
 import { mountTerminal, useTerminalStore, type TermInstance } from './TerminalPanel.js';
 import { terminalViewportText } from './terminal-viewport-text.js';
 
@@ -114,6 +114,7 @@ export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.El
   );
   const [automatic, setAutomatic] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [directedId, setDirectedId] = useState<string | null>(null);
   const [focusOpen, setFocusOpen] = useState(false);
   const terminalById = useMemo(
     () => new Map(terminalItems.map((item) => [item.id, item])),
@@ -127,6 +128,11 @@ export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.El
     [terminalById],
   );
   const candidate = useMemo(() => directorCandidate(workers, permissions), [permissions, workers]);
+  const directedWorker = workers.find((worker) => worker.terminalId === directedId) ?? null;
+  const directedCandidate = useMemo(
+    () => (directedWorker ? directorCandidate([directedWorker], permissions) : null),
+    [directedWorker, permissions],
+  );
 
   useEffect(() => {
     if (!initialized) useOrchestrationStore.getState().init();
@@ -138,9 +144,9 @@ export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.El
   }, [candidate?.worker.terminalId, selectedId, workers]);
 
   useEffect(() => {
-    if (!automatic || !candidate || focusOpen) return;
-    setSelectedId(candidate.worker.terminalId);
-  }, [automatic, candidate, focusOpen]);
+    if (!automatic || focusOpen || !shouldDirectorCut(directedCandidate, candidate)) return;
+    setDirectedId(candidate!.worker.terminalId);
+  }, [automatic, candidate, directedCandidate, focusOpen]);
 
   useEffect(() => {
     if (!focusOpen) return;
@@ -163,7 +169,10 @@ export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.El
   }
   if ((!snapshot.enabled && !error) || workerRoom) return null;
 
-  const selected = workers.find((worker) => worker.terminalId === selectedId) ?? workers[0] ?? null;
+  const pinned = workers.find((worker) => worker.terminalId === selectedId) ?? workers[0] ?? null;
+  const selected =
+    (automatic && !focusOpen ? workers.find((worker) => worker.terminalId === directedId) : null) ??
+    pinned;
   const selectedApproval = selected ? permissionForWorker(permissions, selected.terminalId) : null;
   const fleetPaused = snapshot.fleetPausedTaskIds.includes(taskId);
   const activeCount = workers.filter(
@@ -176,6 +185,17 @@ export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.El
     setSelectedId(worker.terminalId);
     setAutomatic(false);
     void useOrchestrationStore.getState().recordCut(taskId, worker.terminalId, source);
+  };
+
+  const openFocusedWorker = (): void => {
+    setSelectedId(selected?.terminalId ?? null);
+    setAutomatic(false);
+    setFocusOpen(true);
+  };
+
+  const toggleAutomatic = (): void => {
+    if (!automatic && candidate) setDirectedId(candidate.worker.terminalId);
+    setAutomatic(!automatic);
   };
 
   if (error) {
@@ -220,7 +240,7 @@ export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.El
           <button
             className={`orch-chip ${automatic ? 'active' : ''}`}
             data-testid="orchestration-auto"
-            onClick={() => setAutomatic((value) => !value)}
+            onClick={toggleAutomatic}
           >
             导播 · {automatic ? '自动' : '手动'}
           </button>
@@ -353,7 +373,7 @@ export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.El
                 return (
                   <button
                     key={worker.terminalId}
-                    className={`orch-tile ${worker.terminalId === selected.terminalId ? 'on-air' : ''} ${approval ? 'attention' : ''}`}
+                    className={`orch-tile ${worker.terminalId === pinned?.terminalId ? 'selected' : ''} ${approval ? 'attention' : ''}`}
                     data-terminal-id={worker.terminalId}
                     onClick={() => selectWorker(worker)}
                   >
@@ -397,7 +417,7 @@ export function OrchestrationFleet({ taskId }: { taskId: string }): React.JSX.El
               <button
                 className="orch-primary"
                 data-testid="orchestration-focus-open"
-                onClick={() => setFocusOpen(true)}
+                onClick={openFocusedWorker}
               >
                 聚焦查看 ↗
               </button>

@@ -121,12 +121,103 @@ function createDirectCodexWorker(): { bin: string; probe: string } {
       `fs.writeFileSync(${JSON.stringify(probe)}, JSON.stringify(process.argv.slice(2)));`,
       "process.stdout.write('\\u001b[2J\\u001b[HSTALE_TUI_FRAME');",
       "setTimeout(() => process.stdout.write('\\u001b[H\\u001b[2KCODEX_WORKER_READY\\n'), 50);",
+      "setTimeout(() => process.stdout.write(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } }) + '\\n'), 2000);",
       'setTimeout(() => process.exit(0), 30000);',
       '',
     ].join('\n'),
   );
   chmodSync(executable, 0o755);
   return { bin, probe };
+}
+
+function createFleetResumeDriver(): {
+  bin: string;
+  fleetProbe: string;
+  workerArgvProbe: string;
+} {
+  const bin = mkdtempSync(join(tmpdir(), 'charter-m13-fleet-resume-'));
+  const fleetProbe = join(bin, 'fleet.json');
+  const workerArgvProbe = join(bin, 'worker-argv.ndjson');
+  writeFileSync(
+    join(bin, '.zshenv'),
+    `export PATH=${JSON.stringify(`${bin}:${process.env.PATH ?? ''}`)}\n`,
+  );
+  writeFileSync(
+    join(bin, 'claude'),
+    [
+      '#!/usr/bin/env node',
+      "const fs = require('node:fs');",
+      `const probe = ${JSON.stringify(workerArgvProbe)};`,
+      'const args = process.argv.slice(2);',
+      "fs.appendFileSync(probe, JSON.stringify(args) + '\\n');",
+      "const resumed = args.includes('--resume') || args.includes('--continue');",
+      "console.log(resumed ? 'fleet-worker-resumed' : 'fleet-worker-started');",
+      'setTimeout(() => process.exit(0), resumed ? 15000 : 2200);',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(bin, 'codex'),
+    [
+      '#!/usr/bin/env node',
+      "const fs = require('node:fs');",
+      "const { spawn } = require('node:child_process');",
+      "const readline = require('node:readline');",
+      `const probe = ${JSON.stringify(fleetProbe)};`,
+      'const cliArgs = process.argv.slice(2);',
+      'const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));',
+      'function config(prefix) { return cliArgs.find((arg) => arg.startsWith(prefix)); }',
+      'async function main() {',
+      "  if (cliArgs.includes('resume')) {",
+      "    console.log('fleet-commander-resumed');",
+      '    await pause(15000);',
+      '    return;',
+      '  }',
+      "  const commandConfig = config('mcp_servers.charter.command=');",
+      "  const argsConfig = config('mcp_servers.charter.args=');",
+      "  if (!commandConfig || !argsConfig) throw new Error('Charter MCP config missing');",
+      "  const command = JSON.parse(commandConfig.slice(commandConfig.indexOf('=') + 1));",
+      "  const mcpArgs = JSON.parse(argsConfig.slice(argsConfig.indexOf('=') + 1));",
+      "  const mcp = spawn(command, mcpArgs, { stdio: ['pipe', 'pipe', 'inherit'] });",
+      '  const pending = new Map();',
+      '  let nextId = 1;',
+      "  readline.createInterface({ input: mcp.stdout }).on('line', (line) => {",
+      '    const message = JSON.parse(line);',
+      '    if (message.id !== undefined && pending.has(message.id)) { pending.get(message.id)(message); pending.delete(message.id); }',
+      '  });',
+      '  function rpc(method, params = {}) {',
+      '    const id = nextId++;',
+      "    mcp.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\\n');",
+      '    return new Promise((resolve, reject) => {',
+      '      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`MCP timeout: ${method}`)); }, 30000);',
+      '      pending.set(id, (message) => { clearTimeout(timer); if (message.error) reject(new Error(JSON.stringify(message.error))); else resolve(message.result); });',
+      '    });',
+      '  }',
+      '  async function call(name, args) {',
+      "    const result = await rpc('tools/call', { name, arguments: args });",
+      '    return JSON.parse(result.content[0].text);',
+      '  }',
+      "  await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fleet-resume-codex', version: '1' } });",
+      "  mcp.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\\n');",
+      '  for (let attempt = 0; attempt < 40; attempt += 1) {',
+      "    const listed = await call('terminal_list', {});",
+      '    if (listed.ok) break;',
+      '    await pause(100);',
+      '  }',
+      "  const created = await call('terminal_create', { launch: 'claude', initialText: 'Wait for the commander.', submit: true });",
+      '  if (!created.ok) throw new Error(JSON.stringify(created));',
+      '  fs.writeFileSync(probe, JSON.stringify({ workerId: created.data.terminal.id }));',
+      "  console.log('fleet-commander-created-worker');",
+      '  await pause(4000);',
+      '  mcp.kill();',
+      '}',
+      'main().then(() => process.exit(0)).catch((error) => { console.error(error); process.exit(1); });',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(join(bin, 'claude'), 0o755);
+  chmodSync(join(bin, 'codex'), 0o755);
+  return { bin, fleetProbe, workerArgvProbe };
 }
 
 test.describe('M13 session orchestration', () => {
@@ -144,9 +235,7 @@ test.describe('M13 session orchestration', () => {
     try {
       await useSoftwareTerminalRenderer(page);
       await startOrchestrationTask(page, 'M13 direct Codex worker', 'orchestration-codex');
-      const createPermission = pendingPermission(page, 'terminal.create').first();
-      await expect(createPermission).toBeVisible({ timeout: 20_000 });
-      await createPermission.getByTestId('perm-allow-once').click();
+      await expect(pendingPermission(page, 'terminal.create')).toHaveCount(0);
 
       await expect.poll(() => existsSync(workerDriver.probe), { timeout: 10_000 }).toBe(true);
       const args = JSON.parse(readFileSync(workerDriver.probe, 'utf8')) as string[];
@@ -171,6 +260,14 @@ test.describe('M13 session orchestration', () => {
       const fleetOutput = page.getByTestId('orchestration-native-terminal').locator('.xterm-rows');
       await expect(fleetOutput).toContainText('CODEX_WORKER_READY', { timeout: 10_000 });
       await expect(fleetOutput).not.toContainText('STALE_TUI_FRAME');
+      await page.getByTestId('task-room-conversation-tab').click();
+      await expect(page.getByTestId('tl-tool-terminal.wait')).toHaveAttribute(
+        'data-state',
+        'SUCCEEDED',
+        { timeout: 15_000 },
+      );
+      await page.getByTestId('task-room-fleet-tab').click();
+      await expect(page.locator('.orch-status.completed').first()).toContainText('完成');
     } finally {
       await app.close();
     }
@@ -200,12 +297,8 @@ test.describe('M13 session orchestration', () => {
       const taskId = await page.getByTestId('task-room').getAttribute('data-task-id');
       expect(taskId).toBeTruthy();
 
-      const createPermission = pendingPermission(page, 'terminal.create');
-      await expect(createPermission.first()).toBeVisible({ timeout: 20_000 });
-      await expect(createPermission.first().getByTestId('perm-risk')).toHaveText('R2');
-      await createPermission.first().getByTestId('perm-allow-once').click();
-
       await expect(page.getByTestId('task-room-fleet-tab')).toContainText('Fleet 1');
+      await expect(pendingPermission(page, 'terminal.create')).toHaveCount(0);
       await expect(page.getByTestId('task-room-conversation-tab')).toHaveAttribute(
         'aria-current',
         'page',
@@ -273,12 +366,7 @@ test.describe('M13 session orchestration', () => {
       await expect(page.getByTestId('task-room')).toHaveAttribute('data-task-id', taskId!);
       await expect(page.getByTestId('task-room-fleet-tab')).toHaveAttribute('aria-current', 'page');
 
-      // The semantic right rail owns the pending decision while Fleet is open.
-      const sendPermission = pendingPermission(page, 'terminal.send');
-      await expect(sendPermission).toHaveCount(1, { timeout: 20_000 });
-      await expect(fleetShortcut.locator('i')).toHaveText('1');
-      await sendPermission.getByTestId('perm-allow-once').click();
-      await expect(sendPermission).toHaveCount(0);
+      await expect(pendingPermission(page, 'terminal.send')).toHaveCount(0);
 
       const nativeRows = fleet.getByTestId('orchestration-native-terminal').locator('.xterm-rows');
       await expect(nativeRows).toContainText('ORCH_OK', {
@@ -432,7 +520,7 @@ test.describe('M13 session orchestration', () => {
     }
   });
 
-  test('external Codex-shaped driver uses the authenticated socket and shared approvals', async () => {
+  test('external Codex-shaped driver uses the authenticated socket without terminal approvals', async () => {
     test.setTimeout(90_000);
     const fixture = createTsSmallFixture();
     const driver = createExternalDriver();
@@ -457,20 +545,10 @@ test.describe('M13 session orchestration', () => {
       await page.getByTestId('session-bar-room').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
 
-      // Amended 2026-07-22 (ADR-0044): read is prompt-free R0 observation —
-      // only create and the bare-shell send still gate on approval.
-      for (const [toolName, risk] of [
-        ['terminal.create', 'R2'],
-        ['terminal.send', 'R2'],
-      ] as const) {
-        const permission = pendingPermission(page, toolName).first();
-        await expect(permission).toBeVisible({ timeout: 20_000 });
-        await expect(permission.getByTestId('perm-risk')).toHaveText(risk);
-        await permission.getByTestId('perm-allow-once').click();
-      }
-      await expect(pendingPermission(page, 'terminal.read')).toHaveCount(0);
-
       await expect.poll(() => existsSync(driver.probe), { timeout: 20_000 }).toBe(true);
+      for (const toolName of ['terminal.create', 'terminal.send', 'terminal.read']) {
+        await expect(pendingPermission(page, toolName)).toHaveCount(0);
+      }
       const result = JSON.parse(readFileSync(driver.probe, 'utf8')) as {
         tools: string[];
         workerId: string;
@@ -503,6 +581,90 @@ test.describe('M13 session orchestration', () => {
           (candidate) => candidate.terminalId === result.workerId,
         ),
       ).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('resuming an external commander restores its ended Claude worker fleet', async () => {
+    test.setTimeout(120_000);
+    const fixture = createTsSmallFixture();
+    const driver = createFleetResumeDriver();
+    const { app, page } = await launchApp({
+      env: {
+        PI_IDE_OPEN_WORKSPACE: fixture,
+        PI_IDE_EXTERNAL_CLIS: 'claude,codex',
+        PATH: `${driver.bin}:${process.env.PATH ?? ''}`,
+        ZDOTDIR: driver.bin,
+      },
+    });
+    try {
+      await page.keyboard.press('Control+`');
+      const terminal = page.locator('.xterm').first();
+      await expect(terminal).toBeVisible();
+      await terminal.click();
+      await page.keyboard.type('codex');
+      await page.keyboard.press('Enter');
+      await expect(page.getByTestId('terminal-session-bar')).toContainText('Codex', {
+        timeout: 20_000,
+      });
+      await page.getByTestId('session-bar-room').click();
+      const room = page.getByTestId('task-room');
+      await expect(room).toBeVisible();
+      const commanderTaskId = await room.getAttribute('data-task-id');
+      expect(commanderTaskId).toBeTruthy();
+
+      await expect.poll(() => existsSync(driver.fleetProbe), { timeout: 20_000 }).toBe(true);
+      const originalWorkerId = (
+        JSON.parse(readFileSync(driver.fleetProbe, 'utf8')) as { workerId: string }
+      ).workerId;
+      await expect
+        .poll(
+          () =>
+            existsSync(driver.workerArgvProbe)
+              ? readFileSync(driver.workerArgvProbe, 'utf8').trim().split('\n').filter(Boolean)
+                  .length
+              : 0,
+          { timeout: 20_000 },
+        )
+        .toBe(1);
+      const firstWorkerArgs = JSON.parse(
+        readFileSync(driver.workerArgvProbe, 'utf8').trim().split('\n')[0]!,
+      ) as string[];
+      const sessionFlag = firstWorkerArgs.indexOf('--session-id');
+      expect(sessionFlag).toBeGreaterThanOrEqual(0);
+      const workerSessionId = firstWorkerArgs[sessionFlag + 1];
+      expect(workerSessionId).toMatch(/^[0-9a-f-]{36}$/);
+
+      const resume = page.getByTestId('task-resume');
+      await expect(resume).toBeVisible({ timeout: 30_000 });
+      await resume.click();
+      await expect(page.locator('.toast').filter({ hasText: 'Restored 1 worker' })).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect
+        .poll(
+          () =>
+            readFileSync(driver.workerArgvProbe, 'utf8').trim().split('\n').filter(Boolean).length,
+          { timeout: 20_000 },
+        )
+        .toBe(2);
+      const resumedWorkerArgs = JSON.parse(
+        readFileSync(driver.workerArgvProbe, 'utf8').trim().split('\n')[1]!,
+      ) as string[];
+      expect(resumedWorkerArgs).toEqual(expect.arrayContaining(['--resume', workerSessionId]));
+
+      const state = await page.evaluate(async () => {
+        return window.product.rpc['orchestration.getState']!({});
+      });
+      const commanderWorkers = (
+        state.data as {
+          workers: Array<{ terminalId: string; commanderTaskId: string; taskId: string | null }>;
+        }
+      ).workers.filter((worker) => worker.commanderTaskId === commanderTaskId);
+      expect(commanderWorkers).toHaveLength(1);
+      expect(commanderWorkers[0]?.terminalId).not.toBe(originalWorkerId);
+      expect(commanderWorkers[0]?.taskId).toBeTruthy();
     } finally {
       await app.close();
     }

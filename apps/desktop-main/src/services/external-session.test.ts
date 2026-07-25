@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CodeContextRefDto } from '@pi-ide/ipc-contracts';
 import {
   externalInjectText,
+  isExternalPromptSubmit,
   externalResumeCommand,
   externalTitleFromPrompt,
   isAccountablePath,
@@ -183,6 +184,13 @@ describe('externalTitleFromPrompt (session named by the first user message)', ()
   it('returns null for blank prompts so the placeholder title survives', () => {
     expect(externalTitleFromPrompt('')).toBeNull();
     expect(externalTitleFromPrompt('   \n \t ')).toBeNull();
+  });
+});
+
+describe('isExternalPromptSubmit', () => {
+  it('recognizes Enter without treating multiline pasted content as submitted', () => {
+    expect(isExternalPromptSubmit('\r')).toBe(true);
+    expect(isExternalPromptSubmit('\u001b[200~line one\nline two\u001b[201~')).toBe(false);
   });
 });
 

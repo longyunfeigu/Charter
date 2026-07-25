@@ -506,6 +506,23 @@
     inset 3px 0 0 var(--info),
     0 4px 12px color-mix(in srgb, var(--info) 8%, transparent);
 }
+.sr-session.is-working::before {
+  position: absolute;
+  inset: 1px;
+  border-radius: 7px;
+  background: linear-gradient(
+    105deg,
+    transparent 18%,
+    color-mix(in srgb, var(--info) 4%, transparent) 36%,
+    color-mix(in srgb, var(--info) 13%, transparent) 49%,
+    color-mix(in srgb, var(--info) 4%, transparent) 62%,
+    transparent 82%
+  );
+  content: '';
+  pointer-events: none;
+  transform: translateX(-115%);
+  animation: srAgentWorkingSheen 2.8s ease-in-out infinite;
+}
 .sr-provider {
   width: 24px;
   height: 24px;
@@ -513,6 +530,30 @@
   place-items: center;
   flex: none;
   --pm-hole: var(--bg-sidebar);
+}
+.sr-provider.is-working {
+  position: relative;
+  isolation: isolate;
+}
+.sr-provider.is-working svg {
+  position: relative;
+  z-index: 1;
+  transform-origin: center;
+  animation: srAgentWorkingSpin 1.55s linear infinite;
+}
+.sr-provider.is-working:not(.session-wave)::after {
+  position: absolute;
+  inset: -2px;
+  z-index: 0;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  content: '';
+  opacity: 0.72;
+  pointer-events: none;
+  animation:
+    srAgentWorkingOrbit 1.15s linear infinite,
+    srAgentWorkingPulse 1.8s ease-in-out infinite;
 }
 .sr-provider.session-wave {
   --session-wave-tone: var(--info);
@@ -752,14 +793,61 @@
   }
 }
 
+@keyframes srAgentWorkingSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes srAgentWorkingOrbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes srAgentWorkingPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+@keyframes srAgentWorkingSheen {
+  0%,
+  18% {
+    opacity: 0;
+    transform: translateX(-115%);
+  }
+  36% {
+    opacity: 0.75;
+  }
+  68%,
+  100% {
+    opacity: 0;
+    transform: translateX(115%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .sr-session.completion-ripple,
   .sr-session.completion-ripple::after,
   .sr-session.reply-shake,
   .sr-session.reply-shake::after,
   .sr-provider.session-wave::before,
-  .sr-provider.session-wave::after {
+  .sr-provider.session-wave::after,
+  .sr-provider.is-working svg,
+  .sr-provider.is-working::after,
+  .sr-session.is-working::before {
     animation: none;
+  }
+  .sr-session.is-working::before {
+    background: color-mix(in srgb, var(--info) 5%, transparent);
+    opacity: 1;
+    transform: none;
+  }
+  .sr-provider.is-working {
+    border-radius: 50%;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--info) 18%, transparent);
   }
   .sr-session.completion-ripple {
     box-shadow: inset 3px 0 0 var(--completion-tone);

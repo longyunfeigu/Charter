@@ -927,9 +927,19 @@ export const CHANNELS = {
    * actually owns the revived session. */
   'external.resumeSession': ch(
     'external.resumeSession',
-    2,
+    3,
     z.object({ taskId: z.string(), terminalId: z.string() }).strict(),
-    z.object({ terminalId: z.string(), cli: z.string(), taskId: z.string() }),
+    z.object({
+      terminalId: z.string(),
+      cli: z.string(),
+      taskId: z.string(),
+      fleet: z.object({
+        requested: z.number().int().nonnegative(),
+        resumed: z.number().int().nonnegative(),
+        reused: z.number().int().nonnegative(),
+        failed: z.array(z.object({ taskId: z.string(), message: z.string() })),
+      }),
+    }),
   ),
   /** ADR-0030: insert a context reference into the CLI's own input line.
    * Bracketed paste, no Enter — the user reviews and submits it themselves. */
@@ -1186,6 +1196,17 @@ export const CHANNELS = {
     1,
     z.object({ taskId: z.string(), eventsAfter: z.number().int().default(0) }).strict(),
     z.object({ task: TaskDtoSchema, timeline: z.array(TimelineEventDtoSchema) }),
+  ),
+  'task.rename': ch(
+    'task.rename',
+    1,
+    z
+      .object({
+        taskId: z.string(),
+        title: z.string().trim().min(1).max(300),
+      })
+      .strict(),
+    z.object({ task: TaskDtoSchema }),
   ),
   'task.archive': ch(
     'task.archive',

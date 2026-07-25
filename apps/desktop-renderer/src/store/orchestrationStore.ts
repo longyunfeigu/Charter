@@ -38,7 +38,7 @@ const trackedTaskIds = new Map<string, number>();
 function adoptWorkers(snapshot: OrchestrationSnapshotDto): void {
   for (const worker of snapshot.workers) {
     if (worker.status === 'exited') continue;
-    void useTerminalStore.getState().adopt(worker.terminalId, worker.outputTail);
+    void useTerminalStore.getState().adopt(worker.terminalId);
   }
 }
 

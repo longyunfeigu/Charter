@@ -85,6 +85,20 @@ export interface ExternalSessionSnapshot {
   }>;
 }
 
+export interface ExternalFleetResumeSummary {
+  requested: number;
+  resumed: number;
+  reused: number;
+  failed: Array<{ taskId: string; message: string }>;
+}
+
+export interface ExternalSessionResumeResult {
+  terminalId: string;
+  cli: string;
+  taskId: string;
+  fleet: ExternalFleetResumeSummary;
+}
+
 interface LiveSession {
   terminalId: string;
   taskId: string;
@@ -142,6 +156,19 @@ interface PendingResume {
   reject: (error: ProductFailure) => void;
 }
 
+export interface ExternalTurnSettledEvent {
+  terminalId: string;
+  taskId: string;
+  status: 'ok' | 'error';
+  source: 'structured' | 'observed';
+}
+
+export interface ExternalTurnStartedEvent {
+  terminalId: string;
+  taskId: string;
+  source: 'input' | 'launch';
+}
+
 /**
  * Only known CLIs get a host-written command; custom detected programs stay
  * review-only. With a recorded conversation id the command targets that exact
@@ -182,6 +209,11 @@ export function externalTitleFromPrompt(prompt: string): string | null {
   const cleaned = firstLine.replace(/\s+/g, ' ');
   if (!cleaned) return null;
   return cleaned.length <= 64 ? cleaned : `${cleaned.slice(0, 61)}…`;
+}
+
+/** Xterm's submit edge is CR; LF may be unsent text inside a bracketed paste. */
+export function isExternalPromptSubmit(data: string): boolean {
+  return data.includes('\r');
 }
 
 interface FileAttributionCandidate {
@@ -232,6 +264,21 @@ export class ExternalSessionService {
     private readonly logger: Logger,
     /** ADR-0017 amendment: product-launch intents registered by terminal.create. */
     private readonly launchIntents: ExternalLaunchIntents | null = null,
+    /** Event-driven bridge for orchestration waiters; renderer broadcasts alone cannot wake tools. */
+    private readonly onTurnSettled: ((event: ExternalTurnSettledEvent) => void) | null = null,
+    /** Keeps the worker projection aligned with external-agent activity edges. */
+    private readonly onTurnStarted: ((event: ExternalTurnStartedEvent) => void) | null = null,
+    /** Persists the external task identity behind an orchestration worker. */
+    private readonly onSessionBound:
+      ((event: { terminalId: string; taskId: string }) => void) | null = null,
+    /** Commander resumes restore their historical worker fleet as one operation. */
+    private readonly onFleetResume:
+      | ((event: {
+          sourceTaskId: string;
+          targetTaskId: string;
+          commanderTerminalId: string;
+        }) => Promise<ExternalFleetResumeSummary>)
+      | null = null,
   ) {
     this.unsubscribeManager = terminals.onAgentState(({ id, agent, cwd }) => {
       if (agent) void this.onAgentEnter(id, agent, cwd);
@@ -352,11 +399,18 @@ export class ExternalSessionService {
       // fabricated turns — their enter/exit edges are the only block marks.
       if (observation.kind === 'report' && observation.evidenceKinds.includes('result')) {
         this.settleFileAttribution(session);
+        const status = observation.status === 'error' ? 'error' : 'ok';
+        this.emitTurnSettled({
+          terminalId,
+          taskId: session.taskId,
+          status,
+          source: 'structured',
+        });
         broadcast('external.turn', {
           terminalId,
           taskId: session.taskId,
           label: observation.label,
-          status: observation.status === 'error' ? 'error' : 'ok',
+          status,
           lastUserMessage: session.lastUserLine
             ? externalTitleFromPrompt(session.lastUserLine)
             : null,
@@ -397,8 +451,10 @@ export class ExternalSessionService {
         }
       }
     }
-    if (!/[\r\n]/.test(data)) return;
-    this.markFileAttributionActive(session);
+    // Xterm submits with CR. Newlines inside bracketed multi-line/context
+    // pastes are still unsent input and must not make the Session look busy.
+    if (!isExternalPromptSubmit(data)) return;
+    this.startTurn(session, 'input');
     if (session.structuredStream) return;
     if (session.presenceTimer) clearTimeout(session.presenceTimer);
     session.presenceTimer = null;
@@ -417,13 +473,11 @@ export class ExternalSessionService {
   }
 
   private noteObservedOutput(session: LiveSession, data: string): void {
-    if (
-      session.structuredStream ||
-      !session.presenceAwaitingReply ||
-      !cleanTerminalText(data).replace(/\s/g, '')
-    ) {
-      return;
-    }
+    if (session.structuredStream || !cleanTerminalText(data).replace(/\s/g, '')) return;
+    // A completed observed turn can still receive idle TUI repaints, cursor
+    // updates, or focus/status traffic. Only submitted input (or launch) may
+    // start a turn; output by itself must never make an idle Session work again.
+    if (!session.presenceAwaitingReply) return;
     session.presenceSawOutput = true;
     if (session.presenceTimer) clearTimeout(session.presenceTimer);
     session.presenceTimer = setTimeout(() => {
@@ -439,6 +493,12 @@ export class ExternalSessionService {
       session.presenceAwaitingReply = false;
       session.presenceSawOutput = false;
       this.settleFileAttribution(session);
+      this.emitTurnSettled({
+        terminalId: session.terminalId,
+        taskId: session.taskId,
+        status: 'ok',
+        source: 'observed',
+      });
       broadcast('external.activitySettled', {
         terminalId: session.terminalId,
         taskId: session.taskId,
@@ -456,6 +516,39 @@ export class ExternalSessionService {
     session.presenceTimer = null;
     session.presenceAwaitingReply = false;
     session.presenceSawOutput = false;
+  }
+
+  private startTurn(session: LiveSession, source: ExternalTurnStartedEvent['source']): void {
+    this.markFileAttributionActive(session);
+    broadcast('external.activityStarted', {
+      terminalId: session.terminalId,
+      taskId: session.taskId,
+    });
+    try {
+      this.onTurnStarted?.({
+        terminalId: session.terminalId,
+        taskId: session.taskId,
+        source,
+      });
+    } catch (error) {
+      this.logger.warn('external turn-started bridge failed', {
+        terminalId: session.terminalId,
+        taskId: session.taskId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private emitTurnSettled(event: ExternalTurnSettledEvent): void {
+    try {
+      this.onTurnSettled?.(event);
+    } catch (error) {
+      this.logger.warn('external turn-settled bridge failed', {
+        terminalId: event.terminalId,
+        taskId: event.taskId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**
@@ -570,6 +663,7 @@ export class ExternalSessionService {
       this.pendingResumes.delete(terminalId);
       const session = this.byTerminal.get(terminalId);
       if (session) {
+        this.onSessionBound?.({ terminalId, taskId: pending.taskId });
         broadcast('terminal.agentState', { id: terminalId, agent: cli, taskId: pending.taskId });
         this.logger.info('external session resumed', {
           terminalId,
@@ -711,6 +805,7 @@ export class ExternalSessionService {
     session.unsubscribe = watcher.onBatch((changes) => this.onBatch(session, changes));
     watcher.start();
     this.byTerminal.set(terminalId, session);
+    this.onSessionBound?.({ terminalId, taskId });
 
     if (intent?.sessionId) {
       // Launch pre-assigned the conversation id (`claude --session-id`): the
@@ -727,7 +822,7 @@ export class ExternalSessionService {
           kind: 'external',
         });
         session.lastUserLine = intent.prompt;
-        this.markFileAttributionActive(session);
+        this.startTurn(session, 'launch');
       } else {
         this.armPromptDelivery(session, intent.prompt);
       }
@@ -920,7 +1015,8 @@ export class ExternalSessionService {
   async resume(
     taskId: string,
     terminalId: string,
-  ): Promise<{ terminalId: string; cli: string; taskId: string }> {
+    options: { resumeFleet?: boolean } = {},
+  ): Promise<ExternalSessionResumeResult> {
     const source = this.tasks.getTask(taskId);
     const sourceExternal = source.external;
     if (!sourceExternal) {
@@ -1008,7 +1104,7 @@ export class ExternalSessionService {
       });
     }
 
-    return this.startResumedSession({
+    const resumed = await this.startResumedSession({
       task,
       external,
       terminalId,
@@ -1017,6 +1113,29 @@ export class ExternalSessionService {
       retireStubOnMiss: settled,
       sameTaskResume: !settled,
     });
+    let fleet: ExternalFleetResumeSummary = {
+      requested: 0,
+      resumed: 0,
+      reused: 0,
+      failed: [],
+    };
+    if (options.resumeFleet !== false && this.onFleetResume) {
+      try {
+        fleet = await this.onFleetResume({
+          sourceTaskId: source.id,
+          targetTaskId: resumed.taskId,
+          commanderTerminalId: resumed.terminalId,
+        });
+      } catch (error) {
+        this.logger.warn('external commander resumed but fleet restoration failed', {
+          sourceTaskId: source.id,
+          targetTaskId: resumed.taskId,
+          error: errorMessage(error),
+        });
+        fleet.failed.push({ taskId: source.id, message: errorMessage(error) });
+      }
+    }
+    return { ...resumed, fleet };
   }
 
   /**

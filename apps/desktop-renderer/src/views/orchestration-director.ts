@@ -6,6 +6,21 @@ export interface DirectorCandidate {
   reason: string;
 }
 
+/** Keep auto-director cuts meaningful instead of following every output timestamp. */
+export function shouldDirectorCut(
+  current: DirectorCandidate | null,
+  next: DirectorCandidate | null,
+): boolean {
+  if (!next) return false;
+  if (!current) return true;
+  if (current.worker.terminalId === next.worker.terminalId) return false;
+  if (next.priority !== current.priority) return next.priority > current.priority;
+  // Equal-priority streaming/quiet workers are deliberately sticky. Raw PTY
+  // output updates timestamps continuously and otherwise makes the stage flicker.
+  if (next.priority < 30) return false;
+  return Date.parse(next.worker.updatedAt) > Date.parse(current.worker.updatedAt);
+}
+
 function permissionTargets(card: PermissionCardDto, terminalId: string): boolean {
   const input = card.input as { id?: unknown } | null;
   return input?.id === terminalId || Boolean(card.preview.targets?.includes(terminalId));

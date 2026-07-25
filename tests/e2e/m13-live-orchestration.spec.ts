@@ -24,16 +24,12 @@ const SHOTS = '/tmp/charter-m13-live';
 const INTENT =
   "开另外一个终端窗口,在那个新窗口里运行 printf 'ORCH_LIVE_%s\\n' OK ,等命令跑完之后把输出读回来告诉我。不要在当前会话里自己运行这个命令。";
 
-/** Approve whatever gate is currently blocking the run (plan or permission). */
+/** Approve the plan gate; terminal.* calls themselves are prompt-free. */
 async function approveCurrentGate(page: Page): Promise<void> {
   const plan = page.getByTestId('plan-approve');
   if (await plan.isVisible().catch(() => false)) {
     await plan.click().catch(() => undefined);
     return;
-  }
-  const allow = page.getByTestId('perm-allow-once').first();
-  if (await allow.isVisible().catch(() => false)) {
-    await allow.click().catch(() => undefined);
   }
 }
 
@@ -67,13 +63,14 @@ test('live model: colloquial intent alone drives terminal.create → send/wait/r
     await expect(page.getByTestId('task-room')).toBeVisible();
 
     // 3) THE assertion this spec exists for: the model must reach for
-    // terminal.create on its own. Plan/other gates are approved while
-    // waiting; a run that ends without the call fails loudly.
-    const createCard = page.getByTestId('perm-card').filter({ hasText: 'terminal.create' }).first();
+    // terminal.create on its own. The worker appearing is the observable proof;
+    // terminal calls no longer pause on a permission card.
+    const fleetTab = page.getByTestId('task-room-fleet-tab');
     await expect
       .poll(
         async () => {
-          if (await createCard.isVisible().catch(() => false)) return true;
+          if (((await fleetTab.textContent().catch(() => '')) ?? '').includes('Fleet 1'))
+            return true;
           await approveCurrentGate(page);
           const state = await page
             .getByTestId('task-state')
@@ -87,16 +84,12 @@ test('live model: colloquial intent alone drives terminal.create → send/wait/r
         { timeout: 300_000, intervals: [1000] },
       )
       .toBe(true);
-    await page.screenshot({ path: `${SHOTS}/1-create-card.png` });
-    await expect(createCard.getByTestId('perm-risk')).toHaveText('R2');
-    await createCard.getByTestId('perm-allow-once').click();
+    await expect(page.getByTestId('perm-card').filter({ hasText: 'terminal.' })).toHaveCount(0);
+    await page.screenshot({ path: `${SHOTS}/1-worker-created.png` });
 
     // 4) Worker appears in the fleet; keep approving send-class gates until
     // the probe output lands in the worker pty.
-    await expect(page.getByTestId('task-room-fleet-tab')).toContainText('Fleet 1', {
-      timeout: 60_000,
-    });
-    await page.getByTestId('task-room-fleet-tab').click();
+    await fleetTab.click();
     const workerScreen = page
       .getByTestId('orchestration-fleet')
       .getByTestId('orchestration-native-terminal')

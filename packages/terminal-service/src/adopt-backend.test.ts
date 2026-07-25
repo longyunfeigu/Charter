@@ -230,4 +230,80 @@ describe('TerminalManager.adoptBackend (SSH remote sessions, ADR-0047)', () => {
     manager.injectData('term_missing', 'ignored');
     expect(output).toHaveLength(1);
   });
+
+  it('restores a truncated G0 DEC line-drawing designation', () => {
+    manager = new TerminalManager(
+      () => {},
+      () => {},
+      { agentPollMs: 0 },
+    );
+    const backend = new FakeBackend();
+    const info = manager.adoptBackend(backend, { title: 't', cwd: '/x', projectName: 'x' });
+
+    backend.emit(`\u001b(0${'a'.repeat(64 * 1024)}qqq`);
+    const replay = manager.recentData(info.id);
+
+    expect(replay).toHaveLength(64 * 1024 + 3);
+    expect(replay.startsWith('\u001b(0')).toBe(true);
+    expect(replay.endsWith('qqq')).toBe(true);
+  });
+
+  it('restores G1 DEC line drawing and the active shift state', () => {
+    manager = new TerminalManager(
+      () => {},
+      () => {},
+      { agentPollMs: 0 },
+    );
+    const backend = new FakeBackend();
+    const info = manager.adoptBackend(backend, { title: 't', cwd: '/x', projectName: 'x' });
+
+    backend.emit(`\u001b)0\u000e${'x'.repeat(64 * 1024 + 8)}`);
+    expect(manager.recentData(info.id)).toBe(`\u001b)0\u000e${'x'.repeat(64 * 1024)}`);
+  });
+
+  it('never starts a replay in the middle of an escape sequence', () => {
+    manager = new TerminalManager(
+      () => {},
+      () => {},
+      { agentPollMs: 0 },
+    );
+    const backend = new FakeBackend();
+    const info = manager.adoptBackend(backend, { title: 't', cwd: '/x', projectName: 'x' });
+
+    // The nominal 64 KiB cut falls between ESC ( and its final designator.
+    backend.emit(`\u001b(0${'q'.repeat(64 * 1024 - 1)}`);
+    const replay = manager.recentData(info.id);
+
+    expect(replay.startsWith('\u001b(0q')).toBe(true);
+    expect(replay.slice(3)).not.toContain('\u001b');
+  });
+
+  it('does not add a replay prefix for ordinary ASCII output', () => {
+    manager = new TerminalManager(
+      () => {},
+      () => {},
+      { agentPollMs: 0 },
+    );
+    const backend = new FakeBackend();
+    const info = manager.adoptBackend(backend, { title: 't', cwd: '/x', projectName: 'x' });
+
+    backend.emit('a'.repeat(64 * 1024 + 8));
+    expect(manager.recentData(info.id)).toBe('a'.repeat(64 * 1024));
+  });
+
+  it('drops an oversized unterminated control string until its terminator', () => {
+    manager = new TerminalManager(
+      () => {},
+      () => {},
+      { agentPollMs: 0 },
+    );
+    const backend = new FakeBackend();
+    const info = manager.adoptBackend(backend, { title: 't', cwd: '/x', projectName: 'x' });
+
+    backend.emit(`\u001b]0;${'x'.repeat(96 * 1024)}`);
+    expect(manager.recentData(info.id)).toBe('');
+
+    backend.emit('\u0007visible');
+    expect(manager.recentData(info.id)).toBe('visible');
+  });
 });

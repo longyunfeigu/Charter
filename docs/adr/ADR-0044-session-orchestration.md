@@ -105,11 +105,13 @@ director-stage overlay (v3 mockup, built and verified by an independent design p
    any entry clears all. "Always allow for this task" materializes as a StandingRule scoped to
    (task, tool, target terminal).
 
-10. **`wait` semantics.** Three completion modes: **command** mode via OSC 133 `D;exit`
-    (ADR-0021), returning the real exit code; **quiet** mode for resident TUIs (settle window,
-    reusing the field-calibrated external-session constants); **until** regex evaluated only
-    against output produced after the wait began. Timeout clamp 1s–240s, default 60s. Cancellation
-    rides the gateway AbortSignal: stopping the task cleanly detaches pending waiters.
+10. **`wait` semantics.** Four completion modes: **turn** mode subscribes to the next semantic
+    Claude/Codex completion edge (structured result, or the observed-TUI settled fallback);
+    **command** mode uses OSC 133 `D;exit` (ADR-0021) and returns the real exit code; **quiet** is a
+    raw output settle window; **until** evaluates a regex only against output produced after the
+    wait began. All modes are event/timer driven, not interval polling. Timeout clamp 1s–240s,
+    default 60s. Cancellation rides the gateway AbortSignal: stopping the task cleanly detaches
+    pending waiters.
 
 11. **UI: grow-in-place, no new surface** — per the two approved mockups. Rail: two-level family
     tree, worker rows one step shorter (44px vs 56px), numeric needs badges bubbling to the
@@ -120,11 +122,21 @@ director-stage overlay (v3 mockup, built and verified by an independent design p
     (pending-approval > failure > just-finished > streaming > quiet); every cut shows a reason
     chip; lockable; auto is default with a manual mode; while an approval is pending other events
     queue (a "pending cut" chip) rather than steal the stage; the director log is a filtered ledger
-    view with snapshot lookback. V1 scope: commander-room only, not global. Every new UI piece
-    ships with normal/loading/empty/error/cancellation states per CLAUDE.md.
+    view with snapshot lookback. Roster selection and the automatic stage are separate: raw output
+    timestamps never move the user's left-side selection, and equal-priority streaming workers are
+    sticky instead of cutting on every line. V1 scope: commander-room only, not global. Every new
+    UI piece ships with normal/loading/empty/error/cancellation states per CLAUDE.md.
 
 12. **Master switch.** Settings toggle "会话编排" (default ON). OFF unregisters the tool family,
     does not create the socket, and hides all orchestration UI — a one-flag circuit breaker.
+
+13. **Fleet-level resume.** Resuming a commander resumes its durable formation, not only the
+    commander terminal. `workerCreated`/`workerBound`/`workerKilled` events project the last live
+    fleet across Main-process restarts. Workers that are still active are re-parented immediately;
+    ended Claude/Codex workers resume their exact external conversation in a replacement terminal,
+    concurrently and within the worker budget. A worker resume explicitly disables nested fleet
+    recovery (depth remains two). One failed worker is reported as a partial restore and never rolls
+    back the resumed commander or successful siblings.
 
 ## Alternatives
 
@@ -182,8 +194,8 @@ Acceptance IDs (expanded as the M13 section of IMPLEMENTATION_BACKLOG):
 - ORCH-007 budget overruns surface as 429/typed errors and are ledgered.
 - ORCH-008 door auth: missing/invalid token → 403; tokens invalid after app restart; resolved
   caller identity equals the spawning terminal.
-- ORCH-009 wait modes: exit-code, quiet, until-regex (post-wait output only); task stop leaves no
-  orphan waiters.
+- ORCH-009 wait modes: agent-turn event, exit-code, quiet, until-regex (post-wait output only);
+  send/create-to-wait races do not lose a completion edge; task stop leaves no orphan waiters.
 - ORCH-010 director stage: priority order honored; approval-pending queues other cuts with a
   "pending cut" chip; every cut carries a reason chip; lock and manual mode work.
 - ORCH-011 replay renders ⌁ orchestration events from the ledger.
@@ -214,3 +226,56 @@ Note on R0 semantics: R0 bypasses standing deny rules by design (as for `list`/`
 per-worker/fleet pause and takeover remain the user's blocking levers for content injection.
 ORCH-002 (R3 approval + deny path) is unaffected; the e2e read-approval anchors were updated to
 assert the new prompt-free behavior.
+
+## Amendment (2026-07-25): the terminal capability lane is prompt-free
+
+Field use with one commander driving multiple Claude/Codex/shell workers exposed a protocol-level
+failure in the previous policy. `terminal.create` and bare-shell `terminal.send` waited inside the
+local HTTP/MCP request for a permission decision. The CLI caller could not see that permission card,
+so the request looked like a hung write channel while `list` and `read` continued to work. Parallel
+calls amplified the false impression that the control plane was globally blocked.
+
+Product-owner decision: the complete `terminal.*` family is an owner-trusted capability lane and
+does not enter the interactive Permission Engine. This replaces the earlier R0-only exemption:
+
+- `terminal.list/read/send/create/wait/kill` register with `permissionPolicy: auto-allow`. They are
+  available in every task mode, create no permission requests/cards, and ignore persisted standing
+  allow/deny rules. Calls retain their real risk classification in the tool audit.
+- The global R4 product wall remains first-class. A shell send classified R4 is still refused with
+  zero side effects; this lane only auto-allows R0-R3. `terminal.kill` returns to R3 and is executable
+  without a card, while the manual limits it to an explicit user request and keeps completed workers
+  open by default.
+- Host preflight and runtime controls are unchanged: authenticated per-terminal identity, master
+  switch, top-level-only control, self-control refusal, worker/send budgets, pause, takeover queues,
+  schema validation, cancellation, and ledger attribution all remain enforced.
+- The compatibility CLI now treats `help/-h/--help` as documentation instead of a create request,
+  validates required arguments locally, and returns a typed timeout instead of waiting forever when
+  the control door stops responding. The manual now states that `queued: true` means not delivered
+  and that resident agent TUIs remain `busy: true` for their entire process lifetime.
+
+Verification amendment: ORCH-002 now asserts that R0-R3 terminal calls produce no permission card
+even when the Permission Engine would deny them, while an R4 shell injection is still refused before
+execution. Electron coverage asserts both managed and authenticated external drivers complete the
+create/send/wait/read loop with zero terminal permission cards.
+
+## Amendment (2026-07-25): event-driven worker completion and non-blocking create
+
+Multi-console use exposed two latency/meaning gaps. A resident Claude/Codex process remains alive
+between assignments, so process-level `busy` cannot mean "this assignment is unfinished". Also,
+shell `terminal.create` waited for the 350ms input-safety settle before returning, even when no
+input needed to be delivered yet.
+
+- `terminal.wait` adds `mode: "turn"`. `ExternalSessionService` bridges structured Codex
+  `turn.completed` / Claude result events and its observed-TUI activity-settled fallback into
+  `TerminalControlService`. A pending long wait resolves on that edge immediately; there is no
+  polling interval and no unsolicited text injection into another model's active turn.
+- Each terminal keeps a monotonic in-memory turn sequence. `create(initialText)` and `send` capture
+  the pre-delivery sequence, so a completion arriving before the caller starts `wait` is returned
+  immediately instead of being lost. Wait results expose status, source, worker task id, completion
+  time, sequence, and duration without persisting terminal output.
+- Worker UI state uses the semantic edge: a live resident TUI can now be `completed` or `failed`
+  while process-level `busy` truthfully remains `true`. A subsequent submitted prompt marks it
+  active again.
+- Shell creation returns immediately. During the existing startup-safety window, follow-up sends
+  are queued with `reason: "starting"` and released in order after the shell is paste-ready. This
+  preserves the input-loss guard while removing the 350ms control-plane response delay.

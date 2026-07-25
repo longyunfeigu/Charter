@@ -33,7 +33,7 @@ describe('terminal.* gateway tools (ADR-0044)', () => {
     expect(classifyTerminalSend('shell', 'sudo rm -rf /').level).toBe('R4');
   });
 
-  it('exposes observation tools (list/wait/read) but never send/create in Ask catalog', () => {
+  it('exposes the complete prompt-free terminal capability lane in the Ask catalog', () => {
     const gateway = new ToolGateway({ root: '/tmp', mode: 'ask' });
     registerTerminalTools(gateway, { root: '/tmp', control: control() });
     const names = gateway.catalog('ask').map((entry) => entry.name);
@@ -41,9 +41,9 @@ describe('terminal.* gateway tools (ADR-0044)', () => {
     expect(names).toContain('terminal.wait');
     // Amended 2026-07-22: read is R0 observation and joins the Ask surface.
     expect(names).toContain('terminal.read');
-    // send probes to R2 on an unknown target; create is R2 — both stay out.
-    expect(names).not.toContain('terminal.send');
-    expect(names).not.toContain('terminal.create');
+    expect(names).toContain('terminal.send');
+    expect(names).toContain('terminal.create');
+    expect(names).toContain('terminal.kill');
   });
 
   it('carries intent-mapping promptGuidance for create/list in the Edit catalog', () => {
@@ -55,12 +55,15 @@ describe('terminal.* gateway tools (ADR-0044)', () => {
     // X" onto terminal.create instead of doing the work in its own session.
     expect(create?.promptGuidance).toMatch(/open another terminal/i);
     expect(create?.promptGuidance).toContain('terminal.send');
-    expect(catalog.find((entry) => entry.name === 'terminal.list')?.promptGuidance).toMatch(
-      /reuse an existing idle worker/i,
+    const listGuidance = catalog.find((entry) => entry.name === 'terminal.list')?.promptGuidance;
+    expect(listGuidance).toMatch(/reuse a suitable worker/i);
+    expect(listGuidance).toMatch(/resident Claude\/Codex TUI/i);
+    expect(catalog.find((entry) => entry.name === 'terminal.wait')?.promptGuidance).toMatch(
+      /prefer turn/i,
     );
   });
 
-  it('runs depth/self-control preflight before asking for permission', async () => {
+  it('runs depth/self-control preflight before permission bypass or execution', async () => {
     let decisions = 0;
     const gateway = new ToolGateway({
       root: '/tmp',
@@ -92,15 +95,15 @@ describe('terminal.* gateway tools (ADR-0044)', () => {
     expect(decisions).toBe(0);
   });
 
-  it('returns a typed refusal when the user denies an R3 shell injection', async () => {
+  it('auto-allows an R3 shell injection without consulting the permission decider', async () => {
     let sent = false;
-    let requestedRisk = '';
+    let decisions = 0;
     const gateway = new ToolGateway({
       root: '/tmp',
       mode: 'edit',
       permission: {
-        async decide(request) {
-          requestedRisk = request.risk.level;
+        async decide() {
+          decisions += 1;
           return { kind: 'deny', reason: 'not in this worker', permanent: false };
         },
       },
@@ -120,13 +123,13 @@ describe('terminal.* gateway tools (ADR-0044)', () => {
       new AbortController().signal,
     );
 
-    expect(requestedRisk).toBe('R3');
-    expect(result.ok).toBe(false);
-    expect(result.code).toBe('PERMISSION_DENIED');
-    expect(sent).toBe(false);
+    expect(decisions).toBe(0);
+    expect(result.ok).toBe(true);
+    expect(result.code).toBe('OK');
+    expect(sent).toBe(true);
   });
 
-  it('refuses agent-driven worker closure at R4 without permission or side effects', async () => {
+  it('auto-allows an explicitly requested R3 terminal closure', async () => {
     let decisions = 0;
     let killed = false;
     const gateway = new ToolGateway({
@@ -154,11 +157,34 @@ describe('terminal.* gateway tools (ADR-0044)', () => {
       new AbortController().signal,
     );
 
+    expect(result.ok).toBe(true);
+    expect(result.code).toBe('OK');
+    expect(decisions).toBe(0);
+    expect(killed).toBe(true);
+  });
+
+  it('retains the R4 product boundary for destructive shell injection', async () => {
+    let sent = false;
+    const gateway = new ToolGateway({ root: '/tmp', mode: 'full' });
+    registerTerminalTools(gateway, {
+      root: '/tmp',
+      control: control({
+        async send() {
+          sent = true;
+          return { queued: false };
+        },
+      }),
+    });
+
+    const result = await gateway.executeCall(
+      call('terminal.send', { id: 'term_1', text: 'sudo rm -rf /', submit: true }),
+      new AbortController().signal,
+    );
+
     expect(result.ok).toBe(false);
     expect(result.code).toBe('PERMISSION_DENIED');
     expect(result.data).toEqual({ risk: 'R4', permanent: true });
-    expect(decisions).toBe(0);
-    expect(killed).toBe(false);
+    expect(sent).toBe(false);
   });
 
   it('binds the authenticated external terminal identity to the control call', async () => {

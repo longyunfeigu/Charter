@@ -160,6 +160,16 @@ export const EVENT_CHANNELS = {
       lastUserMessage: z.string().nullable().optional(),
     }),
   ),
+  /** A prompt was submitted to an external CLI. This is presence only: it
+   * drives working UI until a structured or observed settlement arrives. */
+  'external.activityStarted': ev(
+    'external.activityStarted',
+    1,
+    z.object({
+      terminalId: z.string(),
+      taskId: z.string(),
+    }),
+  ),
   /** Presence-only fallback for an observed external TUI: after user input,
    * visible PTY output became quiet. This is deliberately not a semantic turn
    * or Replay evidence boundary. */

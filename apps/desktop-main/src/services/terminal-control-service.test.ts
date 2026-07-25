@@ -120,6 +120,105 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
     });
   });
 
+  it('lists live Session names and controls unique names case-insensitively', async () => {
+    const names = new Map<string, string>();
+    const namedService = new TerminalControlService(
+      terminals as unknown as TerminalManager,
+      logger,
+      {
+        enabled: () => true,
+        maxSendsPerMinute: () => 10,
+        taskTitleForTerminal: (terminalId) => names.get(terminalId) ?? null,
+        settleMs: 0,
+      },
+    );
+    const target = terminals.create({ cwd: '/repo', launch: 'codex' });
+    names.set(target.id, 'Initial Worker');
+    terminals.children.add(target.id);
+    terminals.emitData(target.id, 'ready\n');
+
+    expect(namedService.list({ taskId: 'commander' })).toMatchObject({
+      terminals: [{ id: target.id, name: 'Initial Worker' }],
+    });
+    names.set(target.id, 'API Reviewer');
+
+    expect(namedService.list({ taskId: 'commander' })).toMatchObject({
+      terminals: [
+        {
+          id: target.id,
+          name: 'API Reviewer',
+          title: 'API Reviewer',
+          terminalTitle: 'codex',
+        },
+      ],
+    });
+    expect(
+      namedService.read({ taskId: 'commander' }, { id: 'api reviewer', maxBytes: 1024 }),
+    ).toMatchObject({ terminalId: target.id, content: 'ready\n', busy: true });
+    await expect(
+      namedService.send(
+        { taskId: 'commander' },
+        { id: 'Api Reviewer', text: 'review this', submit: true },
+      ),
+    ).resolves.toMatchObject({ terminalId: target.id, queued: false });
+    expect(terminals.writes.at(-1)).toMatchObject({ id: target.id, data: '\r' });
+
+    const wait = namedService.wait(
+      { taskId: 'commander' },
+      {
+        id: 'API REVIEWER',
+        mode: 'until',
+        pattern: '^DONE$',
+        timeoutMs: 5_000,
+        quietMs: 1_000,
+      },
+      new AbortController().signal,
+    );
+    terminals.emitData(target.id, 'DONE');
+    await expect(wait).resolves.toMatchObject({ terminalId: target.id, reason: 'until' });
+
+    const disposable = terminals.create({ cwd: '/repo', launch: 'shell' });
+    names.set(disposable.id, 'Disposable Worker');
+    expect(namedService.kill({ taskId: 'commander' }, { id: 'disposable worker' })).toEqual({
+      terminalId: disposable.id,
+      closed: true,
+    });
+    expect(terminals.infos.has(disposable.id)).toBe(false);
+    namedService.dispose();
+  });
+
+  it('rejects duplicate Session names and still enforces self-control by name', async () => {
+    const names = new Map<string, string>();
+    const namedService = new TerminalControlService(
+      terminals as unknown as TerminalManager,
+      logger,
+      {
+        enabled: () => true,
+        taskTitleForTerminal: (terminalId) => names.get(terminalId) ?? null,
+        settleMs: 0,
+      },
+    );
+    const self = terminals.create({ cwd: '/repo' });
+    names.set(self.id, 'Primary Agent');
+    await expect(
+      namedService.send(
+        { taskId: 'self_task', terminalId: self.id },
+        { id: 'primary agent', text: 'loop', submit: true },
+      ),
+    ).rejects.toMatchObject({ error: { code: 'TERMINAL_SELF_CONTROL' } });
+
+    const duplicate = terminals.create({ cwd: '/repo' });
+    names.set(duplicate.id, 'PRIMARY AGENT');
+    let failure: unknown;
+    try {
+      namedService.read({ taskId: 'commander' }, { id: 'Primary Agent', maxBytes: 1024 });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ error: { code: 'TERMINAL_NAME_AMBIGUOUS' } });
+    namedService.dispose();
+  });
+
   it('strips ANSI and caps each in-memory rolling buffer at 200KB', async () => {
     const terminal = terminals.create({ cwd: '/tmp' });
     terminals.emitData(terminal.id, '\u001b[31mred\u001b[0m\n');
@@ -246,6 +345,214 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
     }
   });
 
+  it('moves live workers and resumes ended workers with their commander', async () => {
+    const activeTasks = new Map<string, string>();
+    const events: Array<{ taskId: string; type: string; payload: Record<string, unknown> }> = [];
+    const restoreService = new TerminalControlService(
+      terminals as unknown as TerminalManager,
+      logger,
+      {
+        enabled: () => true,
+        maxWorkers: () => 3,
+        taskForTerminal: (terminalId) => activeTasks.get(terminalId) ?? null,
+        recordEvent: (taskId, type, payload) => events.push({ taskId, type, payload }),
+        settleMs: 0,
+      },
+    );
+    const live = (await restoreService.create(
+      { taskId: 'commander_old', terminalId: 'commander_terminal_old' },
+      { root: '/repo', launch: 'claude', submit: true },
+    )) as { terminal: TerminalInfo };
+    activeTasks.set(live.terminal.id, 'worker_live');
+    const resumeWorker = vi.fn(async () => ({ taskId: 'worker_resumed', cli: 'codex' }));
+
+    const restored = await restoreService.resumeFleet({
+      sourceTaskId: 'commander_old',
+      targetTaskId: 'commander_new',
+      commanderTerminalId: 'commander_terminal_new',
+      members: [
+        {
+          terminalId: live.terminal.id,
+          workerTaskId: 'worker_live',
+          launch: 'claude',
+          root: '/repo',
+          projectPath: '/repo',
+          title: 'live worker',
+        },
+        {
+          terminalId: 'term_ended',
+          workerTaskId: 'worker_ended',
+          launch: 'codex',
+          root: '/repo/packages/api',
+          projectPath: '/repo',
+          title: 'ended worker',
+        },
+      ],
+      resumeWorker,
+    });
+
+    expect(restored).toEqual({ requested: 2, resumed: 1, reused: 1, failed: [] });
+    expect(resumeWorker).toHaveBeenCalledOnce();
+    expect(resumeWorker).toHaveBeenCalledWith('worker_ended', 'term_2');
+    expect(restoreService.snapshot().workers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          terminalId: live.terminal.id,
+          commanderTaskId: 'commander_new',
+          commanderTerminalId: 'commander_terminal_new',
+        }),
+        expect.objectContaining({
+          terminalId: 'term_2',
+          commanderTaskId: 'commander_new',
+          taskId: null,
+        }),
+      ]),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ taskId: 'commander_new', type: 'orchestration.fleetResumed' }),
+    );
+    restoreService.dispose();
+  });
+
+  it('keeps the historical worker retryable when its resume fails', async () => {
+    const events: Array<{ taskId: string; type: string; payload: Record<string, unknown> }> = [];
+    const restoreService = new TerminalControlService(
+      terminals as unknown as TerminalManager,
+      logger,
+      {
+        enabled: () => true,
+        recordEvent: (taskId, type, payload) => events.push({ taskId, type, payload }),
+        settleMs: 0,
+      },
+    );
+
+    const restored = await restoreService.resumeFleet({
+      sourceTaskId: 'commander_same',
+      targetTaskId: 'commander_same',
+      commanderTerminalId: 'commander_terminal',
+      members: [
+        {
+          terminalId: 'term_historical',
+          workerTaskId: 'worker_ended',
+          launch: 'claude',
+          root: '/repo',
+          projectPath: '/repo',
+          title: 'worker',
+        },
+      ],
+      resumeWorker: async () => {
+        throw new Error('conversation unavailable');
+      },
+    });
+
+    expect(restored).toMatchObject({ requested: 1, resumed: 0, reused: 0 });
+    expect(restored.failed[0]?.message).toBe('conversation unavailable');
+    expect(restoreService.snapshot().workers).toEqual([]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'orchestration.workerKilled',
+        payload: expect.objectContaining({ terminalId: 'term_1', reason: 'resume-failed' }),
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: 'orchestration.workerKilled',
+        payload: expect.objectContaining({ terminalId: 'term_historical' }),
+      }),
+    );
+    restoreService.dispose();
+  });
+
+  it('replaces an exited in-memory worker instead of duplicating it on same-task resume', async () => {
+    const events: Array<{ taskId: string; type: string; payload: Record<string, unknown> }> = [];
+    const restoreService = new TerminalControlService(
+      terminals as unknown as TerminalManager,
+      logger,
+      {
+        enabled: () => true,
+        recordEvent: (taskId, type, payload) => events.push({ taskId, type, payload }),
+        settleMs: 0,
+      },
+    );
+    const original = (await restoreService.create(
+      { taskId: 'commander_same', terminalId: 'commander_terminal' },
+      { root: '/repo', launch: 'claude', submit: true },
+    )) as { terminal: TerminalInfo };
+    terminals.kill(original.terminal.id);
+
+    const restored = await restoreService.resumeFleet({
+      sourceTaskId: 'commander_same',
+      targetTaskId: 'commander_same',
+      commanderTerminalId: 'commander_terminal',
+      members: [
+        {
+          terminalId: original.terminal.id,
+          workerTaskId: 'worker_ended',
+          launch: 'claude',
+          root: '/repo',
+          projectPath: '/repo',
+          title: 'worker',
+        },
+      ],
+      resumeWorker: async () => ({ taskId: 'worker_resumed', cli: 'claude' }),
+    });
+
+    expect(restored).toEqual({ requested: 1, resumed: 1, reused: 0, failed: [] });
+    expect(restoreService.snapshot().workers).toEqual([
+      expect.objectContaining({ terminalId: 'term_2', commanderTaskId: 'commander_same' }),
+    ]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'orchestration.workerKilled',
+        payload: expect.objectContaining({
+          terminalId: original.terminal.id,
+          reason: 'resume-replaced',
+          replacedByTerminalId: 'term_2',
+        }),
+      }),
+    );
+    restoreService.dispose();
+  });
+
+  it('returns shell creation immediately and queues fast sends until startup is safe', async () => {
+    vi.useFakeTimers();
+    try {
+      const fastService = new TerminalControlService(
+        terminals as unknown as TerminalManager,
+        logger,
+        {
+          enabled: () => true,
+          settleMs: 30_000,
+        },
+      );
+
+      let resolved = false;
+      const createPromise = fastService
+        .create({ taskId: 'task_fast_shell' }, { root: '/repo', launch: 'shell', submit: true })
+        .then((created) => {
+          resolved = true;
+          return created as { terminal: TerminalInfo };
+        });
+      await Promise.resolve();
+      expect(resolved).toBe(true);
+
+      const created = await createPromise;
+      await expect(
+        fastService.send(
+          { taskId: 'task_fast_shell' },
+          { id: created.terminal.id, text: 'printf ready', submit: true },
+        ),
+      ).resolves.toMatchObject({ queued: true, reason: 'starting' });
+      expect(terminals.writes).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(terminals.writes.map((entry) => entry.data)).toEqual(['printf ready', '\r']);
+      fastService.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('enforces worker depth, self-control, live-worker and send-rate budgets', async () => {
     const first = (await service.create(
       { taskId: 'task_1' },
@@ -307,6 +614,116 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
     controller.abort();
     await expect(cancelled).rejects.toMatchObject({ error: { code: 'CANCELLED' } });
     expect(service.pendingWaiterCount()).toBe(0);
+  });
+
+  it('wakes turn waits from semantic completion events and survives send-to-wait races', async () => {
+    const created = (await service.create(
+      { taskId: 'task_1' },
+      { root: '/repo', launch: 'codex', submit: true },
+    )) as { terminal: TerminalInfo };
+    terminals.agents.set(created.terminal.id, 'codex');
+
+    const pending = service.wait(
+      { taskId: 'task_1' },
+      { id: created.terminal.id, mode: 'turn', timeoutMs: 5000, quietMs: 1000 },
+      new AbortController().signal,
+    );
+    expect(service.pendingWaiterCount()).toBe(1);
+    now += 12;
+    service.notifyTurnSettled(created.terminal.id, {
+      taskId: 'worker_task',
+      status: 'ok',
+      source: 'structured',
+    });
+    await expect(pending).resolves.toMatchObject({
+      reason: 'turn',
+      status: 'ok',
+      source: 'structured',
+      taskId: 'worker_task',
+      durationMs: 12,
+    });
+    expect(service.pendingWaiterCount()).toBe(0);
+    expect(service.snapshot().workers[0]).toMatchObject({ status: 'completed', busy: true });
+
+    await service.send(
+      { taskId: 'task_1' },
+      { id: created.terminal.id, text: 'check once more', submit: true },
+    );
+    expect(service.snapshot().workers[0]?.status).toBe('streaming');
+    service.notifyTurnSettled(created.terminal.id, {
+      taskId: 'worker_task',
+      status: 'error',
+      source: 'observed',
+    });
+    await expect(
+      service.wait(
+        { taskId: 'task_1' },
+        { id: created.terminal.id, mode: 'turn', timeoutMs: 5000, quietMs: 1000 },
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({
+      reason: 'turn',
+      status: 'error',
+      source: 'observed',
+      durationMs: 0,
+    });
+    expect(service.snapshot().workers[0]?.status).toBe('failed');
+  });
+
+  it('keeps settled turns idle across terminal repaints until a new input starts', async () => {
+    const created = (await service.create(
+      { taskId: 'task_1' },
+      { root: '/repo', launch: 'shell', submit: true },
+    )) as { terminal: TerminalInfo };
+
+    service.notifyTurnSettled(created.terminal.id, {
+      taskId: 'worker_task',
+      status: 'ok',
+      source: 'observed',
+    });
+    expect(service.snapshot().workers[0]?.status).toBe('completed');
+
+    terminals.emitData(created.terminal.id, '\u001b[?25l\u001b[2K');
+    expect(service.snapshot().workers[0]?.status).toBe('completed');
+
+    terminals.emitData(created.terminal.id, '\r\u001b[2K* Twisting... (5m 1s)');
+    expect(service.snapshot().workers[0]?.status).toBe('completed');
+
+    service.notifyTurnStarted(created.terminal.id, {
+      taskId: 'worker_task',
+      source: 'input',
+    });
+    expect(service.snapshot().workers[0]?.status).toBe('streaming');
+  });
+
+  it('does not lose a direct launch completion that arrives before turn wait', async () => {
+    const created = (await service.create(
+      { taskId: 'task_1' },
+      {
+        root: '/repo',
+        launch: 'claude',
+        initialText: 'finish immediately',
+        submit: true,
+      },
+    )) as { terminal: TerminalInfo };
+    service.notifyTurnSettled(created.terminal.id, {
+      taskId: 'worker_task',
+      status: 'ok',
+      source: 'structured',
+    });
+
+    await expect(
+      service.wait(
+        { taskId: 'task_1' },
+        { id: created.terminal.id, mode: 'turn', timeoutMs: 5000, quietMs: 1000 },
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({
+      reason: 'turn',
+      turnSequence: 1,
+      status: 'ok',
+      durationMs: 0,
+    });
   });
 });
 

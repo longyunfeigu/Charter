@@ -1,4 +1,8 @@
 import { request as httpRequest } from 'node:http';
+import {
+  parseTerminalControlCli,
+  TERMINAL_CONTROL_CLI_USAGE,
+} from './services/terminal-control-cli.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -9,7 +13,7 @@ const tools = [
   {
     name: 'terminal_list',
     description:
-      'Charter terminal.list: list visible sibling terminals, their host-managed context cwd (updated by product context switching, not by shell cd), and orchestration state.',
+      'Charter terminal.list: list visible sibling terminals with their current user-editable Session names, stable ids, host-managed context cwd (updated by product context switching, not by shell cd), and orchestration state.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -29,7 +33,7 @@ const tools = [
   {
     name: 'terminal_send',
     description:
-      'Charter terminal.send: inject text and optional Enter into a visible sibling terminal.',
+      'Charter terminal.send: inject text and optional Enter into a visible sibling terminal selected by stable id or unique current Session name.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -44,12 +48,16 @@ const tools = [
   {
     name: 'terminal_wait',
     description:
-      'Charter terminal.wait: wait for command exit, quiet, or a post-wait output regex.',
+      'Charter terminal.wait: event-driven wait by stable id or unique current Session name for an agent turn, command exit, quiet, or a post-wait output regex.',
     inputSchema: {
       type: 'object',
       properties: {
         id: { type: 'string', minLength: 1 },
-        mode: { type: 'string', enum: ['command', 'quiet', 'until'], default: 'command' },
+        mode: {
+          type: 'string',
+          enum: ['command', 'quiet', 'until', 'turn'],
+          default: 'command',
+        },
         timeoutMs: { type: 'integer', minimum: 1000, maximum: 240000, default: 60000 },
         quietMs: { type: 'integer', minimum: 250, maximum: 30000, default: 1000 },
         pattern: { type: 'string', minLength: 1, maxLength: 500 },
@@ -61,7 +69,7 @@ const tools = [
   {
     name: 'terminal_read',
     description:
-      'Charter terminal.read: read the ANSI-free in-memory tail of a visible sibling terminal.',
+      'Charter terminal.read: read the ANSI-free in-memory tail of a visible sibling terminal selected by stable id or unique current Session name.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -75,7 +83,7 @@ const tools = [
   {
     name: 'terminal_kill',
     description:
-      'Charter terminal.kill compatibility endpoint: agent calls are forbidden; workers remain open until the user closes them in Charter.',
+      'Charter terminal.kill: close a sibling worker selected by stable id or unique current Session name only when the user explicitly requests it; completed workers normally remain open for follow-up.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', minLength: 1 } },
@@ -129,6 +137,14 @@ async function callDoor(name: string, input: JsonObject): Promise<JsonObject> {
   const route = ctlRoute(name, input);
   const payload = route.body === undefined ? null : JSON.stringify(route.body);
   return await new Promise<JsonObject>((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = (result: JsonObject): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
     const request = httpRequest(
       {
         socketPath,
@@ -152,9 +168,9 @@ async function callDoor(name: string, input: JsonObject): Promise<JsonObject> {
         });
         response.on('end', () => {
           try {
-            resolve(JSON.parse(text) as JsonObject);
+            finish(JSON.parse(text) as JsonObject);
           } catch {
-            resolve({
+            finish({
               ok: false,
               code: 'CTL_INVALID_RESPONSE',
               summary: `Charter returned HTTP ${response.statusCode ?? 0} without JSON.`,
@@ -164,8 +180,20 @@ async function callDoor(name: string, input: JsonObject): Promise<JsonObject> {
       },
     );
     request.on('error', (error) => {
-      resolve({ ok: false, code: 'CTL_UNAVAILABLE', summary: error.message });
+      finish({ ok: false, code: 'CTL_UNAVAILABLE', summary: error.message });
     });
+    const requestedWait =
+      name === 'terminal_wait' && typeof input.timeoutMs === 'number' ? input.timeoutMs : 0;
+    const timeoutMs = requestedWait > 0 ? requestedWait + 5_000 : 30_000;
+    timer = setTimeout(() => {
+      request.destroy();
+      finish({
+        ok: false,
+        code: 'CTL_TIMEOUT',
+        summary: `Charter terminal control did not respond within ${timeoutMs}ms.`,
+      });
+    }, timeoutMs);
+    timer.unref?.();
     if (payload) request.write(payload);
     request.end();
   });
@@ -227,44 +255,18 @@ async function handleMessage(message: JsonObject): Promise<void> {
   if (id !== undefined) errorResponse(id, -32601, `Method not found: ${method}`);
 }
 
-function option(args: string[], name: string): string | undefined {
-  const index = args.indexOf(name);
-  return index >= 0 ? args[index + 1] : undefined;
-}
-
 async function runCli(args: string[]): Promise<void> {
-  const command = args[0] ?? 'help';
-  let name = `terminal_${command}`;
-  let input: JsonObject = {};
-  if (command === 'create') {
-    input = {
-      launch: option(args, '--launch') ?? 'shell',
-      ...(option(args, '--initial-text') ? { initialText: option(args, '--initial-text') } : {}),
-      submit: !args.includes('--no-submit'),
-    };
-  } else if (command === 'send') {
-    input = { id: args[1], text: args[2], submit: !args.includes('--no-submit') };
-  } else if (command === 'wait') {
-    input = {
-      id: args[1],
-      mode: option(args, '--mode') ?? 'command',
-      ...(option(args, '--timeout-ms') ? { timeoutMs: Number(option(args, '--timeout-ms')) } : {}),
-      ...(option(args, '--quiet-ms') ? { quietMs: Number(option(args, '--quiet-ms')) } : {}),
-      ...(option(args, '--pattern') ? { pattern: option(args, '--pattern') } : {}),
-    };
-  } else if (command === 'read') {
-    input = {
-      id: args[1],
-      ...(option(args, '--max-bytes') ? { maxBytes: Number(option(args, '--max-bytes')) } : {}),
-    };
-  } else if (command === 'kill') {
-    input = { id: args[1] };
-  } else if (command !== 'list') {
-    process.stderr.write('Usage: charter-terminal <list|create|send|wait|read|kill> [arguments]\n');
+  const invocation = parseTerminalControlCli(args);
+  if (invocation.kind === 'help') {
+    process.stdout.write(`${TERMINAL_CONTROL_CLI_USAGE}\n`);
+    return;
+  }
+  if (invocation.kind === 'error') {
+    process.stderr.write(`${invocation.message}\n${TERMINAL_CONTROL_CLI_USAGE}\n`);
     process.exitCode = 2;
     return;
   }
-  const result = await callDoor(name, input);
+  const result = await callDoor(invocation.name, invocation.input);
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   if (result.ok !== true) process.exitCode = 1;
 }

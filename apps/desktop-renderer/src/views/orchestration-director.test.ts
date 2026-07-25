@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OrchestrationWorkerDto, PermissionCardDto } from '@pi-ide/ipc-contracts';
-import { directorCandidate } from './orchestration-director.js';
+import { directorCandidate, shouldDirectorCut } from './orchestration-director.js';
 
 function worker(
   terminalId: string,
@@ -60,5 +60,37 @@ describe('director priority (ORCH-010)', () => {
     expect(directorCandidate(workers, [])?.worker.terminalId).toBe('failed');
     expect(directorCandidate(workers.slice(0, 3), [])?.worker.terminalId).toBe('done');
     expect(directorCandidate(workers.slice(0, 2), [])?.worker.terminalId).toBe('stream');
+  });
+
+  it('does not cut between equally ranked streaming workers on every output update', () => {
+    const current = directorCandidate(
+      [worker('stream-a', 'streaming', '2026-01-01T00:00:01.000Z')],
+      [],
+    );
+    const latest = directorCandidate(
+      [worker('stream-b', 'streaming', '2026-01-01T00:00:02.000Z')],
+      [],
+    );
+
+    expect(shouldDirectorCut(current, latest)).toBe(false);
+  });
+
+  it('cuts for a higher-priority event and for a newer completion', () => {
+    const streaming = directorCandidate(
+      [worker('stream', 'streaming', '2026-01-01T00:00:03.000Z')],
+      [],
+    );
+    const completed = directorCandidate(
+      [worker('done-a', 'completed', '2026-01-01T00:00:01.000Z')],
+      [],
+    );
+    const newerCompleted = directorCandidate(
+      [worker('done-b', 'completed', '2026-01-01T00:00:02.000Z')],
+      [],
+    );
+
+    expect(shouldDirectorCut(streaming, completed)).toBe(true);
+    expect(shouldDirectorCut(completed, newerCompleted)).toBe(true);
+    expect(shouldDirectorCut(newerCompleted, completed)).toBe(false);
   });
 });

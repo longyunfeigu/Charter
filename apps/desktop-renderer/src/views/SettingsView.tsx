@@ -1105,7 +1105,8 @@ export function SettingsView(): React.JSX.Element {
                 <div>
                   <div className="st-card-title">Session orchestration</div>
                   <div className="st-card-sub">
-                    One agent can direct visible Claude, Codex, or shell workers.
+                    One agent can direct visible Claude, Codex, or shell workers. Terminal tools run
+                    immediately without permission cards; pause and takeover remain available.
                   </div>
                 </div>
               </div>

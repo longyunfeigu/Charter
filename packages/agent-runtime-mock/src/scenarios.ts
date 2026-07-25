@@ -131,8 +131,20 @@ export const SCENARIOS: Record<string, Scenario> = {
       reason: 'create a visible Codex worker',
     },
     {
+      kind: 'tool',
+      toolName: 'terminal.wait',
+      input: { id: '$lastTerminalId', mode: 'turn', timeoutMs: 10_000, quietMs: 500 },
+      reason: 'wait for the worker turn-completed event without polling',
+    },
+    {
+      kind: 'tool',
+      toolName: 'terminal.read',
+      input: { id: '$lastTerminalId', maxBytes: 4096 },
+      reason: 'read the completed worker result',
+    },
+    {
       kind: 'assistant',
-      text: 'The Codex worker was launched with its initial assignment. (deterministic orchestration answer)',
+      text: 'The Codex worker completed its initial assignment and remains open for follow-up. (deterministic orchestration answer)',
       chunkSize: 24,
     },
     { kind: 'usage', inputTokens: 280, outputTokens: 70 },

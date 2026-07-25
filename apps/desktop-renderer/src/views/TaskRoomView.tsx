@@ -46,6 +46,7 @@ import { sessionDisplayTitle } from '../store/sessionAttention.js';
 import { OrchestrationFleet, OrchestrationWorkerBand } from './OrchestrationFleet.js';
 import { useOrchestrationStore } from '../store/orchestrationStore.js';
 import { ArtifactFeedbackAttachments } from './ArtifactFeedbackAttachments.js';
+import { SessionRenameDialog } from './SessionRenameDialog.js';
 
 const EMPTY_TERMINAL_REFS: TerminalOutputRef[] = [];
 const EMPTY_ORCHESTRATION_PERMISSIONS: PermissionCardDto[] = [];
@@ -97,6 +98,7 @@ export function TaskRoomView(): React.JSX.Element {
     orchestrationPermissions.length +
     commanderWorkers.filter((worker) => worker.status === 'failed').length;
   const [moreOpen, setMoreOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const canvasBodyRef = useRef<HTMLDivElement>(null);
   // ADR-0024: the whole Session room is one drop target for context feeding.
@@ -266,7 +268,11 @@ export function TaskRoomView(): React.JSX.Element {
         <div className="session-identity">
           <div className="session-identity-title">
             <div className="session-identity-name">
-              <span className="tr-title" title={sessionDisplayTitle(task)}>
+              <span
+                className="tr-title"
+                title="Double-click to rename"
+                onDoubleClick={() => setRenameOpen(true)}
+              >
                 {sessionDisplayTitle(task)}
               </span>
               <StateBadge
@@ -344,6 +350,15 @@ export function TaskRoomView(): React.JSX.Element {
                 </button>
                 {moreOpen ? (
                   <div className="session-more-menu" role="menu">
+                    <button
+                      data-testid="task-rename"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        setRenameOpen(true);
+                      }}
+                    >
+                      <Ic name="pencil" size={12} /> Rename Session
+                    </button>
                     <button
                       data-testid="replay-open"
                       onClick={() => {
@@ -439,6 +454,7 @@ export function TaskRoomView(): React.JSX.Element {
           />
         </div>
       )}
+      <SessionRenameDialog task={task} open={renameOpen} onClose={() => setRenameOpen(false)} />
     </div>
   );
 }

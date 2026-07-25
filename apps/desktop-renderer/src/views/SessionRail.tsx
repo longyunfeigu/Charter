@@ -30,6 +30,7 @@ import {
   type SessionEntry,
 } from './rail-groups.js';
 import { ActivityBar } from './ActivityBar.js';
+import { SessionRenameDialog } from './SessionRenameDialog.js';
 
 export { isHistoryEntry, type SessionEntry } from './rail-groups.js';
 
@@ -109,6 +110,7 @@ function SessionTaskRow({
   showProject = true,
   now,
   worker = false,
+  workerWorking = false,
   workerCount = 0,
   orchestrationNeeds = 0,
 }: {
@@ -117,6 +119,7 @@ function SessionTaskRow({
   showProject?: boolean;
   now: number;
   worker?: boolean;
+  workerWorking?: boolean;
   workerCount?: number;
   orchestrationNeeds?: number;
 }): React.JSX.Element {
@@ -133,9 +136,14 @@ function SessionTaskRow({
   const action = running ? currentActionLine(activity) : null;
   const badge = statusBadge(task);
   const externalSession = useExternalStore((state) => state.sessions[task.id]);
+  const externalWorking = useExternalStore((state) => Boolean(state.working[task.id]));
   const resumingTaskId = useExternalStore((state) => state.resumingTaskId);
   const live = task.external ? externalSession?.status === 'active' : running;
+  const working = task.external
+    ? externalWorking || workerWorking
+    : ['EXPLORING', 'PLANNING', 'IN_PROGRESS', 'VERIFYING'].includes(task.state);
   const resumable = canResumeExternal(task) && !live;
+  const [renameOpen, setRenameOpen] = useState(false);
 
   const open = (): void => {
     void useTaskStore.getState().openTask(task.id);
@@ -154,20 +162,26 @@ function SessionTaskRow({
       className={`sr-row-wrap ${worker ? 'sr-orch-worker' : ''} ${workerCount > 0 ? 'has-fleet' : ''}`}
     >
       <button
-        className={`sr-session ${selected ? 'selected' : ''} ${glowTasks.has(task.id) ? 'glow-pulse' : ''} ${completion ? `completion-ripple completion-${completion.tone}` : ''} ${reply ? 'reply-shake' : ''}`}
+        className={`sr-session ${selected ? 'selected' : ''} ${working ? 'is-working' : ''} ${glowTasks.has(task.id) ? 'glow-pulse' : ''} ${completion ? `completion-ripple completion-${completion.tone}` : ''} ${reply ? 'reply-shake' : ''}`}
         data-testid={`home-task-${task.id}`}
         data-session-key={`task:${task.id}`}
         data-state={task.state}
         data-completion={completion?.tone}
         data-reply={reply ? 'true' : undefined}
-        title={`${providerLabel(provider)} · ${displayTitle} — ${meta.label}`}
+        data-working={working ? 'true' : 'false'}
+        title={`${providerLabel(provider)} · ${displayTitle} — ${working ? 'Agent working' : meta.label}`}
         onClick={open}
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setRenameOpen(true);
+        }}
       >
         <ProviderMark
           provider={provider}
-          className={
+          className={`${working ? 'is-working' : ''} ${
             completion || reply ? `session-wave ${completion ? 'completion' : 'reply'}` : ''
-          }
+          }`.trim()}
         />
         <span className="sr-session-copy">
           <span className="sr-session-title">
@@ -179,6 +193,7 @@ function SessionTaskRow({
             <span data-testid={`home-task-ticker-${task.id}`}>
               {showProject ? `${task.projectName} · ` : ''}
               {action?.label ??
+                (working ? 'Agent is working...' : null) ??
                 (isAnswered(task)
                   ? task.external
                     ? 'Session ended · no file changes'
@@ -230,6 +245,7 @@ function SessionTaskRow({
           ) : null}
         </div>
       ) : null}
+      <SessionRenameDialog task={task} open={renameOpen} onClose={() => setRenameOpen(false)} />
     </div>
   );
 }
@@ -239,11 +255,13 @@ function TerminalSessionRow({
   launch,
   showProject = true,
   worker = false,
+  working = false,
 }: {
   terminalId: string;
   launch: 'shell' | 'claude' | 'codex';
   showProject?: boolean;
   worker?: boolean;
+  working?: boolean;
 }): React.JSX.Element | null {
   const app = useAppStore();
   const item = useTerminalStore((state) => state.items.find((entry) => entry.id === terminalId));
@@ -256,9 +274,10 @@ function TerminalSessionRow({
   return (
     <div className={`sr-row-wrap ${worker ? 'sr-orch-worker' : ''}`}>
       <button
-        className={`sr-session ${selected ? 'selected' : ''}`}
+        className={`sr-session ${selected ? 'selected' : ''} ${working ? 'is-working' : ''}`}
         data-testid={`session-terminal-${terminalId}`}
         data-session-key={`terminal:${terminalId}`}
+        data-working={working ? 'true' : 'false'}
         title={`${providerLabel(provider)} · ${item.contextLabel}`}
         onClick={() => {
           // ADR-0046: entering a session moves the working context (and the
@@ -267,7 +286,7 @@ function TerminalSessionRow({
           app.openTerminalSession(terminalId);
         }}
       >
-        <ProviderMark provider={provider} />
+        <ProviderMark provider={provider} className={working ? 'is-working' : ''} />
         <span className="sr-session-copy">
           <span className="sr-session-title">
             <span className={`sr-live-dot ${item.exited ? '' : 'live'}`} />
@@ -764,6 +783,10 @@ export function SessionRail(): React.JSX.Element {
                           worker={orchestration.workers.some(
                             (worker) => worker.taskId === entry.task.id,
                           )}
+                          workerWorking={orchestration.workers.some(
+                            (worker) =>
+                              worker.taskId === entry.task.id && worker.status === 'streaming',
+                          )}
                           workerCount={
                             orchestration.workers.filter(
                               (worker) => worker.commanderTaskId === entry.task.id,
@@ -790,6 +813,11 @@ export function SessionRail(): React.JSX.Element {
                           showProject={group.history === true}
                           worker={orchestration.workers.some(
                             (worker) => worker.terminalId === entry.terminalId,
+                          )}
+                          working={orchestration.workers.some(
+                            (worker) =>
+                              worker.terminalId === entry.terminalId &&
+                              worker.status === 'streaming',
                           )}
                         />
                       ),
