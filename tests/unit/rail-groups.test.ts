@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskDto } from '@pi-ide/ipc-contracts';
 import {
+  ACTIVE_SESSION_GROUP_LIMIT,
   buildRailGroups,
   recordedTasksByProject,
+  visibleRailGroupEntries,
   type SessionEntry,
 } from '../../apps/desktop-renderer/src/views/rail-groups.js';
 
 /**
  * Rail grouping is pure so the Projects panel can count over the COMPLETE
- * entry list — pagination is a display concern and must never shrink a
- * project card's session count (the 20-entry rail page used to do exactly
- * that once histories grew).
+ * entry list — the three-row project-group cap is a display concern and must
+ * never shrink a project card's session count.
  */
 
 function taskEntry(
@@ -82,6 +83,31 @@ describe('buildRailGroups', () => {
     const full = buildRailGroups(entries);
     expect(paged.find((g) => g.path === FABLE.path)?.entries.length).toBe(1);
     expect(full.find((g) => g.path === FABLE.path)?.entries.length).toBe(2);
+  });
+});
+
+describe('visibleRailGroupEntries', () => {
+  const entries = Array.from({ length: 5 }, (_, index) =>
+    taskEntry(`t${index + 1}`, FABLE, 'IN_PROGRESS'),
+  );
+  const group = buildRailGroups(entries)[0]!;
+
+  it('shows at most three active sessions until that directory is expanded', () => {
+    expect(ACTIVE_SESSION_GROUP_LIMIT).toBe(3);
+    expect(
+      visibleRailGroupEntries(group, { expanded: false, filtering: false }).map(
+        (entry) => entry.key,
+      ),
+    ).toEqual(['task:t1', 'task:t2', 'task:t3']);
+    expect(visibleRailGroupEntries(group, { expanded: true, filtering: false })).toHaveLength(5);
+  });
+
+  it('does not hide matching search/filter results or History rows', () => {
+    expect(visibleRailGroupEntries(group, { expanded: false, filtering: true })).toHaveLength(5);
+    const history = buildRailGroups(
+      entries.map((entry, index) => taskEntry(`h${index + 1}`, FABLE, 'ACCEPTED')),
+    )[0]!;
+    expect(visibleRailGroupEntries(history, { expanded: false, filtering: false })).toHaveLength(5);
   });
 });
 

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { basename } from 'node:path';
 import { launchApp } from './helpers/launch';
 import { createTsSmallFixture } from './helpers/fixtures';
 
@@ -107,57 +108,83 @@ test.describe('Session completion attention', () => {
     }
   });
 
-  test('More expands the bounded rail while search still sees every Session', async () => {
+  test('each project shows three Sessions until its own More is expanded', async () => {
     const fixture = createTsSmallFixture();
+    const secondFixture = createTsSmallFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
     });
     try {
-      await page.evaluate(async (projectPath) => {
-        const product = (
-          window as unknown as {
-            product: {
-              rpc: Record<
-                string,
-                (payload: unknown) => Promise<{
-                  ok: boolean;
-                  error?: { userMessage?: string };
-                }>
-              >;
-            };
+      await page.evaluate(
+        async (projects) => {
+          const product = (
+            window as unknown as {
+              product: {
+                rpc: Record<
+                  string,
+                  (payload: unknown) => Promise<{
+                    ok: boolean;
+                    error?: { userMessage?: string };
+                  }>
+                >;
+              };
+            }
+          ).product;
+          for (const project of projects) {
+            for (let index = 0; index < project.count; index += 1) {
+              const result = await product.rpc['task.create']!({
+                title: `${project.prefix} Session ${String(index + 1).padStart(2, '0')}`,
+                goalMd: 'Exercise the per-project Session More control',
+                acceptance: [],
+                mode: 'ask',
+                model: { providerId: 'mock', modelId: 'mock-1' },
+                verification: [],
+                projectPath: project.path,
+                isolation: 'none',
+                conversationRefTaskIds: [],
+              });
+              if (!result.ok) throw new Error(result.error?.userMessage ?? 'task.create failed');
+            }
           }
-        ).product;
-        for (let index = 0; index < 23; index += 1) {
-          const result = await product.rpc['task.create']!({
-            title: `Pagination Session ${String(index + 1).padStart(2, '0')}`,
-            goalMd: 'Exercise the Session rail More control',
-            acceptance: [],
-            mode: 'ask',
-            model: { providerId: 'mock', modelId: 'mock-1' },
-            verification: [],
-            projectPath,
-            isolation: 'none',
-            conversationRefTaskIds: [],
-          });
-          if (!result.ok) throw new Error(result.error?.userMessage ?? 'task.create failed');
-        }
-      }, fixture);
+        },
+        [
+          { path: fixture, prefix: 'Primary', count: 5 },
+          { path: secondFixture, prefix: 'Secondary', count: 4 },
+        ],
+      );
 
       await page.reload();
       await expect(page.getByTestId('workbench')).toBeVisible();
       await page.getByTestId('rail-view-sessions').click();
-      await expect(page.locator('[data-session-key^="task:"]')).toHaveCount(20);
-      const more = page.getByTestId('rail-more');
-      await expect(more).toContainText('3 of 3 remaining');
-      await more.click();
-      await expect(page.locator('[data-session-key^="task:"]')).toHaveCount(23);
-      await expect(more).toHaveCount(0);
+      const primary = page.getByTestId(`rail-session-group-${basename(fixture)}`);
+      const secondary = page.getByTestId(`rail-session-group-${basename(secondFixture)}`);
+      await expect(primary.locator('[data-session-key^="task:"]')).toHaveCount(3);
+      await expect(secondary.locator('[data-session-key^="task:"]')).toHaveCount(3);
 
-      await page.getByTestId('rail-session-search').fill('Pagination Session 23');
+      const primaryMore = primary.getByTestId('rail-group-more');
+      const secondaryMore = secondary.getByTestId('rail-group-more');
+      await expect(primaryMore).toContainText('2 more');
+      await expect(secondaryMore).toContainText('1 more');
+      await page.screenshot({ path: '/tmp/charter-session-group-more-collapsed.png' });
+      await primaryMore.click();
+      await expect(primary.locator('[data-session-key^="task:"]')).toHaveCount(5);
+      await expect(secondary.locator('[data-session-key^="task:"]')).toHaveCount(3);
+      await expect(primaryMore).toContainText('Show less');
+      await page.screenshot({ path: '/tmp/charter-session-group-more-expanded.png' });
+      await primaryMore.click();
+      await expect(primary.locator('[data-session-key^="task:"]')).toHaveCount(3);
+
+      await page.setViewportSize({ width: 820, height: 720 });
+      await expect(primary).toBeVisible();
+      await expect(primaryMore).toBeVisible();
+      await page.screenshot({ path: '/tmp/charter-session-group-more-narrow.png' });
+
+      await page.getByTestId('rail-session-search').fill('Primary Session 05');
       await expect(page.locator('[data-session-key^="task:"]')).toHaveCount(1);
       await expect(page.locator('[data-session-key^="task:"]').first()).toContainText(
-        'Pagination Session 23',
+        'Primary Session 05',
       );
+      await expect(page.getByTestId('rail-group-more')).toHaveCount(0);
     } finally {
       await app.close();
     }

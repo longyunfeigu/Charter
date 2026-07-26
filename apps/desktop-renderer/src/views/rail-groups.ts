@@ -26,6 +26,18 @@ export interface RailGroup {
   history?: boolean;
 }
 
+export const ACTIVE_SESSION_GROUP_LIMIT = 3;
+
+/** Active project groups stay compact by default. Search/filter results and
+ * History are never truncated because both are explicit discovery surfaces. */
+export function visibleRailGroupEntries(
+  group: RailGroup,
+  options: { expanded: boolean; filtering: boolean },
+): SessionEntry[] {
+  if (group.history || options.expanded || options.filtering) return group.entries;
+  return group.entries.slice(0, ACTIVE_SESSION_GROUP_LIMIT);
+}
+
 /**
  * ADR-0023 + external sessions: History = the session is over AND nothing
  * needs a decision (predicates live in labels.ts). Exited bare CLI terminals

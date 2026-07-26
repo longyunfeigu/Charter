@@ -23,9 +23,11 @@ import { sessionDisplayTitle } from '../store/sessionAttention.js';
 import { unknownDirectories, useArchaeologyStore } from '../store/archaeologyStore.js';
 import { permissionForWorker, useOrchestrationStore } from '../store/orchestrationStore.js';
 import {
+  ACTIVE_SESSION_GROUP_LIMIT,
   buildRailGroups,
   isHistoryEntry,
   recordedTasksByProject,
+  visibleRailGroupEntries,
   type RailGroup,
   type SessionEntry,
 } from './rail-groups.js';
@@ -35,7 +37,6 @@ import { SessionRenameDialog } from './SessionRenameDialog.js';
 export { isHistoryEntry, type SessionEntry } from './rail-groups.js';
 
 const COLLAPSED_KEY = 'charter.rail.collapsed.v1';
-const SESSION_PAGE_SIZE = 20;
 
 function loadCollapsed(): Set<string> {
   try {
@@ -343,6 +344,7 @@ export function SessionRail(): React.JSX.Element {
   const view = app.railView;
   const [projectsPanelOpen, setProjectsPanelOpen] = useState(view === 'projects');
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(loadCollapsed);
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [query, setQuery] = useState('');
   const [needsOnly, setNeedsOnly] = useState(false);
   const [projectQuery, setProjectQuery] = useState('');
@@ -362,8 +364,6 @@ export function SessionRail(): React.JSX.Element {
     return counts;
   }, [discovered]);
   const unknownDirs = useMemo(() => unknownDirectories(discovered), [discovered]);
-  const [visibleCount, setVisibleCount] = useState(SESSION_PAGE_SIZE);
-
   const setView = (next: RailView): void => {
     app.setRailView(next);
     // Rail navigation dismisses the Remotes surface — switching the left panel
@@ -480,35 +480,28 @@ export function SessionRail(): React.JSX.Element {
     return ordered;
   }, [orchestration.workers, tasks, terminalStore.items, taskByTerminal]);
 
-  // Search and Needs You always inspect the complete set. The default rail is
-  // intentionally progressive so long histories stay lightweight.
-  const flatEntries = useMemo(
-    () => (query.trim() || needsOnly ? allEntries : allEntries.slice(0, Math.max(visibleCount, 1))),
-    [allEntries, needsOnly, query, visibleCount],
-  );
+  const groups = useMemo<RailGroup[]>(() => buildRailGroups(allEntries), [allEntries]);
 
   // Notification activation is stronger than the current rail filters: show
-  // Sessions, clear filters, and expand enough pages to include the target.
+  // Sessions, clear filters, and expand the target's directory when needed.
   useEffect(() => {
     const reveal = app.sessionReveal;
     if (!reveal) return;
     useAppStore.getState().setRailView('sessions');
     setQuery('');
     setNeedsOnly(false);
-    const index = allEntries.findIndex((entry) => entry.key === `task:${reveal.taskId}`);
-    if (index >= 0) {
-      setVisibleCount((count) =>
-        Math.max(count, Math.ceil((index + 1) / SESSION_PAGE_SIZE) * SESSION_PAGE_SIZE),
-      );
-      useAppStore.getState().clearSessionReveal(reveal.seq);
+    const key = `task:${reveal.taskId}`;
+    const group = groups.find((candidate) => candidate.entries.some((entry) => entry.key === key));
+    if (
+      group &&
+      !group.history &&
+      group.entries.findIndex((entry) => entry.key === key) >= ACTIVE_SESSION_GROUP_LIMIT
+    ) {
+      setExpandedGroups((previous) => new Set(previous).add(group.key));
     }
-  }, [allEntries, app.sessionReveal]);
+    useAppStore.getState().clearSessionReveal(reveal.seq);
+  }, [app.sessionReveal, groups]);
 
-  const groups = useMemo<RailGroup[]>(() => buildRailGroups(flatEntries), [flatEntries]);
-
-  // The Projects panel counts over the COMPLETE set — `groups` is built from
-  // the paginated slice and would under-report past the first rail page.
-  const fullGroups = useMemo<RailGroup[]>(() => buildRailGroups(allEntries), [allEntries]);
   const recordedByProject = useMemo(() => recordedTasksByProject(allEntries), [allEntries]);
 
   const visibleGroups = useMemo<RailGroup[]>(() => {
@@ -535,10 +528,23 @@ export function SessionRail(): React.JSX.Element {
       .filter((group) => group.entries.length > 0);
   }, [groups, needsOnly, query]);
 
+  const filteringSessions = Boolean(query.trim() || needsOnly);
+  const displayedGroups = useMemo(
+    () =>
+      visibleGroups.map((group) => ({
+        group,
+        entries: visibleRailGroupEntries(group, {
+          expanded: expandedGroups.has(group.key),
+          filtering: filteringSessions,
+        }),
+      })),
+    [expandedGroups, filteringSessions, visibleGroups],
+  );
+
   /** Keyboard order mirrors the visual order (groups flattened, History last). */
   const orderedEntries = useMemo(
-    () => visibleGroups.flatMap((group) => group.entries),
-    [visibleGroups],
+    () => displayedGroups.flatMap(({ entries }) => entries),
+    [displayedGroups],
   );
 
   const toggleGroup = (key: string): void => {
@@ -551,6 +557,15 @@ export function SessionRail(): React.JSX.Element {
     });
   };
 
+  const toggleGroupExpanded = (key: string): void => {
+    setExpandedGroups((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   // The open room's row is never hidden: when the selection lands in (or moves
   // into) a collapsed group — e.g. accept sends a task to History — expand it.
   // Manual collapses are respected until the selection or its group changes.
@@ -559,10 +574,13 @@ export function SessionRail(): React.JSX.Element {
     : app.sessionTerminalId
       ? `terminal:${app.sessionTerminalId}`
       : null;
-  const selectedGroupKey = selectedKey
-    ? (groups.find((group) => group.entries.some((entry) => entry.key === selectedKey))?.key ??
-      null)
+  const selectedGroup = selectedKey
+    ? (groups.find((group) => group.entries.some((entry) => entry.key === selectedKey)) ?? null)
     : null;
+  const selectedGroupKey = selectedGroup?.key ?? null;
+  const selectedEntryIndex = selectedKey
+    ? (selectedGroup?.entries.findIndex((entry) => entry.key === selectedKey) ?? -1)
+    : -1;
   useEffect(() => {
     if (!selectedGroupKey) return;
     setCollapsed((prev) => {
@@ -572,7 +590,13 @@ export function SessionRail(): React.JSX.Element {
       saveCollapsed(next);
       return next;
     });
-  }, [selectedGroupKey, selectedKey]);
+    if (!selectedGroup?.history && selectedEntryIndex >= ACTIVE_SESSION_GROUP_LIMIT) {
+      setExpandedGroups((previous) => {
+        if (previous.has(selectedGroupKey)) return previous;
+        return new Set(previous).add(selectedGroupKey);
+      });
+    }
+  }, [selectedEntryIndex, selectedGroup?.history, selectedGroupKey, selectedKey]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -739,10 +763,18 @@ export function SessionRail(): React.JSX.Element {
               : 'No sessions match this search or filter.'}
           </div>
         ) : (
-          visibleGroups.map((group) => {
+          displayedGroups.map(({ group, entries }) => {
             const isCollapsed = collapsed.has(group.key);
+            const isExpanded = expandedGroups.has(group.key);
+            const hiddenCount = Math.max(0, group.entries.length - ACTIVE_SESSION_GROUP_LIMIT);
+            const hasOverflow = !group.history && !filteringSessions && hiddenCount > 0;
             return (
-              <section key={group.key} className="sr-group">
+              <section
+                key={group.key}
+                className="sr-group"
+                data-group-key={group.key}
+                data-testid={`rail-session-group-${group.history ? 'history' : group.name}`}
+              >
                 <div className="sr-group-head">
                   <button
                     className="sr-group-toggle"
@@ -773,7 +805,7 @@ export function SessionRail(): React.JSX.Element {
                 </div>
                 {isCollapsed ? null : (
                   <div className="sr-group-items">
-                    {group.entries.map((entry) =>
+                    {entries.map((entry) =>
                       entry.kind === 'task' ? (
                         <SessionTaskRow
                           key={entry.key}
@@ -822,26 +854,32 @@ export function SessionRail(): React.JSX.Element {
                         />
                       ),
                     )}
+                    {hasOverflow ? (
+                      <button
+                        type="button"
+                        className={`sr-group-more ${isExpanded ? 'expanded' : ''}`}
+                        data-testid="rail-group-more"
+                        aria-expanded={isExpanded}
+                        aria-label={
+                          isExpanded
+                            ? `Show only three sessions in ${group.name}`
+                            : `Show ${hiddenCount} more sessions in ${group.name}`
+                        }
+                        onClick={() => toggleGroupExpanded(group.key)}
+                      >
+                        <span>{isExpanded ? 'Show less' : 'More'}</span>
+                        <small>
+                          {isExpanded ? `${group.entries.length} shown` : `${hiddenCount} more`}
+                        </small>
+                        <Ic name="chevron" size={11} />
+                      </button>
+                    ) : null}
                   </div>
                 )}
               </section>
             );
           })
         )}
-        {!query.trim() && !needsOnly && visibleCount < allEntries.length ? (
-          <button
-            className="sr-more"
-            data-testid="rail-more"
-            onClick={() => setVisibleCount((count) => count + SESSION_PAGE_SIZE)}
-          >
-            <span>More</span>
-            <small>
-              {Math.min(SESSION_PAGE_SIZE, allEntries.length - visibleCount)} of{' '}
-              {allEntries.length - visibleCount} remaining
-            </small>
-            <Ic name="chevron" size={11} />
-          </button>
-        ) : null}
       </div>
     </>
   );
@@ -1002,7 +1040,7 @@ export function SessionRail(): React.JSX.Element {
         {filteredRecent.map((project) => {
           const active = workspaceStore.workspace?.path === project.path;
           const activeCount =
-            fullGroups.find((group) => group.path === project.path)?.entries.length ?? 0;
+            groups.find((group) => group.path === project.path)?.entries.length ?? 0;
           const outsideCount = discoveredByProject.get(project.path) ?? 0;
           const recordedCount = recordedByProject.get(project.path) ?? 0;
           return (
