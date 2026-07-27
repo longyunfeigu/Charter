@@ -1,5 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PreviewPortDto, PreviewRectDto, TaskDto } from '@pi-ide/ipc-contracts';
+import {
+  PreviewRectSchema,
+  type PreviewElementContextDto,
+  type PreviewPortDto,
+  type PreviewRectDto,
+  type TaskDto,
+} from '@pi-ide/ipc-contracts';
 import { onEvent, rpcResult } from '../bridge.js';
 import { useTaskStore, RUNNING_TASK_STATES } from '../store/taskStore.js';
 import { useAppStore } from '../store/appStore.js';
@@ -13,6 +19,11 @@ import {
   type ConsoleEntry,
 } from './preview-console.js';
 import { Ic } from './home-icons.js';
+import {
+  buildPreviewFeedbackText,
+  normalizePreviewElementContext,
+  normalizePreviewSelector,
+} from './preview-feedback.js';
 import { PREVIEW_SANDBOX, pickMessageOrigins } from './preview-security.js';
 
 /**
@@ -36,6 +47,13 @@ interface Marquee {
   y: number;
   width: number;
   height: number;
+}
+
+interface PreviewNote {
+  rect: Marquee;
+  selector: string | null;
+  elementContext: PreviewElementContextDto | null;
+  text: string;
 }
 
 function normalizedRect(a: { x: number; y: number }, b: { x: number; y: number }): Marquee {
@@ -88,21 +106,6 @@ async function compositeSelection(
   };
 }
 
-/** The structured message the agent receives with a preview attachment. */
-export function buildPreviewFeedbackText(
-  ref: Pick<PreviewFeedbackRef, 'pageUrl' | 'rect' | 'selector'>,
-  note: string,
-): string {
-  return [
-    `Preview feedback on ${ref.pageUrl} (live preview of this task's own tree):`,
-    ref.selector
-      ? `- Element: \`${ref.selector}\` at x=${ref.rect.x}, y=${ref.rect.y}, width=${ref.rect.width}, height=${ref.rect.height} (CSS px, page viewport)`
-      : `- Selected region: x=${ref.rect.x}, y=${ref.rect.y}, width=${ref.rect.width}, height=${ref.rect.height} (CSS px, page viewport)`,
-    ...(note.trim() ? [`- Note: ${note.trim()}`] : []),
-    'The attached screenshot shows the rendered page with the selection outlined in red.',
-  ].join('\n');
-}
-
 export function LivePreview({
   task,
   variant,
@@ -123,9 +126,7 @@ export function LivePreview({
   const [mode, setMode] = useState<FeedbackMode>('interact');
   const [drag, setDrag] = useState<{ start: { x: number; y: number }; rect: Marquee } | null>(null);
   // Gate-only note popover (the rail sends through the Room composer instead).
-  const [note, setNote] = useState<{ rect: Marquee; selector: string | null; text: string } | null>(
-    null,
-  );
+  const [note, setNote] = useState<PreviewNote | null>(null);
   const [sending, setSending] = useState(false);
   const [devCommand, setDevCommand] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -227,7 +228,11 @@ export function LivePreview({
 
   // ── feedback: shared capture → (rail) composer chip | (gate) note popover ─
   const captureSelection = useCallback(
-    async (rect: Marquee, selector: string | null): Promise<PreviewFeedbackRef | null> => {
+    async (
+      rect: Marquee,
+      selector: string | null,
+      elementContext: PreviewElementContextDto | null = null,
+    ): Promise<PreviewFeedbackRef | null> => {
       if (!frameUrl || !frameBoxRef.current) return null;
       const box = frameBoxRef.current.getBoundingClientRect();
       const captured = await rpcResult('task.capturePreview', {
@@ -253,6 +258,7 @@ export function LivePreview({
             height: Math.max(1, Math.round(rect.height)),
           },
           selector,
+          elementContext,
         };
       }
       const composed = await compositeSelection(
@@ -272,14 +278,19 @@ export function LivePreview({
           height: Math.max(1, Math.round(rect.height)),
         },
         selector,
+        elementContext,
       };
     },
     [app, frameUrl, task.id],
   );
 
   const toComposer = useCallback(
-    async (rect: Marquee, selector: string | null): Promise<void> => {
-      const ref = await captureSelection(rect, selector);
+    async (
+      rect: Marquee,
+      selector: string | null,
+      elementContext: PreviewElementContextDto | null = null,
+    ): Promise<void> => {
+      const ref = await captureSelection(rect, selector, elementContext);
       if (!ref) return;
       useDraftStore.getState().setPreviewRef(task.id, ref);
       app.focusComposer();
@@ -297,7 +308,7 @@ export function LivePreview({
     if (!note || sending) return;
     setSending(true);
     try {
-      const ref = await captureSelection(note.rect, note.selector);
+      const ref = await captureSelection(note.rect, note.selector, note.elementContext);
       if (!ref) return;
       const text = buildPreviewFeedbackText(ref, note.text);
       let delivered: boolean;
@@ -308,6 +319,7 @@ export function LivePreview({
           pageUrl: ref.pageUrl,
           rect: ref.rect,
           ...(ref.selector ? { selector: ref.selector } : {}),
+          ...(ref.elementContext ? { elementContext: ref.elementContext } : {}),
           ...(note.text.trim() ? { note: note.text.trim() } : {}),
         });
       } else {
@@ -354,7 +366,13 @@ export function LivePreview({
     const onMessage = (event: MessageEvent): void => {
       if (!origins.has(event.origin)) return;
       const data = event.data as
-        | { __charterPick?: { selector?: unknown; rect?: Marquee; text?: unknown } }
+        | {
+            __charterPick?: {
+              selector?: unknown;
+              rect?: Marquee;
+              elementContext?: unknown;
+            };
+          }
         | { __charterPickCancel?: boolean }
         | null;
       if (data && '__charterPickCancel' in data && data.__charterPickCancel) {
@@ -362,14 +380,17 @@ export function LivePreview({
         return;
       }
       const pick = data && '__charterPick' in data ? data.__charterPick : null;
-      if (!pick || !pick.rect) return;
-      const selector = typeof pick.selector === 'string' ? pick.selector.slice(0, 500) : null;
-      const rect = pick.rect;
+      if (!pick) return;
+      const parsedRect = PreviewRectSchema.safeParse(pick.rect);
+      if (!parsedRect.success) return;
+      const selector = normalizePreviewSelector(pick.selector);
+      const elementContext = normalizePreviewElementContext(pick.elementContext);
+      const rect = parsedRect.data;
       setMode('interact');
       if (variant === 'rail') {
-        void toComposer(rect, selector);
+        void toComposer(rect, selector, elementContext);
       } else {
-        setNote({ rect, selector, text: '' });
+        setNote({ rect, selector, elementContext, text: '' });
       }
     };
     window.addEventListener('message', onMessage);
@@ -744,7 +765,7 @@ export function LivePreview({
                 setMode('interact');
                 void toComposer(rect, null);
               } else {
-                setNote({ rect, selector: null, text: '' });
+                setNote({ rect, selector: null, elementContext: null, text: '' });
               }
             }}
           >
@@ -823,7 +844,7 @@ function GateNoteCard({
   onCancel,
   onSend,
 }: {
-  note: { rect: Marquee; selector: string | null; text: string };
+  note: PreviewNote;
   noteRef: React.RefObject<HTMLTextAreaElement | null>;
   sending: boolean;
   frameBox: HTMLDivElement | null;

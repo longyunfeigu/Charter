@@ -12,7 +12,7 @@ import { createTsSmallFixture } from './helpers/fixtures';
  * and closed-task feedback seeding a follow-up task.
  */
 
-const PAGE_HTML = `<main><h1>Checkout</h1><div class="coupon-hint" id="hint">Coupon expired</div><button id="pay">Pay now</button></main>`;
+const PAGE_HTML = `<main><h1>Checkout</h1><div class="coupon-hint" id="hint" role="status" aria-label="Coupon status">Coupon expired</div><button id="pay">Pay now</button></main>`;
 
 function startServer(
   cwd: string,
@@ -91,6 +91,7 @@ test.describe('Room live preview (ADR-0022 am.2)', () => {
       const chip = page.getByTestId('room-preview-ref');
       await expect(chip).toBeVisible({ timeout: 15000 });
       await expect(chip).toContainText('#hint');
+      await expect(chip).toContainText('Coupon status');
 
       // The task is closed (full-auto accepted) — sending seeds a FOLLOW-UP
       // task whose first run carries the screenshot.
@@ -99,6 +100,13 @@ test.describe('Room live preview (ADR-0022 am.2)', () => {
       await expect(
         page.getByTestId('tl-user').filter({ hasText: 'Make this hint one line.' }).first(),
       ).toBeVisible({ timeout: 20000 });
+      await expect(
+        page
+          .getByTestId('tl-user')
+          .filter({ hasText: 'Make this hint one line.' })
+          .first()
+          .locator('details pre'),
+      ).toContainText('Visible text: "Coupon expired"');
       await expect(page.getByTestId('tl-preview-feedback').first()).toBeVisible({
         timeout: 15000,
       });

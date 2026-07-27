@@ -4,9 +4,10 @@ import {
   MAX_CODE_CONTEXT_TOTAL_CHARS,
   MAX_FILE_CONTEXT_IMAGES,
   MAX_FILE_CONTEXT_REFS,
-  type CodeContextRefDto,
   type ArtifactFeedbackRefDto,
+  type CodeContextRefDto,
   type FileContextRefDto,
+  type PreviewElementContextDto,
 } from '@pi-ide/ipc-contracts';
 
 /**
@@ -73,6 +74,7 @@ export interface PreviewFeedbackRef {
   pageUrl: string;
   rect: { x: number; y: number; width: number; height: number };
   selector: string | null;
+  elementContext: PreviewElementContextDto | null;
 }
 
 export const useDraftStore = create<DraftStore>((set, get) => ({

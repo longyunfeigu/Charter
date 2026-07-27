@@ -44,6 +44,7 @@ describe('preview injection boundary (ADR-0022 am.2, M11-01)', () => {
   });
 
   it('picker script is posts-only and self-cleaning — static audit', () => {
+    expect(() => new Function(PICKER_JS)).not.toThrow();
     // No network, storage, import or eval surface inside the injected code.
     for (const banned of [
       'fetch(',
@@ -62,6 +63,12 @@ describe('preview injection boundary (ADR-0022 am.2, M11-01)', () => {
     // It talks to the app exclusively via the two parent.postMessage envelopes…
     expect(PICKER_JS).toContain('parent.postMessage({ __charterPick:');
     expect(PICKER_JS).toContain("parent.postMessage({ __charterPickCancel: true }, '*')");
+    expect(PICKER_JS).toContain('elementContext: elementContext(el)');
+    expect(PICKER_JS).toContain('window.getComputedStyle(el)');
+    // Context+ stays an allowlist, never a broad DOM serialization channel.
+    expect(PICKER_JS).not.toContain('outerHTML');
+    expect(PICKER_JS).not.toContain('innerHTML');
+    expect(PICKER_JS).not.toContain('getAttributeNames');
     // …and re-arming or cancelling always runs the previous cleanup.
     expect(PICKER_JS).toContain('if (window.__charterPickCleanup) window.__charterPickCleanup()');
     expect(PICKER_CANCEL_JS).toContain(

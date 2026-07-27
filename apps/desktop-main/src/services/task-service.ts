@@ -30,6 +30,7 @@ import type {
   PermissionCardDto,
   PlanEditDto,
   PrDraftDto,
+  PreviewElementContextDto,
   PreviewRectDto,
   TaskDto,
   TimelineEventDto,
@@ -91,6 +92,8 @@ export interface PreviewFeedbackMeta {
   thumbDataUrl: string;
   /** am.2: CSS selector from the element picker (marquee selections have none). */
   selector?: string;
+  /** Context+ semantic locator; absent for drawn regions. */
+  elementContext?: PreviewElementContextDto;
   /** The user's note verbatim — the Room leads with it. */
   note?: string;
 }

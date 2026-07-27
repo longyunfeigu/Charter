@@ -240,6 +240,46 @@ export const PreviewRectSchema = z.object({
 });
 export type PreviewRectDto = z.infer<typeof PreviewRectSchema>;
 
+/** A compact allowlist of rendered styles that helps the agent understand the
+ * selected element without turning Preview into a browser DevTools clone. */
+export const PreviewElementStylesSchema = z
+  .object({
+    display: z.string().max(120).optional(),
+    position: z.string().max(120).optional(),
+    margin: z.string().max(160).optional(),
+    padding: z.string().max(160).optional(),
+    gap: z.string().max(120).optional(),
+    color: z.string().max(160).optional(),
+    backgroundColor: z.string().max(160).optional(),
+    border: z.string().max(200).optional(),
+    borderRadius: z.string().max(120).optional(),
+    fontFamily: z.string().max(300).optional(),
+    fontSize: z.string().max(120).optional(),
+    fontWeight: z.string().max(120).optional(),
+    lineHeight: z.string().max(120).optional(),
+    textAlign: z.string().max(120).optional(),
+  })
+  .strict();
+export type PreviewElementStylesDto = z.infer<typeof PreviewElementStylesSchema>;
+
+/** Best-effort semantic context captured for an element pick. Page-authored
+ * values remain untrusted and are bounded again when the prompt is built. */
+export const PreviewElementContextSchema = z
+  .object({
+    tagName: z.string().min(1).max(50),
+    text: z.string().max(300).optional(),
+    accessibleName: z.string().max(300).optional(),
+    role: z.string().max(100).optional(),
+    testId: z.string().max(200).optional(),
+    classes: z.array(z.string().min(1).max(100)).max(6).optional(),
+    /** Framework internals are not stable enough to be authoritative. */
+    componentHint: z.string().max(500).optional(),
+    sourceHint: z.string().max(500).optional(),
+    styles: PreviewElementStylesSchema.optional(),
+  })
+  .strict();
+export type PreviewElementContextDto = z.infer<typeof PreviewElementContextSchema>;
+
 /** ADR-0022: marquee/pick feedback attachment riding a task.message (schema v2). */
 export const PreviewAttachmentSchema = z.object({
   /** PNG bytes, base64 (≤ 8 MB decoded ≈ 10.7 MB encoded). */
@@ -252,6 +292,8 @@ export const PreviewAttachmentSchema = z.object({
   rect: PreviewRectSchema,
   /** am.2: CSS selector from the element picker (marquee selections have none). */
   selector: z.string().max(500).optional(),
+  /** Context+ semantic locator for element picks; absent for drawn regions. */
+  elementContext: PreviewElementContextSchema.optional(),
   /** The user's note, kept separately so the Room can render it front and
    * center (the full structured message stays inspectable). */
   note: z.string().max(4000).optional(),

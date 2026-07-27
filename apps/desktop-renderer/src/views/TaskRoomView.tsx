@@ -36,7 +36,7 @@ import {
   refFromRel,
 } from './roomFileRefs.js';
 import { PreviewBadge } from './RoomPreviewRail.js';
-import { buildPreviewFeedbackText } from './LivePreview.js';
+import { buildPreviewFeedbackText } from './preview-feedback.js';
 import { ExternalTerminalColumn, useExternalFiles } from './ExternalRoom.js';
 import { roomCopyFor } from './roomCopy.js';
 import { SessionToolCanvas, type SessionFileStat } from './SessionToolCanvas.js';
@@ -727,6 +727,7 @@ function RoomComposer({
               pageUrl: seed.pageUrl,
               rect: seed.rect,
               ...(seed.selector ? { selector: seed.selector } : {}),
+              ...(seed.elementContext ? { elementContext: seed.elementContext } : {}),
               ...(text.trim() ? { note: text.trim() } : {}),
             },
           }
@@ -784,6 +785,7 @@ function RoomComposer({
             pageUrl: previewRef.pageUrl,
             rect: previewRef.rect,
             ...(previewRef.selector ? { selector: previewRef.selector } : {}),
+            ...(previewRef.elementContext ? { elementContext: previewRef.elementContext } : {}),
             ...(text.trim() ? { note: text.trim() } : {}),
           },
           codeRefs,
@@ -900,6 +902,9 @@ function RoomComposer({
     </button>
   );
 
+  const previewElementLabel =
+    previewRef?.elementContext?.accessibleName ?? previewRef?.elementContext?.text ?? null;
+
   // ADR-0022 am.2: the pending preview selection as a composer attachment chip.
   const previewChip = previewRef ? (
     <div className="tr-preview-ref" data-testid="room-preview-ref">
@@ -909,6 +914,7 @@ function RoomComposer({
       <span className="tr-preview-ref-meta">
         <span className="mono">{previewRef.selector ?? 'region'}</span>
         <span className="tr-preview-ref-dim">
+          {previewElementLabel ? `“${previewElementLabel}” · ` : ''}
           {previewRef.rect.width}×{previewRef.rect.height} · {previewRef.pageUrl}
         </span>
       </span>

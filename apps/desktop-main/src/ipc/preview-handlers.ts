@@ -124,6 +124,7 @@ export async function processPreviewAttachment(
       rect: preview.rect,
       thumbDataUrl: thumb.toDataURL(),
       ...(preview.selector ? { selector: preview.selector } : {}),
+      ...(preview.elementContext ? { elementContext: preview.elementContext } : {}),
       ...(preview.note ? { note: preview.note } : {}),
     },
     imageData: preview.dataBase64,

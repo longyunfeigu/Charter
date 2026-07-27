@@ -54,6 +54,80 @@ export const PICKER_JS = `(() => {
     }
     return parts.join(' > ') || el.tagName.toLowerCase();
   };
+  const compact = (value, max) => String(value || '').replace(/[\\u0000-\\u001f\\u007f]+/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, max);
+  const accessibleName = (el) => {
+    const direct = compact(el.getAttribute('aria-label'), 300);
+    if (direct) return direct;
+    const labelledBy = compact(el.getAttribute('aria-labelledby'), 300);
+    if (labelledBy) {
+      const label = labelledBy.split(/\\s+/).slice(0, 3).map((id) => document.getElementById(id)).filter(Boolean).map((node) => compact(node.textContent, 120)).filter(Boolean).join(' ');
+      if (label) return compact(label, 300);
+    }
+    return compact(el.getAttribute('alt') || el.getAttribute('title') || el.getAttribute('placeholder'), 300);
+  };
+  const componentName = (fiber) => {
+    const type = fiber && (fiber.type || fiber.elementType);
+    if (!type || typeof type === 'string') return '';
+    return compact(type.displayName || type.name || (type.render && (type.render.displayName || type.render.name)), 100);
+  };
+  const frameworkHints = (el) => {
+    try {
+      const key = Object.keys(el).find((name) => name.startsWith('__reactFiber$') || name.startsWith('__reactInternalInstance$'));
+      let fiber = key ? el[key] : null;
+      const names = [];
+      let sourceHint = '';
+      for (let depth = 0; fiber && depth < 30; depth += 1, fiber = fiber.return) {
+        const name = componentName(fiber);
+        if (name && !names.includes(name) && names.length < 5) names.push(name);
+        const source = fiber._debugSource || (fiber._debugOwner && fiber._debugOwner._debugSource);
+        if (!sourceHint && source && source.fileName) {
+          sourceHint = String(source.fileName);
+          for (const prefix of ['webpack-internal:///./', 'file:///']) {
+            if (sourceHint.startsWith(prefix)) sourceHint = sourceHint.slice(prefix.length);
+          }
+          sourceHint = compact(sourceHint, 440);
+          if (source.lineNumber) sourceHint += ':' + source.lineNumber;
+          if (source.columnNumber) sourceHint += ':' + source.columnNumber;
+        }
+      }
+      return {
+        componentHint: names.length ? names.reverse().map((name) => '<' + name + '>').join(' > ') : '',
+        sourceHint: compact(sourceHint, 500),
+      };
+    } catch {
+      return { componentHint: '', sourceHint: '' };
+    }
+  };
+  const elementContext = (el) => {
+    const computed = window.getComputedStyle(el);
+    const hints = frameworkHints(el);
+    return {
+      tagName: compact(el.tagName, 50).toLowerCase(),
+      text: compact(el.textContent, 300),
+      accessibleName: accessibleName(el),
+      role: compact(el.getAttribute('role'), 100),
+      testId: compact(el.getAttribute('data-testid'), 200),
+      classes: Array.from(el.classList || []).map((name) => compact(name, 100)).filter(Boolean).slice(0, 6),
+      componentHint: hints.componentHint,
+      sourceHint: hints.sourceHint,
+      styles: {
+        display: compact(computed.display, 120),
+        position: compact(computed.position, 120),
+        margin: compact(computed.margin, 160),
+        padding: compact(computed.padding, 160),
+        gap: compact(computed.gap, 120),
+        color: compact(computed.color, 160),
+        backgroundColor: compact(computed.backgroundColor, 160),
+        border: compact(computed.border, 200),
+        borderRadius: compact(computed.borderRadius, 120),
+        fontFamily: compact(computed.fontFamily, 300),
+        fontSize: compact(computed.fontSize, 120),
+        fontWeight: compact(computed.fontWeight, 120),
+        lineHeight: compact(computed.lineHeight, 120),
+        textAlign: compact(computed.textAlign, 120),
+      },
+    };
+  };
   const place = (el) => {
     const r = el.getBoundingClientRect();
     halo.style.display = 'block';
@@ -75,7 +149,7 @@ export const PICKER_JS = `(() => {
     parent.postMessage({ __charterPick: {
       selector: cssSelector(el),
       rect: { x: Math.max(0, Math.round(r.left)), y: Math.max(0, Math.round(r.top)), width: Math.max(1, Math.round(r.width)), height: Math.max(1, Math.round(r.height)) },
-      text: (el.textContent || '').trim().slice(0, 120),
+      elementContext: elementContext(el),
     } }, '*');
     cleanup();
   };
