@@ -177,6 +177,25 @@ describe('GitService snapshotTree/readTreeBlob (ADR-0017)', () => {
     expect(await git.readTreeBlob(tree, 'ignored.log')).toBeNull();
   });
 
+  it('finds changes made between two worktree snapshots', async () => {
+    writeFileSync(join(root, 'delete-me.txt'), 'old\n');
+    writeFileSync(join(root, 'untracked-at-start.txt'), 'before\n');
+    const before = await git.snapshotTree();
+
+    writeFileSync(join(root, 'tracked.txt'), 'changed while the app was closed\n');
+    writeFileSync(join(root, 'untracked-at-start.txt'), 'after\n');
+    writeFileSync(join(root, 'created-while-closed.txt'), 'new\n');
+    rmSync(join(root, 'delete-me.txt'));
+    const after = await git.snapshotTree();
+
+    expect(await git.changedPathsBetweenTrees(before, after)).toEqual([
+      { path: 'created-while-closed.txt', kind: 'created' },
+      { path: 'delete-me.txt', kind: 'deleted' },
+      { path: 'tracked.txt', kind: 'modified' },
+      { path: 'untracked-at-start.txt', kind: 'modified' },
+    ]);
+  });
+
   it('filters ignored generated paths without hiding tracked files', async () => {
     writeFileSync(join(root, '.gitignore'), 'dist/\n*.log\ntracked.txt\n');
     mkdirSync(join(root, 'dist'));

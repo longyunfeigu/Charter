@@ -125,7 +125,20 @@ export const EVENT_CHANNELS = {
       cancelled: z.boolean(),
     }),
   ),
-  'terminal.data': ev('terminal.data', 1, z.object({ id: z.string(), data: z.string() })),
+  'terminal.data': ev(
+    'terminal.data',
+    2,
+    z.object({ id: z.string(), data: z.string(), sequence: z.number().int().optional() }),
+  ),
+  'terminal.resync': ev(
+    'terminal.resync',
+    1,
+    z.object({
+      id: z.string(),
+      replay: z.string().max(8 * 1024 * 1024),
+      sequence: z.number().int().nonnegative(),
+    }),
+  ),
   'terminal.exit': ev('terminal.exit', 1, z.object({ id: z.string(), exitCode: z.number() })),
   'orchestration.changed': ev('orchestration.changed', 1, OrchestrationSnapshotSchema),
   /** ADR-0017: a terminal entered (agent = CLI name) or left (agent = null) an

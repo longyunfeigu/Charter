@@ -32,6 +32,7 @@ export interface TerminalInfo {
   contextLabel: string;
   contextTaskId: string | null;
   launch: 'shell' | 'claude' | 'codex';
+  persistence: 'daemon' | 'process' | 'remote';
   /** Present only for SSH remote sessions (ADR-0047); absent for local PTYs. */
   remote?: TerminalRemoteInfo;
 }
@@ -53,15 +54,30 @@ export interface TerminalBackend {
   /** Foreground process title for agent detection (ADR-0017), or null for a
    * backend with no local process to poll (SSH remote sessions). */
   processTitle(): string | null;
-  onData(cb: (data: string) => void): void;
+  onData(cb: (data: string, sequence?: number) => void): void;
+  /** Replace the consumer's VT model after a persistent transport reconnect. */
+  onResync?(cb: (replay: string, sequence: number) => void): void;
   onExit(cb: (exitCode: number) => void): void;
   /** Optional display-only synthetic output (e.g. a connection-lost notice). */
   injectData?(data: string): void;
+  /** A daemon-backed PTY survives disposal of the Electron host. */
+  persistent?: boolean;
+  /** Disconnect a persistent transport without terminating its PTY. */
+  detach?(): void;
+  /** Daemon-backed process ids arrive after the manager's synchronous create call. */
+  processId?(): number;
+  /** Keep restore metadata aligned when the terminal context changes. */
+  updateMetadata?(info: TerminalInfo): void;
 }
 
 /** Options for adopting an externally-created backend as a managed terminal
  * (SSH remote sessions, ADR-0047). */
 export interface AdoptBackendOptions {
+  /** Stable daemon id when reconnecting an existing local PTY. */
+  id?: string;
+  pid?: number;
+  /** Exact VT snapshot used to seed a newly mounted renderer. */
+  initialReplay?: string;
   title: string;
   shell?: string;
   cwd: string;
@@ -93,6 +109,18 @@ export interface CreateTerminalOptions {
   contextLabel?: string;
   contextTaskId?: string | null;
   launch?: 'shell' | 'claude' | 'codex';
+}
+
+/** Fully resolved spawn request passed to an optional out-of-process PTY host. */
+export interface LocalTerminalBackendRequest {
+  info: TerminalInfo;
+  executable: string;
+  args: string[];
+  cwd: string;
+  env: Record<string, string>;
+  cols: number;
+  rows: number;
+  scrollback: number;
 }
 
 export type TerminalInputSource = 'user' | 'terminal' | 'host' | 'orchestrator';
@@ -327,6 +355,13 @@ class TerminalReplayBuffer {
     if (this.discarding) return '';
     return `${vtReplayPrefix(this.charsetAtStart)}${this.value}`;
   }
+
+  replace(replay: string): void {
+    this.value = '';
+    this.charsetAtStart = defaultVtCharset();
+    this.discarding = null;
+    this.append(replay);
+  }
 }
 
 // ---------- terminal environment hygiene ----------
@@ -349,6 +384,10 @@ class TerminalReplayBuffer {
 const AGENT_SESSION_ENV_ALLOWLIST = new Set(['CLAUDE_CONFIG_DIR']);
 const AGENT_SESSION_ENV_EXACT = [
   'AI_AGENT',
+  // Codex Desktop sets this to its private `.codex-app` store. A Codex CLI
+  // launched inside Charter must use the user's CLI home instead; a deliberate
+  // shell-profile export is restored when the login shell starts.
+  'CODEX_HOME',
   'CODEX_SANDBOX',
   // A Charter launched from one of its own terminals must issue fresh
   // per-terminal capabilities, never propagate the parent's identity.
@@ -551,6 +590,13 @@ export interface TerminalManagerOptions {
    * after the id exists and before the PTY is spawned; callers must never
    * persist the token returned here. */
   envForTerminal?: (id: string) => Record<string, string>;
+  /** When present, local PTYs live behind this transport instead of Electron Main. */
+  createLocalBackend?: (request: LocalTerminalBackendRequest) => {
+    backend: TerminalBackend;
+    pid: number;
+  };
+  /** Exact VT repaint used only when a persistent backend reconnects. */
+  onResync?: (id: string, replay: string, sequence: number) => void;
 }
 
 function defaultShell(): string {
@@ -642,10 +688,13 @@ export class TerminalManager {
   private readonly readTable: () => ProcessTableEntry[] | null;
   private readonly shellIntegration: (() => ShellIntegrationConfig | null) | null;
   private readonly envForTerminal: ((id: string) => Record<string, string>) | null;
+  private readonly createLocalBackend:
+    ((request: LocalTerminalBackendRequest) => { backend: TerminalBackend; pid: number }) | null;
+  private readonly onResync: ((id: string, replay: string, sequence: number) => void) | null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    private readonly onData: (id: string, data: string) => void,
+    private readonly onData: (id: string, data: string, sequence?: number) => void,
     private readonly onExit: (id: string, exitCode: number) => void,
     options: TerminalManagerOptions = {},
   ) {
@@ -660,6 +709,8 @@ export class TerminalManager {
     this.readTable = options.readProcessTable ?? readProcessTable;
     this.shellIntegration = options.shellIntegration ?? null;
     this.envForTerminal = options.envForTerminal ?? null;
+    this.createLocalBackend = options.createLocalBackend ?? null;
+    this.onResync = options.onResync ?? null;
     const pollMs = options.agentPollMs ?? 700;
     if (pollMs > 0) {
       this.pollTimer = setInterval(() => this.pollOnce(), pollMs);
@@ -710,10 +761,10 @@ export class TerminalManager {
     return () => this.exitListeners.delete(listener);
   }
 
-  private emitData(id: string, data: string): void {
+  private emitData(id: string, data: string, sequence?: number): void {
     const session = this.sessions.get(id);
     if (session) session.recentData.append(data);
-    this.onData(id, data);
+    this.onData(id, data, sequence);
     for (const listener of this.dataListeners) listener({ id, data });
   }
 
@@ -749,7 +800,8 @@ export class TerminalManager {
           // version-named installer binary, a wrapper script… the argv of
           // the tree below the shell is the reliable signal.
           if (table === undefined) table = this.readTable();
-          if (table) match = findAgentInTable(table, session.info.pid, this.agentClis);
+          const pid = session.backend.processId?.() ?? session.info.pid;
+          if (table && pid > 0) match = findAgentInTable(table, pid, this.agentClis);
         }
       } catch {
         match = null; // a dying pty reads as "no agent"
@@ -773,24 +825,20 @@ export class TerminalManager {
     const plan = options.executable
       ? { args: options.args ?? [], env: {} }
       : shellIntegrationSpawn(shell, this.shellIntegration?.() ?? null);
-    const pty = nodePty.spawn(executable, plan.args, {
-      name: 'xterm-256color',
-      cols: options.cols ?? 80,
-      rows: options.rows ?? 24,
-      cwd: options.cwd,
-      env: {
-        ...sanitizedTerminalEnv(process.env),
-        ...plan.env,
-        ...terminalEnv,
-        TERM: 'xterm-256color',
-        COLORTERM: 'truecolor',
-      } as Record<string, string>,
-    });
+    const cols = options.cols ?? 80;
+    const rows = options.rows ?? 24;
+    const env = {
+      ...sanitizedTerminalEnv(process.env),
+      ...plan.env,
+      ...terminalEnv,
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+    } as Record<string, string>;
     const info: TerminalInfo = {
       id,
       title: executable.split('/').pop() ?? executable,
       shell: executable,
-      pid: pty.pid,
+      pid: -1,
       cwd: options.cwd,
       projectName: options.projectName ?? basename(options.cwd),
       projectPath: options.projectPath ?? null,
@@ -798,7 +846,30 @@ export class TerminalManager {
       contextLabel: options.contextLabel ?? options.projectName ?? basename(options.cwd),
       contextTaskId: options.contextTaskId ?? null,
       launch: options.launch ?? 'shell',
+      persistence: this.createLocalBackend ? 'daemon' : 'process',
     };
+    if (this.createLocalBackend) {
+      const created = this.createLocalBackend({
+        info,
+        executable,
+        args: plan.args,
+        cwd: options.cwd,
+        env,
+        cols,
+        rows,
+        scrollback: options.scrollback ?? 5000,
+      });
+      info.pid = created.pid;
+      return this.registerSession(id, info, created.backend, options.knownAgent ?? null);
+    }
+    const pty = nodePty.spawn(executable, plan.args, {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd: options.cwd,
+      env,
+    });
+    info.pid = pty.pid;
     // The pty is retained on the Session for the readTitle DI seam.
     return this.registerSession(id, info, new PtyBackend(pty), options.knownAgent ?? null, pty);
   }
@@ -809,12 +880,12 @@ export class TerminalManager {
    * because there is no local process behind the session.
    */
   adoptBackend(backend: TerminalBackend, options: AdoptBackendOptions): TerminalInfo {
-    const id = newId('term');
+    const id = options.id ?? newId('term');
     const info: TerminalInfo = {
       id,
       title: options.title,
       shell: options.shell ?? options.title,
-      pid: -1,
+      pid: options.pid ?? -1,
       cwd: options.cwd,
       projectName: options.projectName,
       projectPath: options.projectPath ?? null,
@@ -822,9 +893,12 @@ export class TerminalManager {
       contextLabel: options.contextLabel ?? options.projectName,
       contextTaskId: options.contextTaskId ?? null,
       launch: options.launch ?? 'shell',
+      persistence: backend.persistent ? 'daemon' : options.remote ? 'remote' : 'process',
       remote: options.remote,
     };
-    return this.registerSession(id, info, backend, options.knownAgent ?? null);
+    const registered = this.registerSession(id, info, backend, options.knownAgent ?? null);
+    if (options.initialReplay) this.sessions.get(id)?.recentData.append(options.initialReplay);
+    return registered;
   }
 
   /**
@@ -849,7 +923,13 @@ export class TerminalManager {
       recentData: new TerminalReplayBuffer(),
       knownAgent,
     };
-    backend.onData((data) => this.emitData(id, data));
+    backend.onData((data, sequence) => this.emitData(id, data, sequence));
+    backend.onResync?.((replay, sequence) => {
+      const liveSession = this.sessions.get(id);
+      if (!liveSession) return;
+      liveSession.recentData.replace(replay);
+      this.onResync?.(id, replay, sequence);
+    });
     backend.onExit((exitCode) => {
       const liveSession = this.sessions.get(id);
       this.sessions.delete(id);
@@ -894,6 +974,7 @@ export class TerminalManager {
     if (!session) return null;
     session.backend.write(`${terminalCwdCommand(session.info.shell, context.cwd)}\r`);
     Object.assign(session.info, context);
+    session.backend.updateMetadata?.(session.info);
     return { ...session.info };
   }
 
@@ -903,7 +984,15 @@ export class TerminalManager {
   }
 
   list(): TerminalInfo[] {
-    return [...this.sessions.values()].map((s) => s.info);
+    return [...this.sessions.values()].map((s) => ({
+      ...s.info,
+      pid: s.backend.processId?.() ?? s.info.pid,
+    }));
+  }
+
+  /** Whether this PTY is owned by a process that outlives Electron Main. */
+  persistsAcrossAppRestart(id: string): boolean {
+    return this.sessions.get(id)?.backend.persistent === true;
   }
 
   hasRunningChildren(id: string): boolean {
@@ -930,8 +1019,13 @@ export class TerminalManager {
   }
 
   disposeAll(): void {
-    for (const id of [...this.sessions.keys()]) {
-      this.kill(id);
+    for (const [id, session] of [...this.sessions]) {
+      if (session.backend.persistent) {
+        session.backend.detach?.();
+        this.sessions.delete(id);
+      } else {
+        this.kill(id);
+      }
     }
   }
 

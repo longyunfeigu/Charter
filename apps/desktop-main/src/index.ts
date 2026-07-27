@@ -10,9 +10,19 @@ import {
   shell,
 } from 'electron';
 import { basename, join, normalize } from 'node:path';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
+import { createHash, randomBytes } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import {
   errorMessage,
   productError,
@@ -89,6 +99,7 @@ import { registerOrchestrationHandlers } from './ipc/orchestration-handlers.js';
 import { installTerminalControlIntegration } from './services/terminal-control-integration.js';
 import { ArtifactService } from './services/artifact-service.js';
 import { registerArtifactHandlers } from './ipc/artifact-handlers.js';
+import { TerminalDaemonClient } from './services/terminal-daemon-client.js';
 
 const DEV_SERVER_URL = process.env.PI_IDE_DEV_SERVER_URL;
 const isDev = Boolean(DEV_SERVER_URL);
@@ -454,6 +465,42 @@ function registerCoreHandlers(bootstrap: Bootstrap): void {
   }
 }
 
+function terminalDaemonSocketPath(userData: string): string {
+  const identity = createHash('sha256').update(userData).digest('hex').slice(0, 20);
+  return process.platform === 'win32'
+    ? `\\\\.\\pipe\\charter-terminal-${identity}`
+    : join(tmpdir(), `charter-terminal-${identity}.sock`);
+}
+
+function launchTerminalDaemon(paths: AppPaths, socketPath: string, tokenFile: string): void {
+  const appPath = app.getAppPath();
+  const daemonRoot = app.isPackaged && appPath.endsWith('.asar') ? `${appPath}.unpacked` : appPath;
+  const daemonEntry = join(daemonRoot, 'apps', 'desktop-main', 'dist', 'terminal-daemon.cjs');
+  const daemonArgs = [
+    `--terminal-daemon-socket=${socketPath}`,
+    `--terminal-daemon-token=${tokenFile}`,
+    `--terminal-daemon-state=${join(paths.runtimeDir, 'terminal-sessions')}`,
+    `--terminal-daemon-log=${join(paths.logsDir, 'terminal-daemon.log')}`,
+  ];
+  const child = spawn(process.execPath, [daemonEntry, ...daemonArgs], {
+    cwd: paths.runtimeDir,
+    detached: true,
+    stdio: 'ignore',
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+  });
+  // Connection polling below reports startup failure; never let an async
+  // spawn error become an uncaught EventEmitter error in Electron Main.
+  child.on('error', () => undefined);
+  child.unref();
+}
+
+function terminalControlIdentitySecret(runtimeDir: string): Buffer {
+  const path = join(runtimeDir, 'terminal-control.key');
+  if (!existsSync(path)) writeFileSync(path, randomBytes(32), { mode: 0o600 });
+  chmodSync(path, 0o600);
+  return readFileSync(path);
+}
+
 // Development launches inherit the workspace package name (`pi-ide`). Set the
 // product identity before Electron derives native macOS menu labels from it.
 app.setName('Charter');
@@ -469,13 +516,35 @@ if (!gotLock) {
     }
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     const paths = createAppPaths(app.getPath('userData'));
     const logs = new LogService(paths.logsDir, {
       level: process.env.PI_IDE_LOG_LEVEL === 'debug' ? 'debug' : 'info',
       console: isDev,
     });
     const logger = logs.logger('main');
+
+    let terminalDaemon: TerminalDaemonClient | null = null;
+    const terminalPersistenceEnabled =
+      !process.env.PI_IDE_E2E || process.env.PI_IDE_TERMINAL_PERSIST === '1';
+    if (terminalPersistenceEnabled) {
+      try {
+        const socketPath = terminalDaemonSocketPath(paths.userData);
+        const tokenFile = join(paths.runtimeDir, 'terminal-daemon.token');
+        terminalDaemon = await TerminalDaemonClient.connect({
+          socketPath,
+          tokenFile,
+          launchDaemon: () => launchTerminalDaemon(paths, socketPath, tokenFile),
+        });
+        logger.info('terminal daemon connected', {
+          restored: terminalDaemon.restoredSessions().length,
+        });
+      } catch (error) {
+        logger.warn('terminal daemon unavailable; using in-process PTYs', {
+          error: errorMessage(error),
+        });
+      }
+    }
 
     let settings: SettingsService | null = null;
     let state: StateService | null = null;
@@ -539,21 +608,29 @@ if (!gotLock) {
       terminalIdentitiesRef = new TerminalControlIdentityRegistry(
         ctlSocketPath,
         tokenOverrideAllowed ? (process.env.CHARTER_CTL_TOKEN_OVERRIDE ?? null) : null,
+        terminalControlIdentitySecret(paths.runtimeDir),
       );
       const terminalIntegration = installTerminalControlIntegration({
         userData: paths.userData,
         appPath: app.getAppPath(),
         logger: logger.child('terminal-mcp'),
       });
-      m4 = new M4Services(workspaceHost, settings, logger.child('m4'), shellIntegrationDir, (id) =>
-        settings.effective.orchestration.enabled
-          ? {
-              ...terminalIdentitiesRef!.environment(id),
-              ...terminalIntegration?.environment(),
-            }
-          : {},
+      m4 = new M4Services(
+        workspaceHost,
+        settings,
+        logger.child('m4'),
+        shellIntegrationDir,
+        (id) =>
+          settings.effective.orchestration.enabled
+            ? {
+                ...terminalIdentitiesRef!.environment(id),
+                ...terminalIntegration?.environment(),
+              }
+            : {},
+        terminalDaemon,
       );
       m4Ref = m4;
+      for (const id of m4.restoredTerminalIds) terminalIdentitiesRef.issue(id);
       m4.terminals.onExitEvent(({ id }) => terminalIdentitiesRef?.revokeTerminal(id));
       terminalControlRef = new TerminalControlService(m4.terminals, logger.child('orchestration'), {
         enabled: () => settings.effective.orchestration.enabled,
@@ -749,7 +826,7 @@ if (!gotLock) {
       registerArtifactHandlers(artifactService, logger.child('ipc'));
       // ADR-0028: preamble <project_rules> + review-correction capture.
       taskService.attachMemoryHooks(memoryService);
-      taskService.markOrphanedRunsInterrupted();
+      taskService.markOrphanedRunsInterrupted(m4.restoredTerminalIds);
       // ADR-0009 am.2: fire-and-forget cleanup of finished tasks' worktrees.
       void taskService.sweepWorktreeOrphans();
       const modelCatalog = new ModelCatalogService(

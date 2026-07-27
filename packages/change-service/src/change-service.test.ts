@@ -326,6 +326,38 @@ describe('external session baselines (ADR-0017)', () => {
     expect((await blobs.get(second.afterHash!))?.toString()).toBe('v2\n');
   });
 
+  it('reconciles a write observed after host restart without duplicating the latest version', async () => {
+    writeFileSync(join(root, 'a.txt'), 'written while the app was closed\n');
+    const first = await service.reconcileExternalChange(
+      't1',
+      'a.txt',
+      'modified',
+      Buffer.from('line1\nline2\nline3\n'),
+    );
+    expect(first?.author).toBe('system');
+    expect((await service.changeSet('t1')).files[0]?.diff).toContain(
+      '+written while the app was closed',
+    );
+
+    expect(
+      await service.reconcileExternalChange(
+        't1',
+        'a.txt',
+        'modified',
+        Buffer.from('line1\nline2\nline3\n'),
+      ),
+    ).toBeNull();
+
+    writeFileSync(join(root, 'a.txt'), 'a second offline version\n');
+    const second = await service.reconcileExternalChange(
+      't1',
+      'a.txt',
+      'modified',
+      Buffer.from('line1\nline2\nline3\n'),
+    );
+    expect(second?.beforeHash).toBe(first?.afterHash);
+  });
+
   it('bytes=null records an honest created-during-session baseline', async () => {
     writeFileSync(join(root, 'fresh.txt'), 'made by the CLI\n');
     await service.ensureBaselineFromBytes('t1', 'fresh.txt', null);

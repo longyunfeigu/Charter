@@ -172,15 +172,14 @@ export interface ExternalTurnStartedEvent {
 /**
  * Only known CLIs get a host-written command; custom detected programs stay
  * review-only. With a recorded conversation id the command targets that exact
- * session; without one it degrades to the CLI's most-recent flag (correct only
- * when this task's session really was the directory's latest — the id is the
- * fix for multi-session directories). Ids are PTY-written text: anything but
- * an exact UUID is treated as absent.
+ * session. Codex deliberately fails closed without an id: `resume --last` can
+ * silently attach the wrong conversation when several sessions coexist. Ids
+ * are PTY-written text, so anything but an exact UUID is treated as absent.
  */
 export function externalResumeCommand(cli: string, sessionId?: string | null): string | null {
   const id = sessionId && isSafeCliSessionId(sessionId) ? sessionId : null;
   if (cli === 'claude') return id ? `claude --resume ${id}` : 'claude --continue';
-  if (cli === 'codex') return id ? `codex resume ${id}` : 'codex resume --last';
+  if (cli === 'codex') return id ? `codex resume ${id}` : null;
   return null;
 }
 
@@ -288,8 +287,20 @@ export class ExternalSessionService {
     this.unsubscribeInput = terminals.onInputEvent(({ id, data }) =>
       this.onTerminalInput(id, data),
     );
-    // App-quit strandings: close them out into review on startup.
-    tasks.recoverExternalTasks();
+    // Only sessions without a surviving daemon PTY are stranded. Reattached
+    // terminal ids keep the same task and review baseline across app restarts.
+    tasks.recoverExternalTasks(
+      new Set(
+        terminals
+          .list()
+          .filter((terminal) => terminals.persistsAcrossAppRestart(terminal.id))
+          .map((terminal) => terminal.id),
+      ),
+    );
+    // Restored backends already know their foreground process from the daemon
+    // snapshot. Re-run detection after listeners are attached so the existing
+    // task is rebound without waiting for a title change.
+    queueMicrotask(() => terminals.pollOnce());
     // Best-effort: give ended sessions that predate session-id capture (or
     // were stranded by a quit) their conversation id so resume can target them.
     void this.backfillSessionIds();
@@ -678,6 +689,7 @@ export class ExternalSessionService {
     if (this.byTerminal.has(terminalId)) await this.onAgentExit(terminalId);
 
     const terminal = this.terminals.list().find((item) => item.id === terminalId);
+    const reattachedTask = this.tasks.activeExternalTaskForTerminal(terminalId);
     const focused = this.workspace.current;
     // vNext terminals carry their server-resolved owner. The focused workspace
     // is only a backward-compatible fallback for sessions created before the
@@ -699,8 +711,8 @@ export class ExternalSessionService {
       return;
     }
 
-    let worktree: TaskWorktreeDto | null = null;
-    if (terminal.contextTaskId) {
+    let worktree: TaskWorktreeDto | null = reattachedTask?.worktree ?? null;
+    if (!worktree && terminal.contextTaskId) {
       try {
         const ownerTask = this.tasks.getTask(terminal.contextTaskId);
         if (ownerTask.worktree && !ownerTask.worktree.missing && ownerTask.worktree.path === cwd) {
@@ -724,8 +736,8 @@ export class ExternalSessionService {
       return;
     }
     const git = rootInfo.isGitRepo ? new GitService(root) : null;
-    let snapshotRef: string | null = null;
-    if (git) {
+    let snapshotRef: string | null = reattachedTask?.external?.snapshotRef ?? null;
+    if (git && !reattachedTask) {
       try {
         snapshotRef = await git.snapshotTree();
       } catch (e) {
@@ -739,27 +751,36 @@ export class ExternalSessionService {
     // Product-launched sessions (composer / New Terminal presets) arrive with
     // an intent: the pre-assigned conversation id and the first prompt. The
     // intent is one-shot — consumed here, on the detection edge it was for.
-    const intent = this.launchIntents?.consume(terminalId, cli) ?? null;
+    const intent = reattachedTask ? null : (this.launchIntents?.consume(terminalId, cli) ?? null);
 
     let taskId: string;
-    try {
-      const task = await this.tasks.createExternalTask({
+    if (reattachedTask) {
+      taskId = reattachedTask.id;
+      this.tasks.recordEvent(taskId, 'external.sessionReattached', {
         cli,
         terminalId,
-        cwd,
-        projectPath,
-        worktree,
-        snapshotRef,
-        title: intent?.prompt ? externalTitleFromPrompt(intent.prompt) : null,
+        note: 'Reconnected to the daemon PTY after the desktop app restarted.',
       });
-      taskId = task.id;
-    } catch (e) {
-      this.logger.warn('external session task creation failed', {
-        terminalId,
-        error: errorMessage(e),
-      });
-      broadcast('terminal.agentState', { id: terminalId, agent: cli, taskId: null });
-      return;
+    } else {
+      try {
+        const task = await this.tasks.createExternalTask({
+          cli,
+          terminalId,
+          cwd,
+          projectPath,
+          worktree,
+          snapshotRef,
+          title: intent?.prompt ? externalTitleFromPrompt(intent.prompt) : null,
+        });
+        taskId = task.id;
+      } catch (e) {
+        this.logger.warn('external session task creation failed', {
+          terminalId,
+          error: errorMessage(e),
+        });
+        broadcast('terminal.agentState', { id: terminalId, agent: cli, taskId: null });
+        return;
+      }
     }
 
     const watcher = new WorkspaceWatcher(root);
@@ -769,8 +790,8 @@ export class ExternalSessionService {
       cli,
       root,
       cwd,
-      startedAtMs: Date.now(),
-      sessionId: null,
+      startedAtMs: reattachedTask ? Date.parse(reattachedTask.createdAt) : Date.now(),
+      sessionId: reattachedTask?.external?.sessionId ?? null,
       isGitRepo: rootInfo.isGitRepo,
       snapshotRef,
       git,
@@ -785,7 +806,9 @@ export class ExternalSessionService {
       presenceTimer: null,
       presenceAwaitingReply: false,
       presenceSawOutput: false,
-      fileAttributionActive: false,
+      // A daemon-backed reattach means the same agent turn continued while
+      // the desktop was absent; resume watcher ownership immediately.
+      fileAttributionActive: reattachedTask !== null,
       lastAgentActivityAtMs: Date.now(),
       fileAttributionGraceUntilMs: Date.now() + INITIAL_COMMAND_ATTRIBUTION_MS,
       pendingPrompt: null,
@@ -796,7 +819,7 @@ export class ExternalSessionService {
       lastUserLine: null,
       suppressInputCapture: 0,
       structuredStream: false,
-      captureGrade: 'observed',
+      captureGrade: reattachedTask?.external?.captureGrade ?? 'observed',
       parser: new ExternalStructuredReplayParser(),
       lastFiles: [],
       work: Promise.resolve(),
@@ -805,6 +828,7 @@ export class ExternalSessionService {
     session.unsubscribe = watcher.onBatch((changes) => this.onBatch(session, changes));
     watcher.start();
     this.byTerminal.set(terminalId, session);
+    if (reattachedTask) await this.reconcileReattachedFiles(session);
     this.onSessionBound?.({ terminalId, taskId });
 
     if (intent?.sessionId) {
@@ -828,8 +852,12 @@ export class ExternalSessionService {
       }
     }
 
-    const leadIn = this.terminals.recentData(terminalId);
-    if (leadIn) this.onTerminalData(terminalId, leadIn);
+    // A reattached task already persisted output before shutdown. Feeding the
+    // visual restore snapshot back into its ledger would duplicate old turns.
+    if (!reattachedTask) {
+      const leadIn = this.terminals.recentData(terminalId);
+      if (leadIn) this.onTerminalData(terminalId, leadIn);
+    }
 
     broadcast('terminal.agentState', { id: terminalId, agent: cli, taskId });
     broadcast('external.sessionChanged', {
@@ -839,9 +867,75 @@ export class ExternalSessionService {
       status: 'active',
       captureGrade: session.captureGrade,
       snapshotRef,
-      files: [],
+      files: session.lastFiles,
     });
-    this.logger.info('external session started', { terminalId, cli, taskId, snapshotRef });
+    this.logger.info(reattachedTask ? 'external session reattached' : 'external session started', {
+      terminalId,
+      cli,
+      taskId,
+      snapshotRef,
+    });
+  }
+
+  /** Rebuild accounting for writes that landed while no Electron watcher was
+   * alive. Both trees include tracked and untracked files, so establishing
+   * the original bytes as baselines restores Review and byte-exact rollback. */
+  private async reconcileReattachedFiles(session: LiveSession): Promise<void> {
+    if (!session.git || !session.snapshotRef) return;
+    let reconciled = 0;
+    session.work = session.work
+      .then(async () => {
+        const currentTree = await session.git!.snapshotTree();
+        const changed = (
+          await session.git!.changedPathsBetweenTrees(session.snapshotRef!, currentTree)
+        ).filter((change) => isAccountablePath(change.path));
+        if (changed.length === 0) return;
+        const context = this.tasks.contextForTask(session.taskId);
+        for (const change of changed) {
+          const baseline = await session.git!.readTreeBlob(session.snapshotRef!, change.path);
+          const record = await context.changes.reconcileExternalChange(
+            session.taskId,
+            change.path,
+            change.kind,
+            baseline,
+          );
+          session.seen.add(change.path);
+          if (!record) continue;
+          reconciled += 1;
+          const stats = countPatchLines(record.patch);
+          this.tasks.recordEvent(session.taskId, 'external.fileChanged', {
+            cli: session.cli,
+            captureGrade: session.captureGrade,
+            changeId: record.id,
+            path: record.relativePath,
+            kind: record.kind,
+            additions: stats.additions,
+            deletions: stats.deletions,
+            beforeHash: record.beforeHash,
+            afterHash: record.afterHash,
+            recoveredAfterRestart: true,
+          });
+        }
+      })
+      .catch((error) => {
+        this.logger.warn('external offline change reconciliation failed', {
+          taskId: session.taskId,
+          terminalId: session.terminalId,
+          error: errorMessage(error),
+        });
+      });
+    await session.work;
+    await this.publish(session, 'active');
+    this.tasks.recordEvent(session.taskId, 'external.offlineChangesReconciled', {
+      cli: session.cli,
+      terminalId: session.terminalId,
+      changedFiles: reconciled,
+    });
+    this.logger.info('external offline changes reconciled', {
+      taskId: session.taskId,
+      terminalId: session.terminalId,
+      changedFiles: reconciled,
+    });
   }
 
   private onBatch(session: LiveSession, changes: FsChange[]): void {
@@ -1023,6 +1117,17 @@ export class ExternalSessionService {
       throw new ProductFailure(
         productError('EXTERNAL_SESSION_REQUIRED', {
           userMessage: 'This task is not an external terminal session.',
+        }),
+      );
+    }
+    if (
+      sourceExternal.cli === 'codex' &&
+      (!sourceExternal.sessionId || !isSafeCliSessionId(sourceExternal.sessionId))
+    ) {
+      throw new ProductFailure(
+        productError('EXTERNAL_SESSION_ID_REQUIRED', {
+          userMessage:
+            'This Codex Session cannot be resumed safely because its conversation ID was not recorded.',
         }),
       );
     }
@@ -1252,11 +1357,12 @@ export class ExternalSessionService {
       root: task.projectPath,
       cwd: expectedCwd,
       startedAtMs: Date.now(),
-      // `claude --resume <id>` continues the SAME conversation id — keep it,
+      // Native resume continues the SAME conversation id — keep it,
       // so an immediate exit without new transcript writes stays targetable.
-      // Codex resume ids are rediscovered from the rollout at next end.
       sessionId:
-        external.cli === 'claude' && external.sessionId && isSafeCliSessionId(external.sessionId)
+        (external.cli === 'claude' || external.cli === 'codex') &&
+        external.sessionId &&
+        isSafeCliSessionId(external.sessionId)
           ? external.sessionId
           : null,
       isGitRepo: git !== null,
@@ -1432,8 +1538,26 @@ export class ExternalSessionService {
       );
     }
     this.pendingResumes.clear();
-    for (const [terminalId] of [...this.byTerminal]) {
-      void this.onAgentExit(terminalId);
+    for (const [terminalId, session] of [...this.byTerminal]) {
+      if (!this.terminals.persistsAcrossAppRestart(terminalId)) {
+        void this.onAgentExit(terminalId);
+        continue;
+      }
+      if (session.terminalFlushTimer) clearTimeout(session.terminalFlushTimer);
+      session.terminalFlushTimer = null;
+      this.clearObservedPresence(session);
+      this.clearPromptDelivery(session);
+      this.flushTerminal(session);
+      if (session.recomputeTimer) clearTimeout(session.recomputeTimer);
+      session.recomputeTimer = null;
+      session.unsubscribe();
+      session.watcher.dispose();
+      session.ended = true;
+      this.byTerminal.delete(terminalId);
+      this.logger.info('external session detached for app restart', {
+        terminalId,
+        taskId: session.taskId,
+      });
     }
   }
 }

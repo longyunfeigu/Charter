@@ -68,6 +68,7 @@ export interface TermInstance {
   contextLabel: string;
   contextTaskId: string | null;
   launch: TerminalLaunch;
+  persistence: 'daemon' | 'process' | 'remote';
   /** ADR-0047: set when this session runs on a remote SSH host. */
   remote?: TerminalRemote | null;
   quick: boolean;
@@ -79,6 +80,10 @@ export interface TermInstance {
   pendingReplay: string | null;
   /** Adopted TUIs need a real SIGWINCH repaint after replay. */
   restoreRepaintPending: boolean;
+  /** This renderer reattached to a PTY that survived a previous app process. */
+  restored: boolean;
+  /** Daemon sequence covered by pendingReplay; newer live events append after it. */
+  replaySequence: number;
 }
 
 interface CreateTerminalRequest {
@@ -104,6 +109,7 @@ interface TerminalHostInfo {
   contextLabel: string;
   contextTaskId: string | null;
   launch: TerminalLaunch;
+  persistence: 'daemon' | 'process' | 'remote';
   remote?: TerminalRemote | null;
 }
 
@@ -134,6 +140,10 @@ export interface TerminalAppearance {
 const QUICK_CLOSE_GRACE_MS = 5000;
 const quickCloseTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const adoptingTerminalIds = new Set<string>();
+const terminalDataBeforeAdoption = new Map<
+  string,
+  Array<{ data: string; sequence: number | undefined }>
+>();
 
 const terminalInputTrackers = new WeakMap<Terminal, TerminalUserInputTracker>();
 const terminalPasteDeadlines = new WeakMap<Terminal, number>();
@@ -787,7 +797,13 @@ function makeTerm(fontSize: number, scrollback: number): { term: Terminal; fit: 
 
 function createTermInstance(
   info: TerminalHostInfo,
-  options: { title?: string; quick?: boolean; outputTail?: string } = {},
+  options: {
+    title?: string;
+    quick?: boolean;
+    outputTail?: string;
+    restored?: boolean;
+    replaySequence?: number;
+  } = {},
 ): TermInstance {
   const settings = useAppStore.getState().settings;
   const quick = options.quick ?? false;
@@ -841,6 +857,8 @@ function createTermInstance(
     inputWriter,
     pendingReplay: options.outputTail !== undefined ? options.outputTail : null,
     restoreRepaintPending: options.outputTail !== undefined,
+    restored: options.restored ?? false,
+    replaySequence: options.replaySequence ?? 0,
   };
   term.onData((data) => {
     if (data === '\r') {
@@ -894,15 +912,35 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       attributes: true,
       attributeFilter: ['data-theme', 'data-skin'],
     });
-    onEvent('terminal.data', ({ id, data }) => {
+    onEvent('terminal.data', ({ id, data, sequence }) => {
       const item = get().items.find((t) => t.id === id);
-      if (!item) return;
+      if (!item) {
+        const queued = terminalDataBeforeAdoption.get(id) ?? [];
+        queued.push({ data, sequence });
+        while (queued.reduce((bytes, entry) => bytes + entry.data.length, 0) > 1024 * 1024) {
+          queued.shift();
+        }
+        terminalDataBeforeAdoption.set(id, queued);
+        return;
+      }
+      if (sequence !== undefined && sequence <= item.replaySequence) return;
+      if (sequence !== undefined) item.replaySequence = sequence;
       // Keep live bytes behind the restored tail until the first real fit.
       // Reversing that order leaves full-screen TUI cursor state corrupted.
       if (item.pendingReplay !== null) item.pendingReplay += data;
       else item.term.write(data);
       // ADR-0021: plain-output progress fallback (OSC 9;4 always wins).
       item.blocks.feedOutput(data);
+    });
+    onEvent('terminal.resync', ({ id, replay, sequence }) => {
+      const item = get().items.find((terminal) => terminal.id === id);
+      if (!item || sequence <= item.replaySequence) return;
+      item.replaySequence = sequence;
+      item.pendingReplay = null;
+      item.restoreRepaintPending = false;
+      item.blocks.reset();
+      item.term.reset();
+      item.term.write(replay, () => item.term.refresh(0, item.term.rows - 1));
     });
     onEvent('terminal.exit', ({ id, exitCode }) => {
       const item = get().items.find((t) => t.id === id);
@@ -996,6 +1034,44 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
         void rpcResult('terminal.progress', { value });
       }
     }, 1000);
+    void rpcResult('terminal.list', {}).then((result) => {
+      if (!result.ok) return;
+      const existing = new Set(get().items.map((item) => item.id));
+      const restoredIds = new Set(result.data.restoredIds ?? []);
+      const additions = result.data.items
+        .filter((info) => !existing.has(info.id))
+        .map((info) => {
+          const replaySequence = result.data.sequences?.[info.id] ?? 0;
+          const queued = terminalDataBeforeAdoption.get(info.id) ?? [];
+          terminalDataBeforeAdoption.delete(info.id);
+          const afterSnapshot = queued
+            .filter((entry) => entry.sequence === undefined || entry.sequence > replaySequence)
+            .map((entry) => entry.data)
+            .join('');
+          return createTermInstance(info, {
+            outputTail: `${result.data.recentData?.[info.id] ?? ''}${afterSnapshot}`,
+            restored: restoredIds.has(info.id),
+            replaySequence: Math.max(
+              replaySequence,
+              ...queued.flatMap((entry) => (entry.sequence === undefined ? [] : [entry.sequence])),
+            ),
+          });
+        });
+      if (additions.length === 0) return;
+      set({
+        items: [...get().items, ...additions],
+        active: get().active ?? additions.at(-1)?.id ?? null,
+      });
+      const restoredCount = additions.filter((item) => item.restored).length;
+      if (restoredCount > 0) {
+        useAppStore
+          .getState()
+          .pushToast(
+            'success',
+            `Reconnected to ${restoredCount} running terminal session${restoredCount === 1 ? '' : 's'}.`,
+          );
+      }
+    });
     // Focused-workspace changes leave global terminals intact. Their PTYs and
     // renderer xterm instances are owned by the context recorded on each row.
   },
@@ -1035,6 +1111,8 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       const recentData = result.data.recentData ?? {};
       const item = createTermInstance(info, {
         outputTail: recentData[id] ?? '',
+        restored: result.data.restoredIds?.includes(id) ?? false,
+        replaySequence: result.data.sequences?.[id] ?? 0,
       });
       set({ items: [...get().items, item] });
       return true;
@@ -1218,7 +1296,18 @@ export function SessionBar({ terminalId }: { terminalId: string }): React.JSX.El
           {context}
         </span>
         <span className="tsb-sp" />
-        <span className="tsb-pty-state">PTY {item.exited ? 'ended' : 'live'}</span>
+        <span
+          className={`tsb-pty-state ${item.persistence === 'daemon' ? 'protected' : ''}`}
+          title={
+            item.persistence === 'daemon'
+              ? 'This terminal keeps running if Charter closes or restarts.'
+              : undefined
+          }
+        >
+          {item.persistence === 'daemon'
+            ? `● protected · ${item.exited ? 'ended' : 'live'}`
+            : `PTY ${item.exited ? 'ended' : 'live'}`}
+        </span>
       </div>
     );
   }
@@ -1250,6 +1339,14 @@ export function SessionBar({ terminalId }: { terminalId: string }): React.JSX.El
         </span>
       )}
       <span className="tsb-sp" />
+      {item.persistence === 'daemon' && live ? (
+        <span
+          className="tsb-pty-state protected"
+          title="This Agent keeps running if Charter closes or restarts."
+        >
+          ● protected
+        </span>
+      ) : null}
       {!live ? (
         <button
           className="tsb-btn"
@@ -2014,11 +2111,17 @@ export function TerminalPanel(): React.JSX.Element {
                         ) : (
                           <>
                             {terminal.title}
+                            {terminal.restored ? (
+                              <span className="terminal-restored-badge">Restored</span>
+                            ) : null}
                             {terminal.quick ? (
                               <span className="terminal-quick-badge">Quick Console</span>
                             ) : null}
                           </>
                         )}
+                        {terminal.restored && agent ? (
+                          <span className="terminal-restored-badge">Restored</span>
+                        ) : null}
                       </span>
                     )}
                     <span className="terminal-row-context">

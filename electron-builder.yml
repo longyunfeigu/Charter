@@ -16,19 +16,31 @@ files:
   - apps/agent-worker/dist/**
   - apps/desktop-renderer/dist/**
   - '!**/*.map'
+  # node-pty is copied as a real runtime resource below. Loading its macOS
+  # spawn-helper from app.asar.unpacked makes posix_spawn fail in packaged apps.
+  - '!node_modules/node-pty/**'
   # ADR-0047: ssh2's optional native accelerator is excluded so packaged apps
   # always take ssh2's pure-JS fallback (no Electron ABI risk on any platform).
   - '!node_modules/cpu-features/**'
   - '!node_modules/nan/**'
 
 asarUnpack:
-  - 'node_modules/node-pty/**'
+  # The detached daemon is executed in ELECTRON_RUN_AS_NODE mode, which cannot
+  # load its entry from inside app.asar.
+  - 'apps/desktop-main/dist/terminal-daemon.cjs'
   - 'node_modules/@vscode/ripgrep/**'
+
+# Both Electron Main and the run-as-node daemon reach this directory through
+# normal Node module resolution. Keeping node-pty outside app.asar.unpacked is
+# also required for its macOS spawn-helper to create a controlling PTY.
+extraResources:
+  - from: node_modules/node-pty
+    to: node_modules/node-pty
 
 npmRebuild: false
 
-# M11-01: flip Electron fuses (runAsNode off, NODE_OPTIONS/inspect dead,
-# asar integrity + onlyLoadAppFromAsar on) on every packed binary.
+# M11-01: flip Electron fuses (RunAsNode is reserved for the detached terminal
+# daemon; NODE_OPTIONS/inspect stay disabled, with asar integrity enforced).
 afterPack: scripts/after-pack.cjs
 
 mac:

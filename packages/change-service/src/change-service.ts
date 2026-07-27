@@ -279,6 +279,30 @@ export class ChangeService {
     return record;
   }
 
+  /** Restore-time external accounting. The entry snapshot supplies the true
+   * pre-session baseline; an unchanged latest observation is skipped so an
+   * app restart does not duplicate already-recorded file versions. */
+  async reconcileExternalChange(
+    taskId: string,
+    relativePath: string,
+    kind: Exclude<ChangeKind, 'renamed'>,
+    baselineBytes: Buffer | null,
+  ): Promise<FileChangeRecord | null> {
+    const baseline = await this.ensureBaselineFromBytes(taskId, relativePath, baselineBytes);
+    const history = this.repo
+      .changesFor(taskId)
+      .filter((change) => change.relativePath === relativePath);
+    const previousHash = history.at(-1)?.afterHash ?? baseline.blobHash;
+    let currentHash: string | null = null;
+    if (kind !== 'deleted') {
+      const absolute = await resolveInsideRoot(this.root, relativePath);
+      const current = await fs.readFile(absolute).catch(() => null);
+      currentHash = current ? sha(current) : null;
+    }
+    if (previousHash === currentHash) return null;
+    return await this.recordExternalChange(taskId, relativePath, kind, { author: 'system' });
+  }
+
   /** Write content through the document store when open, else atomically to disk. */
   private async writeThrough(relativePath: string, content: string): Promise<void> {
     if (this.documents.isOpen(relativePath)) {

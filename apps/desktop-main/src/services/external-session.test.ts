@@ -85,16 +85,17 @@ describe('externalResumeCommand', () => {
     expect(externalResumeCommand('codex', id)).toBe(`codex resume ${id}`);
   });
 
-  it('degrades to the last-session flag without an id', () => {
+  it('keeps Claude fallback but fails closed for Codex without an id', () => {
     expect(externalResumeCommand('claude')).toBe('claude --continue');
     expect(externalResumeCommand('claude', null)).toBe('claude --continue');
-    expect(externalResumeCommand('codex')).toBe('codex resume --last');
+    expect(externalResumeCommand('codex')).toBeNull();
+    expect(externalResumeCommand('codex', null)).toBeNull();
   });
 
   it('never embeds a non-UUID id into PTY input', () => {
     expect(externalResumeCommand('claude', 'abc; rm -rf .')).toBe('claude --continue');
     expect(externalResumeCommand('claude', '$(evil)')).toBe('claude --continue');
-    expect(externalResumeCommand('codex', 'not-a-uuid')).toBe('codex resume --last');
+    expect(externalResumeCommand('codex', 'not-a-uuid')).toBeNull();
   });
 
   it('does not turn an arbitrary detected program name into shell input', () => {

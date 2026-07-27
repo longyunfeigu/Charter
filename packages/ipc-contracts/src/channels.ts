@@ -125,6 +125,7 @@ const TerminalInfoSchema = z.object({
   contextLabel: z.string(),
   contextTaskId: z.string().nullable(),
   launch: z.enum(['shell', 'claude', 'codex']),
+  persistence: z.enum(['daemon', 'process', 'remote']).default('process'),
   remote: TerminalRemoteInfoSchema.optional(),
 });
 
@@ -562,9 +563,12 @@ export const CHANNELS = {
     z.object({}).strict(),
     z.object({
       items: z.array(TerminalInfoSchema),
+      /** Sessions reattached from the terminal daemon during this app launch. */
+      restoredIds: z.array(z.string()).default([]),
+      sequences: z.record(z.string(), z.number().int().nonnegative()).default({}),
       /** Exact bounded PTY tails let newly adopted xterms reconstruct the
        * current VT screen instead of replaying lossy ANSI-stripped text. */
-      recentData: z.record(z.string(), z.string().max(128 * 1024)),
+      recentData: z.record(z.string(), z.string().max(8 * 1024 * 1024)),
     }),
   ),
   // ADR-0047: SSH Remotes. Secrets flow renderer→main only — no response below

@@ -1,4 +1,4 @@
-// Shared esbuild configuration for the three Node-side bundles.
+// Shared esbuild configuration for the Node-side bundles.
 import { build, context } from 'esbuild';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,6 +39,18 @@ export const bundles = [
     target: 'node22',
     alias,
     external: ['electron', 'node-pty', '@vscode/ripgrep', 'ssh2'],
+    define: { 'process.env.NODE_ENV': '"production"' },
+  },
+  {
+    entryPoints: [join(root, 'apps/desktop-main/src/terminal-daemon-entry.ts')],
+    outfile: join(root, 'apps/desktop-main/dist/terminal-daemon.cjs'),
+    platform: 'node',
+    format: 'cjs',
+    bundle: true,
+    sourcemap: true,
+    target: 'node22',
+    alias,
+    external: ['node-pty'],
     define: { 'process.env.NODE_ENV': '"production"' },
   },
   {

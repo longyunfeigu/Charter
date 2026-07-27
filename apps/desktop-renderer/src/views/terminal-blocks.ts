@@ -193,6 +193,20 @@ export class TerminalBlocks {
     return this.runningId ? this.byId(this.runningId) : null;
   }
 
+  /** A daemon resnapshot replaces all buffer lines, invalidating every marker. */
+  reset(): void {
+    for (const block of this.items) block.marker.dispose();
+    this.items.length = 0;
+    this.pendingCommand?.marker.dispose();
+    this.pendingCommand = null;
+    this.runningId = null;
+    this.progress = null;
+    this.nextRerunOf = null;
+    this.selectedId = null;
+    this.bell = false;
+    this.events.onChange();
+  }
+
   /**
    * Content range [start, end] in absolute lines. A finished command ends the
    * line before the next prompt; anything else ends where the next block

@@ -12,12 +12,14 @@ describe('sanitizedTerminalEnv (agent-session markers never leak into user PTYs)
       CLAUDE_PID: '10197',
       CLAUDE_EFFORT: 'xhigh',
       AI_AGENT: 'claude-code_2-1-215_agent',
+      CODEX_HOME: '/Users/u/.codex-app',
       CODEX_SANDBOX: 'seatbelt',
       PATH: '/usr/bin',
       HOME: '/Users/u',
     });
     expect(Object.keys(env).filter((k) => k.startsWith('CLAUDE'))).toEqual([]);
     expect(env.AI_AGENT).toBeUndefined();
+    expect(env.CODEX_HOME).toBeUndefined();
     expect(env.CODEX_SANDBOX).toBeUndefined();
     expect(env.PATH).toBe('/usr/bin');
     expect(env.HOME).toBe('/Users/u');

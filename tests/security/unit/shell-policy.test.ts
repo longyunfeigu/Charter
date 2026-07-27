@@ -55,7 +55,7 @@ describe('electron fuse plan pin (M11-01)', () => {
     expect(fusePlan.version).toBe('V1');
     expect(fusePlan.resetAdHocDarwinSignature).toBe(true);
     expect(fusePlan.fuses).toEqual({
-      runAsNode: false,
+      runAsNode: true,
       enableCookieEncryption: true,
       enableNodeOptionsEnvironmentVariable: false,
       enableNodeCliInspectArguments: false,

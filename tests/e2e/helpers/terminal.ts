@@ -5,10 +5,13 @@ export interface E2ETerminalInfo {
   pid: number;
   cwd: string;
   launch: 'shell' | 'claude' | 'codex';
+  persistence: 'daemon' | 'process' | 'remote';
 }
 
 interface TerminalListPayload {
   items: E2ETerminalInfo[];
+  restoredIds: string[];
+  sequences: Record<string, number>;
   recentData: Record<string, string>;
 }
 

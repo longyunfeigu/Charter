@@ -185,8 +185,10 @@ Decision:
 1. External metadata records the CLI working directory. Resume reuses the live
    source terminal when it still exists; otherwise it creates a terminal in the
    recorded cwd (legacy rows fall back to the project root).
-2. The host, not renderer input, owns the complete executable command map:
-   Claude Code uses `claude --continue`; Codex uses `codex resume --last`.
+2. The host, not renderer input, owns the complete executable command map.
+   The original fallback mapping used `claude --continue` and
+   `codex resume --last`; the Codex fallback is superseded by the per-session
+   identity amendment below because it can select a different conversation.
    Custom detected CLI names have no Resume action, avoiding shell injection and
    false promises for tools whose continuation semantics are unknown.
 3. Resume keeps the existing external Task, snapshot baseline and change set.
@@ -386,17 +388,19 @@ Two decisions, both engine-level (rail unchanged):
    discover it at session end from the CLI's own transcript store, bounded by
    the session's lifetime — Claude `~/.claude/projects/<munged cwd>/<uuid>.jsonl`
    (munge = every non-alphanumeric → `-`, verified against real installs),
-   Codex `~/.codex/sessions/YYYY/MM/DD/rollout-…-<uuid>.jsonl`. A startup
-   backfill gives recent pre-amendment tasks their ids the same way. Resume
-   targets the exact conversation (`claude --resume <id>` /
-   `codex resume <id>`); only strict UUIDs are ever written into a PTY, and a
-   missing id degrades to the old most-recent flag. Resuming forks a fresh CLI
-   conversation, so the id is re-established at the next session end.
+   Codex `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<uuid>.jsonl` (default
+   `~/.codex`; inherited Codex Desktop homes are included for backfill). Codex
+   candidates must match both the rollout's `session_meta.cwd` and the observed
+   launch window. A startup backfill gives recent pre-amendment tasks their ids
+   the same way. Resume targets the exact conversation
+   (`claude --resume <id>` / `codex resume <id>`); only strict UUIDs are ever
+   written into a PTY. Missing Codex ids fail closed instead of guessing with
+   `--last`, and both CLIs retain the same id after resume.
 
-Honest limits: discovery is best-effort mtime-window matching (no id when the
-CLI wrote no transcript — e.g. the e2e fake agents); two sessions ending inside
-the same window could mis-attribute (not observed in practice; the window is
-one session's lifetime); custom CLIs still have no resume command at all.
+Honest limits: discovery is best-effort transcript matching (no id when the CLI
+wrote no transcript — e.g. the e2e fake agents); a Codex session without a
+verified rollout identity stays reviewable but cannot be resumed automatically;
+custom CLIs still have no resume command at all.
 
 ## Amendment (2026-07-19) — launch intents: pre-assigned ids, host-delivered first prompt, honest end state
 

@@ -42,6 +42,7 @@ class FakeTerminals {
       contextLabel: options.contextLabel ?? 'project',
       contextTaskId: options.contextTaskId ?? null,
       launch: options.launch ?? 'shell',
+      persistence: 'process',
     };
     this.infos.set(id, info);
     return info;

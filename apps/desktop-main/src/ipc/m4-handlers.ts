@@ -21,6 +21,7 @@ import type { SettingsService } from '../services/settings-service.js';
 import type { ExternalLaunchIntents } from '../services/external-launch-intents.js';
 import { isSafeCliSessionId } from '../services/cli-session-locator.js';
 import { broadcast } from '../broadcast.js';
+import type { TerminalDaemonClient } from '../services/terminal-daemon-client.js';
 
 interface ActiveSearch {
   controller: AbortController;
@@ -72,6 +73,7 @@ export class M4Services {
   private readonly activeSearches = new Map<string, ActiveSearch>();
   private lastSearchId: string | null = null;
   readonly terminals: TerminalManager;
+  readonly restoredTerminalIds = new Set<string>();
   private python: PythonLspClient | null = null;
   private pythonStatus: PythonLspStatus = {
     available: false,
@@ -87,9 +89,11 @@ export class M4Services {
     private readonly logger: Logger,
     shellIntegrationDir: string | null = null,
     terminalEnvironment?: (id: string) => Record<string, string>,
+    private readonly terminalDaemon: TerminalDaemonClient | null = null,
   ) {
     this.terminals = new TerminalManager(
-      (id, data) => broadcast('terminal.data', { id, data }),
+      (id, data, sequence) =>
+        broadcast('terminal.data', { id, data, ...(sequence === undefined ? {} : { sequence }) }),
       (id, exitCode) => broadcast('terminal.exit', { id, exitCode }),
       {
         // ADR-0021: resolved per spawn so a settings flip applies to the next terminal.
@@ -98,8 +102,31 @@ export class M4Services {
           enabled: this.settings.effective.terminal.shellIntegration,
         }),
         ...(terminalEnvironment ? { envForTerminal: terminalEnvironment } : {}),
+        ...(terminalDaemon
+          ? { createLocalBackend: (request) => terminalDaemon.createBackend(request) }
+          : {}),
+        onResync: (id, replay, sequence) => broadcast('terminal.resync', { id, replay, sequence }),
       },
     );
+
+    for (const snapshot of terminalDaemon?.restoredSessions() ?? []) {
+      const info = snapshot.info;
+      this.terminals.adoptBackend(terminalDaemon!.backendForRestored(snapshot), {
+        id: info.id,
+        pid: snapshot.pid,
+        initialReplay: snapshot.replay,
+        title: info.title,
+        shell: info.shell,
+        cwd: info.cwd,
+        projectName: info.projectName,
+        projectPath: info.projectPath,
+        contextKind: info.contextKind,
+        contextLabel: info.contextLabel,
+        contextTaskId: info.contextTaskId,
+        launch: info.launch,
+      });
+      this.restoredTerminalIds.add(info.id);
+    }
 
     host.onDidChangeWorkspace((ws) => {
       for (const search of this.activeSearches.values()) search.controller.abort();
@@ -253,8 +280,25 @@ export class M4Services {
     return true;
   }
 
+  async persistentSnapshots(): Promise<Map<string, { replay: string; sequence: number }>> {
+    if (!this.terminalDaemon) return new Map();
+    try {
+      const snapshots = await this.terminalDaemon.currentSnapshots();
+      return new Map(
+        snapshots.map((snapshot) => [
+          snapshot.info.id,
+          { replay: snapshot.replay, sequence: snapshot.sequence },
+        ]),
+      );
+    } catch (error) {
+      this.logger.warn('terminal daemon snapshot unavailable', { error: errorMessage(error) });
+      return new Map();
+    }
+  }
+
   dispose(): void {
     this.terminals.dispose();
+    this.terminalDaemon?.close();
     void this.python?.dispose();
   }
 }
@@ -444,10 +488,20 @@ export function registerM4Handlers(
       },
       'terminal.list': async () => {
         const items = services.terminals.list();
+        const persistent = await services.persistentSnapshots();
         return {
           items,
+          restoredIds: items
+            .filter((item) => services.restoredTerminalIds.has(item.id))
+            .map((item) => item.id),
           recentData: Object.fromEntries(
-            items.map((item) => [item.id, services.terminals.recentData(item.id)]),
+            items.map((item) => [
+              item.id,
+              persistent.get(item.id)?.replay ?? services.terminals.recentData(item.id),
+            ]),
+          ),
+          sequences: Object.fromEntries(
+            [...persistent].map(([id, snapshot]) => [id, snapshot.sequence]),
           ),
         };
       },

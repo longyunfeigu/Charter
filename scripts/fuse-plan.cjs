@@ -9,7 +9,9 @@ module.exports = {
   version: 'V1',
   resetAdHocDarwinSignature: true,
   fuses: {
-    runAsNode: false, // ELECTRON_RUN_AS_NODE cannot turn the app into a node interpreter
+    // Required by the detached terminal daemon. NODE_OPTIONS and inspector
+    // remain disabled, and the GUI still loads only the integrity-checked asar.
+    runAsNode: true,
     enableCookieEncryption: true,
     enableNodeOptionsEnvironmentVariable: false, // NODE_OPTIONS injection dead
     enableNodeCliInspectArguments: false, // --inspect/--inspect-brk dead

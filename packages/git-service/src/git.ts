@@ -45,6 +45,11 @@ export interface GitNumstatEntry {
   binary: boolean;
 }
 
+export interface GitTreeChange {
+  path: string;
+  kind: 'created' | 'modified' | 'deleted';
+}
+
 function gitError(
   code: string,
   userMessage: string,
@@ -411,6 +416,33 @@ export class GitService {
     } finally {
       await fs.rm(tmpIndex, { force: true }).catch(() => {});
     }
+  }
+
+  /** Net paths between two worktree snapshots, including files that were
+   * untracked in the user's real index. Renames intentionally degrade to a
+   * delete/create pair so external-session rollback remains byte-exact. */
+  async changedPathsBetweenTrees(fromTree: string, toTree: string): Promise<GitTreeChange[]> {
+    const res = await this.run([
+      'diff',
+      '--name-status',
+      '--no-renames',
+      '-z',
+      fromTree,
+      toTree,
+      '--',
+    ]);
+    const records = res.stdout.split('\0');
+    const changes: GitTreeChange[] = [];
+    for (let index = 0; index + 1 < records.length; index += 2) {
+      const status = records[index]?.trim() ?? '';
+      const path = records[index + 1] ?? '';
+      if (!path) continue;
+      changes.push({
+        path,
+        kind: status.startsWith('A') ? 'created' : status.startsWith('D') ? 'deleted' : 'modified',
+      });
+    }
+    return changes;
   }
 
   /** Bytes of `path` inside a tree-ish, or null when the path is absent. */

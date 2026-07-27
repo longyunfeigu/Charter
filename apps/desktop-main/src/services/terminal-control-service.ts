@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
 import { errorMessage, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import type { ToolCallRequest, ToolResultPayload } from '@pi-ide/agent-contract';
@@ -36,7 +36,9 @@ export interface TerminalControlIdentity {
   token: string;
 }
 
-/** Per-launch, memory-only terminal capability registry (ADR-0044). */
+/** Terminal capability registry. A product-owned secret derives stable tokens
+ * for daemon sessions so their already-running process environment remains
+ * valid after Electron restarts; tests and legacy callers may stay ephemeral. */
 export class TerminalControlIdentityRegistry {
   private readonly byToken = new Map<string, string>();
   private readonly byTerminal = new Map<string, string>();
@@ -44,12 +46,17 @@ export class TerminalControlIdentityRegistry {
   constructor(
     readonly endpoint: string,
     private readonly tokenOverride: string | null = null,
+    private readonly stableSecret: Buffer | null = null,
   ) {}
 
   issue(terminalId: string): TerminalControlIdentity {
     const existing = this.byTerminal.get(terminalId);
     if (existing) return { terminalId, token: existing };
-    const token = this.tokenOverride ?? randomBytes(32).toString('base64url');
+    const token =
+      this.tokenOverride ??
+      (this.stableSecret
+        ? createHmac('sha256', this.stableSecret).update(terminalId).digest('base64url')
+        : randomBytes(32).toString('base64url'));
     this.byTerminal.set(terminalId, token);
     this.byToken.set(token, terminalId);
     return { terminalId, token };

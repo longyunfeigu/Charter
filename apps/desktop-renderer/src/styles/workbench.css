@@ -432,6 +432,10 @@ html.xp-resizing * {
   font: 9px var(--font-mono, monospace);
   text-transform: uppercase;
 }
+.tsb-pty-state.protected {
+  color: var(--success);
+  letter-spacing: 0.02em;
+}
 .term-session-bar.ended {
   background: color-mix(in srgb, var(--success, #188544) 8%, transparent);
 }
@@ -690,6 +694,17 @@ html.xp-resizing * {
   border: 1px solid color-mix(in srgb, var(--info) 44%, var(--border));
   border-radius: 4px;
   color: var(--info);
+  font-size: 8.5px;
+  font-weight: 650;
+  vertical-align: 1px;
+}
+.terminal-restored-badge {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--success) 45%, var(--border));
+  border-radius: 4px;
+  color: var(--success);
   font-size: 8.5px;
   font-weight: 650;
   vertical-align: 1px;

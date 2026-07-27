@@ -2572,6 +2572,20 @@ export class TaskService {
     return buildExternalSessionIndex(rows);
   }
 
+  /** Active task identity for a daemon PTY that survived an Electron restart. */
+  activeExternalTaskForTerminal(terminalId: string): TaskDto | null {
+    const rows = this.db
+      .prepare(`${TASK_SELECT} WHERE t.external_json IS NOT NULL ORDER BY t.updated_at DESC`)
+      .all() as unknown as TaskRow[];
+    for (const row of rows) {
+      const external = JSON.parse(row.external_json!) as NonNullable<TaskDto['external']>;
+      if (external.status === 'active' && external.terminalId === terminalId) {
+        return this.rowToDto(row);
+      }
+    }
+    return null;
+  }
+
   /**
    * Name an external session after its first user message. The row-refresh
    * broadcast reuses task.stateChanged (the renderer's generic task upsert
@@ -2672,12 +2686,13 @@ export class TaskService {
   }
 
   /** ADR-0017: sweep external tasks stranded mid-session by an app quit. */
-  recoverExternalTasks(): void {
+  recoverExternalTasks(liveTerminalIds: ReadonlySet<string> = new Set()): void {
     const rows = this.db
       .prepare(`${TASK_SELECT} WHERE t.external_json IS NOT NULL`)
       .all() as unknown as TaskRow[];
     for (const row of rows) {
       const external = JSON.parse(row.external_json!) as NonNullable<TaskDto['external']>;
+      if (external.status === 'active' && liveTerminalIds.has(external.terminalId)) continue;
       // Older builds could persist a split-brain row: process tracking had
       // already written external.status=ended, then generic orphan recovery
       // projected the Task itself as INTERRUPTED. Normalize both active
@@ -3788,7 +3803,7 @@ export class TaskService {
   }
 
   /** Restart-time scan (M10 expands): mark previously-running tasks interrupted. */
-  markOrphanedRunsInterrupted(): void {
+  markOrphanedRunsInterrupted(liveExternalTerminalIds: ReadonlySet<string> = new Set()): void {
     // Permission requests left PENDING by a previous process can never be
     // answered — the waiting tool call died with that process. Record the
     // cancellation in the task event log too, so the timeline's card resolves
@@ -3834,10 +3849,16 @@ export class TaskService {
     // ADR-0009: tasks are global — the restart scan covers every project.
     const rows = this.db
       .prepare(
-        "SELECT id, state FROM tasks WHERE state IN ('EXPLORING','PLANNING','IN_PROGRESS','AWAITING_PERMISSION','VERIFYING')",
+        "SELECT id, state, external_json FROM tasks WHERE state IN ('EXPLORING','PLANNING','IN_PROGRESS','AWAITING_PERMISSION','VERIFYING')",
       )
-      .all() as Array<{ id: string; state: string }>;
+      .all() as Array<{ id: string; state: string; external_json: string | null }>;
     for (const row of rows) {
+      if (row.external_json) {
+        const external = JSON.parse(row.external_json) as NonNullable<TaskDto['external']>;
+        if (external.status === 'active' && liveExternalTerminalIds.has(external.terminalId)) {
+          continue;
+        }
+      }
       this.recordEvent(row.id, 'system.interruptedByRestart', {
         previousState: row.state,
         note: 'The application restarted while this task was running (INTERRUPTED_BY_RESTART).',

@@ -1,6 +1,6 @@
-import { readdir, stat } from 'node:fs/promises';
+import { open, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 
 /**
  * ADR-0017 amendment — locating the CLI's own conversation id so resume can
@@ -11,13 +11,16 @@ import { join } from 'node:path';
  * - Claude Code: `~/.claude/projects/<munged cwd>/<session-uuid>.jsonl`, where
  *   the munge replaces every non-alphanumeric character with `-`
  *   (`/private/var/.../pi_ide` → `-private-var----pi-ide`).
- * - Codex CLI: `~/.codex/sessions/YYYY/MM/DD/rollout-<timestamp>-<uuid>.jsonl`.
+ * - Codex CLI: `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<timestamp>-<uuid>.jsonl`
+ *   (`CODEX_HOME` defaults to `~/.codex`).
  *
  * Discovery is time-window based: the newest transcript whose mtime falls
  * inside the session's lifetime is the session. It runs at session end (the
  * transcript's last write is the session's own end), so a later session in the
- * same directory can never be picked. Everything is best-effort: any fs error
- * resolves to null and resume falls back to the CLI's "most recent" flag.
+ * same directory can never be picked. Codex candidates are additionally
+ * matched against the rollout's `session_meta.cwd`, so parallel sessions in
+ * other projects cannot be confused. Everything is best-effort: any fs error
+ * resolves to null; callers must not guess a Codex conversation with `--last`.
  */
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -40,6 +43,8 @@ const START_SLACK_MS = 60_000;
 const END_SLACK_MS = 120_000;
 /** Backfill safety: never walk more day directories than this. */
 const MAX_CODEX_DAYS = 16;
+/** Codex session_meta is currently ~40 KiB; stay bounded if the format grows. */
+const CODEX_META_READ_BYTES = 256 * 1024;
 
 export interface DiscoverInput {
   cli: string;
@@ -49,6 +54,8 @@ export interface DiscoverInput {
   endedAtMs: number;
   /** Test seam. */
   home?: string;
+  /** Test/backfill seam: Codex homes themselves, each containing `sessions/`. */
+  codexHomes?: string[];
 }
 
 interface Candidate {
@@ -100,28 +107,92 @@ function codexDayKeys(startedAtMs: number, endedAtMs: number): string[] {
 }
 
 async function discoverCodex(input: DiscoverInput): Promise<string | null> {
-  const root = join(input.home ?? homedir(), '.codex', 'sessions');
-  const candidates: Candidate[] = [];
-  for (const key of codexDayKeys(input.startedAtMs, input.endedAtMs)) {
-    const dir = join(root, key);
-    let names: string[];
-    try {
-      names = await readdir(dir);
-    } catch {
-      continue; // day directory does not exist
-    }
-    for (const name of names) {
-      const match = CODEX_ROLLOUT_RE.exec(name);
-      if (!match) continue;
+  const defaultHome = join(input.home ?? homedir(), '.codex');
+  const configuredHome = !input.home ? process.env.CODEX_HOME : null;
+  const homes = input.codexHomes ? [...input.codexHomes] : [defaultHome];
+  if (!input.codexHomes && configuredHome && isAbsolute(configuredHome)) {
+    homes.push(configuredHome);
+  }
+
+  const from = input.startedAtMs - START_SLACK_MS;
+  const to = input.endedAtMs + END_SLACK_MS;
+  const candidates: Array<Candidate & { startedAtMs: number }> = [];
+  for (const home of [...new Set(homes.map((value) => resolve(value)))]) {
+    const root = join(home, 'sessions');
+    for (const key of codexDayKeys(input.startedAtMs, input.endedAtMs)) {
+      const dir = join(root, key);
+      let names: string[];
       try {
-        const info = await stat(join(dir, name));
-        candidates.push({ sessionId: match[1]!.toLowerCase(), mtimeMs: info.mtimeMs });
+        names = await readdir(dir);
       } catch {
-        // raced deletion — skip
+        continue; // day directory does not exist
+      }
+      for (const name of names) {
+        const match = CODEX_ROLLOUT_RE.exec(name);
+        if (!match) continue;
+        const path = join(dir, name);
+        try {
+          const info = await stat(path);
+          if (info.mtimeMs < from || info.mtimeMs > to) continue;
+          const meta = await readCodexSessionMeta(path);
+          const filenameId = match[1]!.toLowerCase();
+          if (
+            !meta ||
+            meta.sessionId !== filenameId ||
+            resolve(meta.cwd) !== resolve(input.cwd) ||
+            meta.startedAtMs < from ||
+            meta.startedAtMs > to
+          ) {
+            continue;
+          }
+          candidates.push({
+            sessionId: filenameId,
+            mtimeMs: info.mtimeMs,
+            startedAtMs: meta.startedAtMs,
+          });
+        } catch {
+          // malformed, unreadable, or raced deletion — skip
+        }
       }
     }
   }
-  return newestInWindow(candidates, input);
+
+  // Agent detection follows process launch, so the rollout created closest to
+  // the observed session start is the strongest identity signal. mtime breaks
+  // ties for older fixtures and filesystems with coarse timestamp precision.
+  candidates.sort(
+    (a, b) =>
+      Math.abs(a.startedAtMs - input.startedAtMs) - Math.abs(b.startedAtMs - input.startedAtMs) ||
+      b.mtimeMs - a.mtimeMs,
+  );
+  return candidates[0]?.sessionId ?? null;
+}
+
+async function readCodexSessionMeta(
+  path: string,
+): Promise<{ sessionId: string; cwd: string; startedAtMs: number } | null> {
+  const file = await open(path, 'r');
+  try {
+    const buffer = Buffer.allocUnsafe(CODEX_META_READ_BYTES);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    const text = buffer.subarray(0, bytesRead).toString('utf8');
+    const newline = text.indexOf('\n');
+    if (newline < 0 && bytesRead === buffer.length) return null;
+    const entry = JSON.parse(newline >= 0 ? text.slice(0, newline) : text) as {
+      type?: unknown;
+      timestamp?: unknown;
+      payload?: { id?: unknown; cwd?: unknown; timestamp?: unknown };
+    };
+    if (entry.type !== 'session_meta') return null;
+    const sessionId = typeof entry.payload?.id === 'string' ? entry.payload.id.toLowerCase() : '';
+    const cwd = typeof entry.payload?.cwd === 'string' ? entry.payload.cwd : '';
+    const timestamp = entry.payload?.timestamp ?? entry.timestamp;
+    const startedAtMs = typeof timestamp === 'string' ? Date.parse(timestamp) : Number.NaN;
+    if (!isSafeCliSessionId(sessionId) || !cwd || !Number.isFinite(startedAtMs)) return null;
+    return { sessionId, cwd, startedAtMs };
+  } finally {
+    await file.close();
+  }
 }
 
 /**
