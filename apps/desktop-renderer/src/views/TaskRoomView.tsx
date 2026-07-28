@@ -40,6 +40,7 @@ import { buildPreviewFeedbackText } from './preview-feedback.js';
 import { ExternalTerminalColumn, useExternalFiles } from './ExternalRoom.js';
 import { roomCopyFor } from './roomCopy.js';
 import { SessionToolCanvas, type SessionFileStat } from './SessionToolCanvas.js';
+import { isCurrentVerificationPass, useVerificationEvidence } from './verification-evidence.js';
 import { SessionSplitHandle } from './SessionSplitHandle.js';
 import { CodeContextAttachments } from './CodeContextAttachments.js';
 import { sessionDisplayTitle } from '../store/sessionAttention.js';
@@ -148,21 +149,14 @@ export function TaskRoomView(): React.JSX.Element {
     void useTaskStore.getState().openTask(taskId);
   }, [taskId]);
 
-  // Verification evidence: latest run per label from the recorded events.
-  const verifications = useMemo(() => {
-    const byLabel = new Map<string, { label: string; state: string }>();
-    for (const event of store.timeline) {
-      if (event.type !== 'verification.completed') continue;
-      const run = (event.payload as { run?: { label?: unknown; state?: unknown } }).run;
-      if (run && typeof run.label === 'string') {
-        byLabel.set(run.label, { label: run.label, state: String(run.state ?? '') });
-      }
-    }
-    return [...byLabel.values()].slice(-8);
-  }, [store.timeline]);
+  const verifications = useVerificationEvidence(
+    task?.id ?? null,
+    task?.updatedAt ?? null,
+    store.timeline,
+  ).slice(-8);
   const reviewHasFailedChecks =
     task?.state === 'REVIEW_READY' &&
-    verifications.some((verification) => verification.state !== 'passed');
+    verifications.some((verification) => !isCurrentVerificationPass(verification));
 
   if (!task) {
     return (

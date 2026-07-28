@@ -25,6 +25,7 @@ export const TASK_STATE_META: Record<TaskState, { label: string; short: string; 
       tone: 'warn',
     },
     IN_PROGRESS: { label: 'Working', short: 'Working', tone: 'run' },
+    AWAITING_USER: { label: 'Waiting for your answer', short: 'Question', tone: 'warn' },
     AWAITING_PERMISSION: { label: 'Needs your permission', short: 'Permission', tone: 'warn' },
     VERIFYING: { label: 'Running verification', short: 'Verifying', tone: 'run' },
     REVIEW_READY: { label: 'Ready to review', short: 'Review', tone: 'ok' },
@@ -123,6 +124,7 @@ export function canResumeExternal(task: ExternalishTask): boolean {
 /** Attention = the amber Inbox: states that block on the user (ADR-0009:
  * zero-change "Answered" tasks are excluded — they ask for nothing). */
 export const ATTENTION_STATES = [
+  'AWAITING_USER',
   'AWAITING_PERMISSION',
   'AWAITING_PLAN_APPROVAL',
   'REVIEW_READY',
@@ -267,6 +269,39 @@ export function toolVerb(name: string): string {
   if (known) return known;
   const words = name.replace(/[_-]+/g, ' ').trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** User-facing action names for approval and error surfaces; raw ids stay in details. */
+const TOOL_ACTION_LABELS: Record<string, string> = {
+  read_file: 'Read a file',
+  list_directory: 'List project files',
+  search_text: 'Search the project',
+  git_status: 'Check Git status',
+  git_diff: 'Read the Git diff',
+  create_file: 'Create a file',
+  apply_patch: 'Modify files',
+  delete_file: 'Delete a file',
+  rename_file: 'Rename a file',
+  run_command: 'Run a command',
+  run_verification: 'Run verification',
+  terminal_create: 'Create a terminal',
+  terminal_send: 'Send input to a terminal',
+  terminal_kill: 'Close a terminal',
+};
+
+export function toolActionLabel(name: string): string {
+  return TOOL_ACTION_LABELS[name] ?? toolVerb(name);
+}
+
+const ERROR_TITLES: Record<string, string> = {
+  AG_PROVIDER_ERROR: 'Provider request failed',
+  AG_WORKER_ERROR: 'Agent worker failed',
+  AG_SESSION_NOT_FOUND: 'Agent session unavailable',
+  CANCELLED: 'Run stopped',
+};
+
+export function errorTitle(code?: string): string {
+  return (code && ERROR_TITLES[code]) || 'Run failed';
 }
 
 /** Humane tool lifecycle word (never the raw enum). */

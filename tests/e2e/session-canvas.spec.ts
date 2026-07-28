@@ -83,6 +83,10 @@ test.describe('Unified Session Canvas', () => {
       await expect(page.getByTestId('task-room')).toBeVisible();
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
       await expect(page.getByTestId('session-tool-canvas')).toBeVisible();
+      const toolCanvas = page.getByTestId('session-tool-canvas');
+      for (const name of ['File', 'Diff', 'Preview', 'Terminal', 'Review']) {
+        await expect(toolCanvas.getByRole('tab', { name, exact: true })).toBeAttached();
+      }
       await expect(page.getByTestId('session-tool-review')).toHaveAttribute(
         'aria-selected',
         'true',

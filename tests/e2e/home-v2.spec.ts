@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { launchApp } from './helpers/launch';
-import { createTsSmallFixture } from './helpers/fixtures';
+import { createGitFixture, createTsSmallFixture } from './helpers/fixtures';
 
 /**
  * Home v2 (ADR-0005/0006, PIVOT-011..015): advanced charter, persistent Inbox,
@@ -52,7 +52,7 @@ test.describe('Home v2 — advanced charter, persistent Inbox, context feeding',
   });
 
   test('PIVOT-012/015: advanced fields and @refs land in the task charter', async () => {
-    const fixture = createTsSmallFixture();
+    const fixture = createGitFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
     });
@@ -65,6 +65,13 @@ test.describe('Home v2 — advanced charter, persistent Inbox, context feeding',
       // Advanced charter (PIVOT-012).
       await page.getByTestId('home-advanced-toggle').click();
       await expect(page.getByTestId('home-advanced')).toBeVisible();
+      await expect(page.getByRole('textbox', { name: 'Boundaries' })).toBeVisible();
+      await expect(
+        page.getByRole('textbox', { name: 'Success criteria (one per line)' }),
+      ).toBeVisible();
+      await expect(page.getByTestId('home-adv-worktree-explainer')).toContainText(
+        'separate checkout and branch',
+      );
       await page.getByTestId('home-adv-boundaries').fill('Do not change public API signatures');
       await page
         .getByTestId('home-adv-criteria')
@@ -224,6 +231,10 @@ test.describe('Home v2 — advanced charter, persistent Inbox, context feeding',
         'aria-current',
         'page',
       );
+      await page.getByTestId('settings-use-mock-runtime').check();
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('home-model')).toContainText('Mock Model 1');
+      await expect(page.getByTestId('home-submit')).toBeEnabled();
     } finally {
       await app.close();
     }

@@ -114,4 +114,10 @@ export class SqlVerificationRepo implements VerificationRepo {
       )
       .run(taskId, currentRevision);
   }
+
+  markAllStale(taskId: string): void {
+    this.db
+      .prepare('UPDATE verification_runs SET stale = 1 WHERE task_id = ? AND stale = 0')
+      .run(taskId);
+  }
 }

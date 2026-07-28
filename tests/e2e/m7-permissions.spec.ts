@@ -26,11 +26,15 @@ test.describe('M7 permission engine (PERM-001..010, §13.3)', () => {
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
     });
     try {
+      await page.setViewportSize({ width: 980, height: 760 });
       await createTask(page, '[scenario:command-install] add a dependency', 'edit', 'Install task');
 
       // The approval card appears; task is AWAITING_PERMISSION.
       await expect(page.getByTestId('perm-card')).toBeVisible({ timeout: 20000 });
       await expect(page.getByTestId('perm-risk')).toHaveText('R3');
+      await expect(page.getByTestId('perm-card').locator(':scope > button').first()).toContainText(
+        'Run a command',
+      );
       await expect(page.getByTestId('task-state')).toHaveAttribute(
         'data-state',
         'AWAITING_PERMISSION',
@@ -38,6 +42,21 @@ test.describe('M7 permission engine (PERM-001..010, §13.3)', () => {
       // R3 offers no persistent grant (PERM-003): only "allow once" is present.
       await expect(page.getByTestId('perm-allow-task')).toHaveCount(0);
       await expect(page.getByTestId('perm-allow-workspace')).toHaveCount(0);
+      const decisionIsVisible = await page.evaluate(() => {
+        const risk = document.querySelector('[data-testid="perm-risk"]')?.getBoundingClientRect();
+        const allow = document
+          .querySelector('[data-testid="perm-allow-once"]')
+          ?.getBoundingClientRect();
+        return Boolean(
+          risk &&
+          allow &&
+          risk.top >= 0 &&
+          allow.top >= 0 &&
+          risk.bottom <= window.innerHeight &&
+          allow.bottom <= window.innerHeight,
+        );
+      });
+      expect(decisionIsVisible).toBe(true);
 
       await page.getByTestId('perm-reason').fill('please avoid new dependencies');
       await page.getByTestId('perm-deny').click();
@@ -128,6 +147,8 @@ test.describe('M7 permission engine (PERM-001..010, §13.3)', () => {
     try {
       await createTask(page, '[scenario:ask-clarify] set things up', 'edit', 'Clarify');
       await expect(page.getByTestId('q-card')).toBeVisible({ timeout: 20000 });
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'AWAITING_USER');
+      await expect(page.getByTestId('rail-tab-dot')).toBeVisible();
       await page.getByTestId('q-option-0').click(); // choose "npm"
       await expect(page.getByTestId('tl-agent').last()).toContainText('proceeding', {
         timeout: 20000,

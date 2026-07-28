@@ -197,6 +197,69 @@
   margin: 0 auto;
 }
 
+/* Permission decisions keep risk, target, and actions in one compact viewport.
+   Commands and diffs remain available, but no longer push the decision off-screen. */
+.permission-card-risk {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+}
+.permission-card-summary {
+  color: var(--fg);
+  font-weight: 560;
+  line-height: 1.45;
+}
+.permission-card-targets {
+  margin-top: 5px;
+  color: var(--fg-muted);
+  font: 11px var(--font-mono, 'SF Mono', Menlo, monospace);
+  overflow-wrap: anywhere;
+}
+.permission-card-targets b {
+  margin-right: 5px;
+  color: var(--fg);
+  font-family: var(--font-ui);
+}
+.permission-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+.permission-card-details {
+  margin-top: 7px;
+  font-size: 11px;
+}
+.permission-card-details > summary,
+.rt-run-technical > summary {
+  cursor: pointer;
+}
+.permission-card-technical {
+  display: grid;
+  gap: 6px;
+  padding-top: 6px;
+}
+.permission-card-technical pre {
+  max-width: 100%;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.permission-card-diff {
+  max-height: 150px;
+  overflow: auto;
+  padding: 7px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-input);
+}
+.rt-run-technical {
+  margin: 6px 10px 8px;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
 /* Only exceptional/outcome milestones remain in the main reading flow. */
 .rt-milestone {
   display: flex;

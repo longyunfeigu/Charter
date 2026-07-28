@@ -198,6 +198,17 @@ describe('change set projection (CHG-005)', () => {
     expect(b.status).toBe('created');
     expect(changeSet.totalAdditions).toBeGreaterThan(0);
   });
+
+  it('reconciles disk changes when an open logical buffer temporarily lags', async () => {
+    await docs.open('a.txt');
+    await service.ensureBaseline('t1', 'a.txt');
+    writeFileSync(join(root, 'a.txt'), 'changed on disk\n');
+
+    expect((await service.changeSet('t1')).files).toHaveLength(0);
+    const durable = await service.changeSetFromDisk('t1');
+    expect(durable.files).toHaveLength(1);
+    expect(durable.files[0]).toMatchObject({ path: 'a.txt', status: 'modified' });
+  });
 });
 
 describe('rollback engine (CHG-009..012)', () => {

@@ -96,4 +96,73 @@ test.describe('Room ending — review bar (ADR-0016, direction B)', () => {
       await app.close();
     }
   });
+
+  test('a failed follow-up write is reported as failed and requires explicit acceptance', async () => {
+    const fixture = createTsSmallFixture();
+    const { app, page } = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+    });
+    try {
+      await page.getByTestId('surface-home').click();
+      await page.getByTestId('home-mode-auto').click();
+      await page.getByTestId('home-intent').fill('[scenario:edit-basic] first pass');
+      await page.getByTestId('home-submit').click();
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+        timeout: 30000,
+      });
+
+      // Re-running the deterministic patch against the already changed file
+      // produces CHG_PATCH_FAILED while earlier changes remain reviewable.
+      await page.getByTestId('agent-input').fill('Apply one more revision.');
+      await page.getByTestId('agent-send').click();
+      await expect(page.getByTestId('tl-tool-apply_patch').last()).toHaveAttribute(
+        'data-state',
+        'FAILED',
+        { timeout: 30000 },
+      );
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+        timeout: 30000,
+      });
+
+      await expect(page.getByTestId('tl-done').last()).toContainText('Latest request failed');
+      await expect(page.getByTestId('session-review-risks')).toContainText(
+        'file action failed in the latest request',
+      );
+      await expect(page.getByTestId('review-failed-checks-warning')).toContainText(
+        'Latest request failed',
+      );
+      await expect(page.getByTestId('review-bar-accept')).toContainText(
+        'Accept despite failed request',
+      );
+      const taskId = await page.getByTestId('task-room').getAttribute('data-task-id');
+      expect(taskId).toBeTruthy();
+      const unconfirmedAccept = await page.evaluate(
+        async (id) => await window.product.rpc['task.accept']!({ taskId: id }),
+        taskId!,
+      );
+      expect(unconfirmedAccept.ok).toBe(false);
+      if (!unconfirmedAccept.ok) {
+        expect(unconfirmedAccept.error?.code).toBe('ACCEPT_NEEDS_CONFIRM');
+      }
+      await page.getByTestId('review-bar-open').click();
+      await expect(page.getByTestId('review-execution-failed')).toContainText(
+        'latest request did not complete',
+      );
+      await expect(page.getByTestId('review-accept-all')).toContainText(
+        'Accept despite failed request',
+      );
+      await page.getByTestId('review-close').click();
+
+      // The first click only arms the explicit risk confirmation.
+      await page.getByTestId('review-bar-accept').click();
+      await expect(page.getByTestId('review-bar-accept-confirm')).toBeVisible();
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY');
+      await page.getByTestId('review-bar-accept-confirm').click();
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
+        timeout: 20000,
+      });
+    } finally {
+      await app.close();
+    }
+  });
 });

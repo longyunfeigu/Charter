@@ -16,6 +16,12 @@ import { LiveBoard } from './LiveBoard.js';
 import { monaco } from '../monaco-setup.js';
 import { addCodeContext } from '../codeContext.js';
 import { CodeContextFloat } from './CodeContextFloat.js';
+import { useExternalStore } from '../store/externalStore.js';
+import {
+  isCurrentVerificationPass,
+  latestFinalReport,
+  reportExecutionFailed,
+} from './verification-evidence.js';
 import {
   announceChange,
   changeKindLabel,
@@ -27,6 +33,8 @@ import {
 export interface SessionVerification {
   label: string;
   state: string;
+  stale: boolean;
+  superseded: boolean;
 }
 
 export interface SessionFileStat {
@@ -113,7 +121,9 @@ export function SessionToolCanvas(props: {
                 key={item.id}
                 type="button"
                 role="tab"
+                aria-label={item.label}
                 aria-selected={active}
+                title={item.label}
                 className={active ? 'active' : ''}
                 data-testid={`session-tool-${item.id}`}
                 disabled={(item.id === 'diff' || item.id === 'file') && files.length === 0}
@@ -747,7 +757,7 @@ function SessionDiffVerification(props: {
 }): React.JSX.Element {
   const store = useTaskStore();
   const configured = props.task.verification.length > 0;
-  const passed = props.verifications.filter((item) => item.state === 'passed').length;
+  const passed = props.verifications.filter(isCurrentVerificationPass).length;
   const allPassed = props.verifications.length > 0 && passed === props.verifications.length;
 
   return (
@@ -835,15 +845,19 @@ function SessionSummary(props: {
 
   const current = activity?.current ?? null;
   const elapsed = current ? Math.max(0, Math.round((now - Date.parse(current.at)) / 1000)) : null;
-  const liveLabel = streamingThinking
-    ? 'Thinking through the next change…'
-    : (current?.label ??
-      (streaming
-        ? 'Composing the next update…'
-        : (action?.label ??
-          (props.task.state === 'REVIEW_READY'
-            ? 'The change set is ready for your decision.'
-            : 'No action is currently running.'))));
+  const hasStaleVerification = props.verifications.some(
+    (verification) => verification.stale || verification.superseded,
+  );
+  const liveLabel = running
+    ? streamingThinking
+      ? 'Thinking through the next change…'
+      : (current?.label ??
+        (streaming ? 'Composing the next update…' : (action?.label ?? 'Working…')))
+    : props.task.state === 'REVIEW_READY'
+      ? 'The change set is ready for your decision.'
+      : hasStaleVerification
+        ? 'Previous verification is stale — re-run checks before relying on it.'
+        : 'No action is currently running.';
 
   return (
     <div className="session-summary" data-testid="session-summary">
@@ -903,13 +917,8 @@ function SessionReviewSummary(props: {
 
   const changeSet = store.changeSet?.taskId === props.task.id ? store.changeSet : null;
 
-  const report = useMemo(() => {
-    for (let index = store.timeline.length - 1; index >= 0; index -= 1) {
-      const event = store.timeline[index]!;
-      if (event.type === 'report.final') return event.payload as Record<string, unknown>;
-    }
-    return null;
-  }, [store.timeline]);
+  const report = useMemo(() => latestFinalReport(store.timeline), [store.timeline]);
+  const executionFailed = reportExecutionFailed(report);
 
   const agentSummary = typeof report?.agentSummary === 'string' ? report.agentSummary : null;
   const risks = Array.isArray(report?.unresolvedRisks)
@@ -925,15 +934,19 @@ function SessionReviewSummary(props: {
   return (
     <div className="session-review-summary" data-testid="review-bar">
       <section className="session-review-lead">
-        <span className="session-review-icon">
-          <Ic name="check" size={16} />
+        <span className={`session-review-icon ${executionFailed ? 'failed' : ''}`}>
+          <Ic name={executionFailed ? 'alert' : 'check'} size={16} />
         </span>
         <div>
-          <span>{copy.reviewReady}</span>
+          <span>{executionFailed ? 'Latest request did not complete' : copy.reviewReady}</span>
           <strong>
             {props.files.length} file{props.files.length === 1 ? '' : 's'} changed
           </strong>
-          <p>{copy.evidenceNote}</p>
+          <p>
+            {executionFailed
+              ? 'A requested file action failed. These existing changes remain reviewable, but the latest fix is not proven complete.'
+              : copy.evidenceNote}
+          </p>
         </div>
         <span className="session-diff-total mono">
           <i className="plus">+{additions}</i> <i className="minus">−{deletions}</i>
@@ -942,7 +955,7 @@ function SessionReviewSummary(props: {
 
       {agentSummary ? (
         <section className="session-review-narrative">
-          <h3>Outcome</h3>
+          <h3>{executionFailed ? "Agent's unverified summary" : "Agent's summary"}</h3>
           <p>{agentSummary}</p>
         </section>
       ) : null}
@@ -1059,14 +1072,19 @@ function VerificationSection(props: {
         <div className="session-verification-result">
           <div className="session-check-ledger" data-testid="session-verification-ledger">
             {props.verifications.map((verification) => {
-              const passed = verification.state === 'passed';
+              const passed = isCurrentVerificationPass(verification);
+              const status = verification.stale
+                ? 'Stale'
+                : verification.superseded
+                  ? 'Superseded'
+                  : passed
+                    ? 'Passed'
+                    : verification.state;
               return (
                 <div key={verification.label}>
                   <Ic name={passed ? 'check' : 'alert'} size={12} />
                   <span>{verification.label}</span>
-                  <strong className={passed ? 'ok' : 'bad'}>
-                    {passed ? 'Passed' : verification.state}
-                  </strong>
+                  <strong className={passed ? 'ok' : 'bad'}>{status}</strong>
                 </div>
               );
             })}
@@ -1098,14 +1116,28 @@ function SessionActionDock({
 }): React.JSX.Element {
   const store = useTaskStore();
   const app = useAppStore();
+  const resumingExternalTaskId = useExternalStore((state) => state.resumingTaskId);
   const running = RUNNING_TASK_STATES.has(task.state);
   const answered = isAnswered(task);
-  const failedChecks = verifications.filter((verification) => verification.state !== 'passed');
+  const report = useMemo(() => latestFinalReport(store.timeline), [store.timeline]);
+  const executionFailed = reportExecutionFailed(report);
+  const failedChecks = verifications.filter(
+    (verification) => !isCurrentVerificationPass(verification),
+  );
   const recordedLabels = new Set(verifications.map((verification) => verification.label));
   const missingChecks = task.verification.filter((check) => !recordedLabels.has(check.label));
   const hasUnverifiedChanges = verifications.length === 0 || missingChecks.length > 0;
-  const hasEvidenceRisk = task.mode !== 'ask' && (failedChecks.length > 0 || hasUnverifiedChanges);
+  const hasEvidenceRisk =
+    task.mode !== 'ask' && (executionFailed || failedChecks.length > 0 || hasUnverifiedChanges);
   const [settledPrDraft, setSettledPrDraft] = useState<PrDraftDto | null>(null);
+  const resumeDisabled = task.external !== null && resumingExternalTaskId !== null;
+  const resumeTask = (): void => {
+    if (task.external) {
+      void useExternalStore.getState().resumeTask(task);
+      return;
+    }
+    void store.resumeTask(task.id);
+  };
 
   useEffect(() => {
     let active = true;
@@ -1129,11 +1161,13 @@ function SessionActionDock({
         {hasEvidenceRisk ? (
           <span className="session-review-failure" data-testid="review-failed-checks-warning">
             <Ic name="alert" size={14} />{' '}
-            {failedChecks.length > 0
-              ? `${failedChecks.length} check${failedChecks.length === 1 ? '' : 's'} failed · accepting keeps an unverified result`
-              : missingChecks.length > 0
-                ? `${missingChecks.length} configured check${missingChecks.length === 1 ? ' has' : 's have'} not run · accepting requires confirmation`
-                : 'No verification has run · accepting requires confirmation'}
+            {executionFailed
+              ? 'Latest request failed · accepting keeps the existing changes without the requested fix'
+              : failedChecks.length > 0
+                ? `${failedChecks.length} check${failedChecks.length === 1 ? '' : 's'} failed · accepting keeps an unverified result`
+                : missingChecks.length > 0
+                  ? `${missingChecks.length} configured check${missingChecks.length === 1 ? ' has' : 's have'} not run · accepting requires confirmation`
+                  : 'No verification has run · accepting requires confirmation'}
           </span>
         ) : null}
         <span className="session-action-note">
@@ -1144,9 +1178,12 @@ function SessionActionDock({
             type="button"
             className="btn"
             data-testid="task-resume"
-            onClick={() => void store.resumeTask(task.id)}
+            disabled={resumeDisabled}
+            onClick={resumeTask}
           >
-            Resume {task.external.cli === 'claude' ? 'Claude' : 'Codex'} session
+            {resumingExternalTaskId === task.id
+              ? 'Resuming…'
+              : `Resume ${task.external.cli === 'claude' ? 'Claude' : 'Codex'} session`}
           </button>
         ) : (
           <button
@@ -1172,14 +1209,18 @@ function SessionActionDock({
         {hasEvidenceRisk ? (
           <ConfirmDangerButton
             label={
-              failedChecks.length > 0
-                ? 'Accept despite failed checks…'
-                : 'Accept without verification…'
+              executionFailed
+                ? 'Accept despite failed request…'
+                : failedChecks.length > 0
+                  ? 'Accept despite failed checks…'
+                  : 'Accept without verification…'
             }
             confirmLabel={
-              failedChecks.length > 0
-                ? 'Confirm — accept failed checks'
-                : 'Confirm — accept unverified changes'
+              executionFailed
+                ? 'Confirm — accept without requested fix'
+                : failedChecks.length > 0
+                  ? 'Confirm — accept failed checks'
+                  : 'Confirm — accept unverified changes'
             }
             testid="review-bar-accept"
             onConfirm={() => void store.acceptTask({ confirmEvidenceRisk: true })}
@@ -1211,9 +1252,12 @@ function SessionActionDock({
           <button
             className="btn"
             data-testid="task-resume"
-            onClick={() => void store.resumeTask(task.id)}
+            disabled={resumeDisabled}
+            onClick={resumeTask}
           >
-            Resume {task.external.cli === 'claude' ? 'Claude' : 'Codex'} session
+            {resumingExternalTaskId === task.id
+              ? 'Resuming…'
+              : `Resume ${task.external.cli === 'claude' ? 'Claude' : 'Codex'} session`}
           </button>
         ) : null}
       </footer>
@@ -1245,24 +1289,31 @@ function SessionActionDock({
         <button
           className="btn primary"
           data-testid="task-resume"
-          onClick={() => void store.resumeTask(task.id)}
+          disabled={resumeDisabled}
+          onClick={resumeTask}
         >
-          Resume
+          {resumingExternalTaskId === task.id ? 'Resuming…' : 'Resume'}
         </button>
       </footer>
     );
   }
 
-  if (task.state === 'AWAITING_PERMISSION' || task.state === 'AWAITING_PLAN_APPROVAL') {
+  if (
+    task.state === 'AWAITING_USER' ||
+    task.state === 'AWAITING_PERMISSION' ||
+    task.state === 'AWAITING_PLAN_APPROVAL'
+  ) {
     return (
       <footer className="session-action-dock compact waiting" data-testid="session-action-dock">
         <span className="session-action-live">
           <i /> Waiting for your decision
         </span>
         <span className="session-action-note">
-          {task.state === 'AWAITING_PERMISSION'
-            ? 'Review the requested action before the Agent can continue.'
-            : 'Approve, edit, or cancel the proposed plan.'}
+          {task.state === 'AWAITING_USER'
+            ? 'Answer the question in the conversation so the Agent can continue.'
+            : task.state === 'AWAITING_PERMISSION'
+              ? 'Review the requested action before the Agent can continue.'
+              : 'Approve, edit, or cancel the proposed plan.'}
         </span>
       </footer>
     );

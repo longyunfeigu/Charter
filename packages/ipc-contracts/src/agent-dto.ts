@@ -8,6 +8,7 @@ export const TaskStateSchema = z.enum([
   'PLANNING',
   'AWAITING_PLAN_APPROVAL',
   'IN_PROGRESS',
+  'AWAITING_USER',
   'AWAITING_PERMISSION',
   'VERIFYING',
   'REVIEW_READY',

@@ -1,5 +1,91 @@
 import { describe, expect, it } from 'vitest';
-import { projectHistoricalOrchestrationFleet } from './task-service.js';
+import {
+  completionDisposition,
+  projectHistoricalOrchestrationFleet,
+  unresolvedFailedWriteCount,
+} from './task-service.js';
+
+describe('completionDisposition', () => {
+  it('never classifies an unreconciled successful write as a chat-only answer', () => {
+    expect(
+      completionDisposition({
+        projectedChangedFiles: 0,
+        successfulWrite: true,
+        failedWrite: false,
+        diskChangedFiles: null,
+      }),
+    ).toBe('review');
+  });
+
+  it('allows a durable write sequence that is proven net-zero to settle as answered', () => {
+    expect(
+      completionDisposition({
+        projectedChangedFiles: 0,
+        successfulWrite: true,
+        failedWrite: false,
+        diskChangedFiles: 0,
+      }),
+    ).toBe('answered');
+  });
+
+  it('requires review when either projection contains net changes', () => {
+    expect(
+      completionDisposition({
+        projectedChangedFiles: 1,
+        successfulWrite: false,
+        failedWrite: false,
+        diskChangedFiles: null,
+      }),
+    ).toBe('review');
+    expect(
+      completionDisposition({
+        projectedChangedFiles: 0,
+        successfulWrite: true,
+        failedWrite: false,
+        diskChangedFiles: 1,
+      }),
+    ).toBe('review');
+  });
+
+  it('fails a write turn with no durable changes and reviews any partial side effects', () => {
+    expect(
+      completionDisposition({
+        projectedChangedFiles: 0,
+        successfulWrite: false,
+        failedWrite: true,
+        diskChangedFiles: 0,
+      }),
+    ).toBe('failed');
+    expect(
+      completionDisposition({
+        projectedChangedFiles: 2,
+        successfulWrite: false,
+        failedWrite: true,
+        diskChangedFiles: 2,
+      }),
+    ).toBe('review');
+  });
+});
+
+describe('unresolvedFailedWriteCount', () => {
+  it('treats a later successful write to the same path as a recovered retry', () => {
+    expect(
+      unresolvedFailedWriteCount([
+        { name: 'apply_patch', state: 'FAILED', inputJson: '{"path":"src/index.ts"}' },
+        { name: 'apply_patch', state: 'SUCCEEDED', inputJson: '{"path":"src/index.ts"}' },
+      ]),
+    ).toBe(0);
+  });
+
+  it('keeps a failed target unresolved when only a different file later succeeds', () => {
+    expect(
+      unresolvedFailedWriteCount([
+        { name: 'apply_patch', state: 'FAILED', inputJson: '{"path":"src/index.ts"}' },
+        { name: 'create_file', state: 'SUCCEEDED', inputJson: '{"path":"src/other.ts"}' },
+      ]),
+    ).toBe(1);
+  });
+});
 
 describe('projectHistoricalOrchestrationFleet', () => {
   it('recovers legacy worker tasks by terminal id and excludes explicitly killed workers', () => {

@@ -88,6 +88,12 @@ export interface ChangeSet {
   totalDeletions: number;
 }
 
+interface CurrentFileState {
+  content: string;
+  hash: string;
+  binary: boolean;
+}
+
 export interface RollbackConflict {
   path: string;
   reason: string;
@@ -549,8 +555,10 @@ export class ChangeService {
     });
   }
 
-  /** CHG-005: net changes — baseline vs current logical content per touched path. */
-  async changeSet(taskId: string): Promise<ChangeSet> {
+  private async projectChangeSet(
+    taskId: string,
+    readCurrent: (path: string) => Promise<CurrentFileState | null>,
+  ): Promise<ChangeSet> {
     const baselines = this.repo.baselinesFor(taskId);
     const renames = this.repo.changesFor(taskId).filter((c) => c.kind === 'renamed') as Array<
       FileChangeRecord & { renameTo: string }
@@ -562,7 +570,7 @@ export class ChangeService {
     for (const baseline of baselines) {
       const path = baseline.relativePath;
       const baselineBytes = baseline.blobHash ? await this.blobs.get(baseline.blobHash) : null;
-      const current = await this.documents.readLogical(path).catch(() => null);
+      const current = await readCurrent(path);
       const currentExists = current !== null;
       const baselineExisted = baseline.existed;
 
@@ -617,6 +625,33 @@ export class ChangeService {
 
     files.sort((a, b) => a.path.localeCompare(b.path));
     return { taskId, files, totalAdditions, totalDeletions };
+  }
+
+  /** CHG-005: net changes — baseline vs current logical content per touched path. */
+  async changeSet(taskId: string): Promise<ChangeSet> {
+    return await this.projectChangeSet(taskId, (path) =>
+      this.documents.readLogical(path).catch(() => null),
+    );
+  }
+
+  /**
+   * Durable reconciliation used at run completion. A clean logical projection
+   * normally matches disk, but renderer/document events can still be in flight
+   * when the worker finishes. Disk is the second source of truth for deciding
+   * whether a successful write has left reviewable net changes.
+   */
+  async changeSetFromDisk(taskId: string): Promise<ChangeSet> {
+    return await this.projectChangeSet(taskId, async (path) => {
+      try {
+        const absolute = await resolveInsideRoot(this.root, path);
+        const bytes = await fs.readFile(absolute);
+        const binary = detectBinary(bytes);
+        const content = binary ? '' : stripBom(bytes.toString('utf8'));
+        return { content, hash: sha(content), binary };
+      } catch {
+        return null;
+      }
+    });
   }
 
   /**

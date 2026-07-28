@@ -121,6 +121,59 @@ function countPatchLines(patch: string | null): { additions: number; deletions: 
   return { additions, deletions };
 }
 
+export function completionDisposition(input: {
+  projectedChangedFiles: number;
+  successfulWrite: boolean;
+  failedWrite: boolean;
+  diskChangedFiles: number | null;
+}): 'answered' | 'review' | 'failed' {
+  if (input.projectedChangedFiles > 0) return 'review';
+  if (input.failedWrite) return 'failed';
+  if (!input.successfulWrite) return 'answered';
+  // A failed disk reconciliation is not proof of zero changes. Fail closed so
+  // a durable successful write can never be presented as a chat-only answer.
+  return input.diskChangedFiles === 0 ? 'answered' : 'review';
+}
+
+export interface WriteAuditDisposition {
+  name: string;
+  state: string;
+  inputJson: string;
+}
+
+function writeAuditTargets(row: WriteAuditDisposition): Set<string> {
+  try {
+    const input = JSON.parse(row.inputJson) as { path?: unknown; from?: unknown; to?: unknown };
+    return new Set(
+      [input.path, input.from, input.to].filter(
+        (value): value is string => typeof value === 'string' && value.length > 0,
+      ),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/** A failed write is unresolved until a later successful write touches the
+ * same target. This preserves fail-closed reporting without mislabelling the
+ * normal stale-read → re-read → successful retry path. */
+export function unresolvedFailedWriteCount(rows: WriteAuditDisposition[]): number {
+  const targets = rows.map(writeAuditTargets);
+  let unresolved = 0;
+  for (let index = 0; index < rows.length; index += 1) {
+    if (rows[index]!.state !== 'FAILED') continue;
+    const failedTargets = targets[index]!;
+    const recovered = rows.slice(index + 1).some((later, offset) => {
+      if (later.state !== 'SUCCEEDED') return false;
+      const laterTargets = targets[index + offset + 1]!;
+      if (failedTargets.size === 0 || laterTargets.size === 0) return false;
+      return [...failedTargets].some((target) => laterTargets.has(target));
+    });
+    if (!recovered) unresolved += 1;
+  }
+  return unresolved;
+}
+
 export interface CreateTaskInput {
   title: string;
   goalMd: string;
@@ -279,7 +332,12 @@ export class TaskService {
   /** Open ask_user questions waiting for an answer, keyed by callId. */
   private readonly pendingAsks = new Map<
     string,
-    { prompt: AskUserPromptDto; resolve: (answer: string) => void; cleanup: () => void }
+    {
+      prompt: AskUserPromptDto;
+      resumeState: 'EXPLORING' | 'PLANNING' | 'IN_PROGRESS';
+      resolve: (answer: string) => void;
+      cleanup: () => void;
+    }
   >();
   /** Plan projection per task (rebuilt from task_events on demand). */
   private readonly planRecords = new Map<
@@ -566,6 +624,10 @@ export class TaskService {
       createdAt: new Date().toISOString(),
     };
     this.recordEvent(prompt.taskId, 'agent.question', { prompt: dto });
+    const currentState = this.getTask(prompt.taskId).state;
+    const resumeState =
+      currentState === 'EXPLORING' || currentState === 'PLANNING' ? currentState : 'IN_PROGRESS';
+    if (currentState !== 'AWAITING_USER') this.safeTransition(prompt.taskId, 'AWAITING_USER');
     return new Promise<string>((resolve, reject) => {
       const onAbort = () => {
         this.pendingAsks.delete(prompt.callId);
@@ -578,6 +640,7 @@ export class TaskService {
       signal.addEventListener('abort', onAbort, { once: true });
       this.pendingAsks.set(prompt.callId, {
         prompt: dto,
+        resumeState,
         resolve,
         cleanup: () => signal.removeEventListener('abort', onAbort),
       });
@@ -595,6 +658,12 @@ export class TaskService {
       kind: 'answer',
       callId,
     });
+    const hasAnotherQuestion = [...this.pendingAsks.values()].some(
+      (pending) => pending.prompt.taskId === entry.prompt.taskId,
+    );
+    if (!hasAnotherQuestion && this.getTask(entry.prompt.taskId).state === 'AWAITING_USER') {
+      this.setState(entry.prompt.taskId, entry.resumeState);
+    }
     entry.resolve(answer);
     return true;
   }
@@ -965,7 +1034,11 @@ export class TaskService {
 
   async changeSetForReview(taskId: string): Promise<ChangeSetDto> {
     const changes = this.contextForTask(taskId).changes;
-    const cs = await changes.changeSet(taskId);
+    let cs = await changes.changeSet(taskId);
+    if (cs.files.length === 0 && (this.getTask(taskId).changedFiles ?? 0) > 0) {
+      const durable = await changes.changeSetFromDisk(taskId);
+      if (durable.files.length > 0) cs = durable;
+    }
     const decisions = this.reviewDecisions(taskId);
     const files: ChangeSetFileDto[] = cs.files.map((file) => {
       const fileDecision = decisions.files.get(file.path);
@@ -1097,6 +1170,35 @@ export class TaskService {
   /** ADR-0032: accepting settles the pending turn(s) and returns the Session
    * to IDLE — the conversation continues. Worktree merge-back moved to
    * archive time (the tree must survive later turns). Not a git commit. */
+  private latestFinalReportOutcome(taskId: string): string | null {
+    const row = this.db
+      .prepare(
+        "SELECT payload_json FROM task_events WHERE task_id = ? AND type = 'report.final' ORDER BY sequence DESC LIMIT 1",
+      )
+      .get(taskId) as { payload_json: string } | undefined;
+    if (!row) return null;
+    try {
+      const payload = JSON.parse(row.payload_json) as { outcome?: unknown };
+      return typeof payload.outcome === 'string' ? payload.outcome : null;
+    } catch {
+      // Malformed evidence must never silently weaken an acceptance gate.
+      return 'failed';
+    }
+  }
+
+  private unresolvedFailedWritesForRun(runId: string): number {
+    const rows = this.db
+      .prepare(
+        `SELECT name, state, input_json AS inputJson
+         FROM tool_calls
+         WHERE run_id = ?
+           AND name IN ('apply_patch','create_file','delete_file','rename_file')
+         ORDER BY COALESCE(ended_at, created_at), rowid`,
+      )
+      .all(runId) as unknown as WriteAuditDisposition[];
+    return unresolvedFailedWriteCount(rows);
+  }
+
   async acceptTask(
     taskId: string,
     options: {
@@ -1164,17 +1266,20 @@ export class TaskService {
     const pendingChecks = currentVerificationRuns.filter((run) => run.state === 'running');
     const staleChecks = currentVerificationRuns.filter((run) => run.stale);
     const hasRealChanges = changeSetAtAccept.files.length > 0;
+    const latestRequestFailed = this.latestFinalReportOutcome(taskId) === 'failed';
     const needsEvidenceConfirmation =
       task.mode !== 'ask' &&
       hasRealChanges &&
-      (currentVerificationRuns.length === 0 ||
+      (latestRequestFailed ||
+        currentVerificationRuns.length === 0 ||
         missingConfiguredChecks.length > 0 ||
         failedChecks.length > 0 ||
         pendingChecks.length > 0 ||
         staleChecks.length > 0);
     if (needsEvidenceConfirmation && !options.confirmUnverified) {
-      const userMessage =
-        failedChecks.length > 0
+      const userMessage = latestRequestFailed
+        ? 'The latest request did not complete because a file action failed. Accept the existing changes without that requested fix?'
+        : failedChecks.length > 0
           ? `${failedChecks.length} current verification check${failedChecks.length === 1 ? '' : 's'} failed or stopped. Accept the changes despite failed checks?`
           : staleChecks.length > 0
             ? `${staleChecks.length} current verification result${staleChecks.length === 1 ? ' is' : 's are'} stale because the code changed. Accept without fresh verification?`
@@ -1214,6 +1319,7 @@ export class TaskService {
       at: new Date().toISOString(),
       actor: options.actor ?? 'user',
       unverifiedConfirmed,
+      executionFailureConfirmed: latestRequestFailed && options.confirmUnverified === true,
       settledRunIds,
     });
     const accepted = this.setState(taskId, 'IDLE');
@@ -1392,6 +1498,7 @@ export class TaskService {
     // tree gone the conversation has no working context left — archive it.
     if (task.worktree) {
       const context = this.contextForTask(taskId);
+      context.verifications.markAllStale(taskId);
       await this.worktrees.discard(task.projectPath, task.worktree as TaskWorktree);
       this.contexts.drop(context.root);
       this.settleRuns(taskId, 'rolled_back');
@@ -1443,6 +1550,7 @@ export class TaskService {
         }),
       );
     }
+    this.contextForTask(taskId).verifications.markAllStale(taskId);
     return { status: 'ok', task: this.safeSettleToIdle(taskId), restored: report.restored };
   }
 
@@ -1562,6 +1670,8 @@ export class TaskService {
         restored: result.restored,
         conflictsOverridden: result.conflicts.map((c) => c.path),
       });
+      const revision = await this.codeRevision(taskId);
+      if (revision) this.contextForTask(taskId).verifications.markStale(taskId, revision);
       return { status: 'ok', task: this.safeSettleToIdle(taskId), restored: result.restored };
     }
     // A chat-only turn: nothing on disk — settling the ledger is the rollback.
@@ -3360,22 +3470,75 @@ export class TaskService {
         // Ask flow: EXPLORING → IN_PROGRESS → … (§6.1 exact hops).
         this.setState(taskId, 'IN_PROGRESS');
       }
-      const report = await this.buildFinalReportData(taskId, runId, 'completed');
+      const successfulWrite = this.db
+        .prepare(
+          `SELECT 1 AS found FROM tool_calls
+           WHERE run_id = ? AND state = 'SUCCEEDED'
+             AND name IN ('apply_patch','create_file','delete_file','rename_file')
+           LIMIT 1`,
+        )
+        .get(runId) as { found: number } | undefined;
+      const failedWriteCount = this.unresolvedFailedWritesForRun(runId);
+      // Make the final report and the state transition observe the same current
+      // verification truth. The audit callback also invalidates asynchronously,
+      // but completion must not race that background projection.
+      if (successfulWrite) {
+        const revision = await this.codeRevision(taskId);
+        if (revision) this.contextForTask(taskId).verifications.markStale(taskId, revision);
+      }
+      const reportOutcome = failedWriteCount > 0 ? 'failed' : 'completed';
+      const report = await this.buildFinalReportData(taskId, runId, reportOutcome);
       // ADR-0009: record the net changed-file count — zero-change turns get the
       // light "Answered" settlement.
-      const changedFiles = ((report.changed as { files?: number } | undefined)?.files ?? 0) | 0;
+      let changedFiles = ((report.changed as { files?: number } | undefined)?.files ?? 0) | 0;
+      let diskChangedFiles: number | null = null;
+      if (changedFiles === 0 && (successfulWrite || failedWriteCount > 0)) {
+        try {
+          const durable = await this.contextForTask(taskId).changes.changeSetFromDisk(taskId);
+          diskChangedFiles = durable.files.length;
+          if (durable.files.length > 0) {
+            report.changed = {
+              files: durable.files.length,
+              additions: durable.totalAdditions,
+              deletions: durable.totalDeletions,
+              list: durable.files.map((file) => ({
+                path: file.path,
+                status: file.status,
+                additions: file.additions,
+                deletions: file.deletions,
+              })),
+            };
+            changedFiles = durable.files.length;
+          }
+        } catch {
+          // The disposition below fails closed when reconciliation is unavailable.
+        }
+      }
       this.db.prepare('UPDATE tasks SET changed_files = ? WHERE id = ?').run(changedFiles, taskId);
+      if (failedWriteCount > 0) {
+        this.recordEvent(taskId, 'system.diagnostic', {
+          code: 'RUN_WRITE_FAILED',
+          detail: `Latest request did not complete: ${failedWriteCount} file action${failedWriteCount === 1 ? '' : 's'} failed. The Agent's message is an unverified narrative; use the recorded tool result and Diff as the source of truth.`,
+        });
+      }
       this.recordEvent(taskId, 'report.final', report);
       // ADR-0032: nothing to review — settle this turn as answered and keep
       // the conversation open. Earlier unsettled turns keep their pending
       // review (visible in the rail turn list).
-      if (changedFiles === 0) {
-        const pendingChanges = await this.contextForTask(taskId).changes.changeSet(taskId);
-        if (pendingChanges.files.length === 0) {
-          this.settleRuns(taskId, 'answered', runId);
-          this.safeTransition(taskId, 'IDLE');
-          return;
-        }
+      const disposition = completionDisposition({
+        projectedChangedFiles: changedFiles,
+        successfulWrite: successfulWrite !== undefined,
+        failedWrite: failedWriteCount > 0,
+        diskChangedFiles,
+      });
+      if (disposition === 'failed') {
+        this.safeTransition(taskId, 'FAILED');
+        return;
+      }
+      if (disposition === 'answered') {
+        this.settleRuns(taskId, 'answered', runId);
+        this.safeTransition(taskId, 'IDLE');
+        return;
       }
       const current = this.getTask(taskId).state;
       if (current === 'VERIFYING') this.setState(taskId, 'REVIEW_READY');
@@ -3398,6 +3561,14 @@ export class TaskService {
   /** Full mode (ADR-0012): auto-accept unless the evidence says stop. */
   private async autoAcceptFullTask(taskId: string): Promise<void> {
     try {
+      if (this.latestFinalReportOutcome(taskId) === 'failed') {
+        this.recordEvent(taskId, 'system.diagnostic', {
+          code: 'AUTO_APPLY_SKIPPED',
+          detail: 'Auto-apply paused: the latest request contains a failed file action.',
+        });
+        this.attention(taskId, 'Auto-apply paused: a file action failed — review the changes.');
+        return;
+      }
       const context = this.contextForTask(taskId);
       const runs = context.verifications.listForTask(taskId);
       const failed = runs.filter((r) => r.state === 'failed' || r.state === 'timeout');
@@ -3474,11 +3645,27 @@ export class TaskService {
           .get(effectiveRunId) as
           { usage_json: string | null; provider: string; model: string } | undefined)
       : undefined;
-    const toolCounts = this.db
-      .prepare('SELECT state, COUNT(*) as n FROM tool_calls WHERE task_id = ? GROUP BY state')
-      .all(taskId) as Array<{ state: string; n: number }>;
+    const toolCounts = effectiveRunId
+      ? (this.db
+          .prepare('SELECT state, COUNT(*) as n FROM tool_calls WHERE run_id = ? GROUP BY state')
+          .all(effectiveRunId) as Array<{ state: string; n: number }>)
+      : (this.db
+          .prepare('SELECT state, COUNT(*) as n FROM tool_calls WHERE task_id = ? GROUP BY state')
+          .all(taskId) as Array<{ state: string; n: number }>);
     const deniedCount = toolCounts.find((t) => t.state === 'DENIED')?.n ?? 0;
     const failedCount = toolCounts.find((t) => t.state === 'FAILED')?.n ?? 0;
+    const failedWriteCount = effectiveRunId ? this.unresolvedFailedWritesForRun(effectiveRunId) : 0;
+    const failedWriteTotal = effectiveRunId
+      ? (
+          this.db
+            .prepare(
+              `SELECT COUNT(*) AS count FROM tool_calls
+               WHERE run_id = ? AND state = 'FAILED'
+                 AND name IN ('apply_patch','create_file','delete_file','rename_file')`,
+            )
+            .get(effectiveRunId) as { count: number }
+        ).count
+      : 0;
 
     // Agent self-description: the last visible assistant message.
     const lastMessage = this.db
@@ -3535,7 +3722,17 @@ export class TaskService {
 
     const unresolvedRisks: string[] = [];
     if (deniedCount > 0) unresolvedRisks.push(`${deniedCount} tool call(s) were denied`);
-    if (failedCount > 0) unresolvedRisks.push(`${failedCount} tool call(s) failed`);
+    if (failedWriteCount > 0) {
+      unresolvedRisks.push(
+        `${failedWriteCount} file action${failedWriteCount === 1 ? '' : 's'} failed in the latest request`,
+      );
+    }
+    if (failedCount > failedWriteTotal) {
+      const otherFailedCount = failedCount - failedWriteTotal;
+      unresolvedRisks.push(
+        `${otherFailedCount} other tool action${otherFailedCount === 1 ? '' : 's'} failed`,
+      );
+    }
     if (failed > 0) unresolvedRisks.push(`${failed} verification(s) failing`);
     if (runs.some((r) => r.stale === true))
       unresolvedRisks.push('some verification results are stale (code changed afterwards)');
@@ -3557,6 +3754,11 @@ export class TaskService {
       diagnosticsNote:
         'Problems counts are live workspace state; check the Problems panel before accepting (VER-009).',
       unresolvedRisks,
+      execution: {
+        failedToolCalls: failedCount,
+        failedWriteCalls: failedWriteCount,
+        recoveredWriteFailures: Math.max(0, failedWriteTotal - failedWriteCount),
+      },
       toolCounts,
       model: usageRow ? { provider: usageRow.provider, model: usageRow.model } : null,
       usage: usageRow?.usage_json ? JSON.parse(usageRow.usage_json) : null,
@@ -3783,6 +3985,7 @@ export class TaskService {
       'PLANNING',
       'AWAITING_PLAN_APPROVAL',
       'IN_PROGRESS',
+      'AWAITING_USER',
       'AWAITING_PERMISSION',
       'VERIFYING',
       'REVIEW_READY',
@@ -3807,6 +4010,7 @@ export class TaskService {
 
   /** Restart-time scan (M10 expands): mark previously-running tasks interrupted. */
   markOrphanedRunsInterrupted(liveExternalTerminalIds: ReadonlySet<string> = new Set()): void {
+    const interruptedAt = new Date().toISOString();
     // Permission requests left PENDING by a previous process can never be
     // answered — the waiting tool call died with that process. Record the
     // cancellation in the task event log too, so the timeline's card resolves
@@ -3828,7 +4032,7 @@ export class TaskService {
       .prepare(
         "UPDATE permission_requests SET state = 'CANCELLED', resolved_at = ? WHERE state = 'PENDING'",
       )
-      .run(new Date().toISOString());
+      .run(interruptedAt);
     for (const req of orphaned) {
       let summary = '';
       try {
@@ -3849,10 +4053,37 @@ export class TaskService {
         summary,
       });
     }
+    // Verification commands are main-process children. A prior process cannot
+    // still own a trustworthy result, so reconcile the durable ledger before
+    // projecting interrupted tasks. The parent-death watchdog separately
+    // guarantees that the corresponding process group is terminated.
+    const interruptedVerifications = this.db
+      .prepare(
+        "SELECT task_id, COUNT(*) AS count FROM verification_runs WHERE state = 'running' AND ended_at IS NULL GROUP BY task_id",
+      )
+      .all() as Array<{ task_id: string; count: number }>;
+    const interruptedVerificationCount = new Map(
+      interruptedVerifications.map((entry) => [entry.task_id, entry.count]),
+    );
+    this.db
+      .prepare(
+        `UPDATE verification_runs
+         SET state = 'cancelled', cancelled = 1, timed_out = 0, ended_at = ?,
+             output_excerpt = CASE
+               WHEN COALESCE(output_excerpt, '') = '' THEN ?
+               ELSE output_excerpt || char(10) || ?
+             END
+         WHERE state = 'running' AND ended_at IS NULL`,
+      )
+      .run(
+        interruptedAt,
+        'The application exited before verification finished. This result is cancelled and is not trusted.',
+        'The application exited before verification finished. This result is cancelled and is not trusted.',
+      );
     // ADR-0009: tasks are global — the restart scan covers every project.
     const rows = this.db
       .prepare(
-        "SELECT id, state, external_json FROM tasks WHERE state IN ('EXPLORING','PLANNING','IN_PROGRESS','AWAITING_PERMISSION','VERIFYING')",
+        "SELECT id, state, external_json FROM tasks WHERE state IN ('EXPLORING','PLANNING','IN_PROGRESS','AWAITING_USER','AWAITING_PERMISSION','VERIFYING')",
       )
       .all() as Array<{ id: string; state: string; external_json: string | null }>;
     for (const row of rows) {
@@ -3864,14 +4095,15 @@ export class TaskService {
       }
       this.recordEvent(row.id, 'system.interruptedByRestart', {
         previousState: row.state,
-        note: 'The application restarted while this task was running (INTERRUPTED_BY_RESTART).',
+        note: 'The application restarted while this task was running. No action was replayed.',
+        cancelledVerificationRuns: interruptedVerificationCount.get(row.id) ?? 0,
       });
       this.safeTransition(row.id, 'INTERRUPTED');
       this.db
         .prepare(
           "UPDATE agent_runs SET state = 'ERROR_WORKER_EXIT', ended_at = ? WHERE task_id = ? AND ended_at IS NULL",
         )
-        .run(new Date().toISOString(), row.id);
+        .run(interruptedAt, row.id);
     }
   }
 }

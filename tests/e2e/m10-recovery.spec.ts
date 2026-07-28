@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { launchApp } from './helpers/launch';
 import { createTsSmallFixture } from './helpers/fixtures';
@@ -125,6 +125,86 @@ test.describe('M10 — crash recovery, reliability, diagnostics', () => {
       expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).not.toContain('add(3, 4)');
     } finally {
       await second.app.close();
+    }
+  });
+
+  test('SIGKILL during verification leaves no orphan or permanently running evidence', async () => {
+    const fixture = createTsSmallFixture();
+    const pidFile = join(fixture, 'long-verification.pid');
+    writeFileSync(
+      join(fixture, 'long-verification.cjs'),
+      `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nsetInterval(() => {}, 1000);\n`,
+    );
+    const first = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+    });
+    let verificationPid: number | null = null;
+    let second: Awaited<ReturnType<typeof launchApp>> | null = null;
+    try {
+      const { page } = first;
+      await page.getByTestId('surface-home').click();
+      await page.getByTestId('home-advanced-toggle').click();
+      await page.getByTestId('home-verif-custom').fill('node long-verification.cjs');
+      await page.getByTestId('home-verif-custom').press('Enter');
+      await page.getByTestId('home-mode-auto').click();
+      await page.getByTestId('home-intent').fill('[scenario:edit-basic] verification crash audit');
+      await page.getByTestId('home-submit').click();
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+        timeout: 30_000,
+      });
+      const taskId = await page.getByTestId('task-room').getAttribute('data-task-id');
+      expect(taskId).toBeTruthy();
+
+      await page.getByTestId('checks-run').click();
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'VERIFYING');
+      await expect
+        .poll(() => (existsSync(pidFile) ? readFileSync(pidFile, 'utf8').trim() : ''))
+        .toMatch(/^\d+$/);
+      verificationPid = Number(readFileSync(pidFile, 'utf8').trim());
+      expect(pidAlive(verificationPid)).toBe(true);
+
+      first.app.process().kill('SIGKILL');
+      await first.app.close().catch(() => undefined);
+      await expect.poll(() => pidAlive(verificationPid!), { timeout: 10_000 }).toBe(false);
+
+      second = await launchApp({
+        userDataDir: first.userDataDir,
+        env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+      });
+      const recovered = await second.page.evaluate(async (id) => {
+        const task = await window.product.rpc['task.get']!({ taskId: id, eventsAfter: 0 });
+        const runs = await window.product.rpc['task.verificationRuns']!({ taskId: id });
+        if (!task.ok) throw new Error(task.error?.userMessage ?? 'task.get failed');
+        if (!runs.ok) throw new Error(runs.error?.userMessage ?? 'verificationRuns failed');
+        return {
+          task: (task.data as { task: { state: string } }).task,
+          runs: (
+            runs.data as {
+              runs: Array<{
+                state: string;
+                cancelled: boolean;
+                endedAt: string | null;
+              }>;
+            }
+          ).runs,
+        };
+      }, taskId!);
+      expect(recovered.task.state).toBe('INTERRUPTED');
+      expect(recovered.runs).toHaveLength(1);
+      expect(recovered.runs[0]).toMatchObject({ state: 'cancelled', cancelled: true });
+      expect(recovered.runs[0]!.endedAt).toBeTruthy();
+      expect(recovered.runs.some((run) => run.state === 'running')).toBe(false);
+      expect(recovered.runs.some((run) => run.state === 'passed')).toBe(false);
+    } finally {
+      if (verificationPid && pidAlive(verificationPid)) {
+        try {
+          process.kill(-verificationPid, 'SIGKILL');
+        } catch {
+          // Exact process group already exited.
+        }
+      }
+      await first.app.close().catch(() => undefined);
+      await second?.app.close().catch(() => undefined);
     }
   });
 

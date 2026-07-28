@@ -169,4 +169,20 @@ describe('stale semantics (VER-008)', () => {
     service.markStale('t1', 'rev-2');
     expect(service.listForTask('t1').find((r) => r.id === again.id)!.stale).toBe(false);
   });
+
+  it('invalidates every prior result when the workspace is rolled back', async () => {
+    await service.run({
+      taskId: 't1',
+      codeRevision: 'rev-1',
+      command: {
+        label: 'suite',
+        executable: process.execPath,
+        args: ['-e', 'process.exit(0)'],
+        cwd: '',
+        timeoutMs: 30000,
+      },
+    });
+    service.markAllStale('t1');
+    expect(service.listForTask('t1')).toMatchObject([{ stale: true }]);
+  });
 });

@@ -35,6 +35,7 @@ describe('task state machine (spec §6.1)', () => {
       'EXPLORING',
       'PLANNING',
       'IN_PROGRESS',
+      'AWAITING_USER',
       'AWAITING_PERMISSION',
       'VERIFYING',
     ] as const) {
@@ -60,8 +61,16 @@ describe('task state machine (spec §6.1)', () => {
 
   it('exposes the complete state list', () => {
     expect(TASK_STATES).toContain('AWAITING_PLAN_APPROVAL');
+    expect(TASK_STATES).toContain('AWAITING_USER');
     expect(TASK_STATES).toContain('IDLE');
-    expect(TASK_STATES).toHaveLength(16);
+    expect(TASK_STATES).toHaveLength(17);
+  });
+
+  it('parks questions in an explicit user-wait state and resumes the prior phase', () => {
+    for (const phase of ['EXPLORING', 'PLANNING', 'IN_PROGRESS'] as const) {
+      expect(canTransition(phase, 'AWAITING_USER'), phase).toBe(true);
+      expect(canTransition('AWAITING_USER', phase), phase).toBe(true);
+    }
   });
 
   describe('ADR-0032 — session as conversation', () => {

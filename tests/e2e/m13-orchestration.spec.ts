@@ -132,15 +132,21 @@ function createDirectCodexWorker(): { bin: string; probe: string } {
 
 function createFleetResumeDriver(): {
   bin: string;
+  codexHome: string;
+  commanderSessionId: string;
+  commanderArgvProbe: string;
   fleetProbe: string;
   workerArgvProbe: string;
 } {
   const bin = mkdtempSync(join(tmpdir(), 'charter-m13-fleet-resume-'));
+  const codexHome = join(bin, 'codex-home');
+  const commanderSessionId = 'c0de0000-0000-4000-8000-000000000013';
+  const commanderArgvProbe = join(bin, 'commander-argv.ndjson');
   const fleetProbe = join(bin, 'fleet.json');
   const workerArgvProbe = join(bin, 'worker-argv.ndjson');
   writeFileSync(
     join(bin, '.zshenv'),
-    `export PATH=${JSON.stringify(`${bin}:${process.env.PATH ?? ''}`)}\n`,
+    `export PATH=${JSON.stringify(`${bin}:${process.env.PATH ?? ''}`)}\nexport CODEX_HOME=${JSON.stringify(codexHome)}\n`,
   );
   writeFileSync(
     join(bin, 'claude'),
@@ -161,10 +167,15 @@ function createFleetResumeDriver(): {
     [
       '#!/usr/bin/env node',
       "const fs = require('node:fs');",
+      "const path = require('node:path');",
       "const { spawn } = require('node:child_process');",
       "const readline = require('node:readline');",
       `const probe = ${JSON.stringify(fleetProbe)};`,
+      `const argvProbe = ${JSON.stringify(commanderArgvProbe)};`,
+      `const sessionId = ${JSON.stringify(commanderSessionId)};`,
+      `const codexHome = ${JSON.stringify(codexHome)};`,
       'const cliArgs = process.argv.slice(2);',
+      "fs.appendFileSync(argvProbe, JSON.stringify(cliArgs) + '\\n');",
       'const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));',
       'function config(prefix) { return cliArgs.find((arg) => arg.startsWith(prefix)); }',
       'async function main() {',
@@ -173,6 +184,12 @@ function createFleetResumeDriver(): {
       '    await pause(15000);',
       '    return;',
       '  }',
+      '  const startedAt = new Date();',
+      "  const day = [String(startedAt.getFullYear()), String(startedAt.getMonth() + 1).padStart(2, '0'), String(startedAt.getDate()).padStart(2, '0')];",
+      "  const rolloutDir = path.join(codexHome, 'sessions', ...day);",
+      '  fs.mkdirSync(rolloutDir, { recursive: true });',
+      "  const rollout = path.join(rolloutDir, `rollout-${startedAt.toISOString().replaceAll(':', '-')}-${sessionId}.jsonl`);",
+      "  fs.writeFileSync(rollout, JSON.stringify({ timestamp: startedAt.toISOString(), type: 'session_meta', payload: { id: sessionId, timestamp: startedAt.toISOString(), cwd: process.cwd() } }) + '\\n');",
       "  const commandConfig = config('mcp_servers.charter.command=');",
       "  const argsConfig = config('mcp_servers.charter.args=');",
       "  if (!commandConfig || !argsConfig) throw new Error('Charter MCP config missing');",
@@ -217,7 +234,14 @@ function createFleetResumeDriver(): {
   );
   chmodSync(join(bin, 'claude'), 0o755);
   chmodSync(join(bin, 'codex'), 0o755);
-  return { bin, fleetProbe, workerArgvProbe };
+  return {
+    bin,
+    codexHome,
+    commanderSessionId,
+    commanderArgvProbe,
+    fleetProbe,
+    workerArgvProbe,
+  };
 }
 
 test.describe('M13 session orchestration', () => {
@@ -594,6 +618,7 @@ test.describe('M13 session orchestration', () => {
       env: {
         PI_IDE_OPEN_WORKSPACE: fixture,
         PI_IDE_EXTERNAL_CLIS: 'claude,codex',
+        CODEX_HOME: driver.codexHome,
         PATH: `${driver.bin}:${process.env.PATH ?? ''}`,
         ZDOTDIR: driver.bin,
       },
@@ -642,6 +667,21 @@ test.describe('M13 session orchestration', () => {
       await expect(page.locator('.toast').filter({ hasText: 'Restored 1 worker' })).toBeVisible({
         timeout: 30_000,
       });
+      await expect
+        .poll(
+          () =>
+            readFileSync(driver.commanderArgvProbe, 'utf8').trim().split('\n').filter(Boolean)
+              .length,
+          { timeout: 20_000 },
+        )
+        .toBe(2);
+      const resumedCommanderArgs = JSON.parse(
+        readFileSync(driver.commanderArgvProbe, 'utf8').trim().split('\n')[1]!,
+      ) as string[];
+      expect(resumedCommanderArgs).toEqual(
+        expect.arrayContaining(['resume', driver.commanderSessionId]),
+      );
+      expect(resumedCommanderArgs).not.toContain('--last');
       await expect
         .poll(
           () =>

@@ -1125,6 +1125,10 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await waitForTerminalOutput(page, 'fake agent session started', { terminalId });
       await expect(page.getByTestId('bottom-panel')).toHaveCount(0);
       await expect(page.getByTestId('agent-panel')).toHaveCount(0);
+      await expect(page.getByTestId('session-terminal-manager-status')).toHaveText('Live');
+      await expect(page.getByTestId('session-terminal-manager-footer')).toContainText(
+        'live sessions · 1 active',
+      );
       // The generic-panel shortcut cannot create a second right rail while
       // the external terminal owns that placement.
       await page.keyboard.press(process.platform === 'darwin' ? 'Meta+l' : 'Control+l');

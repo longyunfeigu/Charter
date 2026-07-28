@@ -668,27 +668,35 @@ export function HomeView(): React.JSX.Element {
           {advanced && agent === 'pi' ? (
             <div className="hm-adv" data-testid="home-advanced">
               <div className="hm-field">
-                <label>Title (optional — defaults to the first line)</label>
+                <label htmlFor="home-adv-title">
+                  Title (optional — defaults to the first line)
+                </label>
                 <input
+                  id="home-adv-title"
                   data-testid="home-adv-title"
+                  aria-label="Title (optional)"
                   placeholder="e.g. Add rate limiting to the login API"
                   value={titleDraft}
                   onChange={(e) => setTitleDraft(e.target.value)}
                 />
               </div>
               <div className="hm-field">
-                <label>Boundaries</label>
+                <label htmlFor="home-adv-boundaries">Boundaries</label>
                 <input
+                  id="home-adv-boundaries"
                   data-testid="home-adv-boundaries"
+                  aria-label="Boundaries"
                   placeholder="e.g. Only touch src/auth/** — don't change public API signatures"
                   value={boundaries}
                   onChange={(e) => setBoundaries(e.target.value)}
                 />
               </div>
               <div className="hm-field">
-                <label>Success criteria (one per line)</label>
+                <label htmlFor="home-adv-criteria">Success criteria (one per line)</label>
                 <textarea
+                  id="home-adv-criteria"
                   data-testid="home-adv-criteria"
+                  aria-label="Success criteria (one per line)"
                   rows={2}
                   placeholder={
                     '429 after 5 failed attempts within a minute\nexisting tests stay green'
@@ -732,6 +740,7 @@ export function HomeView(): React.JSX.Element {
                   <input
                     className="hm-vchip-add"
                     data-testid="home-verif-custom"
+                    aria-label="Add a custom verification command"
                     placeholder="+ custom command (⏎)"
                     value={customDraft}
                     onChange={(e) => setCustomDraft(e.target.value)}
@@ -782,13 +791,21 @@ export function HomeView(): React.JSX.Element {
                       ) : null}
                     </span>
                   </label>
+                  {workspace.isGitRepo ? (
+                    <div className="hm-wt-explainer" data-testid="home-adv-worktree-explainer">
+                      Uses a separate checkout and branch, so the Agent cannot mix changes into your
+                      current checkout. The worktree stays available for review; discarding restores
+                      the original project without copying those changes back.
+                    </div>
+                  ) : null}
                   {workspace.isGitRepo && worktree ? (
                     <div className="hm-field" style={{ marginTop: 6 }}>
-                      <label>
+                      <label htmlFor="home-adv-wtsetup">
                         Worktree setup command — runs once in the fresh checkout before the agent
                         starts (a new worktree has no installed dependencies)
                       </label>
                       <input
+                        id="home-adv-wtsetup"
                         data-testid="home-adv-wtsetup"
                         className="mono"
                         placeholder="e.g. npm ci — leave empty to skip"

@@ -28,6 +28,7 @@ test.describe('M8 agent writes, plan approval and review (E2E-010/011/014/015)',
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
     });
     try {
+      await page.setViewportSize({ width: 980, height: 760 });
       // The scenario runs tests via run_command (not run_verification), so
       // accepting later uses the explicit unverified-accept step (VER-007).
       await createTask(page, '[scenario:edit-multifile] cross-file change', 'edit', 'Multi');
@@ -44,12 +45,23 @@ test.describe('M8 agent writes, plan approval and review (E2E-010/011/014/015)',
       await expect(page.getByTestId('perm-card')).toBeVisible({ timeout: 20000 });
       await expect(page.getByTestId('perm-risk')).toHaveText('R1');
       await expect(page.getByTestId('perm-card')).toContainText('+  return add(3, 4);');
+      expect(
+        await page.getByTestId('perm-risk').evaluate((risk) => {
+          const rect = risk.getBoundingClientRect();
+          const hit = document.elementFromPoint(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2,
+          );
+          return hit === risk || risk.contains(hit);
+        }),
+      ).toBe(true);
       // Scope "task" covers the second apply_patch without another prompt (PERM-002).
       await page.getByTestId('perm-allow-task').click();
+      await expect(page.getByTestId('perm-card-resolved').last()).not.toContainText('apply_patch');
 
       // create_file is a different action kind → asks again.
       await expect(page.getByTestId('perm-card')).toBeVisible({ timeout: 20000 });
-      await expect(page.getByTestId('perm-card')).toContainText('create_file');
+      await expect(page.getByTestId('perm-card')).toContainText('Create a file');
       await page.getByTestId('perm-allow-once').click();
 
       // Recognized verification command still asks in edit mode.
@@ -185,6 +197,8 @@ test.describe('M8 agent writes, plan approval and review (E2E-010/011/014/015)',
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
         timeout: 30000,
       });
+      await expect(page.getByTestId('tl-done').last()).toContainText('Done');
+      await expect(page.getByTestId('tl-done').last()).not.toContainText('Latest request failed');
       const content = readFileSync(join(fixture, 'src/index.ts'), 'utf8');
       expect(content).toContain('// keep me');
       expect(content).toContain('add(3, 4)');

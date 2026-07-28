@@ -67,6 +67,9 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
     (state) =>
       state.items.filter((entry) => !entry.hidden && entry.id !== promotedTerminalId).length,
   );
+  const liveTerminalCount = useTerminalStore(
+    (state) => state.items.filter((entry) => !entry.hidden && !entry.exited).length,
+  );
   const hostRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<'editor' | 'changes'>('editor');
   const [toolOpen, setToolOpen] = useState(true);
@@ -92,6 +95,18 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
   }
 
   if (item.launch === 'shell') {
+    // A plain-shell Session is a manager for the terminal dock. Its original
+    // route PTY may have exited while a newly created neighbour is live.
+    // A terminal promoted into the side slot leaves the dock but remains a
+    // live PTY owned by this manager, so lifecycle truth must include it.
+    const managerEnded = item.remote ? item.exited : liveTerminalCount === 0;
+    const managerStatusText = item.remote
+      ? item.exited
+        ? 'remote process ended'
+        : 'remote session live'
+      : managerEnded
+        ? 'all processes ended'
+        : `live sessions · ${liveTerminalCount} active`;
     return (
       <main
         className="stv-root stv-manager"
@@ -108,9 +123,12 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
                 : `${item.contextLabel} · ${item.projectName}`}
             </span>
           </div>
-          <span className={`stv-status ${item.exited ? 'ended' : ''}`}>
+          <span
+            className={`stv-status ${managerEnded ? 'ended' : ''}`}
+            data-testid="session-terminal-manager-status"
+          >
             <i />
-            {item.exited ? 'Ended' : 'Live'}
+            {managerEnded ? 'Ended' : 'Live'}
           </span>
           <span className="stv-spacer" />
           {item.remote ? (
@@ -138,10 +156,9 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
           ) : null}
           <ExternalPanel />
         </div>
-        <footer className="stv-footer">
+        <footer className="stv-footer" data-testid="session-terminal-manager-footer">
           <span>
-            <i className={item.exited ? 'ended' : ''} /> Terminal manager ·{' '}
-            {item.exited ? 'process ended' : 'live sessions'}
+            <i className={managerEnded ? 'ended' : ''} /> Terminal manager · {managerStatusText}
           </span>
           <span className="stv-spacer" />
           <span>PTYs stay alive while you switch Sessions</span>

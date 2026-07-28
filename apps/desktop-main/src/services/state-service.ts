@@ -118,7 +118,7 @@ export class StateService {
       .prepare(
         `SELECT COUNT(*) AS n FROM tasks
          WHERE workspace_id = ?
-           AND (state IN ('EXPLORING','PLANNING','IN_PROGRESS','AWAITING_PERMISSION','VERIFYING')
+           AND (state IN ('EXPLORING','PLANNING','IN_PROGRESS','AWAITING_USER','AWAITING_PERMISSION','VERIFYING')
                 OR json_extract(external_json, '$.status') = 'active')`,
       )
       .get(ws.id) as { n: number };

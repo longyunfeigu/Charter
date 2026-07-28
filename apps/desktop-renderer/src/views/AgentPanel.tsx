@@ -17,7 +17,16 @@ import { restoreScroll, saveScroll } from './scrollMemory.js';
 import { Markdown } from './Markdown.js';
 import { Ic } from './home-icons.js';
 import { ConfirmDangerButton } from './ui.js';
-import { modeLabel, stateLabel, stateTone, TONE_COLOR, toolStateWord, toolVerb } from './labels.js';
+import {
+  errorTitle,
+  modeLabel,
+  stateLabel,
+  stateTone,
+  TONE_COLOR,
+  toolActionLabel,
+  toolStateWord,
+  toolVerb,
+} from './labels.js';
 
 const RISK_COLORS: Record<string, string> = {
   R0: 'var(--fg-muted)',
@@ -40,13 +49,22 @@ export function PermissionCard(props: {
   const { card, resolution } = props;
   const [reason, setReason] = useState('');
   const riskColor = RISK_COLORS[card.risk.level] ?? 'var(--fg)';
+  const actionLabel = toolActionLabel(card.toolName);
 
   if (resolution) {
     const allowed = resolution.outcome === 'allowed';
+    const outcomeLabel =
+      resolution.outcome === 'allowed'
+        ? 'Allowed'
+        : resolution.outcome === 'denied'
+          ? 'Denied'
+          : resolution.outcome === 'cancelled'
+            ? 'Cancelled'
+            : 'No longer needed';
     return (
       <Card
         icon={allowed ? 'checkCircle' : resolution.outcome === 'denied' ? 'ban' : 'clock'}
-        title={`Permission ${resolution.outcome}${resolution.scope ? ` (${resolution.scope})` : ''} — ${card.toolName}`}
+        title={`${outcomeLabel}${resolution.scope ? ` for ${resolution.scope}` : ''} — ${actionLabel}`}
         tone={allowed ? 'success' : 'warning'}
         testid="perm-card-resolved"
         collapsible
@@ -72,11 +90,12 @@ export function PermissionCard(props: {
   return (
     <Card
       icon="shield"
-      title={`Permission needed — ${card.toolName}`}
+      title={`Your approval is needed — ${actionLabel}`}
       tone="warning"
       testid="perm-card"
+      className="permission-card"
     >
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+      <div className="permission-card-risk">
         <span
           style={{
             border: `1px solid ${riskColor}`,
@@ -93,36 +112,13 @@ export function PermissionCard(props: {
           {card.risk.reasons.join('; ')}
         </span>
       </div>
-      <div style={{ marginBottom: 4 }}>{card.preview.summary}</div>
-      {card.preview.command ? (
-        <pre className="mono" style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: '4px 0' }}>
-          $ {card.preview.command.executable} {card.preview.command.args.join(' ')}
-          {'\n'}cwd: {card.preview.command.cwd}
-        </pre>
-      ) : null}
+      <div className="permission-card-summary">{card.preview.summary}</div>
       {card.preview.targets && card.preview.targets.length > 0 ? (
-        <div className="text-muted" style={{ fontSize: 11 }}>
-          targets: {card.preview.targets.join(', ')}
+        <div className="permission-card-targets">
+          <b>Target</b> {card.preview.targets.join(', ')}
         </div>
       ) : null}
-      {card.preview.diff ? (
-        <pre
-          className="mono"
-          style={{ fontSize: 11, maxHeight: 160, overflow: 'auto', whiteSpace: 'pre-wrap' }}
-        >
-          {card.preview.diff}
-        </pre>
-      ) : (
-        <div className="text-muted" style={{ fontSize: 11 }}>
-          No diff — this action does not modify files directly.
-        </div>
-      )}
-      {card.preview.detail ? (
-        <div className="text-muted" style={{ fontSize: 11 }}>
-          {card.preview.detail}
-        </div>
-      ) : null}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+      <div className="permission-card-actions" aria-label="Permission decision">
         {card.options.allowScopes.includes('once') ? (
           <button
             className="btn primary"
@@ -169,6 +165,7 @@ export function PermissionCard(props: {
       </div>
       <input
         data-testid="perm-reason"
+        aria-label="Reason for denying this action"
         placeholder="Optional reason shown to the agent when denying…"
         value={reason}
         onChange={(e) => setReason(e.target.value)}
@@ -182,9 +179,24 @@ export function PermissionCard(props: {
           fontSize: 12,
         }}
       />
-      <details style={{ marginTop: 6, fontSize: 11 }} className="text-muted">
-        <summary style={{ cursor: 'pointer' }}>View risk policy</summary>
-        <div style={{ paddingTop: 4 }}>{RISK_POLICY}</div>
+      <details className="permission-card-details text-muted">
+        <summary>Technical details and risk policy</summary>
+        <div className="permission-card-technical">
+          <div>Action: {actionLabel}</div>
+          {card.preview.command ? (
+            <pre className="mono">
+              $ {card.preview.command.executable} {card.preview.command.args.join(' ')}
+              {'\n'}working directory: {card.preview.command.cwd}
+            </pre>
+          ) : null}
+          {card.preview.diff ? (
+            <pre className="mono permission-card-diff">{card.preview.diff}</pre>
+          ) : (
+            <div>No file diff — this action does not modify files directly.</div>
+          )}
+          {card.preview.detail ? <div>{card.preview.detail}</div> : null}
+          <div>{RISK_POLICY}</div>
+        </div>
       </details>
     </Card>
   );
@@ -561,6 +573,7 @@ export function Card(props: {
   title: string;
   tone?: 'default' | 'danger' | 'warning' | 'success';
   testid?: string;
+  className?: string;
   /** Machine-readable state for tests — the visible copy stays humane. */
   dataState?: string;
   children?: React.ReactNode;
@@ -583,6 +596,7 @@ export function Card(props: {
           : 'var(--border)';
   return (
     <div
+      className={props.className}
       data-testid={props.testid}
       {...(props.dataState ? { 'data-state': props.dataState } : {})}
       style={{
@@ -638,6 +652,7 @@ export interface TimelineContext {
     stale?: boolean;
     superseded?: boolean;
   }>;
+  latestRollbackSeq: number | null;
   taskState: string;
 }
 
@@ -846,13 +861,14 @@ const TimelineCard = React.memo(function TimelineCard({
     case 'run.failed': {
       const error = payload.error as { userMessage?: string; code?: string } | undefined;
       return (
-        <Card
-          icon="xCircle"
-          title={`Run failed (${error?.code ?? 'unknown'})`}
-          tone="danger"
-          testid="tl-failed"
-        >
+        <Card icon="xCircle" title={errorTitle(error?.code)} tone="danger" testid="tl-failed">
           {error?.userMessage}
+          {error?.code ? (
+            <details className="text-muted" style={{ marginTop: 6, fontSize: 11 }}>
+              <summary>Technical details</summary>
+              Error code: <span className="mono">{error.code}</span>
+            </details>
+          ) : null}
         </Card>
       );
     }
@@ -935,6 +951,9 @@ const TimelineCard = React.memo(function TimelineCard({
         </Card>
       );
     case 'report.final': {
+      const rolledBackLater =
+        context.latestRollbackSeq !== null && context.latestRollbackSeq > event.sequence;
+      const executionFailed = payload.outcome === 'failed';
       const unverified = payload.unverified === true;
       const changed = payload.changed as
         { files: number; additions: number; deletions: number } | undefined;
@@ -948,30 +967,65 @@ const TimelineCard = React.memo(function TimelineCard({
         | undefined;
       const agentSummary = typeof payload.agentSummary === 'string' ? payload.agentSummary : null;
       const risks = (payload.unresolvedRisks ?? []) as string[];
+      const effectiveRuns =
+        context.verificationRuns.length > 0
+          ? context.verificationRuns.map((run) => ({
+              ...run,
+              ...(rolledBackLater ? { stale: true } : {}),
+            }))
+          : (verification?.runs ?? []);
+      const staleVerificationCount = effectiveRuns.filter((run) => run.stale).length;
       const effectiveVerification =
-        verification && verification.runs.length > 0
-          ? verification
-          : context.verificationRuns.length > 0
-            ? {
-                runs: context.verificationRuns,
-                passed: context.verificationRuns.filter((run) => run.state === 'passed').length,
-                failed: context.verificationRuns.filter((run) => run.state !== 'passed').length,
-                note: null,
-              }
-            : verification;
+        effectiveRuns.length > 0
+          ? {
+              runs: effectiveRuns,
+              passed: effectiveRuns.filter(
+                (run) => run.state === 'passed' && !run.stale && !run.superseded,
+              ).length,
+              failed: effectiveRuns.filter(
+                (run) =>
+                  !run.stale &&
+                  !run.superseded &&
+                  ['failed', 'timeout', 'cancelled'].includes(run.state),
+              ).length,
+              stale: staleVerificationCount,
+              note: verification?.note ?? null,
+            }
+          : undefined;
       const effectivelyUnverified = unverified && context.verificationRuns.length === 0;
       return (
         <Card
-          icon="clipboard"
-          title="Final report"
+          icon={executionFailed ? 'alert' : 'clipboard'}
+          title={
+            rolledBackLater
+              ? 'Final report — before rollback'
+              : executionFailed
+                ? 'Final report — latest request failed'
+                : 'Final report'
+          }
           tone={
-            effectivelyUnverified || (effectiveVerification?.failed ?? 0) > 0
+            rolledBackLater ||
+            executionFailed ||
+            effectivelyUnverified ||
+            (effectiveVerification?.failed ?? 0) > 0 ||
+            staleVerificationCount > 0
               ? 'warning'
               : 'success'
           }
           testid="tl-report"
         >
-          <div>Outcome: {String(payload.outcome)}</div>
+          {rolledBackLater ? (
+            <div className="text-warning" data-testid="report-before-rollback">
+              Historical evidence only — the workspace was rolled back after this report.
+            </div>
+          ) : null}
+          {executionFailed && !rolledBackLater ? (
+            <div className="text-warning" data-testid="report-execution-failed">
+              A recorded file action failed. Existing changes remain available for review, but the
+              latest requested fix is not proven complete.
+            </div>
+          ) : null}
+          <div>Outcome: {executionFailed ? 'Needs attention' : 'Completed'}</div>
           {changed ? (
             <div data-testid="report-changed">
               Changed: {changed.files} file{changed.files === 1 ? '' : 's'},{' '}
@@ -990,11 +1044,17 @@ const TimelineCard = React.memo(function TimelineCard({
           ) : null}
           {effectiveVerification && effectiveVerification.runs.length > 0 ? (
             <div data-testid="report-verification">
-              Verification: {effectiveVerification.passed} passed, {effectiveVerification.failed}{' '}
-              failed
+              Verification: {effectiveVerification.passed} current passed,{' '}
+              {effectiveVerification.failed} failed
+              {staleVerificationCount > 0 ? `, ${staleVerificationCount} stale` : ''}
               <ul style={{ margin: '2px 0 2px 16px', padding: 0, fontSize: 11.5 }}>
                 {effectiveVerification.runs.map((r, i) => (
-                  <li key={i} className={r.state === 'passed' ? '' : 'text-warning'}>
+                  <li
+                    key={i}
+                    className={
+                      r.state === 'passed' && !r.stale && !r.superseded ? '' : 'text-warning'
+                    }
+                  >
                     {r.label} — {r.state}
                     {r.stale ? ' (stale)' : ''}
                     {r.superseded ? ' (superseded)' : ''}
@@ -1125,9 +1185,13 @@ export function useTimelineContext(taskState: string, verificationCommands = 0):
     const permissionResolutions = new Map<string, { outcome: string; scope?: string | null }>();
     const answeredCallIds = new Set<string>();
     const visiblePlanSeqs = new Set<number>();
-    const verificationByLabel = new Map<string, { label: string; state: string }>();
+    const verificationByLabel = new Map<
+      string,
+      { label: string; state: string; stale?: boolean; superseded?: boolean }
+    >();
     let openPlanSeq: number | null = null;
     let pendingPlanSeq: number | null = null;
+    let latestRollbackSeq: number | null = null;
     for (const event of timeline) {
       const payload = event.payload as Record<string, unknown>;
       if (event.type === 'permission.decided' && typeof payload.requestId === 'string') {
@@ -1149,13 +1213,19 @@ export function useTimelineContext(taskState: string, verificationCommands = 0):
         openPlanSeq = null;
       }
       if (event.type === 'verification.completed') {
-        const run = payload.run as { label?: unknown; state?: unknown } | undefined;
+        const run = payload.run as
+          { label?: unknown; state?: unknown; stale?: unknown; superseded?: unknown } | undefined;
         if (run && typeof run.label === 'string') {
           verificationByLabel.set(run.label, {
             label: run.label,
             state: String(run.state ?? ''),
+            stale: run.stale === true,
+            superseded: run.superseded === true,
           });
         }
+      }
+      if (event.type === 'task.rolledBack' || event.type === 'turn.rolledBack') {
+        latestRollbackSeq = event.sequence;
       }
     }
     if (pendingPlanSeq !== null) visiblePlanSeqs.add(pendingPlanSeq);
@@ -1166,6 +1236,7 @@ export function useTimelineContext(taskState: string, verificationCommands = 0):
       visiblePlanSeqs,
       verificationCommands,
       verificationRuns: [...verificationByLabel.values()],
+      latestRollbackSeq,
       taskState,
     };
   }, [timeline, taskState, verificationCommands]);

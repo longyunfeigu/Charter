@@ -7,6 +7,7 @@ export const TASK_STATES = [
   'PLANNING',
   'AWAITING_PLAN_APPROVAL',
   'IN_PROGRESS',
+  'AWAITING_USER',
   'AWAITING_PERMISSION',
   'VERIFYING',
   'REVIEW_READY',
@@ -31,12 +32,13 @@ export type TaskState = (typeof TASK_STATES)[number];
 const TRANSITIONS: Record<TaskState, readonly TaskState[]> = {
   DRAFT: ['READY', 'CANCELLED'],
   READY: ['EXPLORING', 'CANCELLED'],
-  EXPLORING: ['PLANNING', 'IN_PROGRESS', 'FAILED', 'INTERRUPTED'],
-  PLANNING: ['AWAITING_PLAN_APPROVAL', 'IN_PROGRESS', 'FAILED', 'INTERRUPTED'],
+  EXPLORING: ['PLANNING', 'IN_PROGRESS', 'AWAITING_USER', 'FAILED', 'INTERRUPTED'],
+  PLANNING: ['AWAITING_PLAN_APPROVAL', 'IN_PROGRESS', 'AWAITING_USER', 'FAILED', 'INTERRUPTED'],
   // Plan rejection settles the turn back to the conversation (ADR-0032);
   // CANCELLED survives for historic rows.
   AWAITING_PLAN_APPROVAL: ['IN_PROGRESS', 'IDLE', 'CANCELLED', 'INTERRUPTED'],
   IN_PROGRESS: [
+    'AWAITING_USER',
     'AWAITING_PERMISSION',
     'VERIFYING',
     'REVIEW_READY',
@@ -47,6 +49,7 @@ const TRANSITIONS: Record<TaskState, readonly TaskState[]> = {
     'EXPLORING',
     'PLANNING',
   ],
+  AWAITING_USER: ['EXPLORING', 'PLANNING', 'IN_PROGRESS', 'INTERRUPTED', 'FAILED'],
   AWAITING_PERMISSION: ['IN_PROGRESS', 'INTERRUPTED', 'FAILED'],
   VERIFYING: ['IN_PROGRESS', 'REVIEW_READY', 'IDLE', 'FAILED', 'INTERRUPTED'],
   // Accept / roll back settle the turn; the Session stays a live conversation.
@@ -67,6 +70,7 @@ const RUNNING_STATES: readonly TaskState[] = [
   'EXPLORING',
   'PLANNING',
   'IN_PROGRESS',
+  'AWAITING_USER',
   'AWAITING_PERMISSION',
   'VERIFYING',
 ];

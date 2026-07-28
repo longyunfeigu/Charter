@@ -596,6 +596,12 @@
   color: var(--warning);
 }
 
+.session-review-icon.failed {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
 .session-status-mark.err {
   background: var(--danger-bg);
   color: var(--danger);

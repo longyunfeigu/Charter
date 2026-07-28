@@ -11,6 +11,7 @@ import { Ic } from './home-icons.js';
  */
 
 function stateIcon(run: VerificationRunDto): { glyph: string; cls: string } {
+  if (run.stale || run.superseded) return { glyph: '!', cls: 'muted' };
   if (run.state === 'passed') return { glyph: '✓', cls: 'ok' };
   if (run.state === 'running') return { glyph: '…', cls: 'run' };
   if (run.state === 'cancelled') return { glyph: '∅', cls: 'muted' };
@@ -36,7 +37,7 @@ export function ReviewChecks({ task }: { task: TaskDto }): React.JSX.Element {
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, task.updatedAt]);
 
   const grouped = useMemo(() => {
     const byLabel = new Map<string, VerificationRunDto[]>();

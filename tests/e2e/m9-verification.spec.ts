@@ -35,7 +35,9 @@ test.describe('M9 verification, final report and rollback (E2E-016/017/018)', ()
     });
     try {
       page.on('dialog', (dialog) => void dialog.accept());
-      await createTask(page, '[scenario:edit-rollback] touch everything', 'auto', 'Rollback');
+      await createTask(page, '[scenario:edit-rollback] touch everything', 'auto', 'Rollback', {
+        verification: 'node -e process.exit(0)',
+      });
 
       // delete_file is R3 — even auto mode pauses for explicit confirmation.
       await expect(page.getByTestId('perm-card')).toBeVisible({ timeout: 20000 });
@@ -45,6 +47,9 @@ test.describe('M9 verification, final report and rollback (E2E-016/017/018)', ()
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
         timeout: 30000,
       });
+
+      await page.getByTestId('checks-run').click();
+      await expect(page.getByTestId('tl-verification-passed')).toBeVisible({ timeout: 30000 });
 
       // All four change kinds really happened on disk.
       expect(existsSync(join(fixture, 'rollback-note.txt'))).toBe(true);
@@ -63,6 +68,20 @@ test.describe('M9 verification, final report and rollback (E2E-016/017/018)', ()
         timeout: 20000,
       });
       await expect(page.getByTestId('tl-rolledback')).toBeVisible();
+      await expect(page.getByTestId('tl-done')).toContainText('historical result before rollback');
+      await expect(page.getByTestId('tl-verification-passed')).toContainText(
+        'historical · stale after rollback',
+      );
+      await expect(page.getByTestId('tl-verification-passed')).toHaveAttribute(
+        'data-historical',
+        'true',
+      );
+      await expect(page.getByTestId('session-summary')).toContainText(
+        'Previous verification is stale',
+      );
+      await expect(page.getByTestId('session-summary')).not.toContainText('Verification passed:');
+      await expect(page.getByTestId('session-verification-ledger')).toContainText('Stale');
+      await expect(page.getByTestId('session-verification-ledger')).not.toContainText('Passed');
 
       // Byte-exact restoration (CHG-009/012).
       expect(existsSync(join(fixture, 'rollback-note.txt'))).toBe(false);

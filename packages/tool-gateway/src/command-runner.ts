@@ -28,6 +28,7 @@ export interface CommandRunResult {
 
 const DEFAULT_MAX_OUTPUT = 512 * 1024;
 const DEFAULT_GRACE_MS = 3_000;
+const PARENT_WATCH_INTERVAL_SECONDS = 0.2;
 /** CMD-005: children start from a curated environment, not the full parent env. */
 const INHERITED_ENV_KEYS = [
   'PATH',
@@ -54,6 +55,43 @@ function minimalEnv(extra?: Record<string, string>): Record<string, string> {
     if (value !== undefined) env[key] = value;
   }
   return { ...env, ...(extra ?? {}) };
+}
+
+/** SIGKILL bypasses every main-process cleanup hook. On Unix, keep a tiny
+ * detached watchdog beside each command group so parent death still tears the
+ * command tree down. The fixed script receives only numeric PIDs. */
+function watchParentDeath(commandPid: number): () => void {
+  if (process.platform === 'win32') return () => {};
+  const script = `
+parent_pid="$1"
+group_pid="$2"
+while kill -0 "$parent_pid" 2>/dev/null && kill -0 -- "-$group_pid" 2>/dev/null; do
+  sleep ${PARENT_WATCH_INTERVAL_SECONDS}
+done
+if ! kill -0 "$parent_pid" 2>/dev/null; then
+  kill -TERM -- "-$group_pid" 2>/dev/null || true
+  sleep 0.5
+  kill -KILL -- "-$group_pid" 2>/dev/null || true
+fi
+`;
+  const watchdog = spawn(
+    '/bin/sh',
+    ['-c', script, 'charter-command-watchdog', String(process.pid), String(commandPid)],
+    {
+      detached: true,
+      stdio: 'ignore',
+    },
+  );
+  watchdog.on('error', () => {});
+  watchdog.unref();
+  return () => {
+    if (!watchdog.pid) return;
+    try {
+      process.kill(-watchdog.pid, 'SIGTERM');
+    } catch {
+      // It normally exits on its own as soon as the command group disappears.
+    }
+  };
 }
 
 /**
@@ -85,6 +123,7 @@ export function runCommand(input: CommandRunInput, signal: AbortSignal): Promise
       detached: process.platform !== 'win32',
       shell: false,
     });
+    const stopParentWatchdog = child.pid ? watchParentDeath(child.pid) : () => {};
 
     let stdout = '';
     let stderr = '';
@@ -147,6 +186,7 @@ export function runCommand(input: CommandRunInput, signal: AbortSignal): Promise
       if (termTimer) clearTimeout(termTimer);
       if (killTimer) clearTimeout(killTimer);
       signal.removeEventListener('abort', onAbort);
+      stopParentWatchdog();
       resolve({
         exitCode,
         signal: sig,
@@ -165,6 +205,7 @@ export function runCommand(input: CommandRunInput, signal: AbortSignal): Promise
       if (termTimer) clearTimeout(termTimer);
       if (killTimer) clearTimeout(killTimer);
       signal.removeEventListener('abort', onAbort);
+      stopParentWatchdog();
       reject(
         new ProductFailure(
           productError('CMD_SPAWN_FAILED', {

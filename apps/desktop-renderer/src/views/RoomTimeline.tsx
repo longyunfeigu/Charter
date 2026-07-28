@@ -26,7 +26,7 @@ import {
   useTimelineContext,
   type TimelineContext,
 } from './AgentPanel.js';
-import { isAnswered, stateLabel, toolVerb } from './labels.js';
+import { errorTitle, isAnswered, stateLabel, toolVerb } from './labels.js';
 import { Markdown } from './Markdown.js';
 import { roomCopyFor, type RoomCopy } from './roomCopy.js';
 import { SentCodeContext } from './CodeContextAttachments.js';
@@ -482,10 +482,13 @@ function PlanStatic({ plan, copy }: { plan: TaskPlanDto; copy: RoomCopy }): Reac
 function DoneMilestone({
   payload,
   copy,
+  rolledBackLater,
 }: {
   payload: Record<string, unknown>;
   copy: RoomCopy;
+  rolledBackLater: boolean;
 }): React.JSX.Element {
+  const executionFailed = payload.outcome === 'failed';
   const changed = payload.changed as
     { files: number; additions: number; deletions: number } | undefined;
   const verification = payload.verification as
@@ -505,11 +508,38 @@ function DoneMilestone({
       }`,
     );
   }
+  if (rolledBackLater) {
+    parts.push(copy.locale === 'zh' ? '回滚前的历史结果' : 'historical result before rollback');
+  }
   if (payload.unverified === true) parts.push(copy.locale === 'zh' ? '未验证' : 'unverified');
+  if (executionFailed) {
+    const execution = payload.execution as { failedWriteCalls?: number } | undefined;
+    const failedWrites = execution?.failedWriteCalls ?? 0;
+    const failedWriteLabelCount = failedWrites > 0 ? failedWrites : 1;
+    parts.unshift(
+      copy.locale === 'zh'
+        ? `${failedWriteLabelCount} 个文件操作失败`
+        : `${failedWriteLabelCount} file action${failedWriteLabelCount === 1 ? '' : 's'} failed`,
+    );
+  }
   return (
     <Milestone
-      tone={(verification?.failed ?? 0) > 0 ? 'warn' : 'ok'}
-      label={copy.locale === 'zh' ? '完成' : 'Done'}
+      tone={
+        executionFailed ? 'err' : rolledBackLater || (verification?.failed ?? 0) > 0 ? 'warn' : 'ok'
+      }
+      label={
+        rolledBackLater
+          ? copy.locale === 'zh'
+            ? '已回滚（此前完成）'
+            : 'Rolled back (previously done)'
+          : executionFailed
+            ? copy.locale === 'zh'
+              ? '最新请求失败'
+              : 'Latest request failed'
+            : copy.locale === 'zh'
+              ? '完成'
+              : 'Done'
+      }
       meta={parts.join(' · ') || `outcome: ${String(payload.outcome)}`}
       testid="tl-done"
     />
@@ -554,6 +584,7 @@ function eventNode(
           'PLANNING',
           'AWAITING_PLAN_APPROVAL',
           'IN_PROGRESS',
+          'AWAITING_USER',
           'AWAITING_PERMISSION',
           'VERIFYING',
           'REVIEW_READY',
@@ -871,7 +902,16 @@ function eventNode(
     }
     case 'report.final': {
       if (isAnswered(task)) return null; // the Answered milestone covers it
-      return <DoneMilestone key={event.id} payload={payload} copy={copy} />;
+      return (
+        <DoneMilestone
+          key={event.id}
+          payload={payload}
+          copy={copy}
+          rolledBackLater={
+            context.latestRollbackSeq !== null && context.latestRollbackSeq > event.sequence
+          }
+        />
+      );
     }
     case 'task.modelChanged': {
       // ADR-0016: honest audit of a reply-time model/effort override.
@@ -901,10 +941,15 @@ function eventNode(
       return (
         <div key={event.id} className="rt-plan rt-failedcard" data-testid="tl-failed">
           <div className="rt-plan-head">
-            <b>Run failed</b>
-            <span className="rt-plan-meta">{error?.code ?? 'unknown'}</span>
+            <b>{errorTitle(error?.code)}</b>
           </div>
           <div className="rt-report-row">{error?.userMessage}</div>
+          {error?.code ? (
+            <details className="rt-run-technical">
+              <summary>Technical details</summary>
+              Error code: <span className="mono">{error.code}</span>
+            </details>
+          ) : null}
         </div>
       );
     }
@@ -943,7 +988,17 @@ function eventNode(
         outputExcerpt: string;
       };
       const passed = run.state === 'passed';
-      return <VerRow key={event.id} run={run} passed={passed} ts={clock} />;
+      return (
+        <VerRow
+          key={event.id}
+          run={run}
+          passed={passed}
+          ts={clock}
+          rolledBackLater={
+            context.latestRollbackSeq !== null && context.latestRollbackSeq > event.sequence
+          }
+        />
+      );
     }
     case 'rollback.blocked': {
       const conflicts = (payload.conflicts ?? []) as Array<{ path: string; reason: string }>;
@@ -1019,16 +1074,19 @@ function VerRow({
   run,
   passed,
   ts,
+  rolledBackLater,
 }: {
   run: { label: string; state: string; exitCode: number | null; outputExcerpt: string };
   passed: boolean;
   ts?: string;
+  rolledBackLater: boolean;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   return (
     <div
       className={`rt-tool ${passed ? '' : 'failed'}`}
       data-testid={`tl-verification-${run.state}`}
+      data-historical={rolledBackLater ? 'true' : 'false'}
     >
       <button className="rt-tool-line" onClick={() => setOpen(!open)} title="Show output">
         {ts ? <span className="rt-ts">{ts}</span> : null}
@@ -1038,7 +1096,9 @@ function VerRow({
         <span className="rt-tool-verb">Verification</span>
         <span className="rt-tool-target mono">{run.label}</span>
         <span className="rt-tool-sp" />
-        {passed ? (
+        {rolledBackLater ? (
+          <span className="rt-tool-state warn">historical · stale after rollback</span>
+        ) : passed ? (
           <span className="rt-tool-state ok">✓ passed</span>
         ) : (
           <span className="rt-tool-state err">
@@ -1231,6 +1291,7 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
   const store = useTaskStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
+  const showingDecision = useRef(false);
   const context = useTimelineContext(task.state, task.verification.length);
   const copy = roomCopyFor(`${task.title}\n${task.goalMd}`);
 
@@ -1265,14 +1326,44 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
     if (store.loadingTimeline) return;
     const el = scrollRef.current;
     if (el) pinnedToBottom.current = restoreScroll(task.id, el);
+    showingDecision.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.loadingTimeline, task.id]);
 
-  // Follow live output only while the user is pinned to the bottom.
+  // Pending decisions take precedence over the generic live tail. Otherwise
+  // the run-details footer can push the risk label behind the Session header.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [store.timeline.length, store.streaming?.text.length, store.streamingThinking?.text.length]);
+    if (!el) return;
+    const decision = el.querySelector<HTMLElement>(
+      '[data-testid="perm-card"], [data-testid="plan-card"], [data-testid="q-card"]',
+    );
+    if (decision) {
+      if (!showingDecision.current) {
+        const viewport = el.getBoundingClientRect();
+        const card = decision.getBoundingClientRect();
+        const inset = 14;
+        const available = viewport.height - inset * 2;
+        if (card.height > available || card.top < viewport.top + inset) {
+          el.scrollTop += card.top - viewport.top - inset;
+        } else if (card.bottom > viewport.bottom - inset) {
+          el.scrollTop += card.bottom - viewport.bottom + inset;
+        }
+      }
+      showingDecision.current = true;
+      return;
+    }
+    if (showingDecision.current) {
+      showingDecision.current = false;
+      pinnedToBottom.current = true;
+    }
+    if (pinnedToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [
+    task.state,
+    store.timeline.length,
+    store.streaming?.text.length,
+    store.streamingThinking?.text.length,
+  ]);
 
   // Tool evidence stays available on demand, while repeated usage events are
   // aggregated into one quiet run-details disclosure. Derived per timeline

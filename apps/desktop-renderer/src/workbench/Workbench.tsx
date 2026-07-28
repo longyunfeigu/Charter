@@ -241,13 +241,40 @@ export function Workbench(): React.JSX.Element {
   const railView = useAppStore((s) => s.railView);
   const remotesOpen = useAppStore((s) => s.remotesOpen);
   const overlayDialogRef = useRef<HTMLDivElement>(null);
+  const overlayWasOpenRef = useRef(false);
+  const overlayFocusReturnRef = useRef<HTMLElement | null>(null);
+  const overlayFocusReturnTestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (overlay === 'none') return;
+    const remember = (event: FocusEvent): void => {
+      if (useAppStore.getState().overlay !== 'none') return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (!target) return;
+      overlayFocusReturnRef.current = target;
+      overlayFocusReturnTestIdRef.current = target.dataset.overlayFocusReturn ?? null;
+    };
+    document.addEventListener('focusin', remember);
+    return () => document.removeEventListener('focusin', remember);
+  }, []);
+
+  useEffect(() => {
+    const opening = overlay !== 'none';
+    const wasOpen = overlayWasOpenRef.current;
+    overlayWasOpenRef.current = opening;
     const frame = window.requestAnimationFrame(() => {
-      const dialog = overlayDialogRef.current;
-      if (!dialog) return;
-      (focusableIn(dialog)[0] ?? dialog).focus();
+      if (opening) {
+        const dialog = overlayDialogRef.current;
+        if (!dialog) return;
+        (focusableIn(dialog)[0] ?? dialog).focus();
+        return;
+      }
+      if (!wasOpen) return;
+      const testid = overlayFocusReturnTestIdRef.current;
+      const explicit = testid
+        ? document.querySelector<HTMLElement>(`[data-testid="${CSS.escape(testid)}"]`)
+        : null;
+      const fallback = overlayFocusReturnRef.current;
+      (explicit ?? (fallback?.isConnected ? fallback : null))?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
   }, [overlay]);

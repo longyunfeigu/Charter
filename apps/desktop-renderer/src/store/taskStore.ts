@@ -446,6 +446,10 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const taskId = requestedTaskId ?? get().activeTaskId;
     if (!taskId) return;
     const task = get().tasks.find((item) => item.id === taskId);
+    if (!task) {
+      useAppStore.getState().pushToast('error', 'This session is no longer available.');
+      return;
+    }
     if (task?.external) {
       const { useExternalStore } = await import('./externalStore.js');
       await useExternalStore.getState().resumeTask(task);
@@ -704,7 +708,12 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     } else if (!res.data.configured) {
       useAppStore.getState().pushToast('info', 'No verification commands are configured.');
     } else {
-      useAppStore.getState().pushToast('success', 'Verification finished. Results are recorded.');
+      const app = useAppStore.getState();
+      // Review already updates its Checks evidence in place. A floating success
+      // toast over the decision surface only obscures the result it repeats.
+      if (app.sessionTool !== 'review') {
+        app.pushToast('success', 'Verification finished. Results are recorded.');
+      }
     }
   },
 }));
@@ -717,6 +726,7 @@ export const RUNNING_TASK_STATES = new Set([
   'EXPLORING',
   'PLANNING',
   'IN_PROGRESS',
+  'AWAITING_USER',
   'AWAITING_PERMISSION',
   'VERIFYING',
 ]);

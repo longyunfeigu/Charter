@@ -6,6 +6,7 @@
 
 export const NOTIFY_STATES: ReadonlySet<string> = new Set([
   'AWAITING_PLAN_APPROVAL',
+  'AWAITING_USER',
   'AWAITING_PERMISSION',
   'REVIEW_READY',
   'FAILED',
@@ -16,6 +17,7 @@ export const NOTIFY_STATES: ReadonlySet<string> = new Set([
 
 const BODIES: Record<string, string> = {
   AWAITING_PLAN_APPROVAL: 'The agent proposed a plan and is waiting for your approval.',
+  AWAITING_USER: 'The agent has a question and is waiting for your answer.',
   AWAITING_PERMISSION: 'The agent needs your permission to continue.',
   REVIEW_READY: 'The task finished and is ready for your review.',
   FAILED: 'The task failed — open it for details.',

@@ -3,7 +3,12 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { launchApp } from './helpers/launch';
 import { createTsSmallFixture } from './helpers/fixtures';
-import { terminalPtyOutput, terminalPtySnapshot, waitForTerminalOutput } from './helpers/terminal';
+import {
+  terminalPtyOutput,
+  terminalPtySnapshot,
+  typeTerminalCommand,
+  waitForTerminalOutput,
+} from './helpers/terminal';
 
 const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 
@@ -91,6 +96,43 @@ test.describe('M4 search, intelligence, terminal', () => {
         .click();
       await page.keyboard.press('Control+`');
       await expect(page.getByTestId('session-terminal-view')).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('Terminal Session status follows a new live PTY after the original shell exits', async () => {
+    const fixture = createTsSmallFixture();
+    const { app, page } = await launchApp({ env: { PI_IDE_OPEN_WORKSPACE: fixture } });
+    try {
+      await page.keyboard.press(`${mod}+Shift+p`);
+      const command = page.getByRole('textbox', { name: 'Command' });
+      await command.fill('Open Terminal Session');
+      await page.getByRole('option', { name: /Open Terminal Session/ }).click();
+
+      const first = (await terminalPtySnapshot(page)).items[0]!;
+      await expect(page.getByTestId('session-terminal-manager-status')).toHaveText(/Live/);
+      await typeTerminalCommand(page, 'exit', { terminalId: first.id });
+      await expect(page.getByTestId('session-terminal-manager-status')).toHaveText(/Ended/, {
+        timeout: 15000,
+      });
+
+      await page.getByTestId('terminal-new').click();
+      await expect
+        .poll(async () =>
+          (await terminalPtySnapshot(page)).items.find((entry) => entry.id !== first.id),
+        )
+        .not.toBeUndefined();
+      const second = (await terminalPtySnapshot(page)).items.find(
+        (entry) => entry.id !== first.id,
+      )!;
+      await typeTerminalCommand(page, "printf '__NEW_PTY_LIVE__\\n'", { terminalId: second.id });
+      await waitForTerminalOutput(page, '__NEW_PTY_LIVE__', { terminalId: second.id });
+
+      await expect(page.getByTestId('session-terminal-manager-status')).toHaveText(/Live/);
+      await expect(page.getByTestId('session-terminal-manager-footer')).toContainText(
+        'live sessions · 1 active',
+      );
     } finally {
       await app.close();
     }
@@ -241,9 +283,11 @@ test.describe('M4 search, intelligence, terminal', () => {
 
       // Business evidence comes from the host-owned PTY tail, not xterm's DOM
       // rows (which intentionally disappear when WebGL is active).
-      await page.locator('.xterm').click();
-      await page.keyboard.type("printf '__TERM_RUN__\\n'; stty size | sed 's/^/__SIZE_BEFORE__ /'");
-      await page.keyboard.press('Enter');
+      await typeTerminalCommand(
+        page,
+        "printf '__TERM_RUN__\\n'; stty size | sed 's/^/__SIZE_BEFORE__ /'",
+        { terminalId: first.id },
+      );
       await waitForTerminalOutput(page, '__TERM_RUN__', { terminalId: first.id });
       await waitForTerminalOutput(page, /__SIZE_BEFORE__ \d+ \d+/, { terminalId: first.id });
       const beforeOutput = await terminalPtyOutput(page, first.id);
@@ -257,9 +301,9 @@ test.describe('M4 search, intelligence, terminal', () => {
       });
       await expect(page.locator('.xterm')).toBeVisible();
       await page.waitForTimeout(500);
-      await page.locator('.xterm').click();
-      await page.keyboard.type("stty size | sed 's/^/__SIZE_AFTER__ /'");
-      await page.keyboard.press('Enter');
+      await typeTerminalCommand(page, "stty size | sed 's/^/__SIZE_AFTER__ /'", {
+        terminalId: first.id,
+      });
       await waitForTerminalOutput(page, /__SIZE_AFTER__ \d+ \d+/, { terminalId: first.id });
       const afterOutput = await terminalPtyOutput(page, first.id);
       const afterSize = afterOutput.match(/__SIZE_AFTER__ (\d+) (\d+)/);
@@ -270,9 +314,7 @@ test.describe('M4 search, intelligence, terminal', () => {
       await page.getByTestId('terminal-new').click();
       await expect.poll(async () => (await terminalPtySnapshot(page)).items.length).toBe(2);
       const second = (await terminalPtySnapshot(page)).items.find((item) => item.id !== first.id)!;
-      await page.locator('.xterm').click();
-      await page.keyboard.type('sleep 30');
-      await page.keyboard.press('Enter');
+      await typeTerminalCommand(page, 'sleep 30', { terminalId: second.id });
       await page.getByTestId(`terminal-tab-${second.id}`).getByRole('button').click();
       await expect(page.getByTestId('terminal-kill-confirm')).toBeVisible();
       await page.getByTestId('terminal-kill-force').click();
@@ -282,9 +324,9 @@ test.describe('M4 search, intelligence, terminal', () => {
       await expect.poll(() => processIsAlive(second.pid)).toBe(false);
 
       // Killing the neighbour must not damage the original PTY.
-      await page.locator('.xterm').click();
-      await page.keyboard.type("printf '\\137\\137FIRST_SURVIVES_KILL\\137\\137\\n'");
-      await page.keyboard.press('Enter');
+      await typeTerminalCommand(page, "printf '\\137\\137FIRST_SURVIVES_KILL\\137\\137\\n'", {
+        terminalId: first.id,
+      });
       await waitForTerminalOutput(page, '__FIRST_SURVIVES_KILL__', { terminalId: first.id });
     } finally {
       await app.close();

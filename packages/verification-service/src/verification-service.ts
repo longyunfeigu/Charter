@@ -40,6 +40,7 @@ export interface VerificationRepo {
   listForTask(taskId: string): VerificationRunRecord[];
   markSuperseded(taskId: string, label: string, byRunId: string): void;
   markStale(taskId: string, currentRevision: string): void;
+  markAllStale(taskId: string): void;
 }
 
 const EXCERPT_LIMIT = 2000;
@@ -101,6 +102,11 @@ export class VerificationService {
   /** VER-008: results recorded against an older code revision become stale. */
   markStale(taskId: string, currentRevision: string): void {
     this.repo.markStale(taskId, currentRevision);
+  }
+
+  /** A rollback invalidates evidence for the pre-rollback workspace, even if a revision repeats. */
+  markAllStale(taskId: string): void {
+    this.repo.markAllStale(taskId);
   }
 
   async run(input: {
@@ -202,6 +208,11 @@ export function createMemoryVerificationRepo(): MemoryVerificationRepo {
         ) {
           row.stale = true;
         }
+      }
+    },
+    markAllStale: (taskId) => {
+      for (const row of rows) {
+        if (row.taskId === taskId) row.stale = true;
       }
     },
   };

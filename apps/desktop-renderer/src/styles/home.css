@@ -822,6 +822,13 @@
   color: var(--warning);
   font-size: 11px;
 }
+.hm-wt-explainer {
+  max-width: 660px;
+  margin: 5px 0 0 23px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
 
 /* ---------- dropdown menus (project picker / file picker) ---------- */
 

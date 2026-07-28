@@ -779,6 +779,10 @@ export function SettingsView(): React.JSX.Element {
   if (!settings) return <div className="empty-state">Loading settings…</div>;
 
   const set = (patch: Record<string, unknown>) => void updateSettings('global', patch);
+  const setMockRuntime = async (useMockRuntime: boolean): Promise<void> => {
+    await updateSettings('global', { models: { useMockRuntime } });
+    await useTaskStore.getState().refreshModels();
+  };
 
   return (
     <div className="st-root">
@@ -1202,8 +1206,9 @@ export function SettingsView(): React.JSX.Element {
               </Row>
               <Row label="Deterministic mock runtime" hint="For demos/tests without a provider">
                 <Toggle
+                  testid="settings-use-mock-runtime"
                   checked={settings.models.useMockRuntime}
-                  onChange={(v) => set({ models: { useMockRuntime: v } })}
+                  onChange={(v) => void setMockRuntime(v)}
                 />
               </Row>
             </div>

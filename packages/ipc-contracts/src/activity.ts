@@ -229,6 +229,7 @@ const STATE_LABELS: Record<string, { label: string; status: ActivityStatus }> = 
   PLANNING: { label: 'Planning', status: 'info' },
   AWAITING_PLAN_APPROVAL: { label: 'Waiting for your plan approval', status: 'pending' },
   IN_PROGRESS: { label: 'Working', status: 'info' },
+  AWAITING_USER: { label: 'Waiting for your answer', status: 'pending' },
   AWAITING_PERMISSION: { label: 'Waiting for your permission', status: 'pending' },
   VERIFYING: { label: 'Verifying', status: 'info' },
   REVIEW_READY: { label: 'Ready for your review', status: 'ok' },

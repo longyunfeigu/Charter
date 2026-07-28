@@ -5,6 +5,8 @@ import {
   stateLabel,
   stateShort,
   stateTone,
+  errorTitle,
+  toolActionLabel,
   toolVerb,
   toolStateWord,
   modeLabel,
@@ -33,6 +35,11 @@ describe('shared state vocabulary (PIVOT-023)', () => {
     expect(toolVerb('apply_patch')).toBe('Edited file');
     expect(toolVerb('propose_plan')).toBe('Proposed a plan');
     expect(toolVerb('brand_new_tool')).toBe('Brand new tool');
+  });
+
+  it('keeps internal action and error ids out of primary decision copy', () => {
+    expect(toolActionLabel('apply_patch')).toBe('Modify files');
+    expect(errorTitle('AG_PROVIDER_ERROR')).toBe('Provider request failed');
   });
 
   it('humanizes tool lifecycle states', () => {

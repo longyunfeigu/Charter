@@ -93,7 +93,11 @@ function statusBadge(task: TaskDto): { label: string; tone: string } | null {
   }
   if (task.state === 'REVIEW_READY') return { label: 'Review', tone: 'review' };
   const meta = presentedMeta(task);
-  if (['AWAITING_PLAN_APPROVAL', 'AWAITING_PERMISSION', 'INTERRUPTED'].includes(task.state)) {
+  if (
+    ['AWAITING_PLAN_APPROVAL', 'AWAITING_USER', 'AWAITING_PERMISSION', 'INTERRUPTED'].includes(
+      task.state,
+    )
+  ) {
     return { label: meta.short, tone: 'review' };
   }
   if (task.state === 'FAILED') return { label: 'Failed', tone: 'failed' };
@@ -895,7 +899,7 @@ export function SessionRail(): React.JSX.Element {
       <div className="sr-scroll" data-testid="rail-inbox-panel">
         <div className="sr-inbox-intro">
           <strong>Move work forward</strong>
-          <span>Plans, permissions and reviews waiting for your decision appear here.</span>
+          <span>Questions, plans, permissions and reviews waiting for you appear here.</span>
         </div>
         {inbox.length === 0 ? (
           <div className="sr-empty">Nothing needs you right now.</div>

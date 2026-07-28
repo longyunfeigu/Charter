@@ -239,7 +239,24 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
 
   async resumeTask(task) {
     const external = task.external;
-    if (!external || get().resumingTaskId) return;
+    if (!external) {
+      useAppStore
+        .getState()
+        .pushToast('error', 'This session is missing the details needed to resume it.');
+      return;
+    }
+    const resumingTaskId = get().resumingTaskId;
+    if (resumingTaskId) {
+      useAppStore
+        .getState()
+        .pushToast(
+          'info',
+          resumingTaskId === task.id
+            ? 'This session is already resuming.'
+            : 'Another session is resuming. Try again when it finishes.',
+        );
+      return;
+    }
     if (external.cli !== 'claude' && external.cli !== 'codex') {
       useAppStore
         .getState()

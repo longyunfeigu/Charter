@@ -12,6 +12,12 @@ import { ReviewChecks } from './ReviewChecks.js';
 import '../styles/review.css';
 import '../styles/preview.css';
 import { createCodeContextRef } from '../codeContext.js';
+import {
+  isCurrentVerificationPass,
+  latestFinalReport,
+  reportExecutionFailed,
+  useVerificationEvidence,
+} from './verification-evidence.js';
 
 /**
  * Task review v2 (ADR-0013): Changes list + Monaco side-by-side diff, per-hunk
@@ -267,17 +273,11 @@ export function ReviewView(): React.JSX.Element | null {
   const cs = store.changeSet;
   const files = useMemo(() => cs?.files ?? [], [cs]);
   const selectedFile = files.find((f) => f.path === selectedPath) ?? files[0] ?? null;
-  const reviewVerification = useMemo(() => {
-    const byLabel = new Map<string, { label: string; state: string }>();
-    for (const event of store.timeline) {
-      if (event.type !== 'verification.completed') continue;
-      const run = (event.payload as { run?: { label?: unknown; state?: unknown } }).run;
-      if (run && typeof run.label === 'string') {
-        byLabel.set(run.label, { label: run.label, state: String(run.state ?? '') });
-      }
-    }
-    return [...byLabel.values()];
-  }, [store.timeline]);
+  const reviewVerification = useVerificationEvidence(
+    task?.id ?? null,
+    task?.updatedAt ?? null,
+    store.timeline,
+  );
 
   // Auto-select the first file; keep the selection when the set refreshes.
   useEffect(() => {
@@ -312,12 +312,17 @@ export function ReviewView(): React.JSX.Element | null {
 
   if (!store.reviewOpen || !task) return null;
   const canDecide = task.state === 'REVIEW_READY';
-  const failedChecks = reviewVerification.filter((run) => run.state !== 'passed');
+  const report = latestFinalReport(store.timeline);
+  const executionFailed = reportExecutionFailed(report);
+  const failedChecks = reviewVerification.filter((run) => !isCurrentVerificationPass(run));
   const recordedLabels = new Set(reviewVerification.map((run) => run.label));
   const missingChecks = task.verification.filter((check) => !recordedLabels.has(check.label));
   const hasEvidenceRisk =
     task.mode !== 'ask' &&
-    (failedChecks.length > 0 || reviewVerification.length === 0 || missingChecks.length > 0);
+    (executionFailed ||
+      failedChecks.length > 0 ||
+      reviewVerification.length === 0 ||
+      missingChecks.length > 0);
 
   const sendFix = async (): Promise<void> => {
     if (!fix) return;
@@ -350,7 +355,10 @@ export function ReviewView(): React.JSX.Element | null {
   return (
     <div className="rv-root" data-testid="review-view" role="dialog" aria-label="Review changes">
       <div className="rv-head">
-        <span className="rv-title">Review — {task.title}</span>
+        <span className="rv-title">
+          <small>{task.projectName} / Session review</small>
+          <span>{task.title}</span>
+        </span>
         {cs ? (
           <span className="rv-totals" data-testid="review-totals">
             {cs.files.length} file{cs.files.length === 1 ? '' : 's'} ·{' '}
@@ -365,14 +373,18 @@ export function ReviewView(): React.JSX.Element | null {
         {canDecide && hasEvidenceRisk ? (
           <ConfirmDangerButton
             label={
-              failedChecks.length > 0
-                ? 'Accept despite failed checks…'
-                : 'Accept without verification…'
+              executionFailed
+                ? 'Accept despite failed request…'
+                : failedChecks.length > 0
+                  ? 'Accept despite failed checks…'
+                  : 'Accept without verification…'
             }
             confirmLabel={
-              failedChecks.length > 0
-                ? 'Confirm — accept failed checks'
-                : 'Confirm — accept unverified changes'
+              executionFailed
+                ? 'Confirm — accept without requested fix'
+                : failedChecks.length > 0
+                  ? 'Confirm — accept failed checks'
+                  : 'Confirm — accept unverified changes'
             }
             testid="review-accept-all"
             onConfirm={() => void store.acceptTask({ confirmEvidenceRisk: true })}
@@ -391,6 +403,16 @@ export function ReviewView(): React.JSX.Element | null {
           Close
         </button>
       </div>
+
+      {executionFailed ? (
+        <div className="rv-execution-warning" data-testid="review-execution-failed">
+          <Ic name="alert" size={14} />
+          <span>
+            <strong>The latest request did not complete.</strong> A file action failed; the Diff
+            shows the existing changes, not proof that the requested fix was applied.
+          </span>
+        </div>
+      ) : null}
 
       <div className="rv-tabs" role="tablist" aria-label="Evidence">
         <button
