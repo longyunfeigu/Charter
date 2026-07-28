@@ -41,7 +41,7 @@ export function ActivityBar({
         title="Sessions"
         onClick={() => onSelect('sessions')}
       >
-        <Ic name="terminal" size={16} />
+        <Ic name="sessions" size={17} />
       </button>
       <button
         className={`sr-activity-item ${active === 'inbox' ? 'active' : ''}`}
@@ -70,7 +70,7 @@ export function ActivityBar({
         title="Remote Explorer"
         onClick={onRemotes}
       >
-        <Ic name="server" size={16} />
+        <Ic name="remote-terminal" size={17} />
       </button>
       <button
         className="sr-activity-item"

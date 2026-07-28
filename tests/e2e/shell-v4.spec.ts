@@ -317,8 +317,10 @@ test.describe('Shell v4 — heartbeat + focus layers (PIVOT-028/025)', () => {
       await expect(page.locator('[data-testid^="live-board-"]')).toHaveCount(0);
       const railSession = page.locator('button[data-testid^="home-task-"]').first();
       await expect(railSession).toBeVisible({ timeout: 25000 });
-      // Heartbeat layer: the sidebar row ticks with the current action.
-      await expect(railSession.locator('[data-testid^="home-task-ticker-"]')).toBeVisible();
+      // Heartbeat layer: active rows stay compact; motion carries the working state.
+      await expect(railSession).toHaveAttribute('data-working', 'true');
+      await expect(railSession.locator('.sr-provider')).toHaveClass(/is-working/);
+      await expect(railSession.locator('.sr-session-detail')).toHaveCount(0);
       await page.screenshot({ path: '/tmp/charter-live-launcher-1440.png' });
 
       // The rail row re-opens its Session room.

@@ -434,5 +434,24 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
         taskByTerminal: { ...tasks, ...get().taskByTerminal },
       });
     });
+
+    // `external.listSessions` only contains Agent processes that are active in
+    // this main-process lifetime. Rebuild the latest terminal -> task identity
+    // from durable tasks as well, otherwise an ended Codex/Claude daemon PTY
+    // comes back from an app restart as a generic `zsh` terminal.
+    void rpcResult('task.list', {
+      filter: 'all',
+      includeArchived: false,
+      scope: 'all',
+    }).then((res) => {
+      if (!res.ok) return;
+      const bindings: Record<string, string> = {};
+      for (const task of res.data.tasks.toSorted(
+        (a, b) => Date.parse(a.updatedAt) - Date.parse(b.updatedAt),
+      )) {
+        if (task.external) bindings[task.external.terminalId] = task.id;
+      }
+      set({ taskByTerminal: { ...bindings, ...get().taskByTerminal } });
+    });
   },
 }));

@@ -14,13 +14,17 @@ describe('sanitizedTerminalEnv (agent-session markers never leak into user PTYs)
       AI_AGENT: 'claude-code_2-1-215_agent',
       CODEX_HOME: '/Users/u/.codex-app',
       CODEX_SANDBOX: 'seatbelt',
+      CODEX_THREAD_ID: '019fa66b-91d2-7a61-a55d-28e26ed06eb5',
+      CODEX_INTERNAL_ORIGINATOR_OVERRIDE: 'codex_app',
+      CODEX_PERMISSION_PROFILE: 'danger-full-access',
+      CODEX_CI: '1',
+      CODEX_SHELL: '/bin/zsh',
       PATH: '/usr/bin',
       HOME: '/Users/u',
     });
     expect(Object.keys(env).filter((k) => k.startsWith('CLAUDE'))).toEqual([]);
     expect(env.AI_AGENT).toBeUndefined();
-    expect(env.CODEX_HOME).toBeUndefined();
-    expect(env.CODEX_SANDBOX).toBeUndefined();
+    expect(Object.keys(env).filter((k) => k.startsWith('CODEX_'))).toEqual([]);
     expect(env.PATH).toBe('/usr/bin');
     expect(env.HOME).toBe('/Users/u');
   });

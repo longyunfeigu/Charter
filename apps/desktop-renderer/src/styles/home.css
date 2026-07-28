@@ -1340,6 +1340,9 @@
   color: var(--warning);
   font-weight: 600;
 }
+.term-agent.ended {
+  color: var(--fg-muted);
+}
 .term-agent-ext {
   font-size: 9px;
   font-weight: 800;

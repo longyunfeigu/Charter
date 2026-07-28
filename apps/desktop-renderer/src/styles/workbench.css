@@ -436,6 +436,10 @@ html.xp-resizing * {
   color: var(--success);
   letter-spacing: 0.02em;
 }
+.tsb-pty-state.available {
+  color: var(--info);
+  letter-spacing: 0.02em;
+}
 .term-session-bar.ended {
   background: color-mix(in srgb, var(--success, #188544) 8%, transparent);
 }
@@ -672,7 +676,11 @@ html.xp-resizing * {
   animation: none;
 }
 .terminal-row-dot.ended {
-  background: var(--success);
+  background: var(--fg-faint);
+  animation: none;
+}
+.terminal-row-dot.available {
+  background: var(--info);
   animation: none;
 }
 .terminal-row-main {

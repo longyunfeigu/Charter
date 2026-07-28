@@ -15,7 +15,6 @@ export function RemoteInspector(): React.JSX.Element | null {
       ? state.items.find((candidate) => candidate.id === app.sessionTerminalId)
       : undefined,
   );
-  const disconnect = useSshStore((state) => state.disconnect);
   const [busy, setBusy] = useState(false);
 
   if (!host) return null;
@@ -25,6 +24,22 @@ export function RemoteInspector(): React.JSX.Element | null {
     await openRemoteSession(host.id, terminal?.launch ?? 'shell');
     setBusy(false);
   };
+  const stateLabel =
+    host.connection.state === 'connected'
+      ? 'Connected'
+      : host.connection.state === 'connecting'
+        ? 'Connecting'
+        : host.connection.state === 'reconnecting'
+          ? 'Reconnecting'
+          : 'Disconnected';
+  const authLabel =
+    host.auth === 'agent'
+      ? 'SSH agent'
+      : host.auth === 'key'
+        ? 'SSH key'
+        : host.hasPassword
+          ? 'Password · Keychain'
+          : 'Password';
 
   return (
     <aside className="rm-inspector" data-testid="remote-inspector" aria-label="Remote context">
@@ -76,13 +91,20 @@ export function RemoteInspector(): React.JSX.Element | null {
         </>
       ) : (
         <>
-          <section className="rm-inspector-callout">
-            <Ic name="server" size={18} />
+          <section className={`rm-inspector-state ${host.connection.state}`}>
+            <span className={`rm-dot ${host.connection.state}`} />
             <span>
-              <strong className="rm-capitalize">{host.connection.state}</strong>
-              <small>{host.connection.sessions} live SSH channels</small>
+              <strong>{stateLabel}</strong>
+              <small>
+                {host.connection.state === 'connected'
+                  ? `${host.connection.sessions} live SSH channel${host.connection.sessions === 1 ? '' : 's'}`
+                  : host.connection.state === 'disconnected'
+                    ? 'No active transport'
+                    : 'Preparing the remote workspace'}
+              </small>
             </span>
           </section>
+          <div className="rm-inspector-label">Connection details</div>
           <dl>
             <dt>Address</dt>
             <dd className="mono">{host.host}</dd>
@@ -92,28 +114,19 @@ export function RemoteInspector(): React.JSX.Element | null {
             <dd className="mono">{host.port}</dd>
             <dt>Workspace</dt>
             <dd className="mono">{host.remoteWorkdir ?? '~'}</dd>
-          </dl>
-          <div className="rm-inspector-actions">
-            <button className="btn primary" disabled={busy} onClick={() => void launch()}>
-              <Ic name="terminal" size={12} />
-              {busy
-                ? 'Opening…'
-                : host.connection.state === 'connected'
-                  ? 'New Session'
-                  : 'Connect'}
-            </button>
-            <button className="btn" onClick={() => app.setRemoteSubview('files')}>
-              Files
-            </button>
-            <button className="btn" onClick={() => app.setRemoteSubview('forwards')}>
-              Forwards
-            </button>
-            {host.connection.state === 'connected' ? (
-              <button className="btn danger" onClick={() => void disconnect(host.id)}>
-                Disconnect
-              </button>
+            <dt>Authentication</dt>
+            <dd>{authLabel}</dd>
+            {host.proxyJump ? (
+              <>
+                <dt>Proxy jump</dt>
+                <dd className="mono">{host.proxyJump}</dd>
+              </>
             ) : null}
-          </div>
+          </dl>
+          <p className="rm-inspector-guidance">
+            Sessions, files and forwards share this connection. Choose a host tool from the tabs
+            above the workspace.
+          </p>
         </>
       )}
       <footer>

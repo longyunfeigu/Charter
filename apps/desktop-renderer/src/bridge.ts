@@ -22,19 +22,38 @@ declare global {
   }
 }
 
+function restartRequiredError(channel: string, technicalMessage: string): ProductError {
+  return productError('APP_RESTART_REQUIRED', {
+    userMessage: 'Charter updated while running. Restart Charter to use this action.',
+    severity: 'warning',
+    technicalMessage,
+    context: { channel },
+  });
+}
+
+/** Electron rejects before the IPC router when a hot renderer calls an older Main process. */
+export function isMissingIpcHandlerError(value: unknown): boolean {
+  return /No handler registered for ['"]rpc:[^'"]+['"]/i.test(errorMessage(value));
+}
+
 /** Typed access to the preload bridge. Throws ProductFailure on structured errors. */
 export async function rpc<N extends ChannelName>(
   channel: N,
   payload: ChannelRequest<N>,
   workspaceId?: string,
 ): Promise<ChannelResponse<N>> {
-  const fn = window.product?.rpc?.[channel];
-  if (!fn) {
+  if (!window.product?.rpc) {
     throw new ProductFailure(
       productError('IPC_BRIDGE_MISSING', {
         userMessage: 'The application bridge is unavailable. Please restart the app.',
         severity: 'fatal',
       }),
+    );
+  }
+  const fn = window.product.rpc[channel];
+  if (!fn) {
+    throw new ProductFailure(
+      restartRequiredError(channel, `The preload bridge does not expose rpc:${channel}.`),
     );
   }
   const response = await fn(payload, workspaceId);
@@ -55,6 +74,9 @@ export async function rpcResult<N extends ChannelName>(
     return { ok: true, data };
   } catch (e) {
     if (e instanceof ProductFailure) return { ok: false, error: e.error };
+    if (isMissingIpcHandlerError(e)) {
+      return { ok: false, error: restartRequiredError(channel, errorMessage(e)) };
+    }
     return {
       ok: false,
       error: productError('APP_UNEXPECTED', {

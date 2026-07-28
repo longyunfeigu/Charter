@@ -85,6 +85,13 @@ describe('externalResumeCommand', () => {
     expect(externalResumeCommand('codex', id)).toBe(`codex resume ${id}`);
   });
 
+  it('pins Codex to the home that owns the recorded rollout', () => {
+    const id = '924241d6-f2e8-444d-8d75-0386362bf52f';
+    expect(externalResumeCommand('codex', id, "/Users/o'hara/.codex-app")).toBe(
+      `CODEX_HOME='/Users/o'\\''hara/.codex-app' codex resume ${id}`,
+    );
+  });
+
   it('keeps Claude fallback but fails closed for Codex without an id', () => {
     expect(externalResumeCommand('claude')).toBe('claude --continue');
     expect(externalResumeCommand('claude', null)).toBe('claude --continue');

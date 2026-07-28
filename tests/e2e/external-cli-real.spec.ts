@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { launchApp } from './helpers/launch';
 import { createGitFixture } from './helpers/fixtures';
+import { terminalPtyOutput, terminalPtySnapshot, waitForTerminalOutput } from './helpers/terminal';
 
 /**
  * ADR-0017 rev.2 — manual, env-gated (real-gateway.spec convention): drives the
@@ -14,8 +15,9 @@ import { createGitFixture } from './helpers/fixtures';
  *   - the real TUIs actually rendering and taking keystrokes in the dock and
  *     in the user-invoked side panel (the rev.2 interaction).
  * Run: PI_IDE_REAL_EXTERNAL_CLI=1 npx playwright test external-cli-real …
- * The interactive claude test only types `/exit` (no model call); the print
- * test runs one tiny haiku task and costs real tokens.
+ * The interactive Claude test only uses local commands. The Codex exact-resume
+ * test and Claude print test each run one tiny prompt because the CLIs do not
+ * persist a resumable rollout until a real turn exists.
  */
 const REAL = process.env.PI_IDE_REAL_EXTERNAL_CLI === '1';
 const SHOTS = '/tmp/live-e2e';
@@ -30,15 +32,30 @@ async function openLiveTerminal(page: Page): Promise<void> {
   await page.locator('.xterm').click();
   await page.keyboard.type('echo ready-marker');
   await page.keyboard.press('Enter');
-  await expect(page.getByTestId('terminal-panel')).toContainText('ready-marker', {
-    timeout: 15000,
-  });
+  // The default WebGL renderer paints terminal rows onto a canvas, so the
+  // host-owned PTY tail is the reliable readiness signal.
+  await waitForTerminalOutput(page, 'ready-marker');
+}
+
+async function useSoftwareTerminalRenderer(page: Page): Promise<void> {
+  await page.getByTestId('home-settings').click();
+  await page.getByTestId('settings-section-terminal').click();
+  await page.getByTestId('settings-terminal-renderer').selectOption('software');
+  await page.keyboard.press('Escape');
+}
+
+async function expectExternalEndedSurface(page: Page): Promise<void> {
+  const ended = page
+    .getByTestId('external-panel-ended')
+    .or(page.getByTestId('session-agent-status').filter({ hasText: /ended/i }));
+  await expect(ended).toBeVisible({ timeout: 45_000 });
 }
 
 /** A fresh dir makes claude ask for folder trust; accept the default. */
 async function acceptTrustPromptIfShown(page: Page, host: string): Promise<void> {
   try {
-    await expect(page.getByTestId(host)).toContainText(/trust/i, { timeout: 20000 });
+    await expect(page.getByTestId(host)).toContainText(/trust/i, { timeout: 20_000 });
+    await page.getByTestId(host).click();
     await page.keyboard.press('Enter');
   } catch {
     // No trust prompt (already-trusted path shape) — fine.
@@ -49,7 +66,7 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
   test.skip(!REAL, 'set PI_IDE_REAL_EXTERNAL_CLI=1 to drive the real claude/codex CLIs');
   test.beforeAll(() => mkdirSync(SHOTS, { recursive: true }));
 
-  test('real claude interactive: detect in place → promote → keystrokes → /exit → return', async () => {
+  test('real claude interactive: detect → promote → type → end from Session Rail', async () => {
     test.setTimeout(240000);
     const fixture = createGitFixture();
     const { app, page } = await launchApp({
@@ -57,6 +74,7 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
       recordVideo,
     });
     try {
+      await useSoftwareTerminalRenderer(page);
       await openLiveTerminal(page);
       await page.keyboard.type('claude');
       await page.keyboard.press('Enter');
@@ -69,12 +87,15 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
       await expect(page.getByTestId('terminal-session-bar')).toBeVisible();
       await expect(page.getByTestId('external-panel')).toHaveCount(0);
       await expect(page.getByTestId('bottom-panel')).toBeVisible();
+      const terminalId = (await terminalPtySnapshot(page)).items.at(-1)?.id;
+      expect(terminalId).toBeTruthy();
 
       // The real TUI renders in place (trust prompt for the fresh dir first).
       await acceptTrustPromptIfShown(page, 'terminal-host');
       await expect(page.getByTestId('terminal-host')).toContainText(/Claude|claude/, {
-        timeout: 30000,
+        timeout: 30_000,
       });
+      await expect(page.getByTestId('terminal-host').locator('.xterm-screen')).toBeVisible();
       await page.screenshot({ path: join(SHOTS, 'claude-interactive-detected.png') });
 
       // Real interactive Claude emits no JSON turn.completed edge. A local
@@ -139,23 +160,31 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
       await page.getByTestId('session-bar-promote').click();
       await expect(page.getByTestId('external-panel')).toBeVisible();
       await expect(page.getByTestId('external-panel-terminal')).toContainText(/Claude|claude/, {
-        timeout: 15000,
+        timeout: 15_000,
       });
+      await expect(
+        page.getByTestId('external-panel-terminal').locator('.xterm-screen'),
+      ).toBeVisible();
       await page.getByTestId('external-panel-terminal').click();
       await page.keyboard.type('typing-probe');
       await expect(page.getByTestId('external-panel-terminal')).toContainText('typing-probe', {
-        timeout: 10000,
+        timeout: 10_000,
       });
       await page.screenshot({ path: join(SHOTS, 'claude-interactive-promoted.png') });
 
-      // Clear the probe, quit the TUI without a model call.
+      // Clear the probe, then exercise the Session Rail's product-owned end
+      // action against the real TUI rather than issuing Claude's /exit command.
       for (let i = 0; i < 'typing-probe'.length; i++) await page.keyboard.press('Backspace');
-      await page.keyboard.type('/exit');
-      await page.keyboard.press('Enter');
+      await row.hover();
+      const endSession = page.getByTestId(`home-end-${taskId}`);
+      await expect(endSession).toBeVisible();
+      await endSession.click();
+      await endSession.click();
 
       // Session ends: the pane STAYS in the panel (ended header), then the
       // user returns it to the dock.
-      await expect(page.getByTestId('external-panel-ended')).toBeVisible({ timeout: 45000 });
+      await expectExternalEndedSurface(page);
+      await expect(page.getByTestId(`home-end-${taskId}`)).toHaveCount(0);
       await page.screenshot({ path: join(SHOTS, 'claude-interactive-ended.png') });
       await page.getByTestId('external-return-dock').click();
       await expect(page.getByTestId('external-panel')).toHaveCount(0);
@@ -244,112 +273,126 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
     }
   });
 
-  test('real codex interactive: detect → promote → TUI renders and takes keystrokes', async () => {
-    test.setTimeout(120000);
+  test('real codex saved session: exec → exact resume → TUI input', async () => {
+    test.setTimeout(240000);
     const fixture = createGitFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture },
       recordVideo,
     });
     try {
+      await useSoftwareTerminalRenderer(page);
       await openLiveTerminal(page);
-      await page.keyboard.type('codex');
+      const terminalId = (await terminalPtySnapshot(page)).items.at(-1)?.id;
+      expect(terminalId).toBeTruthy();
+
+      // JSON mode exposes the exact thread.started UUID and creates a real
+      // rollout with one minimal model turn. It avoids treating an unpersisted
+      // slash-command-only TUI as a resumable conversation.
+      await page.keyboard.type(
+        'codex exec --json --sandbox read-only --ignore-rules "Reply with exactly RESUME_FIX_READY."',
+      );
       await page.keyboard.press('Enter');
 
       // The user's zsh function (nvm lazy-load + proxy) wraps the real CLI;
       // detection must see through whatever shim shape it resolves to.
       await expect(page.locator('[data-testid^="terminal-agent-"]')).toContainText(/codex/i, {
-        timeout: 45000,
+        timeout: 45_000,
       });
       await expect(page.getByTestId('terminal-session-bar')).toBeVisible();
       await expect(page.getByTestId('external-panel')).toHaveCount(0);
       await page.screenshot({ path: join(SHOTS, 'codex-detected.png') });
 
-      // Promote by intent; the real codex TUI must render in the panel and
-      // show typed characters in its composer.
-      await page.getByTestId('session-bar-promote').click();
-      await expect(page.getByTestId('external-panel')).toBeVisible();
-      const panelTerm = page.getByTestId('external-panel-terminal');
-      await expect(panelTerm).toContainText(/codex|Codex|OpenAI|Update available|Do you trust/, {
-        timeout: 20000,
+      await waitForTerminalOutput(page, /"type":"turn\.completed"/, {
+        terminalId,
+        timeout: 180_000,
       });
-      await panelTerm.click();
-      // codex opens through a gauntlet of startup prompts whose shapes vary by
-      // run: a self-update MENU ("› 1. Update now / 2. Skip …" — decline it),
-      // a non-interactive update notice box (ignore), and the fresh-dir trust
-      // prompt ("› 1. Yes, continue" — accept it). Handle whatever appears
-      // until the TUI proper is up; these keystrokes landing correctly is
-      // itself the point of the test.
-      let handledUpdateMenu = false;
-      let handledTrust = false;
-      for (let i = 0; i < 60; i++) {
-        const text = (await panelTerm.textContent()) ?? '';
-        if (!handledUpdateMenu && /1\. Update now/.test(text) && /2\. Skip/.test(text)) {
-          await page.keyboard.press('ArrowDown'); // › 2. Skip
-          await page.keyboard.press('Enter');
-          handledUpdateMenu = true;
-        } else if (!handledTrust && /Do you trust/.test(text) && /1\. Yes/.test(text)) {
-          await page.keyboard.press('Enter'); // default selection: Yes, continue
-          handledTrust = true;
-        } else if (
-          text.trim().length > 0 &&
-          !/Update now|Do you trust|Press enter/.test(text) &&
-          (handledTrust || !/Update available/.test(text))
-        ) {
-          break; // alternate screen took over — the TUI proper is rendering
-        }
-        await page.waitForTimeout(500);
-      }
-      await page.waitForTimeout(1500);
+      await expect(page.locator('[data-testid^="terminal-agent-"]')).toHaveCount(0, {
+        timeout: 30_000,
+      });
+      await expect(page.getByTestId('session-bar-ended')).toBeVisible();
 
-      const taskId = await page.evaluate(async () => {
-        const bridge = (
-          window as never as {
-            product: { rpc: Record<string, (p: unknown) => Promise<{ ok: boolean; data?: any }>> };
-          }
-        ).product;
-        const tasks = await bridge.rpc['task.list']!({
-          filter: 'all',
-          includeArchived: false,
-          scope: 'all',
+      const codexTask = async (): Promise<{
+        id: string;
+        external: { sessionId: string | null; status: string };
+      } | null> =>
+        page.evaluate(async () => {
+          const bridge = (
+            window as never as {
+              product: {
+                rpc: Record<string, (p: unknown) => Promise<{ ok: boolean; data?: any }>>;
+              };
+            }
+          ).product;
+          const tasks = await bridge.rpc['task.list']!({
+            filter: 'all',
+            includeArchived: false,
+            scope: 'all',
+          });
+          return (
+            tasks.data?.tasks?.find(
+              (task: { external?: { cli?: string } }) => task.external?.cli === 'codex',
+            ) ?? null
+          );
         });
-        return tasks.data.tasks.find(
-          (task: { external?: { cli?: string } }) => task.external?.cli === 'codex',
-        ).id as string;
-      });
+      await expect
+        .poll(async () => (await codexTask())?.external.sessionId ?? '', { timeout: 30_000 })
+        .toMatch(/^[0-9a-f-]{36}$/i);
+      const taskId = (await codexTask())!.id;
+      await page.screenshot({ path: join(SHOTS, 'codex-saved-session-ended.png') });
 
-      // `/status` is a local Codex TUI command, so this exercises the actual
-      // installed client without sending a prompt or consuming model tokens.
+      // Resume through the same task action the user clicks. The command must
+      // pin the owning Codex home; otherwise the real CLI reports the original
+      // "No saved session found" failure.
+      await page.getByTestId('session-bar-review').click();
+      await expect(page.getByTestId('task-room')).toBeVisible();
+      const resumeSession = page.getByTestId('task-resume');
+      await expect(resumeSession).toContainText('Resume Codex session');
+      await resumeSession.click();
+      await waitForTerminalOutput(page, /CODEX_HOME=.*codex resume [0-9a-f-]{36}/i, {
+        terminalId,
+        timeout: 30_000,
+      });
+      await waitForTerminalOutput(page, /Press enter to continue|OpenAI\s*Codex/, {
+        terminalId,
+        timeout: 30_000,
+      });
+      await expect(
+        page
+          .getByTestId('external-live')
+          .or(page.getByTestId('session-agent-status').filter({ hasText: /running/i })),
+      ).toBeVisible({ timeout: 30_000 });
+      await page.waitForTimeout(1_500);
+      expect(await terminalPtyOutput(page, terminalId)).not.toContain('No saved session found');
+
+      const resumedTerm = page
+        .getByTestId('external-terminal-host')
+        .or(page.getByTestId('session-terminal-host'));
+      await expect(resumedTerm).toBeVisible();
+      await resumedTerm.click();
+      if (
+        /Do\s*you\s*trust|Press enter to continue/.test((await resumedTerm.textContent()) ?? '')
+      ) {
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(1_000);
+      }
       await page.keyboard.type('/status');
       await page.keyboard.press('Enter');
-      const replyNotice = page.locator(
-        `[data-testid="session-completion-notice"][data-kind="reply"][data-task-id="${taskId}"]`,
-      );
-      await expect(replyNotice).toBeVisible({ timeout: 20000 });
-      await expect(replyNotice).toContainText('Codex reply complete');
-      await expect(replyNotice).toContainText('Terminal output settled');
-      await page.screenshot({ path: join(SHOTS, 'codex-observed-reply-notice.png') });
+      await page.waitForTimeout(1_500);
+      await page.screenshot({ path: join(SHOTS, 'codex-resumed-real.png') });
       await page.keyboard.press('Escape');
 
-      await page.keyboard.type('typing-probe');
-      await expect(panelTerm).toContainText('typing-probe', {
-        timeout: 10000,
-      });
-      await page.screenshot({ path: join(SHOTS, 'codex-promoted.png') });
-
-      // An external task exists for the session (accounting armed).
-      const hasExternal = await page.evaluate(async () => {
+      // Leave no real Codex process running after the validation.
+      const endResult = await page.evaluate(async (id) => {
         const bridge = (
           window as never as {
             product: { rpc: Record<string, (p: unknown) => Promise<{ ok: boolean; data?: any }>> };
           }
         ).product;
-        const tasks = await bridge.rpc['task.list']!({ filter: 'all', includeArchived: false });
-        return Boolean(tasks.data?.tasks?.some((t: { external: unknown }) => t.external));
-      });
-      expect(hasExternal).toBe(true);
-      // Closing the app kills the PTY, which fires the session-exit edge
-      // (fireAgentExitIfActive) — quitting the TUI itself is not under test.
+        return bridge.rpc['external.endSession']!({ taskId: id });
+      }, taskId);
+      expect(endResult.ok).toBe(true);
+      expect(endResult.data?.ended).toBe(true);
     } finally {
       const video = page.video();
       await app.close();

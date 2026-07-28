@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { basename } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { basename, join } from 'node:path';
 import { launchApp } from './helpers/launch';
 import { createTsSmallFixture } from './helpers/fixtures';
 
@@ -185,6 +186,136 @@ test.describe('Session completion attention', () => {
         'Primary Session 05',
       );
       await expect(page.getByTestId('rail-group-more')).toHaveCount(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('History is grouped by time and each period paginates independently', async () => {
+    const fixture = createTsSmallFixture();
+    const { app, page, userDataDir } = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+      home: 'keep',
+    });
+    try {
+      const localTimestamp = (daysAgo: number, minute: number): string => {
+        const value = new Date();
+        value.setDate(value.getDate() - daysAgo);
+        value.setHours(12, minute, 0, 0);
+        return value.toISOString();
+      };
+      const specs = [
+        { title: 'History today', updatedAt: localTimestamp(0, 0) },
+        { title: 'History yesterday', updatedAt: localTimestamp(1, 0) },
+        { title: 'History previous week', updatedAt: localTimestamp(3, 0) },
+        ...Array.from({ length: 17 }, (_, index) => ({
+          title: `History previous month ${String(index + 1).padStart(2, '0')}`,
+          updatedAt: localTimestamp(12, index),
+        })),
+        { title: 'History older one', updatedAt: localTimestamp(45, 0) },
+        { title: 'History older two', updatedAt: localTimestamp(60, 0) },
+      ];
+
+      const created = await page.evaluate(
+        async ({ projectPath, sessions }) => {
+          const product = (
+            window as unknown as {
+              product: {
+                rpc: Record<
+                  string,
+                  (payload: unknown) => Promise<{
+                    ok: boolean;
+                    data?: { task?: { id: string } };
+                    error?: { userMessage?: string };
+                  }>
+                >;
+              };
+            }
+          ).product;
+          const rows: Array<{ id: string; updatedAt: string }> = [];
+          for (const session of sessions) {
+            const result = await product.rpc['task.create']!({
+              title: session.title,
+              goalMd: 'Exercise History time grouping and per-period pagination',
+              acceptance: [],
+              mode: 'ask',
+              model: { providerId: 'mock', modelId: 'mock-1' },
+              verification: [],
+              projectPath,
+              isolation: 'none',
+              conversationRefTaskIds: [],
+            });
+            if (!result.ok || !result.data?.task) {
+              throw new Error(result.error?.userMessage ?? 'task.create failed');
+            }
+            rows.push({ id: result.data.task.id, updatedAt: session.updatedAt });
+          }
+          return rows;
+        },
+        { projectPath: fixture, sessions: specs },
+      );
+
+      execFileSync('/usr/bin/sqlite3', [
+        join(userDataDir, 'app.db'),
+        created
+          .map(
+            ({ id, updatedAt }) =>
+              `UPDATE tasks SET state = 'ACCEPTED', updated_at = '${updatedAt}' WHERE id = '${id}';`,
+          )
+          .join('\n'),
+      ]);
+
+      await page.reload();
+      await expect(page.getByTestId('workbench')).toBeVisible();
+      await page.getByTestId('rail-view-sessions').click();
+      const historyToggle = page.getByTestId('rail-group-history');
+      await expect(historyToggle).toContainText(String(specs.length));
+      await expect(historyToggle).toHaveAttribute('aria-expanded', 'false');
+      await historyToggle.click();
+
+      for (const period of ['today', 'yesterday', 'previous-7-days', 'previous-30-days']) {
+        await expect(page.getByTestId(`rail-history-period-${period}`)).toBeVisible();
+        await expect(page.getByTestId(`rail-history-period-toggle-${period}`)).toHaveAttribute(
+          'aria-expanded',
+          'true',
+        );
+      }
+      await expect(page.getByTestId('rail-history-period-toggle-older')).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+
+      const previousMonth = page.getByTestId('rail-history-period-previous-30-days');
+      const previousMonthMore = page.getByTestId('rail-history-more-previous-30-days');
+      await expect(previousMonth.locator('[data-session-key^="task:"]')).toHaveCount(5);
+      await expect(previousMonthMore).toContainText('12 more');
+      await previousMonthMore.click();
+      await expect(previousMonth.locator('[data-session-key^="task:"]')).toHaveCount(15);
+      await expect(previousMonthMore).toContainText('2 more');
+      await previousMonthMore.click();
+      await expect(previousMonth.locator('[data-session-key^="task:"]')).toHaveCount(17);
+      await expect(previousMonthMore).toContainText('Show less');
+      await previousMonthMore.click();
+      await expect(previousMonth.locator('[data-session-key^="task:"]')).toHaveCount(5);
+      await page.screenshot({ path: '/tmp/charter-history-periods-desktop.png' });
+
+      await page.getByTestId('rail-session-search').fill('History older two');
+      await expect(historyToggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.getByTestId('rail-history-period-toggle-older')).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      );
+      await expect(page.getByText('History older two', { exact: true })).toBeVisible();
+      await expect(page.locator('[data-testid^="rail-history-more-"]')).toHaveCount(0);
+      await page.getByTestId('rail-session-search').fill('');
+      await expect(page.getByTestId('rail-history-period-toggle-older')).toHaveAttribute(
+        'aria-expanded',
+        'false',
+      );
+
+      await page.setViewportSize({ width: 820, height: 720 });
+      await expect(previousMonth).toBeVisible();
+      await page.screenshot({ path: '/tmp/charter-history-periods-narrow.png' });
     } finally {
       await app.close();
     }

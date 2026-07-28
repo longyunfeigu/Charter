@@ -34,6 +34,11 @@ import {
   syncTerminalRenderer,
   syncTerminalUnicode,
 } from './terminal-renderer.js';
+import {
+  externalAgentLifecycle,
+  externalTerminalLifecycle,
+  isExternalCli,
+} from './external-terminal-lifecycle.js';
 
 export type TerminalLaunch = 'shell' | 'claude' | 'codex';
 /** ADR-0047: identifies the remote SSH host a session runs on. */
@@ -1280,11 +1285,17 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
  */
 export function SessionBar({ terminalId }: { terminalId: string }): React.JSX.Element | null {
   const item = useTerminalStore((s) => s.items.find((terminal) => terminal.id === terminalId));
-  const taskId = useExternalStore((s) => s.taskByTerminal[terminalId]);
+  const mappedTaskId = useExternalStore((s) => s.taskByTerminal[terminalId]);
   const cli = useExternalStore((s) => s.agentByTerminal[terminalId] ?? null);
-  const session = useExternalStore((s) => (taskId ? s.sessions[taskId] : undefined));
+  const sessions = useExternalStore((s) => s.sessions);
   const promoted = useExternalStore((s) => s.promoted);
-  const task = useTaskStore((s) => (taskId ? s.tasks.find((entry) => entry.id === taskId) : null));
+  const tasks = useTaskStore((s) => s.tasks);
+  const fallbackTask = tasks
+    .filter((task) => task.external?.terminalId === terminalId)
+    .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+  const taskId = mappedTaskId ?? fallbackTask?.id;
+  const session = taskId ? sessions[taskId] : undefined;
+  const task = taskId ? (tasks.find((entry) => entry.id === taskId) ?? null) : null;
   if (!item) return null;
   const context = `${item.projectName} · context cwd ${compactTerminalPath(item.cwd)}`;
   if (!taskId) {
@@ -1311,9 +1322,21 @@ export function SessionBar({ terminalId }: { terminalId: string }): React.JSX.El
       </div>
     );
   }
-  const live = session ? session.status === 'active' : cli !== null;
-  const files = session?.files.length ?? 0;
-  const name = cli ?? session?.cli ?? 'agent';
+  const live =
+    (session?.status ?? task?.external?.status ?? (cli ? 'active' : 'ended')) === 'active';
+  const files = session?.files.length ?? task?.changedFiles ?? 0;
+  const name = cli ?? session?.cli ?? task?.external?.cli ?? 'agent';
+  const lifecycle = isExternalCli(name)
+    ? externalTerminalLifecycle({
+        cli: name,
+        agent: externalAgentLifecycle(
+          session?.status ?? task?.external?.status ?? (cli ? 'active' : 'ended'),
+          task?.state,
+        ),
+        terminalExited: item.exited,
+        shellTitle: item.title,
+      })
+    : null;
   const slotTaken = promoted !== null && promoted.terminalId !== terminalId;
   const openRoom = (): void => useAppStore.getState().openTaskRoom(taskId);
   return (
@@ -1335,10 +1358,18 @@ export function SessionBar({ terminalId }: { terminalId: string }): React.JSX.El
         </span>
       ) : (
         <span className="tsb-ended" data-testid="session-bar-ended">
-          ✻ ended · {files} file{files === 1 ? '' : 's'}
+          ✻ {lifecycle?.agentLabel ?? 'ended'} · {files} file{files === 1 ? '' : 's'}
         </span>
       )}
       <span className="tsb-sp" />
+      {lifecycle && !live ? (
+        <span
+          className={`tsb-pty-state ${lifecycle.terminal === 'live' ? 'available' : ''}`}
+          data-testid="session-bar-terminal-status"
+        >
+          {lifecycle.terminalLabel}
+        </span>
+      ) : null}
       {item.persistence === 'daemon' && live ? (
         <span
           className="tsb-pty-state protected"
@@ -2018,13 +2049,35 @@ export function TerminalPanel(): React.JSX.Element {
           {store.items
             .filter((terminal) => !terminal.hidden)
             .map((terminal) => {
-              const taskId = taskByTerminal[terminal.id];
-              const task = taskId ? tasks.find((entry) => entry.id === taskId) : null;
+              const fallbackTask = tasks
+                .filter((entry) => entry.external?.terminalId === terminal.id)
+                .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+              const taskId = taskByTerminal[terminal.id] ?? fallbackTask?.id;
+              const task = taskId
+                ? (tasks.find((entry) => entry.id === taskId) ?? fallbackTask ?? null)
+                : null;
               const session = taskId ? sessions[taskId] : undefined;
-              const agent = agentByTerminal[terminal.id] ?? session?.cli ?? null;
+              const activeAgent = agentByTerminal[terminal.id] ?? null;
+              const agent =
+                activeAgent ??
+                session?.cli ??
+                task?.external?.cli ??
+                (isExternalCli(terminal.launch) ? terminal.launch : null);
               const inSide = promoted?.terminalId === terminal.id;
-              const live = Boolean(agentByTerminal[terminal.id]) || session?.status === 'active';
-              const ended = Boolean(session && session.status === 'ended');
+              const agentStatus =
+                session?.status ??
+                task?.external?.status ??
+                (activeAgent || (agent && !terminal.exited) ? 'active' : 'ended');
+              const live = agentStatus === 'active' && !terminal.exited;
+              const lifecycle = isExternalCli(agent)
+                ? externalTerminalLifecycle({
+                    cli: agent,
+                    agent: externalAgentLifecycle(agentStatus, task?.state),
+                    terminalExited: terminal.exited,
+                    shellTitle: terminal.title,
+                  })
+                : null;
+              const ended = Boolean(agent && !live);
               const stateLabel = inSide
                 ? 'IN SIDE'
                 : terminal.quick
@@ -2033,9 +2086,11 @@ export function TerminalPanel(): React.JSX.Element {
                     : 'QUICK'
                   : live
                     ? 'LIVE'
-                    : ended
-                      ? 'ENDED'
-                      : 'IDLE';
+                    : lifecycle?.terminalLabel === 'Shell available'
+                      ? 'SHELL'
+                      : ended
+                        ? 'ENDED'
+                        : 'IDLE';
               const dockActive = store.active === terminal.id && !inSide;
               // With a side focus slot, the strong selected color must describe
               // the terminal the user is actually looking at on the right.
@@ -2052,7 +2107,7 @@ export function TerminalPanel(): React.JSX.Element {
                 store.setActive(terminal.id);
               };
               const rowTitle = agent
-                ? `${agentDisplayName(agent)} — ${inSide ? 'focus the side terminal' : promoted ? 'switch into the side slot' : 'open in the terminal dock'}`
+                ? `${lifecycle?.summary ?? agentDisplayName(agent)} — ${inSide ? 'focus the side terminal' : promoted ? 'switch into the side slot' : 'open in the terminal dock'}`
                 : `${terminal.title} — open in the terminal dock`;
               return (
                 <div
@@ -2073,7 +2128,13 @@ export function TerminalPanel(): React.JSX.Element {
                   }}
                 >
                   <span
-                    className={`terminal-row-dot ${agent ? '' : 'shell'} ${terminal.exited || ended ? 'ended' : ''}`}
+                    className={`terminal-row-dot ${agent ? '' : 'shell'} ${
+                      lifecycle?.terminalLabel === 'Shell available'
+                        ? 'available'
+                        : terminal.exited || ended
+                          ? 'ended'
+                          : ''
+                    }`}
                   />
                   <span className="terminal-row-main">
                     {renaming === terminal.id ? (
@@ -2099,14 +2160,15 @@ export function TerminalPanel(): React.JSX.Element {
                       <span className="terminal-row-title">
                         {agent ? (
                           <span
-                            className="term-agent"
+                            className={`term-agent ${ended ? 'ended' : ''}`}
                             data-testid={
                               agentByTerminal[terminal.id]
                                 ? `terminal-agent-${terminal.id}`
                                 : undefined
                             }
                           >
-                            ✳ {agentDisplayName(agent)} <span className="term-agent-ext">EXT</span>
+                            ✳ {lifecycle?.providerLabel ?? agentDisplayName(agent)}{' '}
+                            <span className="term-agent-ext">EXT</span>
                           </span>
                         ) : (
                           <>

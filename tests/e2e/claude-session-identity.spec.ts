@@ -89,6 +89,35 @@ function createObservedAgentBin(provider: 'claude' | 'codex'): string {
   return bin;
 }
 
+function createExitToShellAgentBin(provider: 'claude' | 'codex', fixture: string): string {
+  const bin = mkdtempSync(join(tmpdir(), `charter-exit-to-shell-${provider}-`));
+  writeFileSync(
+    join(bin, provider),
+    [
+      '#!/usr/bin/env node',
+      "const fs = require('fs');",
+      "const path = require('path');",
+      `const fixture = ${JSON.stringify(fixture)};`,
+      `console.log(${JSON.stringify(`${provider}-agent-started`)});`,
+      'setTimeout(() => {',
+      `  fs.writeFileSync(path.join(fixture, ${JSON.stringify(`${provider}-ended.txt`)}), 'changed by agent\\n');`,
+      `  console.log(${JSON.stringify(`${provider}-agent-changed-file`)});`,
+      '}, 800);',
+      'setTimeout(() => {',
+      `  console.log(${JSON.stringify(`${provider}-agent-exited`)});`,
+      '  process.exit(0);',
+      '}, 3200);',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(bin, '.zshenv'),
+    `export PATH=${JSON.stringify(`${bin}:${process.env.PATH ?? ''}`)}\n`,
+  );
+  chmodSync(join(bin, provider), 0o755);
+  return bin;
+}
+
 async function terminalItems(page: Page): Promise<TerminalInfo[]> {
   return page.evaluate(async () => {
     const result = (await window.product.rpc['terminal.list']!({})) as {
@@ -116,6 +145,110 @@ async function externalTasks(
 }
 
 test.describe('External Session identity and presence', () => {
+  for (const provider of ['claude', 'codex'] as const) {
+    test(`${provider} keeps its identity after Agent exit and app restart while zsh remains usable`, async () => {
+      test.setTimeout(120_000);
+      const fixture = createGitFixture();
+      const bin = createExitToShellAgentBin(provider, fixture);
+      const env = {
+        PI_IDE_OPEN_WORKSPACE: fixture,
+        PI_IDE_EXTERNAL_CLIS: provider,
+        PI_IDE_TERMINAL_PERSIST: '1',
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        ZDOTDIR: bin,
+      };
+      const first = await launchApp({ env });
+      let restarted: Awaited<ReturnType<typeof launchApp>> | null = null;
+      try {
+        const terminalId = await first.page.evaluate(async (launch) => {
+          const result = (await window.product.rpc['terminal.create']!({
+            context: { kind: 'focused' },
+            launch,
+          })) as { ok: boolean; data?: { id: string } };
+          return result.ok ? (result.data?.id ?? null) : null;
+        }, provider);
+        expect(terminalId).toBeTruthy();
+        await waitForTerminalOutput(first.page, `${provider}-agent-started`, {
+          terminalId: terminalId!,
+          timeout: 20_000,
+        });
+        await expect.poll(async () => (await externalTasks(first.page, provider)).length).toBe(1);
+        const task = (await externalTasks(first.page, provider))[0]!;
+        await waitForTerminalOutput(first.page, `${provider}-agent-exited`, {
+          terminalId: terminalId!,
+          timeout: 20_000,
+        });
+        await expect
+          .poll(async () => (await externalTasks(first.page, provider))[0]?.state, {
+            timeout: 20_000,
+          })
+          .toBe('REVIEW_READY');
+
+        const closed = first.app.waitForEvent('close');
+        await first.app.evaluate(({ app }) => {
+          setTimeout(() => app.quit(), 0);
+        });
+        await closed;
+        restarted = await launchApp({ userDataDir: first.userDataDir, env });
+        const { page } = restarted;
+        const rendererErrors: string[] = [];
+        page.on('pageerror', (error) => rendererErrors.push(error.message));
+        page.on('console', (message) => {
+          if (message.type() === 'error') rendererErrors.push(message.text());
+        });
+        await restarted.app.evaluate(({ BrowserWindow }) => {
+          BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 1440, height: 1000 });
+        });
+        await expect
+          .poll(async () => (await terminalItems(page)).some((item) => item.id === terminalId))
+          .toBe(true);
+
+        const row = page.getByTestId(`home-task-${task.id}`);
+        const providerLabel = provider === 'claude' ? 'Claude Code' : 'Codex';
+        if (!(await row.isVisible().catch(() => false))) {
+          const history = page.getByTestId('rail-group-history');
+          if ((await history.getAttribute('aria-expanded')) !== 'true') await history.click();
+        }
+        await expect(row).toBeVisible({ timeout: 20_000 });
+        await expect(row).toHaveAttribute(
+          'aria-label',
+          new RegExp(`${providerLabel} ended · Shell available`),
+        );
+        await expect(row).not.toContainText('zsh');
+        await row.hover();
+        await expect(page.getByRole('tooltip')).toContainText(
+          `${providerLabel} ended · Shell available`,
+        );
+        await expect(page.getByTestId(`session-terminal-${terminalId}`)).toHaveCount(0);
+
+        await row.click();
+        await expect(page.getByTestId('external-ended')).toHaveText('Agent ended');
+        await expect(page.getByTestId('external-terminal-lifecycle')).toHaveText('Shell available');
+        const terminal = page.getByTestId('external-terminal-host');
+        await expect(terminal.locator('.xterm')).toBeVisible({ timeout: 15_000 });
+        await terminal.locator('.xterm').click();
+        await page.keyboard.type(`echo shell-after-${provider}`);
+        await page.keyboard.press('Enter');
+        await waitForTerminalOutput(page, `shell-after-${provider}`, {
+          terminalId: terminalId!,
+          timeout: 15_000,
+        });
+        await page.screenshot({ path: `/tmp/charter-${provider}-ended-shell-1440.png` });
+
+        await restarted.app.evaluate(({ BrowserWindow }) => {
+          BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 980, height: 760 });
+        });
+        await expect(page.getByTestId('external-terminal-lifecycle')).toHaveText('Shell available');
+        await expect(terminal.locator('.xterm')).toBeVisible();
+        await page.screenshot({ path: `/tmp/charter-${provider}-ended-shell-980.png` });
+        expect(rendererErrors).toEqual([]);
+      } finally {
+        if (restarted) await restarted.app.close();
+        else await first.app.close().catch(() => undefined);
+      }
+    });
+  }
+
   for (const provider of ['claude', 'codex'] as const) {
     test(`observed ${provider} TUI shows a reply notice and whole-card shake`, async () => {
       const fixture = createGitFixture();

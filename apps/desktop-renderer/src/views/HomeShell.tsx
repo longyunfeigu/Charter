@@ -71,7 +71,11 @@ export function HomeShell(): React.JSX.Element {
     // user's Terminal Session manager. Composer-launched Claude/Codex sessions
     // can migrate directly into their richer evidence room.
     if (selectedTerminal?.launch === 'shell') return;
-    const detectedTaskId = taskByTerminal[sessionTerminalId];
+    const detectedTaskId =
+      taskByTerminal[sessionTerminalId] ??
+      taskStore.tasks
+        .filter((task) => task.external?.terminalId === sessionTerminalId)
+        .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]?.id;
     if (!detectedTaskId || !taskStore.tasks.some((task) => task.id === detectedTaskId)) return;
     void taskStore.openTask(detectedTaskId);
     useAppStore.getState().openTaskRoom(detectedTaskId);

@@ -1,6 +1,6 @@
 import { open, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 
 /**
  * ADR-0017 amendment — locating the CLI's own conversation id so resume can
@@ -56,6 +56,8 @@ export interface DiscoverInput {
   home?: string;
   /** Test/backfill seam: Codex homes themselves, each containing `sessions/`. */
   codexHomes?: string[];
+  /** Test seam for the Main process's inherited Codex home. */
+  configuredCodexHome?: string | null;
 }
 
 interface Candidate {
@@ -107,17 +109,10 @@ function codexDayKeys(startedAtMs: number, endedAtMs: number): string[] {
 }
 
 async function discoverCodex(input: DiscoverInput): Promise<string | null> {
-  const defaultHome = join(input.home ?? homedir(), '.codex');
-  const configuredHome = !input.home ? process.env.CODEX_HOME : null;
-  const homes = input.codexHomes ? [...input.codexHomes] : [defaultHome];
-  if (!input.codexHomes && configuredHome && isAbsolute(configuredHome)) {
-    homes.push(configuredHome);
-  }
-
   const from = input.startedAtMs - START_SLACK_MS;
   const to = input.endedAtMs + END_SLACK_MS;
   const candidates: Array<Candidate & { startedAtMs: number }> = [];
-  for (const home of [...new Set(homes.map((value) => resolve(value)))]) {
+  for (const home of codexHomeCandidates(input, false)) {
     const root = join(home, 'sessions');
     for (const key of codexDayKeys(input.startedAtMs, input.endedAtMs)) {
       const dir = join(root, key);
@@ -168,6 +163,30 @@ async function discoverCodex(input: DiscoverInput): Promise<string | null> {
   return candidates[0]?.sessionId ?? null;
 }
 
+/**
+ * The host Codex Desktop process uses `.codex-app`, but Charter strips that
+ * ambient CODEX_HOME from user PTYs. Scanning it during discovery can attach
+ * the host conversation to a terminal session that started at the same time.
+ */
+function codexHomeCandidates(input: DiscoverInput, includePrivateHostHome: boolean): string[] {
+  if (input.codexHomes) return [...new Set(input.codexHomes.map((value) => resolve(value)))];
+  const homes = [join(input.home ?? homedir(), '.codex')];
+  const configuredHome =
+    input.configuredCodexHome !== undefined
+      ? input.configuredCodexHome
+      : !input.home
+        ? process.env.CODEX_HOME
+        : null;
+  if (
+    configuredHome &&
+    isAbsolute(configuredHome) &&
+    (includePrivateHostHome || basename(resolve(configuredHome)) !== '.codex-app')
+  ) {
+    homes.push(configuredHome);
+  }
+  return [...new Set(homes.map((value) => resolve(value)))];
+}
+
 async function readCodexSessionMeta(
   path: string,
 ): Promise<{ sessionId: string; cwd: string; startedAtMs: number } | null> {
@@ -193,6 +212,53 @@ async function readCodexSessionMeta(
   } finally {
     await file.close();
   }
+}
+
+export interface CodexSessionLocation {
+  sessionId: string;
+  codexHome: string;
+}
+
+/**
+ * Resolve an already-recorded Codex id back to the home that owns its rollout.
+ * Unlike new-session discovery, this includes the private host home so sessions
+ * recorded by older Charter builds remain resumable after environment hygiene.
+ */
+export async function locateCodexSession(
+  input: DiscoverInput & { sessionId: string },
+): Promise<CodexSessionLocation | null> {
+  if (!isSafeCliSessionId(input.sessionId)) return null;
+  const wanted = input.sessionId.toLowerCase();
+  try {
+    for (const home of codexHomeCandidates(input, true)) {
+      const root = join(home, 'sessions');
+      for (const key of codexDayKeys(input.startedAtMs, input.endedAtMs)) {
+        const dir = join(root, key);
+        let names: string[];
+        try {
+          names = await readdir(dir);
+        } catch {
+          continue;
+        }
+        for (const name of names) {
+          const match = CODEX_ROLLOUT_RE.exec(name);
+          if (match?.[1]?.toLowerCase() !== wanted) continue;
+          const meta = await readCodexSessionMeta(join(dir, name));
+          if (
+            meta?.sessionId === wanted &&
+            resolve(meta.cwd) === resolve(input.cwd) &&
+            meta.startedAtMs >= input.startedAtMs - START_SLACK_MS &&
+            meta.startedAtMs <= input.endedAtMs + END_SLACK_MS
+          ) {
+            return { sessionId: wanted, codexHome: home };
+          }
+        }
+      }
+    }
+  } catch {
+    // Resume falls back to its existing command when the local index is unreadable.
+  }
+  return null;
 }
 
 /**

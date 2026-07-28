@@ -65,6 +65,16 @@ test.describe('SSH Remotes (ADR-0047)', () => {
     try {
       await addHost(page, sshd.port);
 
+      // The disconnected overview has one connection action and keeps host
+      // tools in the single top-level tab strip rather than duplicating them
+      // in dashboard cards and the inspector.
+      await expect(page.getByTestId('rm-connection-stage')).toContainText('Ready when you are');
+      await expect(page.getByTestId('rm-session-empty')).toContainText('No remote sessions');
+      await expect(page.getByRole('button', { name: 'Connect' })).toHaveCount(1);
+      await expect(
+        page.getByTestId('remote-inspector').getByRole('button', { name: 'Connect' }),
+      ).toHaveCount(0);
+
       // Connect → the first-use host-key modal appears with a SHA256 fingerprint.
       await page.getByTestId('rm-connect-e2e-host').click();
       await expect(page.getByTestId('ssh-hostkey-modal')).toBeVisible();
@@ -177,7 +187,7 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       await addHost(page, sshd.port);
 
       // --- Files panel (PR2, dual-pane) ---
-      await page.getByTestId('rm-files-e2e-host').click();
+      await page.getByTestId('remote-tab-files').click();
       await acceptPrompts(page);
       await expect(page.getByTestId('sftp-panel')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId('sftp-local-pane')).toBeVisible();
@@ -232,7 +242,7 @@ test.describe('SSH Remotes (ADR-0047)', () => {
 
       // --- Port forward (PR3) ---
       const bindPort = 20000 + Math.floor(Math.random() * 20000);
-      await page.getByTestId('rm-forwards-e2e-host').click();
+      await page.getByTestId('remote-tab-forwards').click();
       await expect(page.getByTestId('fwd-dialog')).toBeVisible();
       await page.getByTestId('fwd-field-bindport').fill(String(bindPort));
       await page.getByTestId('fwd-field-targetport').fill('7');

@@ -27,9 +27,87 @@ export interface RailGroup {
 }
 
 export const ACTIVE_SESSION_GROUP_LIMIT = 3;
+export const HISTORY_PERIOD_INITIAL_LIMIT = 5;
+export const HISTORY_PERIOD_MORE_STEP = 10;
+
+export type HistoryPeriodKey =
+  'today' | 'yesterday' | 'previous-7-days' | 'previous-30-days' | 'older';
+
+export interface HistoryPeriod {
+  key: HistoryPeriodKey;
+  label: string;
+  entries: SessionEntry[];
+}
+
+const HISTORY_PERIOD_DEFINITIONS: ReadonlyArray<{
+  key: HistoryPeriodKey;
+  label: string;
+}> = [
+  { key: 'today', label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: 'previous-7-days', label: 'Previous 7 days' },
+  { key: 'previous-30-days', label: 'Previous 30 days' },
+  { key: 'older', label: 'Older' },
+];
+
+function localCalendarDay(value: number): number {
+  const date = new Date(value);
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function entryUpdatedAt(entry: SessionEntry, now: number): number {
+  if (entry.kind === 'terminal') return now;
+  const parsed = Date.parse(entry.task.updatedAt);
+  return Number.isFinite(parsed) ? parsed : now;
+}
+
+/** History periods are mutually exclusive local-calendar ranges. */
+export function historyPeriodKey(value: number, now: number): HistoryPeriodKey {
+  const elapsedDays = Math.floor((localCalendarDay(now) - localCalendarDay(value)) / 86_400_000);
+  if (elapsedDays <= 0) return 'today';
+  if (elapsedDays === 1) return 'yesterday';
+  if (elapsedDays <= 7) return 'previous-7-days';
+  if (elapsedDays <= 30) return 'previous-30-days';
+  return 'older';
+}
+
+/** Split History into stable display periods and order every period newest first. */
+export function buildHistoryPeriods(
+  entries: readonly SessionEntry[],
+  now: number,
+): HistoryPeriod[] {
+  const byPeriod = new Map<HistoryPeriodKey, SessionEntry[]>();
+  for (const entry of entries) {
+    const key = historyPeriodKey(entryUpdatedAt(entry, now), now);
+    const period = byPeriod.get(key) ?? [];
+    period.push(entry);
+    byPeriod.set(key, period);
+  }
+  return HISTORY_PERIOD_DEFINITIONS.flatMap(({ key, label }) => {
+    const periodEntries = byPeriod.get(key);
+    if (!periodEntries?.length) return [];
+    return [
+      {
+        key,
+        label,
+        entries: periodEntries.toSorted(
+          (left, right) => entryUpdatedAt(right, now) - entryUpdatedAt(left, now),
+        ),
+      },
+    ];
+  });
+}
+
+export function visibleHistoryPeriodEntries(
+  period: HistoryPeriod,
+  options: { limit: number; filtering: boolean },
+): SessionEntry[] {
+  if (options.filtering) return period.entries;
+  return period.entries.slice(0, options.limit);
+}
 
 /** Active project groups stay compact by default. Search/filter results and
- * History are never truncated because both are explicit discovery surfaces. */
+ * History's outer group stay complete; History periods paginate separately. */
 export function visibleRailGroupEntries(
   group: RailGroup,
   options: { expanded: boolean; filtering: boolean },

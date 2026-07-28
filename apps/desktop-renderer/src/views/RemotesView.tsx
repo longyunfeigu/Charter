@@ -22,18 +22,18 @@ function baseName(path: string | null): string {
 
 /** Coarse "x ago" for the last-connected line; exact time isn't important here. */
 function relativeTime(iso: string | null): string {
-  if (!iso) return 'never connected';
+  if (!iso) return 'Never';
   const then = Date.parse(iso);
-  if (Number.isNaN(then)) return 'never connected';
+  if (Number.isNaN(then)) return 'Never';
   const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (secs < 60) return 'last: just now';
+  if (secs < 60) return 'Just now';
   const mins = Math.round(secs / 60);
-  if (mins < 60) return `last: ${mins}m ago`;
+  if (mins < 60) return `${mins}m ago`;
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `last: ${hrs}h ago`;
+  if (hrs < 24) return `${hrs}h ago`;
   const days = Math.round(hrs / 24);
-  if (days < 30) return `last: ${days}d ago`;
-  return `last: ${new Date(then).toLocaleDateString()}`;
+  if (days < 30) return `${days}d ago`;
+  return new Date(then).toLocaleDateString();
 }
 
 function authLabel(host: SshHostDto): string {
@@ -290,6 +290,13 @@ export function RemotesView(): React.JSX.Element {
       : app.remoteSubview === 'files'
         ? 'Files'
         : 'Forwards';
+  const stateLabel = connected
+    ? 'Connected'
+    : pending
+      ? state === 'reconnecting'
+        ? 'Reconnecting'
+        : 'Connecting'
+      : 'Disconnected';
 
   return (
     <div className="rm-page" data-testid="remotes-view">
@@ -328,14 +335,19 @@ export function RemotesView(): React.JSX.Element {
         </div>
       ) : (
         <div className="rm-overview" data-testid={`rm-host-overview-${host.id}`}>
-          <section className="rm-overview-hero">
+          <section className={`rm-overview-hero is-${state}`}>
             <div className="rm-host-mark">
               <Ic name="server" size={24} />
-              <span className={`rm-dot ${state}`} />
             </div>
             <div className="rm-overview-title">
-              <span className="rm-eyebrow">Selected host</span>
-              <h1>{host.label}</h1>
+              <div className="rm-overview-kicker">
+                <span className="rm-eyebrow">Remote host</span>
+                <span className={`rm-status-pill ${state}`}>
+                  <span className={`rm-dot ${state}`} />
+                  {stateLabel}
+                </span>
+              </div>
+              <h1 data-testid="rm-overview-hostname">{host.label}</h1>
               <p>
                 {host.username}@{host.host}:{host.port}
               </p>
@@ -367,12 +379,9 @@ export function RemotesView(): React.JSX.Element {
                       ? 'New Session'
                       : 'Connect'}
               </button>
-              <button className="btn" onClick={() => setDialog({ mode: 'edit', host })}>
-                <Ic name="pencil" size={13} /> Edit
-              </button>
               {connected ? (
                 <button
-                  className="btn danger"
+                  className="btn rm-disconnect"
                   data-testid={`rm-disconnect-${host.id}`}
                   disabled={busy === 'disconnect'}
                   onClick={() => {
@@ -380,66 +389,99 @@ export function RemotesView(): React.JSX.Element {
                     void disconnect(host.id).finally(() => setBusy(null));
                   }}
                 >
-                  Disconnect
+                  {busy === 'disconnect' ? 'Disconnecting…' : 'Disconnect'}
                 </button>
-              ) : (
-                <button className="btn danger" onClick={() => void remove()}>
-                  {confirmDelete ? 'Confirm delete' : 'Delete'}
-                </button>
-              )}
+              ) : null}
+              <details className="rm-host-menu">
+                <summary aria-label="Host actions" title="Host actions">
+                  <span aria-hidden="true">•••</span>
+                </summary>
+                <div role="menu">
+                  <button role="menuitem" onClick={() => setDialog({ mode: 'edit', host })}>
+                    <Ic name="pencil" size={13} /> Edit connection
+                  </button>
+                  <button
+                    role="menuitem"
+                    className={confirmDelete ? 'confirming' : 'danger'}
+                    onClick={() => void remove()}
+                  >
+                    <Ic name={confirmDelete ? 'check' : 'trash'} size={13} />
+                    {confirmDelete ? 'Confirm delete' : 'Delete host'}
+                  </button>
+                </div>
+              </details>
             </div>
           </section>
 
           {host.connection.error ? <div className="rm-error">{host.connection.error}</div> : null}
 
-          <section className="rm-overview-grid">
-            <article className="rm-info-card">
-              <span className="rm-eyebrow">Connection</span>
-              <strong className="rm-capitalize">{state}</strong>
-              <p>
-                {connected
-                  ? `${sessions.filter((session) => !session.exited).length} live sessions`
-                  : relativeTime(host.lastConnectedAt)}
-              </p>
-            </article>
-            <article className="rm-info-card">
-              <span className="rm-eyebrow">Remote workspace</span>
-              <strong className="rm-mono">{host.remoteWorkdir ?? '~'}</strong>
-              <p>{host.proxyJump ? `ProxyJump ${host.proxyJump}` : 'Direct SSH connection'}</p>
-            </article>
-            <button
-              className="rm-info-card actionable"
-              data-testid={`rm-files-${host.id}`}
-              onClick={() => app.setRemoteSubview('files')}
-            >
-              <span className="rm-eyebrow">SFTP</span>
-              <strong>Browse Files</strong>
-              <p>Local and remote file transfer</p>
-            </button>
-            <button
-              className="rm-info-card actionable"
-              data-testid={`rm-forwards-${host.id}`}
-              onClick={() => app.setRemoteSubview('forwards')}
-            >
-              <span className="rm-eyebrow">Port forwarding</span>
-              <strong>{activeForwards.length} active</strong>
-              <p>{host.forwards.length} saved tunnels</p>
-            </button>
+          <section
+            className={`rm-connection-stage ${connected ? 'connected' : pending ? 'pending' : 'disconnected'}`}
+            data-testid="rm-connection-stage"
+          >
+            <div className="rm-stage-message">
+              <span className="rm-stage-icon">
+                <Ic name={connected ? 'checkCircle' : pending ? 'refresh' : 'terminal'} size={19} />
+              </span>
+              <span>
+                <span className="rm-eyebrow">Connection</span>
+                <strong>
+                  {connected
+                    ? 'Connection ready'
+                    : pending
+                      ? 'Establishing a secure connection'
+                      : 'Ready when you are'}
+                </strong>
+                <p>
+                  {connected
+                    ? 'This SSH transport is ready for persistent shells, files and tunnels.'
+                    : pending
+                      ? 'Charter is verifying the host and preparing your remote workspace.'
+                      : `Connect to open a persistent shell on ${host.label}. Your saved credentials are ready.`}
+                </p>
+              </span>
+            </div>
+            <dl className="rm-stage-facts">
+              <div>
+                <dt>{connected ? 'Live sessions' : 'Credential'}</dt>
+                <dd>{connected ? sessions.length : authLabel(host)}</dd>
+              </div>
+              <div>
+                <dt>Workspace</dt>
+                <dd className="rm-mono">{host.remoteWorkdir ?? '~'}</dd>
+              </div>
+              <div>
+                <dt>{connected ? 'Active forwards' : 'Last connected'}</dt>
+                <dd>{connected ? activeForwards.length : relativeTime(host.lastConnectedAt)}</dd>
+              </div>
+            </dl>
           </section>
 
           <section className="rm-overview-sessions">
             <div className="rm-section-head">
-              <span>
+              <span className="rm-section-title">
                 <span className="rm-eyebrow">On this host</span>
-                <strong>Sessions</strong>
+                <span>
+                  <strong>Sessions</strong>
+                  <small>
+                    {connected
+                      ? 'Persistent shells on this SSH connection'
+                      : 'Connect before opening a remote shell'}
+                  </small>
+                </span>
               </span>
-              <button className="btn sm" disabled={busy !== null} onClick={() => void launch()}>
-                <Ic name="plus" size={12} /> New Session
-              </button>
             </div>
             {sessions.length === 0 ? (
-              <div className="rm-session-empty">
-                No sessions yet. Connect to open a shell on {host.label}.
+              <div className="rm-session-empty" data-testid="rm-session-empty">
+                <span className="rm-session-empty-icon">
+                  <Ic name="terminal" size={18} />
+                </span>
+                <strong>No remote sessions</strong>
+                <p>
+                  {connected
+                    ? 'Open a shell to start working on this host.'
+                    : `Use Connect above to start a shell on ${host.label}.`}
+                </p>
               </div>
             ) : (
               <div className="rm-session-list">

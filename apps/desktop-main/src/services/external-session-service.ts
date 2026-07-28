@@ -13,7 +13,11 @@ import { broadcast } from '../broadcast.js';
 import type { WorkspaceHost } from './workspace-host.js';
 import type { TaskService } from './task-service.js';
 import { cleanTerminalText, ExternalStructuredReplayParser } from './external-replay-parser.js';
-import { discoverCliSessionId, isSafeCliSessionId } from './cli-session-locator.js';
+import {
+  discoverCliSessionId,
+  isSafeCliSessionId,
+  locateCodexSession,
+} from './cli-session-locator.js';
 import type { ExternalLaunchIntents } from './external-launch-intents.js';
 import { TypedLineTracker } from './typed-line-tracker.js';
 
@@ -176,10 +180,22 @@ export interface ExternalTurnStartedEvent {
  * silently attach the wrong conversation when several sessions coexist. Ids
  * are PTY-written text, so anything but an exact UUID is treated as absent.
  */
-export function externalResumeCommand(cli: string, sessionId?: string | null): string | null {
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+export function externalResumeCommand(
+  cli: string,
+  sessionId?: string | null,
+  codexHome?: string | null,
+): string | null {
   const id = sessionId && isSafeCliSessionId(sessionId) ? sessionId : null;
   if (cli === 'claude') return id ? `claude --resume ${id}` : 'claude --continue';
-  if (cli === 'codex') return id ? `codex resume ${id}` : null;
+  if (cli === 'codex') {
+    if (!id) return null;
+    const home = codexHome ? `CODEX_HOME=${shellQuote(codexHome)} ` : '';
+    return `${home}codex resume ${id}`;
+  }
   return null;
 }
 
@@ -343,6 +359,53 @@ export class ExternalSessionService {
 
   taskIdForTerminal(terminalId: string): string | null {
     return this.byTerminal.get(terminalId)?.taskId ?? null;
+  }
+
+  /** End the Agent process without closing the PTY, so its shell and scrollback survive. */
+  async end(taskId: string): Promise<{ terminalId: string; cli: string; ended: boolean }> {
+    const task = this.tasks.getTask(taskId);
+    const external = task.external;
+    if (!external) {
+      throw new ProductFailure(
+        productError('EXTERNAL_SESSION_REQUIRED', {
+          userMessage: 'This task is not an external terminal session.',
+        }),
+      );
+    }
+    const session = this.byTerminal.get(external.terminalId);
+    if (!session || session.taskId !== taskId) {
+      return {
+        terminalId: external.terminalId,
+        cli: external.cli,
+        ended: external.status === 'ended',
+      };
+    }
+    if (session.ended) {
+      return { terminalId: external.terminalId, cli: external.cli, ended: true };
+    }
+
+    this.tasks.recordEvent(taskId, 'external.sessionEndRequested', { cli: session.cli });
+    // Ctrl-C clears an active turn/input. Claude exits on a second Ctrl-C;
+    // Codex and unknown detected CLIs accept Ctrl-D. Keeping these host-owned
+    // avoids exposing arbitrary PTY writes.
+    this.writeProduct(session, '\x03');
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    this.terminals.pollOnce();
+    const afterInterrupt = this.byTerminal.get(external.terminalId);
+    if (afterInterrupt && afterInterrupt.taskId === taskId && !afterInterrupt.ended) {
+      this.writeProduct(afterInterrupt, afterInterrupt.cli === 'claude' ? '\x03' : '\x04');
+    }
+
+    const deadline = Date.now() + 4_000;
+    while (Date.now() < deadline) {
+      const current = this.byTerminal.get(external.terminalId);
+      if (!current || current.taskId !== taskId || current.ended) {
+        return { terminalId: external.terminalId, cli: external.cli, ended: true };
+      }
+      this.terminals.pollOnce();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return { terminalId: external.terminalId, cli: external.cli, ended: false };
   }
 
   private markFileAttributionActive(session: LiveSession): void {
@@ -1131,14 +1194,6 @@ export class ExternalSessionService {
         }),
       );
     }
-    const command = externalResumeCommand(sourceExternal.cli, sourceExternal.sessionId ?? null);
-    if (!command) {
-      throw new ProductFailure(
-        productError('EXTERNAL_RESUME_UNSUPPORTED', {
-          userMessage: `${sourceExternal.cli} does not have a supported session-resume command.`,
-        }),
-      );
-    }
     if (this.byTerminal.has(terminalId) || this.pendingResumes.has(terminalId)) {
       throw new ProductFailure(
         productError('EXTERNAL_SESSION_ACTIVE', {
@@ -1162,6 +1217,42 @@ export class ExternalSessionService {
           userMessage: `The resume terminal must start in ${expectedCwd}.`,
         }),
       );
+    }
+
+    // Older builds could discover the host Codex Desktop rollout in
+    // `.codex-app`, then later resume from the CLI's default `.codex` home.
+    // Resolve the recorded UUID back to its owning home and pin only this
+    // command. New terminals remain isolated from all ambient CODEX_* state.
+    const codexLocation =
+      sourceExternal.cli === 'codex' &&
+      terminal.persistence !== 'remote' &&
+      sourceExternal.sessionId
+        ? await locateCodexSession({
+            cli: 'codex',
+            sessionId: sourceExternal.sessionId,
+            cwd: expectedCwd,
+            startedAtMs: Date.parse(source.createdAt),
+            endedAtMs: Date.parse(source.updatedAt),
+          })
+        : null;
+    const command = externalResumeCommand(
+      sourceExternal.cli,
+      sourceExternal.sessionId ?? null,
+      codexLocation?.codexHome,
+    );
+    if (!command) {
+      throw new ProductFailure(
+        productError('EXTERNAL_RESUME_UNSUPPORTED', {
+          userMessage: `${sourceExternal.cli} does not have a supported session-resume command.`,
+        }),
+      );
+    }
+    if (codexLocation) {
+      this.logger.info('codex resume home resolved', {
+        taskId: source.id,
+        sessionId: codexLocation.sessionId,
+        codexHome: codexLocation.codexHome,
+      });
     }
 
     const settled = ['ACCEPTED', 'ROLLED_BACK', 'CANCELLED'].includes(source.state);

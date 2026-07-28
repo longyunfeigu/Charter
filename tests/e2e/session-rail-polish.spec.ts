@@ -58,6 +58,17 @@ test.describe('Session rail and conversation role polish', () => {
       await expect(page.locator('.sr-rail')).toHaveCSS('width', '320px');
       await expect(page.locator('.sr-activity')).toHaveCSS('width', '44px');
 
+      // Session metadata uses the fast in-app tooltip, not Chromium's delayed title popup.
+      const compactSession = page.locator('.sr-session:not(.has-detail)').first();
+      await expect(compactSession).toBeVisible();
+      await expect(compactSession).not.toHaveAttribute('title', /.+/);
+      await compactSession.hover();
+      await expect(page.getByRole('tooltip')).toBeVisible({ timeout: 800 });
+      await expect(page.getByRole('tooltip')).toContainText(/Charter|Claude|Codex/);
+      await page.screenshot({ path: join(tmpdir(), 'charter-session-fast-tooltip.png') });
+      await page.mouse.move(700, 600);
+      await expect(page.getByRole('tooltip')).toBeHidden();
+
       await page.getByTestId('rail-session-search').fill('earth animation');
       await expect(page.locator('button[data-testid^="home-task-"]')).toHaveCount(1);
       await page.getByTestId('rail-session-search').fill('');

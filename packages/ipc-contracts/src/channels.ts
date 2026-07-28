@@ -926,6 +926,13 @@ export const CHANNELS = {
       ),
     }),
   ),
+  /** End the active external Agent while preserving its terminal and shell. */
+  'external.endSession': ch(
+    'external.endSession',
+    1,
+    z.object({ taskId: z.string().min(1) }).strict(),
+    z.object({ terminalId: z.string(), cli: z.string(), ended: z.boolean() }),
+  ),
   /** Resume a known external CLI in a product-selected terminal. A settled
    * source task continues as a NEW task — the response carries the task that
    * actually owns the revived session. */

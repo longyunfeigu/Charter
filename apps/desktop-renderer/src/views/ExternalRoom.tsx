@@ -6,6 +6,12 @@ import { useExternalStore, type ExternalSessionFile } from '../store/externalSto
 import { useTerminalStore, mountTerminal, observeTerminalFit } from './TerminalPanel.js';
 import { hasDragRef, readDragRef } from './dragRefs.js';
 import { Ic } from './home-icons.js';
+import {
+  externalAgentLifecycle,
+  externalCliLabel,
+  externalTerminalLifecycle,
+  isExternalCli,
+} from './external-terminal-lifecycle.js';
 
 /**
  * ADR-0017 — the center column of an external CLI session's Task Room: the
@@ -36,6 +42,14 @@ export function ExternalTerminalColumn({
   const item = superseded
     ? null
     : (termStore.items.find((t) => t.id === external.terminalId) ?? null);
+  const lifecycle = isExternalCli(external.cli)
+    ? externalTerminalLifecycle({
+        cli: external.cli,
+        agent: externalAgentLifecycle(session?.status ?? external.status, task.state),
+        terminalExited: item?.exited ?? true,
+        shellTitle: item?.title,
+      })
+    : null;
   const hostRef = useRef<HTMLDivElement>(null);
   const follow = useExternalStore((s) => s.follow[task.id] ?? true);
   const lastDelta = useExternalStore((s) => s.lastDelta);
@@ -126,7 +140,9 @@ export function ExternalTerminalColumn({
     >
       <div className="tr-exthead">
         <span className={`tr-extdot ${live ? 'live' : ''}`} />
-        <span className="tr-extname">✳ {external.cli}</span>
+        <span className="tr-extname">
+          ✳ {isExternalCli(external.cli) ? externalCliLabel(external.cli) : external.cli}
+        </span>
         <span
           className="tr-extbadge"
           title="This session runs outside the Tool Gateway and the permission engine. An entry snapshot was taken; every change is tracked and reviewable."
@@ -156,9 +172,17 @@ export function ExternalTerminalColumn({
             {follow ? 'LIVE · following' : '⏸ pinned'}
           </button>
         ) : (
-          <span className="tr-extended" data-testid="external-ended">
-            session ended
-          </span>
+          <>
+            <span className="tr-extended" data-testid="external-ended">
+              {lifecycle?.agentLabel ?? 'Agent ended'}
+            </span>
+            <span
+              className={`tr-extterminal ${lifecycle?.terminal === 'live' ? 'available' : ''}`}
+              data-testid="external-terminal-lifecycle"
+            >
+              {lifecycle?.terminalLabel ?? 'Terminal ended'}
+            </span>
+          </>
         )}
       </div>
       <div className="tr-extbody">

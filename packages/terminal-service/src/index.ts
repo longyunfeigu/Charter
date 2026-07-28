@@ -402,6 +402,9 @@ export function sanitizedTerminalEnv(
   const out: Record<string, string | undefined> = {};
   for (const [key, value] of Object.entries(env)) {
     if (key.startsWith('CLAUDE') && !AGENT_SESSION_ENV_ALLOWLIST.has(key)) continue;
+    // Codex Desktop exports several session-scoped CODEX_* values in addition
+    // to CODEX_HOME. A login shell restores any deliberate user configuration.
+    if (key.startsWith('CODEX_')) continue;
     if (AGENT_SESSION_ENV_EXACT.includes(key)) continue;
     out[key] = value;
   }

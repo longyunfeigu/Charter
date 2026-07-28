@@ -15,7 +15,15 @@ import {
 } from './TerminalPanel.js';
 import { OrchestrationWorkerBand } from './OrchestrationFleet.js';
 import { useSshStore } from '../store/sshStore.js';
+import { useTaskStore } from '../store/taskStore.js';
 import { openRemoteSession } from './remote-session.js';
+import {
+  defaultExternalTerminalTools,
+  externalAgentLifecycle,
+  externalSessionTitle,
+  externalTerminalLifecycle,
+  isExternalCli,
+} from './external-terminal-lifecycle.js';
 
 function launchName(launch: 'shell' | 'claude' | 'codex'): string {
   if (launch === 'claude') return 'Claude Code';
@@ -70,9 +78,46 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
   const liveTerminalCount = useTerminalStore(
     (state) => state.items.filter((entry) => !entry.hidden && !entry.exited).length,
   );
+  const mappedTaskId = useExternalStore((state) => state.taskByTerminal[terminalId]);
+  const agent = useExternalStore((state) => state.agentByTerminal[terminalId] ?? null);
+  const sessions = useExternalStore((state) => state.sessions);
+  const tasks = useTaskStore((state) => state.tasks);
+  const relatedTask =
+    (mappedTaskId ? tasks.find((task) => task.id === mappedTaskId) : undefined) ??
+    tasks
+      .filter((task) => task.external?.terminalId === terminalId)
+      .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+  const relatedSession =
+    (mappedTaskId ? sessions[mappedTaskId] : undefined) ??
+    Object.values(sessions).find((session) => session.terminalId === terminalId);
+  const cliCandidate = agent ?? relatedSession?.cli ?? relatedTask?.external?.cli ?? item?.launch;
+  const cli = isExternalCli(cliCandidate) ? cliCandidate : null;
+  const agentStatus =
+    relatedSession?.status ??
+    relatedTask?.external?.status ??
+    (agent !== null ? 'active' : item?.exited ? 'ended' : 'active');
+  const lifecycle =
+    item && cli
+      ? externalTerminalLifecycle({
+          cli,
+          agent: externalAgentLifecycle(agentStatus, relatedTask?.state),
+          terminalExited: item.exited,
+          shellTitle: item.title,
+        })
+      : null;
+  const changedFiles = relatedSession?.files.length ?? relatedTask?.changedFiles ?? 0;
+  const defaultTools = defaultExternalTerminalTools(lifecycle?.agent ?? 'active', changedFiles);
   const hostRef = useRef<HTMLDivElement>(null);
-  const [tool, setTool] = useState<'editor' | 'changes'>('editor');
-  const [toolOpen, setToolOpen] = useState(true);
+  const toolPreferenceTouched = useRef(false);
+  const [tool, setTool] = useState<'editor' | 'changes'>(() => defaultTools.tool);
+  const [toolOpen, setToolOpen] = useState(() => defaultTools.open);
+
+  useEffect(() => {
+    if (toolPreferenceTouched.current || !lifecycle) return;
+    const next = defaultExternalTerminalTools(lifecycle.agent, changedFiles);
+    setToolOpen(next.open);
+    if (next.open) setTool(next.tool);
+  }, [changedFiles, lifecycle?.agent]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -167,27 +212,61 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
     );
   }
 
+  const sessionTitle = cli ? externalSessionTitle(cli, item.title, relatedTask?.title) : item.title;
+  const providerName = lifecycle?.providerLabel ?? launchName(item.launch);
+  const primaryTitle =
+    sessionTitle === `${providerName} session` ? sessionTitle : `${providerName} · ${sessionTitle}`;
+
   return (
-    <main className="stv-root" data-testid="session-terminal-view" data-terminal-id={terminalId}>
+    <main
+      className="stv-root"
+      data-testid="session-terminal-view"
+      data-terminal-id={terminalId}
+      data-agent-state={lifecycle?.agent}
+      data-terminal-state={lifecycle?.terminal}
+    >
       <header className="stv-header">
         <ProviderMark
           provider={item.launch === 'claude' || item.launch === 'codex' ? item.launch : 'shell'}
           size={19}
         />
         <div className="stv-title">
-          <strong>
-            {launchName(item.launch)} · {item.title}
-          </strong>
+          <strong>{primaryTitle}</strong>
           <span>
             {item.remote
               ? `${item.remote.username}@${item.remote.host} · ${launchName(item.launch)}`
               : `${item.contextLabel} · ${item.projectName}`}
           </span>
         </div>
-        <span className={`stv-status ${item.exited ? 'ended' : ''}`}>
-          <i />
-          {item.exited ? 'Ended' : 'Live'}
-        </span>
+        {lifecycle ? (
+          <>
+            <span
+              className={`stv-status agent ${lifecycle.agent}`}
+              data-testid="session-agent-status"
+            >
+              <i />
+              {lifecycle.agentLabel}
+            </span>
+            <span
+              className={`stv-status terminal ${
+                lifecycle.terminal === 'ended'
+                  ? 'ended'
+                  : lifecycle.agent === 'active'
+                    ? 'live'
+                    : 'shell'
+              }`}
+              data-testid="session-terminal-status"
+            >
+              <i />
+              {lifecycle.terminalLabel}
+            </span>
+          </>
+        ) : (
+          <span className={`stv-status ${item.exited ? 'ended' : ''}`}>
+            <i />
+            {item.exited ? 'Ended' : 'Live'}
+          </span>
+        )}
         <span className="stv-spacer" />
         {item.remote ? (
           <RemoteControls
@@ -197,7 +276,14 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
             exited={item.exited}
           />
         ) : null}
-        <button className={toolOpen ? 'active' : ''} onClick={() => setToolOpen((open) => !open)}>
+        <button
+          className={toolOpen ? 'active' : ''}
+          data-testid="session-tools-toggle"
+          onClick={() => {
+            toolPreferenceTouched.current = true;
+            setToolOpen((open) => !open);
+          }}
+        >
           <Ic name="layout" size={13} /> {toolOpen ? 'Hide tools' : 'Show tools'}
         </button>
       </header>
@@ -206,8 +292,12 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
       <div className={`stv-body ${toolOpen ? 'with-tools' : ''}`}>
         <section className="stv-terminal" aria-label={`${launchName(item.launch)} terminal`}>
           <div className="stv-terminal-bar">
-            <span>{launchName(item.launch)} PTY</span>
-            <span>external · unmanaged · state preserved</span>
+            <span data-testid="session-terminal-headline">
+              {lifecycle?.terminalHeadline ?? `${launchName(item.launch)} PTY`}
+            </span>
+            <span data-testid="session-terminal-detail">
+              {lifecycle?.terminalDetail ?? 'external · unmanaged · state preserved'}
+            </span>
             <span className="stv-spacer" />
             <span>{item.projectName} · main</span>
           </div>
@@ -221,7 +311,10 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
                 role="tab"
                 aria-selected={tool === 'editor'}
                 className={tool === 'editor' ? 'active' : ''}
-                onClick={() => setTool('editor')}
+                onClick={() => {
+                  toolPreferenceTouched.current = true;
+                  setTool('editor');
+                }}
               >
                 Editor
               </button>
@@ -229,7 +322,10 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
                 role="tab"
                 aria-selected={tool === 'changes'}
                 className={tool === 'changes' ? 'active' : ''}
-                onClick={() => setTool('changes')}
+                onClick={() => {
+                  toolPreferenceTouched.current = true;
+                  setTool('changes');
+                }}
               >
                 Changes
               </button>
@@ -260,9 +356,10 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
         ) : null}
       </div>
       <footer className="stv-footer">
-        <span>
-          <i className={item.exited ? 'ended' : ''} /> {launchName(item.launch)} ·{' '}
-          {item.exited ? 'process ended' : 'live session'}
+        <span className={lifecycle?.agent === 'active' ? 'active' : 'settled'}>
+          <i className={lifecycle?.agent === 'active' ? '' : 'ended'} />{' '}
+          {lifecycle?.summary ??
+            `${launchName(item.launch)} · ${item.exited ? 'process ended' : 'live session'}`}
         </span>
         <span>{item.cwd}</span>
         <span className="stv-spacer" />

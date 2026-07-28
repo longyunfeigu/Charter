@@ -1,4 +1,5 @@
 import { redactObject, redactText } from '@pi-ide/foundation';
+import { isSafeCliSessionId } from './cli-session-locator.js';
 
 export interface ExternalReplayObservation {
   key?: string;
@@ -253,11 +254,13 @@ export class ExternalStructuredReplayParser {
     const method = text(event.method);
     if (!type && !method) return null;
     if (type === 'thread.started') {
+      const threadId = text(event.thread_id);
+      if (isSafeCliSessionId(threadId)) this.sessionId = threadId;
       return [
         {
           kind: 'state',
           label: 'Codex structured capture connected',
-          detail: text(event.thread_id) ? `Thread ${text(event.thread_id)}` : undefined,
+          detail: threadId ? `Thread ${threadId}` : undefined,
           status: 'ok',
           evidenceKinds: ['tool'],
         },

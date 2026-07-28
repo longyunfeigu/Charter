@@ -48,10 +48,11 @@ describe('ExternalStructuredReplayParser', () => {
 
   it('projects Codex JSONL commands and deliberately ignores reasoning items', () => {
     const parser = new ExternalStructuredReplayParser();
+    const threadId = '019fa66b-91d2-7a61-a55d-28e26ed06eb5';
     const result = parser.feed(
       'codex',
       [
-        JSON.stringify({ type: 'thread.started', thread_id: 'thread-1' }),
+        JSON.stringify({ type: 'thread.started', thread_id: threadId }),
         JSON.stringify({
           type: 'item.started',
           item: { id: 'cmd-1', type: 'command_execution', command: 'npm test' },
@@ -75,6 +76,7 @@ describe('ExternalStructuredReplayParser', () => {
     );
 
     expect(result.structured).toBe(true);
+    expect(parser.sessionId).toBe(threadId);
     expect(result.observations.some((item) => item.label === 'Ran npm test')).toBe(true);
     expect(JSON.stringify(result.observations)).not.toContain('hidden internal reasoning');
     expect(result.terminalText).toContain('42 passed');

@@ -229,6 +229,12 @@ const PATHS: Record<string, React.JSX.Element> = {
     </>
   ),
   square: <rect width="14" height="14" x="5" y="5" rx="2" />,
+  circleStop: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <rect x="8.5" y="8.5" width="7" height="7" rx="1" fill="currentColor" stroke="none" />
+    </>
+  ),
   undo: (
     <>
       <path d="M3 7v6h6" />
@@ -272,11 +278,28 @@ const PATHS: Record<string, React.JSX.Element> = {
       <line x1="12" x2="20" y1="19" y2="19" />
     </>
   ),
+  sessions: (
+    <>
+      <rect x="3" y="7" width="15" height="14" rx="2" />
+      <path d="M7 7V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1" />
+      <path d="M7 12h7" />
+      <path d="M7 16h4" />
+    </>
+  ),
   server: (
     <>
       <rect x="3" y="3" width="18" height="7" rx="2" />
       <rect x="3" y="14" width="18" height="7" rx="2" />
       <path d="M7 6.5h.01M7 17.5h.01M11 6.5h7M11 17.5h7" />
+    </>
+  ),
+  'remote-terminal': (
+    <>
+      <rect x="3" y="3" width="18" height="14" rx="2" />
+      <path d="m7 8 3 2.5L7 13" />
+      <path d="M13 13h4" />
+      <path d="M8 21h8" />
+      <path d="M12 17v4" />
     </>
   ),
   eye: (

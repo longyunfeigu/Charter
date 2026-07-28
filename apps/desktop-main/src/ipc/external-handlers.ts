@@ -12,6 +12,7 @@ export function registerExternalHandlers(
   registerHandlers(
     {
       'external.listSessions': async () => ({ sessions: sessions.list() }),
+      'external.endSession': async ({ taskId }) => sessions.end(taskId),
       'external.resumeSession': async ({ taskId, terminalId }) =>
         sessions.resume(taskId, terminalId),
       'external.injectContext': async ({ taskId, ref }) => {

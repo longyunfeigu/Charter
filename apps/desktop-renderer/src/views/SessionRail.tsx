@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { RecentWorkspaceDto, TaskDto } from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
 import { useActivityStore, currentActionLine } from '../store/activityStore.js';
@@ -24,19 +25,131 @@ import { unknownDirectories, useArchaeologyStore } from '../store/archaeologySto
 import { permissionForWorker, useOrchestrationStore } from '../store/orchestrationStore.js';
 import {
   ACTIVE_SESSION_GROUP_LIMIT,
+  HISTORY_PERIOD_INITIAL_LIMIT,
+  HISTORY_PERIOD_MORE_STEP,
+  buildHistoryPeriods,
   buildRailGroups,
   isHistoryEntry,
   recordedTasksByProject,
+  visibleHistoryPeriodEntries,
   visibleRailGroupEntries,
+  type HistoryPeriodKey,
   type RailGroup,
   type SessionEntry,
 } from './rail-groups.js';
 import { ActivityBar } from './ActivityBar.js';
 import { SessionRenameDialog } from './SessionRenameDialog.js';
+import {
+  externalAgentLifecycle,
+  externalSessionTitle,
+  externalTerminalLifecycle,
+  isExternalCli,
+} from './external-terminal-lifecycle.js';
 
 export { isHistoryEntry, type SessionEntry } from './rail-groups.js';
 
-const COLLAPSED_KEY = 'charter.rail.collapsed.v1';
+const COLLAPSED_KEY = 'charter.rail.collapsed.v2';
+const SESSION_TOOLTIP_DELAY_MS = 180;
+const ACTION_TOOLTIP_DELAY_MS = 80;
+
+function historyPeriodGroupKey(key: HistoryPeriodKey): string {
+  return `history:${key}`;
+}
+
+interface SessionTooltipState {
+  id: string;
+  label: string;
+  left: number;
+  top: number;
+  maxWidth: number;
+}
+
+type SessionTooltipPlacement = 'auto' | 'left';
+
+function useSessionHoverTooltip(): {
+  triggerProps: (
+    label: string,
+    id: string,
+    delay?: number,
+    placement?: SessionTooltipPlacement,
+  ) => {
+    'aria-describedby': string | undefined;
+    onMouseEnter: React.MouseEventHandler<HTMLButtonElement>;
+    onMouseLeave: React.MouseEventHandler<HTMLButtonElement>;
+    onFocus: React.FocusEventHandler<HTMLButtonElement>;
+    onBlur: React.FocusEventHandler<HTMLButtonElement>;
+  };
+  tooltip: React.ReactNode;
+  hide: () => void;
+} {
+  const timerRef = useRef<number | null>(null);
+  const [state, setState] = useState<SessionTooltipState | null>(null);
+
+  const clearTimer = (): void => {
+    if (timerRef.current === null) return;
+    window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+  };
+  const hide = (): void => {
+    clearTimer();
+    setState(null);
+  };
+  const schedule = (
+    target: HTMLButtonElement,
+    label: string,
+    id: string,
+    delay: number,
+    placement: SessionTooltipPlacement,
+  ): void => {
+    clearTimer();
+    timerRef.current = window.setTimeout(() => {
+      const rect = target.getBoundingClientRect();
+      const maxWidth = Math.min(360, window.innerWidth - 16);
+      const rightSide = rect.right + 8;
+      const estimatedWidth = Math.min(maxWidth, Math.max(72, Math.ceil(label.length * 6.2) + 20));
+      const left =
+        placement === 'left'
+          ? Math.max(8, rect.left - estimatedWidth - 8)
+          : rightSide + estimatedWidth <= window.innerWidth - 8
+            ? rightSide
+            : Math.max(8, rect.left - estimatedWidth - 8);
+      setState({
+        id,
+        label,
+        left,
+        top: Math.max(8, Math.min(rect.top, window.innerHeight - 96)),
+        maxWidth,
+      });
+      timerRef.current = null;
+    }, delay);
+  };
+
+  useEffect(() => () => clearTimer(), []);
+
+  return {
+    triggerProps: (label, id, delay = SESSION_TOOLTIP_DELAY_MS, placement = 'auto') => ({
+      'aria-describedby': state?.id === id ? id : undefined,
+      onMouseEnter: (event) => schedule(event.currentTarget, label, id, delay, placement),
+      onMouseLeave: hide,
+      onFocus: (event) => schedule(event.currentTarget, label, id, 0, placement),
+      onBlur: hide,
+    }),
+    tooltip: state
+      ? createPortal(
+          <div
+            id={state.id}
+            className="sr-hover-tooltip"
+            role="tooltip"
+            style={{ left: state.left, top: state.top, maxWidth: state.maxWidth }}
+          >
+            {state.label}
+          </div>,
+          document.body,
+        )
+      : null,
+    hide,
+  };
+}
 
 function loadCollapsed(): Set<string> {
   try {
@@ -49,7 +162,7 @@ function loadCollapsed(): Set<string> {
   } catch {
     // fall through to the default below
   }
-  return new Set(['history']);
+  return new Set(['history', historyPeriodGroupKey('older')]);
 }
 
 function saveCollapsed(collapsed: ReadonlySet<string>): void {
@@ -129,6 +242,8 @@ function SessionTaskRow({
   orchestrationNeeds?: number;
 }): React.JSX.Element {
   const app = useAppStore();
+  const hoverTooltip = useSessionHoverTooltip();
+  const actionTooltip = useSessionHoverTooltip();
   const activity = useActivityStore((state) => state.perTask[task.id]);
   const glowTasks = useGlowTasks();
   const completion = app.sessionCompletionSignals.find((signal) => signal.taskId === task.id);
@@ -143,12 +258,38 @@ function SessionTaskRow({
   const externalSession = useExternalStore((state) => state.sessions[task.id]);
   const externalWorking = useExternalStore((state) => Boolean(state.working[task.id]));
   const resumingTaskId = useExternalStore((state) => state.resumingTaskId);
-  const live = task.external ? externalSession?.status === 'active' : running;
+  const externalTerminal = useTerminalStore((state) =>
+    task.external
+      ? state.items.find((terminal) => terminal.id === task.external?.terminalId)
+      : undefined,
+  );
+  const live = task.external
+    ? (externalSession?.status ?? task.external.status) === 'active'
+    : running;
   const working = task.external
     ? externalWorking || workerWorking
     : ['EXPLORING', 'PLANNING', 'IN_PROGRESS', 'VERIFYING'].includes(task.state);
   const resumable = canResumeExternal(task) && !live;
+  const endable = task.external !== null && live;
+  const archivable = canArchiveTask(task) && !endable;
+  const hasActions = endable || resumable || archivable;
   const [renameOpen, setRenameOpen] = useState(false);
+  const [endingExternal, setEndingExternal] = useState(false);
+  const externalLifecycle =
+    task.external && isExternalCli(task.external.cli) && externalTerminal
+      ? externalTerminalLifecycle({
+          cli: task.external.cli,
+          agent: externalAgentLifecycle(
+            externalSession?.status ?? task.external.status,
+            task.state,
+          ),
+          terminalExited: externalTerminal.exited,
+          shellTitle: externalTerminal.title,
+        })
+      : null;
+  const rowDescription = `${providerLabel(provider)} · ${displayTitle} · ${task.projectName} — ${
+    working ? 'Agent working' : (externalLifecycle?.summary ?? meta.label)
+  }`;
 
   const open = (): void => {
     void useTaskStore.getState().openTask(task.id);
@@ -162,20 +303,43 @@ function SessionTaskRow({
     app.setSessionRoomView('fleet');
   };
 
+  const endExternalSession = (): void => {
+    if (!task.external || endingExternal) return;
+    setEndingExternal(true);
+    void rpcResult('external.endSession', { taskId: task.id })
+      .then((result) => {
+        if (!result.ok) {
+          app.pushToast('error', result.error.userMessage);
+          return;
+        }
+        if (!result.data.ended) {
+          app.pushToast(
+            'warning',
+            `${task.external?.cli === 'claude' ? 'Claude Code' : 'Codex'} did not exit. Close its terminal to force it to stop.`,
+          );
+        }
+      })
+      .finally(() => setEndingExternal(false));
+  };
+
   return (
     <div
-      className={`sr-row-wrap ${worker ? 'sr-orch-worker' : ''} ${workerCount > 0 ? 'has-fleet' : ''}`}
+      className={`sr-row-wrap ${showProject ? 'has-detail' : ''} ${hasActions ? 'has-actions' : ''} ${worker ? 'sr-orch-worker' : ''} ${workerCount > 0 ? 'has-fleet' : ''}`}
     >
       <button
-        className={`sr-session ${selected ? 'selected' : ''} ${working ? 'is-working' : ''} ${glowTasks.has(task.id) ? 'glow-pulse' : ''} ${completion ? `completion-ripple completion-${completion.tone}` : ''} ${reply ? 'reply-shake' : ''}`}
+        className={`sr-session ${showProject ? 'has-detail' : ''} ${selected ? 'selected' : ''} ${working ? 'is-working' : ''} ${glowTasks.has(task.id) ? 'glow-pulse' : ''} ${completion ? `completion-ripple completion-${completion.tone}` : ''} ${reply ? 'reply-shake' : ''}`}
         data-testid={`home-task-${task.id}`}
         data-session-key={`task:${task.id}`}
         data-state={task.state}
         data-completion={completion?.tone}
         data-reply={reply ? 'true' : undefined}
         data-working={working ? 'true' : 'false'}
-        title={`${providerLabel(provider)} · ${displayTitle} — ${working ? 'Agent working' : meta.label}`}
-        onClick={open}
+        aria-label={rowDescription}
+        {...hoverTooltip.triggerProps(rowDescription, `session-tooltip-task-${task.id}`)}
+        onClick={() => {
+          hoverTooltip.hide();
+          open();
+        }}
         onDoubleClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -192,21 +356,33 @@ function SessionTaskRow({
           <span className="sr-session-title">
             <span className={`sr-live-dot ${live ? 'live' : ''}`} />
             <b>{displayTitle}</b>
-            {badge ? <span className={`sr-state ${badge.tone}`}>{badge.label}</span> : null}
+            {badge || !showProject ? (
+              <span className="sr-session-tail">
+                {badge ? <span className={`sr-state ${badge.tone}`}>{badge.label}</span> : null}
+                {!showProject ? (
+                  <time className="sr-session-time" dateTime={task.updatedAt}>
+                    {timeAgo(task.updatedAt, now)}
+                  </time>
+                ) : null}
+              </span>
+            ) : null}
           </span>
-          <span className="sr-session-detail">
-            <span data-testid={`home-task-ticker-${task.id}`}>
-              {showProject ? `${task.projectName} · ` : ''}
-              {action?.label ??
-                (working ? 'Agent is working...' : null) ??
-                (isAnswered(task)
-                  ? task.external
-                    ? 'Session ended · no file changes'
-                    : 'Answered · no file changes'
-                  : meta.label)}
+          {showProject ? (
+            <span className="sr-session-detail">
+              <span data-testid={`home-task-ticker-${task.id}`}>
+                {task.projectName} ·{' '}
+                {action?.label ??
+                  (working ? 'Agent is working...' : null) ??
+                  externalLifecycle?.summary ??
+                  (isAnswered(task)
+                    ? task.external
+                      ? 'Session ended · no file changes'
+                      : 'Answered · no file changes'
+                    : meta.label)}
+              </span>
+              <time dateTime={task.updatedAt}>{timeAgo(task.updatedAt, now)}</time>
             </span>
-            <time dateTime={task.updatedAt}>{timeAgo(task.updatedAt, now)}</time>
-          </span>
+          ) : null}
         </span>
       </button>
       {workerCount > 0 ? (
@@ -224,8 +400,27 @@ function SessionTaskRow({
           {orchestrationNeeds > 0 ? <i>{orchestrationNeeds}</i> : null}
         </button>
       ) : null}
-      {resumable || canArchiveTask(task) ? (
+      {hasActions ? (
         <div className="sr-actions">
+          {endable ? (
+            <ArmedIconButton
+              icon={endingExternal ? 'refresh' : 'circleStop'}
+              iconSize={endingExternal ? 13 : 16}
+              className="sr-end"
+              testid={`home-end-${task.id}`}
+              title={endingExternal ? 'Ending session…' : 'End session'}
+              armedTitle="Click again to end this session"
+              disabled={endingExternal}
+              tooltipProps={actionTooltip.triggerProps(
+                endingExternal ? 'Ending session…' : 'End session',
+                `session-tooltip-end-${task.id}`,
+                ACTION_TOOLTIP_DELAY_MS,
+                'left',
+              )}
+              onInteract={actionTooltip.hide}
+              onConfirm={endExternalSession}
+            />
+          ) : null}
           {resumable ? (
             <button
               className="sr-resume"
@@ -238,7 +433,7 @@ function SessionTaskRow({
               <Ic name="refresh" size={12} strokeWidth={2} />
             </button>
           ) : null}
-          {canArchiveTask(task) ? (
+          {archivable ? (
             <ArmedIconButton
               icon="archive"
               className="sr-archive"
@@ -251,6 +446,8 @@ function SessionTaskRow({
         </div>
       ) : null}
       <SessionRenameDialog task={task} open={renameOpen} onClose={() => setRenameOpen(false)} />
+      {hoverTooltip.tooltip}
+      {actionTooltip.tooltip}
     </div>
   );
 }
@@ -269,22 +466,35 @@ function TerminalSessionRow({
   working?: boolean;
 }): React.JSX.Element | null {
   const app = useAppStore();
+  const hoverTooltip = useSessionHoverTooltip();
   const item = useTerminalStore((state) => state.items.find((entry) => entry.id === terminalId));
   if (!item) return null;
   const selected = app.sessionTerminalId === terminalId;
   const provider = launch;
   // The brand mark carries the provider — never repeat the CLI name as the
   // title. Generic launch titles read as an unnamed session.
-  const sessionName = /^(?:Claude Code|Codex)$/i.test(item.title) ? 'New session' : item.title;
+  const sessionName = isExternalCli(launch) ? externalSessionTitle(launch, item.title) : item.title;
+  const terminalState = item.exited
+    ? 'Process ended'
+    : item.remote
+      ? 'Remote SSH session live'
+      : working
+        ? `${providerLabel(provider)} working`
+        : 'Terminal live';
+  const rowDescription = `${providerLabel(provider)} · ${sessionName} · ${item.contextLabel} — ${terminalState}`;
   return (
-    <div className={`sr-row-wrap ${worker ? 'sr-orch-worker' : ''}`}>
+    <div
+      className={`sr-row-wrap ${showProject ? 'has-detail' : ''} ${worker ? 'sr-orch-worker' : ''}`}
+    >
       <button
-        className={`sr-session ${selected ? 'selected' : ''} ${working ? 'is-working' : ''}`}
+        className={`sr-session ${showProject ? 'has-detail' : ''} ${selected ? 'selected' : ''} ${working ? 'is-working' : ''}`}
         data-testid={`session-terminal-${terminalId}`}
         data-session-key={`terminal:${terminalId}`}
         data-working={working ? 'true' : 'false'}
-        title={`${providerLabel(provider)} · ${item.contextLabel}`}
+        aria-label={rowDescription}
+        {...hoverTooltip.triggerProps(rowDescription, `session-tooltip-terminal-${terminalId}`)}
         onClick={() => {
+          hoverTooltip.hide();
           // ADR-0046: entering a session moves the working context (and the
           // Files tree) to its project.
           void useWorkspaceStore.getState().followProject(item.projectPath);
@@ -295,26 +505,25 @@ function TerminalSessionRow({
         <span className="sr-session-copy">
           <span className="sr-session-title">
             <span className={`sr-live-dot ${item.exited ? '' : 'live'}`} />
-            {item.remote ? (
-              <span className="sr-remote-mark" title={`SSH · ${item.contextLabel}`}>
-                ⌁
-              </span>
-            ) : null}
+            {item.remote ? <span className="sr-remote-mark">⌁</span> : null}
             <b>{sessionName}</b>
             {item.exited ? <span className="sr-state neutral">Ended</span> : null}
           </span>
-          <span className="sr-session-detail">
-            <span>
-              {showProject ? `${item.projectName} · ` : ''}
-              {item.exited
-                ? 'Process ended · session retained'
-                : item.remote
-                  ? 'Remote SSH session is live'
-                  : 'Terminal session is live'}
+          {showProject ? (
+            <span className="sr-session-detail">
+              <span>
+                {item.projectName} ·{' '}
+                {item.exited
+                  ? 'Process ended · session retained'
+                  : item.remote
+                    ? 'Remote SSH session is live'
+                    : 'Terminal session is live'}
+              </span>
             </span>
-          </span>
+          ) : null}
         </span>
       </button>
+      {hoverTooltip.tooltip}
     </div>
   );
 }
@@ -349,6 +558,9 @@ export function SessionRail(): React.JSX.Element {
   const [projectsPanelOpen, setProjectsPanelOpen] = useState(view === 'projects');
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(loadCollapsed);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const [historyPeriodLimits, setHistoryPeriodLimits] = useState<
+    Readonly<Partial<Record<HistoryPeriodKey, number>>>
+  >({});
   const [query, setQuery] = useState('');
   const [needsOnly, setNeedsOnly] = useState(false);
   const [projectQuery, setProjectQuery] = useState('');
@@ -430,6 +642,7 @@ export function SessionRail(): React.JSX.Element {
         (terminal) =>
           !terminal.hidden &&
           !taskByTerminal[terminal.id] &&
+          !tasks.some((task) => task.external?.terminalId === terminal.id) &&
           // ADR-0047: remote SSH sessions always earn a rail row (grouped by host).
           (terminal.launch === 'claude' ||
             terminal.launch === 'codex' ||
@@ -496,15 +709,35 @@ export function SessionRail(): React.JSX.Element {
     setNeedsOnly(false);
     const key = `task:${reveal.taskId}`;
     const group = groups.find((candidate) => candidate.entries.some((entry) => entry.key === key));
-    if (
+    if (group?.history) {
+      const period = buildHistoryPeriods(group.entries, now).find((candidate) =>
+        candidate.entries.some((entry) => entry.key === key),
+      );
+      if (period) {
+        const periodKey = historyPeriodGroupKey(period.key);
+        setCollapsed((previous) => {
+          const next = new Set(previous);
+          next.delete(group.key);
+          next.delete(periodKey);
+          saveCollapsed(next);
+          return next;
+        });
+        const index = period.entries.findIndex((entry) => entry.key === key);
+        if (index >= HISTORY_PERIOD_INITIAL_LIMIT) {
+          setHistoryPeriodLimits((previous) => ({
+            ...previous,
+            [period.key]: Math.max(previous[period.key] ?? 0, index + 1),
+          }));
+        }
+      }
+    } else if (
       group &&
-      !group.history &&
       group.entries.findIndex((entry) => entry.key === key) >= ACTIVE_SESSION_GROUP_LIMIT
     ) {
       setExpandedGroups((previous) => new Set(previous).add(group.key));
     }
     useAppStore.getState().clearSessionReveal(reveal.seq);
-  }, [app.sessionReveal, groups]);
+  }, [app.sessionReveal, groups, now]);
 
   const recordedByProject = useMemo(() => recordedTasksByProject(allEntries), [allEntries]);
 
@@ -545,10 +778,21 @@ export function SessionRail(): React.JSX.Element {
     [expandedGroups, filteringSessions, visibleGroups],
   );
 
-  /** Keyboard order mirrors the visual order (groups flattened, History last). */
+  /** Keyboard order mirrors the visible rows, including History pagination. */
   const orderedEntries = useMemo(
-    () => displayedGroups.flatMap(({ entries }) => entries),
-    [displayedGroups],
+    () =>
+      displayedGroups.flatMap(({ group, entries }) => {
+        if (!filteringSessions && collapsed.has(group.key)) return [];
+        if (!group.history) return entries;
+        return buildHistoryPeriods(entries, now).flatMap((period) => {
+          if (!filteringSessions && collapsed.has(historyPeriodGroupKey(period.key))) return [];
+          return visibleHistoryPeriodEntries(period, {
+            filtering: filteringSessions,
+            limit: historyPeriodLimits[period.key] ?? HISTORY_PERIOD_INITIAL_LIMIT,
+          });
+        });
+      }),
+    [collapsed, displayedGroups, filteringSessions, historyPeriodLimits, now],
   );
 
   const toggleGroup = (key: string): void => {
@@ -570,6 +814,21 @@ export function SessionRail(): React.JSX.Element {
     });
   };
 
+  const toggleHistoryPeriodMore = (key: HistoryPeriodKey, total: number): void => {
+    setHistoryPeriodLimits((previous) => {
+      const current = previous[key] ?? HISTORY_PERIOD_INITIAL_LIMIT;
+      if (current >= total) {
+        const next = { ...previous };
+        delete next[key];
+        return next;
+      }
+      return {
+        ...previous,
+        [key]: Math.min(total, current + HISTORY_PERIOD_MORE_STEP),
+      };
+    });
+  };
+
   // The open room's row is never hidden: when the selection lands in (or moves
   // into) a collapsed group — e.g. accept sends a task to History — expand it.
   // Manual collapses are respected until the selection or its group changes.
@@ -585,22 +844,55 @@ export function SessionRail(): React.JSX.Element {
   const selectedEntryIndex = selectedKey
     ? (selectedGroup?.entries.findIndex((entry) => entry.key === selectedKey) ?? -1)
     : -1;
+  const selectedHistoryPeriod = useMemo(
+    () =>
+      selectedKey && selectedGroup?.history
+        ? (buildHistoryPeriods(selectedGroup.entries, now).find((period) =>
+            period.entries.some((entry) => entry.key === selectedKey),
+          ) ?? null)
+        : null,
+    [now, selectedGroup, selectedKey],
+  );
+  const selectedHistoryPeriodIndex = selectedKey
+    ? (selectedHistoryPeriod?.entries.findIndex((entry) => entry.key === selectedKey) ?? -1)
+    : -1;
   useEffect(() => {
     if (!selectedGroupKey) return;
     setCollapsed((prev) => {
-      if (!prev.has(selectedGroupKey)) return prev;
+      const historyPeriodKey = selectedHistoryPeriod
+        ? historyPeriodGroupKey(selectedHistoryPeriod.key)
+        : null;
+      if (!prev.has(selectedGroupKey) && (!historyPeriodKey || !prev.has(historyPeriodKey))) {
+        return prev;
+      }
       const next = new Set(prev);
       next.delete(selectedGroupKey);
+      if (historyPeriodKey) next.delete(historyPeriodKey);
       saveCollapsed(next);
       return next;
     });
-    if (!selectedGroup?.history && selectedEntryIndex >= ACTIVE_SESSION_GROUP_LIMIT) {
+    if (selectedHistoryPeriod && selectedHistoryPeriodIndex >= HISTORY_PERIOD_INITIAL_LIMIT) {
+      setHistoryPeriodLimits((previous) => ({
+        ...previous,
+        [selectedHistoryPeriod.key]: Math.max(
+          previous[selectedHistoryPeriod.key] ?? 0,
+          selectedHistoryPeriodIndex + 1,
+        ),
+      }));
+    } else if (!selectedGroup?.history && selectedEntryIndex >= ACTIVE_SESSION_GROUP_LIMIT) {
       setExpandedGroups((previous) => {
         if (previous.has(selectedGroupKey)) return previous;
         return new Set(previous).add(selectedGroupKey);
       });
     }
-  }, [selectedEntryIndex, selectedGroup?.history, selectedGroupKey, selectedKey]);
+  }, [
+    selectedEntryIndex,
+    selectedGroup?.history,
+    selectedGroupKey,
+    selectedHistoryPeriod,
+    selectedHistoryPeriodIndex,
+    selectedKey,
+  ]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -655,6 +947,46 @@ export function SessionRail(): React.JSX.Element {
     app.setSurface('home');
     app.focusComposer();
   };
+
+  const renderSessionEntry = (entry: SessionEntry, showProject: boolean): React.ReactNode =>
+    entry.kind === 'task' ? (
+      <SessionTaskRow
+        key={entry.key}
+        task={entry.task}
+        showProject={showProject}
+        now={now}
+        worker={orchestration.workers.some((worker) => worker.taskId === entry.task.id)}
+        workerWorking={orchestration.workers.some(
+          (worker) => worker.taskId === entry.task.id && worker.status === 'streaming',
+        )}
+        workerCount={
+          orchestration.workers.filter((worker) => worker.commanderTaskId === entry.task.id).length
+        }
+        orchestrationNeeds={
+          orchestration.workers.some((worker) => worker.taskId === entry.task.id)
+            ? orchestration.workers.filter(
+                (worker) =>
+                  worker.taskId === entry.task.id &&
+                  permissionForWorker(
+                    orchestrationPermissions[worker.commanderTaskId] ?? [],
+                    worker.terminalId,
+                  ),
+              ).length
+            : (orchestrationPermissions[entry.task.id]?.length ?? 0)
+        }
+      />
+    ) : (
+      <TerminalSessionRow
+        key={entry.key}
+        terminalId={entry.terminalId}
+        launch={entry.launch}
+        showProject={showProject}
+        worker={orchestration.workers.some((worker) => worker.terminalId === entry.terminalId)}
+        working={orchestration.workers.some(
+          (worker) => worker.terminalId === entry.terminalId && worker.status === 'streaming',
+        )}
+      />
+    );
 
   // ADR-0024 (mock B+D): Sessions ⇄ Files segmented tabs. The attention dot on
   // Sessions keeps needs-you visible while the Files tree is showing.
@@ -768,10 +1100,11 @@ export function SessionRail(): React.JSX.Element {
           </div>
         ) : (
           displayedGroups.map(({ group, entries }) => {
-            const isCollapsed = collapsed.has(group.key);
+            const isCollapsed = !filteringSessions && collapsed.has(group.key);
             const isExpanded = expandedGroups.has(group.key);
             const hiddenCount = Math.max(0, group.entries.length - ACTIVE_SESSION_GROUP_LIMIT);
             const hasOverflow = !group.history && !filteringSessions && hiddenCount > 0;
+            const historyPeriods = group.history ? buildHistoryPeriods(entries, now) : [];
             return (
               <section
                 key={group.key}
@@ -808,56 +1141,80 @@ export function SessionRail(): React.JSX.Element {
                   ) : null}
                 </div>
                 {isCollapsed ? null : (
-                  <div className="sr-group-items">
-                    {entries.map((entry) =>
-                      entry.kind === 'task' ? (
-                        <SessionTaskRow
-                          key={entry.key}
-                          task={entry.task}
-                          showProject={group.history === true}
-                          now={now}
-                          worker={orchestration.workers.some(
-                            (worker) => worker.taskId === entry.task.id,
-                          )}
-                          workerWorking={orchestration.workers.some(
-                            (worker) =>
-                              worker.taskId === entry.task.id && worker.status === 'streaming',
-                          )}
-                          workerCount={
-                            orchestration.workers.filter(
-                              (worker) => worker.commanderTaskId === entry.task.id,
-                            ).length
-                          }
-                          orchestrationNeeds={
-                            orchestration.workers.some((worker) => worker.taskId === entry.task.id)
-                              ? orchestration.workers.filter(
-                                  (worker) =>
-                                    worker.taskId === entry.task.id &&
-                                    permissionForWorker(
-                                      orchestrationPermissions[worker.commanderTaskId] ?? [],
-                                      worker.terminalId,
-                                    ),
-                                ).length
-                              : (orchestrationPermissions[entry.task.id]?.length ?? 0)
-                          }
-                        />
-                      ) : (
-                        <TerminalSessionRow
-                          key={entry.key}
-                          terminalId={entry.terminalId}
-                          launch={entry.launch}
-                          showProject={group.history === true}
-                          worker={orchestration.workers.some(
-                            (worker) => worker.terminalId === entry.terminalId,
-                          )}
-                          working={orchestration.workers.some(
-                            (worker) =>
-                              worker.terminalId === entry.terminalId &&
-                              worker.status === 'streaming',
-                          )}
-                        />
-                      ),
-                    )}
+                  <div className={`sr-group-items ${group.history ? 'sr-history-groups' : ''}`}>
+                    {group.history
+                      ? historyPeriods.map((period) => {
+                          const periodGroupKey = historyPeriodGroupKey(period.key);
+                          const periodCollapsed =
+                            !filteringSessions && collapsed.has(periodGroupKey);
+                          const periodLimit =
+                            historyPeriodLimits[period.key] ?? HISTORY_PERIOD_INITIAL_LIMIT;
+                          const periodEntries = visibleHistoryPeriodEntries(period, {
+                            filtering: filteringSessions,
+                            limit: periodLimit,
+                          });
+                          const periodHiddenCount = Math.max(
+                            0,
+                            period.entries.length - periodEntries.length,
+                          );
+                          const hasPeriodOverflow =
+                            !filteringSessions &&
+                            period.entries.length > HISTORY_PERIOD_INITIAL_LIMIT;
+                          const periodFullyExpanded = periodHiddenCount === 0;
+                          return (
+                            <section
+                              key={period.key}
+                              className="sr-history-period"
+                              data-testid={`rail-history-period-${period.key}`}
+                            >
+                              <button
+                                type="button"
+                                className="sr-history-period-toggle"
+                                data-testid={`rail-history-period-toggle-${period.key}`}
+                                aria-expanded={!periodCollapsed}
+                                onClick={() => toggleGroup(periodGroupKey)}
+                              >
+                                <Ic
+                                  name="chevron"
+                                  size={11}
+                                  className={`sr-group-chevron ${periodCollapsed ? 'closed' : ''}`}
+                                />
+                                <strong>{period.label}</strong>
+                                <span>{period.entries.length}</span>
+                              </button>
+                              {periodCollapsed ? null : (
+                                <div className="sr-history-period-items">
+                                  {periodEntries.map((entry) => renderSessionEntry(entry, true))}
+                                  {hasPeriodOverflow ? (
+                                    <button
+                                      type="button"
+                                      className={`sr-group-more ${periodFullyExpanded ? 'expanded' : ''}`}
+                                      data-testid={`rail-history-more-${period.key}`}
+                                      aria-expanded={periodFullyExpanded}
+                                      aria-label={
+                                        periodFullyExpanded
+                                          ? `Show only five sessions in ${period.label}`
+                                          : `Show more sessions in ${period.label}`
+                                      }
+                                      onClick={() =>
+                                        toggleHistoryPeriodMore(period.key, period.entries.length)
+                                      }
+                                    >
+                                      <span>{periodFullyExpanded ? 'Show less' : 'More'}</span>
+                                      <small>
+                                        {periodFullyExpanded
+                                          ? `${period.entries.length} shown`
+                                          : `${periodHiddenCount} more`}
+                                      </small>
+                                      <Ic name="chevron" size={11} />
+                                    </button>
+                                  ) : null}
+                                </div>
+                              )}
+                            </section>
+                          );
+                        })
+                      : entries.map((entry) => renderSessionEntry(entry, false))}
                     {hasOverflow ? (
                       <button
                         type="button"

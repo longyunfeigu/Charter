@@ -74,10 +74,17 @@ export function ConfirmDangerButton(props: {
  */
 export function ArmedIconButton(props: {
   icon: string;
+  iconSize?: number;
   title: string;
   armedTitle: string;
   testid: string;
   className?: string;
+  disabled?: boolean;
+  tooltipProps?: Pick<
+    React.ButtonHTMLAttributes<HTMLButtonElement>,
+    'aria-describedby' | 'onMouseEnter' | 'onMouseLeave' | 'onFocus' | 'onBlur'
+  >;
+  onInteract?: () => void;
   onConfirm: () => void;
 }): React.JSX.Element {
   const [armed, setArmed] = useState(false);
@@ -91,15 +98,27 @@ export function ArmedIconButton(props: {
     };
   }, [armed]);
 
+  const tooltipProps = props.tooltipProps;
+
   return (
     <button
+      {...tooltipProps}
       className={`${props.className ?? ''} ${armed ? 'armed' : ''}`}
       data-testid={props.testid}
-      title={armed ? props.armedTitle : props.title}
+      title={tooltipProps ? undefined : armed ? props.armedTitle : props.title}
       aria-label={armed ? props.armedTitle : props.title}
-      onMouseLeave={() => setArmed(false)}
+      disabled={props.disabled}
+      onMouseLeave={(event) => {
+        setArmed(false);
+        tooltipProps?.onMouseLeave?.(event);
+      }}
+      onBlur={(event) => {
+        setArmed(false);
+        tooltipProps?.onBlur?.(event);
+      }}
       onClick={(e) => {
         e.stopPropagation();
+        props.onInteract?.();
         if (!armed) {
           setArmed(true);
           return;
@@ -108,7 +127,7 @@ export function ArmedIconButton(props: {
         props.onConfirm();
       }}
     >
-      <Ic name={armed ? 'check' : props.icon} size={12} strokeWidth={2} />
+      <Ic name={armed ? 'check' : props.icon} size={props.iconSize ?? 12} strokeWidth={2} />
     </button>
   );
 }

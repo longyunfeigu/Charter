@@ -10,7 +10,7 @@ import { ReviewChecks } from './ReviewChecks.js';
 import { ConfirmDangerButton } from './ui.js';
 import { Ic } from './home-icons.js';
 import { mountTerminal, observeTerminalFit, useTerminalStore } from './TerminalPanel.js';
-import { isAnswered, presentedMeta } from './labels.js';
+import { canResumeExternal, isAnswered, presentedMeta } from './labels.js';
 import { roomCopyFor } from './roomCopy.js';
 import { LiveBoard } from './LiveBoard.js';
 import { monaco } from '../monaco-setup.js';
@@ -1117,6 +1117,15 @@ function SessionActionDock({
   const store = useTaskStore();
   const app = useAppStore();
   const resumingExternalTaskId = useExternalStore((state) => state.resumingTaskId);
+  const externalSessionStatus = useExternalStore((state) => state.sessions[task.id]?.status);
+  const externalAgent = useExternalStore((state) =>
+    task.external ? state.agentByTerminal[task.external.terminalId] : undefined,
+  );
+  const externalTerminalExited = useTerminalStore((state) =>
+    task.external
+      ? state.items.find((terminal) => terminal.id === task.external?.terminalId)?.exited
+      : undefined,
+  );
   const running = RUNNING_TASK_STATES.has(task.state);
   const answered = isAnswered(task);
   const report = useMemo(() => latestFinalReport(store.timeline), [store.timeline]);
@@ -1130,6 +1139,12 @@ function SessionActionDock({
   const hasEvidenceRisk =
     task.mode !== 'ask' && (executionFailed || failedChecks.length > 0 || hasUnverifiedChanges);
   const [settledPrDraft, setSettledPrDraft] = useState<PrDraftDto | null>(null);
+  const externalLive =
+    task.external !== null &&
+    externalTerminalExited !== true &&
+    (externalAgent === task.external.cli ||
+      (externalSessionStatus ?? task.external.status) === 'active');
+  const externalResumable = task.external !== null && canResumeExternal(task) && !externalLive;
   const resumeDisabled = task.external !== null && resumingExternalTaskId !== null;
   const resumeTask = (): void => {
     if (task.external) {
@@ -1173,7 +1188,7 @@ function SessionActionDock({
         <span className="session-action-note">
           Keeps reviewed files in your workspace · does not create a Git commit
         </span>
-        {task.external ? (
+        {task.external && externalResumable ? (
           <button
             type="button"
             className="btn"
@@ -1185,7 +1200,7 @@ function SessionActionDock({
               ? 'Resuming…'
               : `Resume ${task.external.cli === 'claude' ? 'Claude' : 'Codex'} session`}
           </button>
-        ) : (
+        ) : !task.external ? (
           <button
             type="button"
             className="btn"
@@ -1197,7 +1212,7 @@ function SessionActionDock({
           >
             Request changes
           </button>
-        )}
+        ) : null}
         <ConfirmDangerButton
           label={task.worktree ? 'Discard worktree' : 'Rollback'}
           confirmLabel={task.worktree ? 'Confirm — discard worktree' : 'Confirm — roll back'}
@@ -1248,7 +1263,7 @@ function SessionActionDock({
         <span className="session-action-note" data-testid="task-room-answered">
           {task.external ? 'Session ended · no file changes' : 'Answer complete · no file changes'}
         </span>
-        {task.external ? (
+        {task.external && externalResumable ? (
           <button
             className="btn"
             data-testid="task-resume"
@@ -1286,14 +1301,16 @@ function SessionActionDock({
           />
         ) : null}
         <span className="session-action-note">The Session stopped before completion.</span>
-        <button
-          className="btn primary"
-          data-testid="task-resume"
-          disabled={resumeDisabled}
-          onClick={resumeTask}
-        >
-          {resumingExternalTaskId === task.id ? 'Resuming…' : 'Resume'}
-        </button>
+        {!task.external || externalResumable ? (
+          <button
+            className="btn primary"
+            data-testid="task-resume"
+            disabled={resumeDisabled}
+            onClick={resumeTask}
+          >
+            {resumingExternalTaskId === task.id ? 'Resuming…' : 'Resume'}
+          </button>
+        ) : null}
       </footer>
     );
   }

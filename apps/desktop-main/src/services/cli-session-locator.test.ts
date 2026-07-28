@@ -7,6 +7,7 @@ import {
   claudeProjectDirName,
   discoverCliSessionId,
   isSafeCliSessionId,
+  locateCodexSession,
 } from './cli-session-locator.js';
 
 const ID_A = '11111111-2222-3333-4444-555555555555';
@@ -164,6 +165,65 @@ describe('discoverCliSessionId — codex rollouts', () => {
         codexHomes: [codexHome],
       }),
     ).resolves.toBe(ID_A);
+  });
+
+  it('does not mistake the host Codex Desktop thread for a new terminal session', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'cli-loc-'));
+    const cliHome = join(home, '.codex');
+    const hostHome = join(home, '.codex-app');
+    const cwd = '/work/app';
+    const start = Date.now() - 5_000;
+    writeCodexRollout({
+      codexHome: cliHome,
+      id: ID_A,
+      cwd,
+      startedAtMs: start + 750,
+      mtimeMs: start + 2_000,
+    });
+    writeCodexRollout({
+      codexHome: hostHome,
+      id: ID_B,
+      cwd,
+      startedAtMs: start + 50,
+      mtimeMs: start + 3_000,
+    });
+
+    await expect(
+      discoverCliSessionId({
+        cli: 'codex',
+        cwd,
+        startedAtMs: start,
+        endedAtMs: start + 4_000,
+        home,
+        configuredCodexHome: hostHome,
+      }),
+    ).resolves.toBe(ID_A);
+  });
+
+  it('locates an already-recorded Codex UUID in the private host home', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'cli-loc-'));
+    const hostHome = join(home, '.codex-app');
+    const cwd = '/work/app';
+    const start = Date.now() - 5_000;
+    writeCodexRollout({
+      codexHome: hostHome,
+      id: ID_B,
+      cwd,
+      startedAtMs: start + 100,
+      mtimeMs: start + 1_000,
+    });
+
+    await expect(
+      locateCodexSession({
+        cli: 'codex',
+        sessionId: ID_B,
+        cwd,
+        startedAtMs: start,
+        endedAtMs: start + 2_000,
+        home,
+        configuredCodexHome: hostHome,
+      }),
+    ).resolves.toEqual({ sessionId: ID_B, codexHome: hostHome });
   });
 
   it('uses session_meta.cwd instead of taking a newer rollout from another project', async () => {

@@ -120,6 +120,29 @@ function createHistoryClaudeBin(fixture: string): string {
   return bin;
 }
 
+function createActiveEditingCodexBin(fixture: string): string {
+  const bin = mkdtempSync(join(tmpdir(), 'pi-ide-active-codex-bin-'));
+  const target = join(fixture, 'src/util.ts').replace(/\\/g, '/');
+  writeFileSync(
+    join(bin, 'codex'),
+    [
+      '#!/usr/bin/env node',
+      "const fs = require('fs');",
+      `const target = ${JSON.stringify(target)};`,
+      "console.log('active-codex-started');",
+      'setTimeout(() => {',
+      "  fs.writeFileSync(target, fs.readFileSync(target, 'utf8') + 'export const activeCodexTouch = 1;\\n');",
+      '}, 900);',
+      'process.stdin.resume();',
+      'setTimeout(() => process.exit(0), 30000);',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(join(bin, 'codex'), 0o755);
+  pinFixtureCliPath(bin);
+  return bin;
+}
+
 function createComposerClaudeBin(): { bin: string; probe: string } {
   const bin = mkdtempSync(join(tmpdir(), 'pi-ide-composer-bin-'));
   const probe = join(bin, 'probe.log');
@@ -1049,6 +1072,107 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       expect(resumed.state).toBe('IN_PROGRESS');
     } finally {
       if (second) await second.app.close();
+    }
+  });
+
+  test('an active Codex session does not offer Resume while its task awaits review', async () => {
+    const fixture = createGitFixture();
+    const bin = createActiveEditingCodexBin(fixture);
+    const { app, page, userDataDir } = await launchApp({
+      env: {
+        PI_IDE_OPEN_WORKSPACE: fixture,
+        PI_IDE_EXTERNAL_CLIS: 'codex',
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        ZDOTDIR: bin,
+      },
+    });
+    try {
+      await page.keyboard.press('Control+`');
+      await expect(page.locator('.xterm')).toBeVisible({ timeout: 15000 });
+      await page.locator('.xterm').click();
+      await page.keyboard.type(join(bin, 'codex'));
+      await page.keyboard.press('Enter');
+      await expect(page.locator('[data-testid^="terminal-agent-"]')).toContainText('Codex', {
+        timeout: 15000,
+      });
+      await expect(page.getByTestId('session-bar-files')).toContainText('1 file', {
+        timeout: 15000,
+      });
+
+      const taskId = await page.evaluate(async () => {
+        const bridge = (
+          window as never as {
+            product: {
+              rpc: Record<
+                string,
+                (payload: unknown) => Promise<{
+                  data?: { tasks?: Array<{ id: string; external: unknown }> };
+                }>
+              >;
+            };
+          }
+        ).product;
+        const result = await bridge.rpc['task.list']!({ filter: 'all', includeArchived: false });
+        return result.data?.tasks?.find((task) => task.external)?.id ?? null;
+      });
+      expect(taskId).not.toBeNull();
+
+      // Reproduce a stale review projection while the renderer still has an
+      // authoritative active session for this terminal.
+      execFileSync('/usr/bin/sqlite3', [
+        join(userDataDir, 'app.db'),
+        `UPDATE tasks SET external_json = json_set(external_json, '$.status', 'ended'), state = 'REVIEW_READY' WHERE id = '${taskId!}'`,
+      ]);
+      await page.reload();
+      await page.getByTestId('surface-home').click();
+      const row = page.getByTestId(`home-task-${taskId!}`);
+      await expect(row).toHaveAttribute('data-state', 'REVIEW_READY', { timeout: 15000 });
+      await row.click();
+
+      await expect(page.getByTestId('external-live')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByTestId('task-resume')).toHaveCount(0);
+      await expect(page.getByTestId('task-rollback')).toBeVisible();
+      await expect(page.getByTestId('review-bar-accept')).toBeVisible();
+      await page.screenshot({ path: '/tmp/charter-active-codex-review-no-resume.png' });
+
+      await row.hover();
+      const endSession = page.getByTestId(`home-end-${taskId!}`);
+      await expect(endSession).toBeVisible();
+      await expect(endSession).not.toHaveAttribute('title', /.+/);
+      await expect(endSession.locator('[data-icon="circleStop"]')).toBeVisible();
+      await expect(endSession).toHaveCSS('width', '28px');
+      await endSession.hover();
+      await expect(page.getByRole('tooltip')).toHaveText('End session');
+      const endSessionBox = await endSession.boundingBox();
+      const endTooltipBox = await page.getByRole('tooltip').boundingBox();
+      expect(endSessionBox).not.toBeNull();
+      expect(endTooltipBox).not.toBeNull();
+      expect(endTooltipBox!.x + endTooltipBox!.width).toBeLessThan(endSessionBox!.x);
+      await expect(page.getByTestId(`home-archive-${taskId!}`)).toHaveCount(0);
+      await page.screenshot({ path: '/tmp/charter-active-session-end-action.png' });
+      await endSession.click();
+      await endSession.click();
+
+      await expect(page.getByTestId('external-ended')).toBeVisible({ timeout: 15000 });
+      await row.hover();
+      await expect(page.getByTestId(`home-end-${taskId!}`)).toHaveCount(0);
+      const resume = page.getByTestId(`home-resume-${taskId!}`);
+      const archive = page.getByTestId(`home-archive-${taskId!}`);
+      await expect(resume).toBeVisible();
+      await expect(archive).toBeVisible();
+      await expect(row.locator('.sr-state.review')).toHaveCSS('visibility', 'hidden');
+
+      const titleBox = await row.locator('.sr-session-title b').boundingBox();
+      const resumeBox = await resume.boundingBox();
+      expect(titleBox).not.toBeNull();
+      expect(resumeBox).not.toBeNull();
+      expect(titleBox!.x + titleBox!.width).toBeLessThan(resumeBox!.x);
+
+      await page.screenshot({ path: '/tmp/charter-ended-session-actions-no-overlap.png' });
+      await page.mouse.move(700, 600);
+      await expect(row.locator('.sr-state.review')).toHaveCSS('visibility', 'visible');
+    } finally {
+      await app.close();
     }
   });
 
