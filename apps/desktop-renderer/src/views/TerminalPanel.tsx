@@ -34,6 +34,7 @@ import { useQuickConsoleStore } from '../store/quickConsoleStore.js';
 import { TerminalBlocks, type BlocksHost, type TermBlock } from './terminal-blocks.js';
 import { TerminalUserInputTracker } from './terminal-input-provenance.js';
 import { TerminalInputWriter } from './terminal-input-writer.js';
+import { TerminalFileLinkColorizer } from './terminal-output-links.js';
 import {
   installTerminalUnicode,
   repaintTerminalRenderer,
@@ -96,6 +97,8 @@ export interface TermInstance {
   lastCommand: string;
   hidden: boolean;
   inputWriter: TerminalInputWriter;
+  /** Makes agent file links visible without changing the guest's other ANSI colors. */
+  outputColorizer: TerminalFileLinkColorizer;
   /** ANSI/VT state captured by main while this renderer was unavailable. */
   pendingReplay: string | null;
   /** Adopted TUIs need a real SIGWINCH repaint after replay. */
@@ -511,7 +514,13 @@ export function mountTerminal(
   host: HTMLElement,
   item: Pick<
     TermInstance,
-    'id' | 'term' | 'fit' | 'pendingReplay' | 'restoreRepaintPending' | 'fontSizeOverride'
+    | 'id'
+    | 'term'
+    | 'fit'
+    | 'pendingReplay'
+    | 'restoreRepaintPending'
+    | 'fontSizeOverride'
+    | 'outputColorizer'
   >,
   appearance: 'normal' | 'quick' = 'normal',
 ): void {
@@ -565,7 +574,7 @@ export function mountTerminal(
           }, 32);
         });
       };
-      if (replay) item.term.write(replay, finishRestore);
+      if (replay) item.term.write(item.outputColorizer.write(replay), finishRestore);
       else finishRestore();
     } catch {
       // fit/refresh races during teardown are harmless
@@ -889,6 +898,7 @@ function createTermInstance(
   const quick = options.quick ?? false;
   const { term, fit } = makeTerm(settings?.terminal);
   const inputTracker = new TerminalUserInputTracker();
+  const outputColorizer = new TerminalFileLinkColorizer();
   const inputWriter = new TerminalInputWriter(
     async (input) => {
       await rpcResult('terminal.write', input);
@@ -932,6 +942,7 @@ function createTermInstance(
     lastCommand: '',
     hidden: false,
     inputWriter,
+    outputColorizer,
     pendingReplay: options.outputTail !== undefined ? options.outputTail : null,
     restoreRepaintPending: options.outputTail !== undefined,
     restored: options.restored ?? false,
@@ -1037,7 +1048,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       // Keep live bytes behind the restored tail until the first real fit.
       // Reversing that order leaves full-screen TUI cursor state corrupted.
       if (item.pendingReplay !== null) item.pendingReplay += data;
-      else item.term.write(data);
+      else item.term.write(item.outputColorizer.write(data));
       // ADR-0021: plain-output progress fallback (OSC 9;4 always wins).
       item.blocks.feedOutput(data);
     });
@@ -1049,7 +1060,10 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       item.restoreRepaintPending = false;
       item.blocks.reset();
       item.term.reset();
-      item.term.write(replay, () => item.term.refresh(0, item.term.rows - 1));
+      item.outputColorizer.reset();
+      item.term.write(item.outputColorizer.write(replay), () =>
+        item.term.refresh(0, item.term.rows - 1),
+      );
     });
     onEvent('terminal.exit', ({ id, exitCode }) => {
       const item = get().items.find((t) => t.id === id);
@@ -1081,7 +1095,9 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
         return;
       }
 
-      item.term.write(`\r\n\x1b[90m[process exited with code ${exitCode}]\x1b[0m\r\n`);
+      item.term.write(
+        item.outputColorizer.write(`\r\n\x1b[90m[process exited with code ${exitCode}]\x1b[0m\r\n`),
+      );
       // Replace the item so selectors watching this terminal re-render its
       // status; mutating the existing object left the header stuck on Live.
       set({
@@ -1102,7 +1118,9 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       if (!taskId) return;
       const files = useExternalStore.getState().sessions[taskId]?.files.length ?? 0;
       item.term.write(
-        `\r\n\x1b[90m✻ session ended — ${files} file${files === 1 ? '' : 's'} changed, tracked for review\x1b[0m\r\n`,
+        item.outputColorizer.write(
+          `\r\n\x1b[90m✻ session ended — ${files} file${files === 1 ? '' : 's'} changed, tracked for review\x1b[0m\r\n`,
+        ),
       );
     });
     // ADR-0021: structured turn boundaries (Codex turn.completed / Claude

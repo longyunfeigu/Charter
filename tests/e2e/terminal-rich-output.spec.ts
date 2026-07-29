@@ -19,7 +19,7 @@ async function useSoftwareTerminalRenderer(page: Page): Promise<void> {
 }
 
 test.describe('rich agent terminal output', () => {
-  test('advertises hyperlinks and renders blue file links with aligned Unicode tables', async () => {
+  test('renders Claude and OSC file links blue with aligned Unicode tables', async () => {
     const fixture = createGitFixture();
     writeFileSync(join(fixture, 'rich-output.md'), '# Rich output\n');
     const { app, page } = await launchApp({
@@ -31,6 +31,11 @@ test.describe('rich agent terminal output', () => {
         FORCE_COLOR: '0',
         CLICOLOR: '0',
       },
+    });
+    const rendererErrors: string[] = [];
+    page.on('pageerror', (error) => rendererErrors.push(`pageerror: ${error.message}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error') rendererErrors.push(`console: ${message.text()}`);
     });
 
     try {
@@ -53,8 +58,10 @@ test.describe('rich agent terminal output', () => {
       );
 
       const fileUri = `file://${join(fixture, 'rich-output.md')}`;
+      const filePath = join(fixture, 'rich-output.md');
       const tableCommand =
-        `printf '\\033[34m\\033]8;;${fileUri}\\007rich-output.md\\033]8;;\\007\\033[0m\\n` +
+        `printf '\\033[1mUpdate\\033[0m(\\033[4m${filePath}\\033[0m)\\n` +
+        `\\033[90m\\033]8;;${fileUri}\\007rich-output.md\\033]8;;\\007 after-link\\033[0m\\n` +
         `┌────────────────┬────────────────┐\\n` +
         `│ 文件           │ 作用           │\\n` +
         `├────────────────┼────────────────┤\\n` +
@@ -72,9 +79,20 @@ test.describe('rich agent terminal output', () => {
         rows.filter({ hasText: '└────────────────┴────────────────┘' }).last(),
       ).toBeVisible();
 
-      const linkRow = rows.filter({ hasText: /^rich-output\.md$/ }).last();
-      await expect(linkRow).toBeVisible();
-      const linkColors = await linkRow
+      const claudeRow = rows.filter({ hasText: /^Update\(.+rich-output\.md\)$/ }).last();
+      await expect(claudeRow).toBeVisible();
+      const claudePathColors = await claudeRow
+        .locator('span')
+        .evaluateAll((spans) =>
+          spans
+            .filter((span) => span.textContent?.includes('rich-output.md'))
+            .map((span) => getComputedStyle(span).color),
+        );
+      expect(claudePathColors).toContain('rgb(52, 101, 164)');
+
+      const oscRow = rows.filter({ hasText: /^rich-output\.md after-link$/ }).last();
+      await expect(oscRow).toBeVisible();
+      const linkColors = await oscRow
         .locator('span')
         .evaluateAll((spans) =>
           spans
@@ -82,9 +100,25 @@ test.describe('rich agent terminal output', () => {
             .map((span) => getComputedStyle(span).color),
         );
       expect(linkColors).toContain('rgb(52, 101, 164)');
+      const tailColors = await oscRow
+        .locator('span')
+        .evaluateAll((spans) =>
+          spans
+            .filter((span) => span.textContent?.includes('after-link'))
+            .map((span) => getComputedStyle(span).color),
+        );
+      expect(tailColors).toContain('rgb(85, 87, 83)');
+      expect(rendererErrors).toEqual([]);
 
       if (process.env.PI_IDE_QA_SCREENSHOT) {
         await page.screenshot({ path: '/tmp/terminal-rich-output.png' });
+        await app.evaluate(({ BrowserWindow }) => {
+          BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 900, height: 900 });
+        });
+        await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
+        await expect(xterm).toContainText('__RICH_TABLE_DONE__');
+        await expect(page.locator('vite-error-overlay')).toHaveCount(0);
+        await page.screenshot({ path: '/tmp/terminal-rich-output-narrow.png' });
       }
     } finally {
       await app.close();
