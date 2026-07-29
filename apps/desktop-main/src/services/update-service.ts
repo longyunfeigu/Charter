@@ -6,7 +6,7 @@ export const RELEASES_PAGE = 'https://github.com/longyunfeigu/Charter/releases';
 const INITIAL_AUTO_CHECK_MS = 15_000;
 const AUTO_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-type UpdateChannel = 'stable' | 'beta';
+export type UpdateChannel = 'stable' | 'beta';
 type UpdatePlatform = UpdateStateDto['platform'];
 
 interface NativeUpdateInfo {
@@ -101,6 +101,11 @@ function parseVersion(version: string): ParsedVersion | null {
       ? match[4].split('.').map((part) => (/^\d+$/.test(part) ? Number(part) : part))
       : [],
   };
+}
+
+export function defaultUpdateChannel(version: string): UpdateChannel {
+  const identifier = parseVersion(version)?.prerelease[0];
+  return typeof identifier === 'string' && identifier.toLowerCase() === 'beta' ? 'beta' : 'stable';
 }
 
 /** SemVer precedence without accepting loose tags or allowing a downgrade. */

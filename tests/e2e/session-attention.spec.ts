@@ -69,6 +69,8 @@ test.describe('Session completion attention', () => {
       await expect(row).toHaveAttribute('data-completion', 'review');
       await expect(row).toHaveAttribute('data-reply', 'true');
       await expect(row).toHaveClass(/reply-shake/);
+      await expect(row).toHaveCSS('animation-name', 'srAttentionFade');
+      await expect(row).toHaveCSS('animation-duration', '1.2s');
       await expect(row.locator('.sr-provider')).toHaveClass(/session-wave/);
       await expect(row).toContainText('Review');
       await page.screenshot({ path: '/tmp/charter-session-completion-desktop.png' });
@@ -78,8 +80,7 @@ test.describe('Session completion attention', () => {
           .getAnimations()
           .find(
             (candidate) =>
-              candidate instanceof CSSAnimation &&
-              candidate.animationName === 'srSessionReplyShake',
+              candidate instanceof CSSAnimation && candidate.animationName === 'srAttentionFade',
           );
         if (animation) {
           animation.pause();
@@ -91,7 +92,7 @@ test.describe('Session completion attention', () => {
       expect(rowBox).not.toBeNull();
       expect(rowBox!.x).toBeGreaterThanOrEqual(0);
       expect(rowBox!.x + rowBox!.width).toBeLessThanOrEqual(820);
-      await page.screenshot({ path: '/tmp/charter-session-reply-shake-narrow.png' });
+      await page.screenshot({ path: '/tmp/charter-session-reply-attention-narrow.png' });
 
       await notice.getByRole('button', { name: /Open Session/i }).click();
       await expect(page.getByTestId('task-room')).toBeVisible();

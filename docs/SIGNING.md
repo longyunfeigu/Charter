@@ -1,6 +1,6 @@
 # Signing and notarization handoff
 
-Charter `1.0.0-beta.3` intentionally uses the unsigned release path. No certificate is needed to
+Charter `1.0.0-beta.4` intentionally uses the unsigned release path. No certificate is needed to
 build, test, or publish a GitHub prerelease. The instructions below are a dormant handoff for a
 future signed release; they are not evidence that the current artifacts are signed or notarized.
 
@@ -18,9 +18,9 @@ tag or assets. At 2026-07-22 23:27 CST, the public metadata was reverified as `p
 - Windows has no Authenticode signature. Linux has no additional platform signing layer.
 - The intended GitHub prerelease attaches SHA-256 checksums and a manifest. These verify bytes, not
   publisher identity.
-- `scripts/package.mjs` writes `charterUpdateMode: unsigned` into the packaged metadata. The current
-  source may check GitHub Releases and notify the user, but it cannot activate the native downloader
-  or replace the application. Published Beta 3 predates this notification UI and remains manual.
+- `scripts/package.mjs` writes `charterUpdateMode: unsigned` into the packaged metadata. Beta 4 may
+  check GitHub Releases and notify the user, but it cannot activate the native downloader or replace
+  the application. Published Beta 3 predates this notification UI and remains manual.
 
 ## Update activation and feeds
 

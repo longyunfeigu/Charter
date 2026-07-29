@@ -25,7 +25,10 @@ test.describe('M5 git workflow', () => {
       await page.getByTestId('scm-entry-src/util.ts').getByRole('button').first().click();
       await expect(page.getByTestId('git-diff-modal')).toBeVisible();
       await expect(page.getByTestId('git-diff-modal')).toContainText('util.ts');
-      await page.getByLabel('Close').click();
+      await page
+        .getByTestId('git-diff-modal')
+        .getByRole('button', { name: 'Close', exact: true })
+        .click();
 
       // Stage and verify against the CLI.
       // The status refresh can replace the list between pointer-down and click;

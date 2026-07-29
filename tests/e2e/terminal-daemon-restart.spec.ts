@@ -1,16 +1,12 @@
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { launchApp } from './helpers/launch';
 import { createGitFixture } from './helpers/fixtures';
-import { terminalPtySnapshot, waitForTerminalOutput } from './helpers/terminal';
-
-async function sendTerminalCommand(page: Page, terminalId: string, command: string): Promise<void> {
-  await waitForTerminalOutput(page, /[%$#❯]/, { terminalId });
-  const xterm = page.locator('.xterm').last();
-  await xterm.click();
-  await page.keyboard.press('Control+u');
-  await page.keyboard.type(command, { delay: 1 });
-  await page.keyboard.press('Enter');
-}
+import {
+  terminalPtySnapshot,
+  typeTerminalCommand,
+  waitForTerminalOutput,
+  waitForTerminalSequenceAdvance,
+} from './helpers/terminal';
 
 async function killAllTerminals(page: Page): Promise<void> {
   await page.evaluate(async () => {
@@ -53,10 +49,10 @@ test.describe('daemon-backed terminal recovery', () => {
       }
       const terminalId = firstSnapshot.items.at(-1)?.id;
       expect(terminalId).toBeTruthy();
-      await sendTerminalCommand(
+      await typeTerminalCommand(
         first.page,
-        terminalId!,
         "printf '\\033[?1049h\\033[2J\\033[HBEFORE_RESTART\\n'; sleep 2; printf 'WHILE_APP_CLOSED\\n'; sleep 30",
+        { terminalId: terminalId! },
       );
       await waitForTerminalOutput(first.page, 'BEFORE_RESTART', { terminalId });
 
@@ -92,13 +88,18 @@ test.describe('daemon-backed terminal recovery', () => {
         await second.page.screenshot({ path: '/tmp/charter-terminal-daemon-restored-narrow.png' });
       }
 
-      await second.page.locator('.xterm').last().click();
+      const sequenceBeforeCancel =
+        (await terminalPtySnapshot(second.page)).sequences[terminalId!] ?? 0;
+      const restoredXterm = second.page.locator('.xterm').last();
+      await restoredXterm.click();
+      await expect(restoredXterm.locator('.xterm-helper-textarea')).toBeFocused();
       await second.page.keyboard.press('Control+c');
-      await sendTerminalCommand(
-        second.page,
-        terminalId!,
-        "printf '\\033[?1049lAFTER_RESTART_INPUT_OK\\n'",
-      );
+      // The old prompt remains in the replay tail. Wait for a new PTY chunk
+      // before accepting that prompt as the post-interrupt command boundary.
+      await waitForTerminalSequenceAdvance(second.page, terminalId!, sequenceBeforeCancel);
+      await typeTerminalCommand(second.page, "printf '\\033[?1049lAFTER_RESTART_INPUT_OK\\n'", {
+        terminalId: terminalId!,
+      });
       await waitForTerminalOutput(second.page, 'AFTER_RESTART_INPUT_OK', { terminalId });
 
       await second.page

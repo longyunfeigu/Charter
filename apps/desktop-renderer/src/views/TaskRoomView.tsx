@@ -178,6 +178,7 @@ export function TaskRoomView(): React.JSX.Element {
   const answered = isAnswered(task);
   const actionDockVisible =
     app.sessionToolsOpen ||
+    answered ||
     task.state === 'REVIEW_READY' ||
     task.state === 'FAILED' ||
     task.state === 'INTERRUPTED' ||

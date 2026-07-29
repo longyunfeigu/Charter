@@ -239,6 +239,8 @@ test.describe('External Session identity and presence', () => {
           BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 980, height: 760 });
         });
         await expect(page.getByTestId('external-terminal-lifecycle')).toHaveText('Shell available');
+        await expect(page.getByTestId('session-tool-close')).toBeVisible();
+        await page.getByTestId('session-tool-close').click();
         await expect(terminal.locator('.xterm')).toBeVisible();
         await page.screenshot({ path: `/tmp/charter-${provider}-ended-shell-980.png` });
         expect(rendererErrors).toEqual([]);
@@ -250,7 +252,7 @@ test.describe('External Session identity and presence', () => {
   }
 
   for (const provider of ['claude', 'codex'] as const) {
-    test(`observed ${provider} TUI shows a reply notice and whole-card shake`, async () => {
+    test(`observed ${provider} TUI shows a reply notice and row attention`, async () => {
       const fixture = createGitFixture();
       const bin = createObservedAgentBin(provider);
       const { app, page } = await launchApp({
@@ -322,12 +324,12 @@ test.describe('External Session identity and presence', () => {
         await expect(row).toHaveAttribute('data-reply', 'true', { timeout: 8_000 });
         await expect(row).toHaveAttribute('data-working', 'false');
         await expect(row).toHaveClass(/reply-shake/);
-        await expect(row).toHaveCSS('animation-name', 'srSessionReplyShake');
-        await expect(row).toHaveCSS('animation-duration', '2.2s');
+        await expect(row).toHaveCSS('animation-name', 'srAttentionFade');
+        await expect(row).toHaveCSS('animation-duration', '1.2s');
         const cardWave = await row.evaluate(
           (element) => getComputedStyle(element, '::after').animationName,
         );
-        expect(cardWave).toBe('srSessionCardWave');
+        expect(cardWave).toBe('none');
 
         // Claude/Codex may repaint an idle status line long after the reply
         // settled. With no submitted input, those bytes must not restart the
@@ -437,47 +439,44 @@ test.describe('External Session identity and presence', () => {
       await expect(alphaRow).toBeVisible();
       await expect(betaRow).toBeVisible();
 
-      // Claude's structured result is a genuine turn boundary. It must animate
-      // the matching background Session as a whole-card, diagonal damped shake
-      // and surface one global reply notice.
+      // Claude's structured result is a genuine turn boundary. It must give
+      // the matching background Session a restrained attention fade and
+      // surface one global reply notice.
       await expect(betaRow).toHaveAttribute('data-reply', 'true', { timeout: 12_000 });
       await expect(betaRow).toHaveClass(/reply-shake/);
-      await expect(betaRow).toHaveCSS('animation-name', 'srSessionReplyShake');
+      await expect(betaRow).toHaveCSS('animation-name', 'srAttentionFade');
+      await expect(betaRow).toHaveCSS('animation-duration', '1.2s');
       await expect(betaRow.locator('.sr-provider')).toHaveClass(/session-wave/);
 
-      // Freeze the genuine running animation on its first diagonal peak so
-      // the visual artifact proves the card rotates and moves vertically — a
-      // horizontal-only nudge would produce neither component. Capture it
-      // before the notification and navigation checks can outlive the effect.
-      const replyMotion = await betaRow.evaluate((element) => {
+      // Freeze the genuine animation while it is still visibly highlighted so
+      // the artifact captures the background attention state.
+      const replyAttention = await betaRow.evaluate((element) => {
         const animation = element
           .getAnimations()
           .find(
             (candidate) =>
-              candidate instanceof CSSAnimation &&
-              candidate.animationName === 'srSessionReplyShake',
+              candidate instanceof CSSAnimation && candidate.animationName === 'srAttentionFade',
           );
         if (!animation) return null;
         animation.pause();
-        animation.currentTime = 286;
-        const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+        animation.currentTime = 240;
+        const style = getComputedStyle(element);
         return {
-          rotationComponent: matrix.b,
-          verticalOffset: matrix.m42,
+          opacity: Number(style.opacity),
+          filter: style.filter,
         };
       });
-      expect(replyMotion).not.toBeNull();
-      expect(Math.abs(replyMotion!.rotationComponent)).toBeGreaterThan(0.02);
-      expect(Math.abs(replyMotion!.verticalOffset)).toBeGreaterThan(0.5);
+      expect(replyAttention).not.toBeNull();
+      expect(replyAttention!.opacity).toBeLessThan(1);
+      expect(replyAttention!.filter).not.toBe('none');
       await page.screenshot({ path: '/tmp/charter-claude-session-reply-wave.png' });
-      await betaRow.screenshot({ path: '/tmp/charter-claude-session-reply-shake-card.png' });
+      await betaRow.screenshot({ path: '/tmp/charter-claude-session-reply-attention-card.png' });
       await betaRow.evaluate((element) => {
         element
           .getAnimations()
           .find(
             (candidate) =>
-              candidate instanceof CSSAnimation &&
-              candidate.animationName === 'srSessionReplyShake',
+              candidate instanceof CSSAnimation && candidate.animationName === 'srAttentionFade',
           )
           ?.play();
       });

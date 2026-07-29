@@ -101,7 +101,7 @@ import { installTerminalControlIntegration } from './services/terminal-control-i
 import { ArtifactService } from './services/artifact-service.js';
 import { registerArtifactHandlers } from './ipc/artifact-handlers.js';
 import { TerminalDaemonClient } from './services/terminal-daemon-client.js';
-import { RELEASES_PAGE, UpdateService } from './services/update-service.js';
+import { defaultUpdateChannel, RELEASES_PAGE, UpdateService } from './services/update-service.js';
 
 const DEV_SERVER_URL = process.env.PI_IDE_DEV_SERVER_URL;
 const isDev = Boolean(DEV_SERVER_URL);
@@ -600,6 +600,11 @@ if (!gotLock) {
 
     try {
       settings = new SettingsService(paths.settingsFile, logger.child('settings'));
+      if (!settings.hasExplicitUpdateChannel) {
+        settings.update('global', {
+          updates: { channel: defaultUpdateChannel(app.getVersion()) },
+        });
+      }
       state = new StateService(paths.databaseFile, paths.backupsDir, logger.child('db'));
       workspaceHost = new WorkspaceHost(state, settings, logger.child('workspace'));
     } catch (e) {

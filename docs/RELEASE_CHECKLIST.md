@@ -1,8 +1,8 @@
 # M12 Release Checklist
 
-## Unsigned public Beta (`1.0.0-beta.3`)
+## Unsigned public Beta (`1.0.0-beta.4`)
 
-- [x] SemVer prerelease version and matching `v1.0.0-beta.3` tag policy.
+- [x] SemVer prerelease version and matching `v1.0.0-beta.4` tag policy.
 - [x] Unsigned releases are restricted to prerelease channels; unsigned Stable fails closed.
 - [x] macOS, Windows and Linux native package/install workflows are defined.
 - [x] E2E-023 migration and backup restore coverage.
@@ -15,8 +15,8 @@
 - [x] The tag workflow blocks publication until its release gates and macOS, Windows and Linux package matrix pass.
 - [x] The publish job creates a GitHub Prerelease with `--latest=false` and attaches native packages, manifest, checksums and SBOM.
 
-Beta 2 was the first downloadable preview. Its 13 assets and corrected Prerelease metadata remain
-available at [v1.0.0-beta.2](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.2).
+Beta 3 remains available as the previous preview, but it predates the update notification service and
+must be upgraded to Beta 4 manually.
 
 ## Update delivery in the current source
 
@@ -29,8 +29,8 @@ available at [v1.0.0-beta.2](https://github.com/longyunfeigu/Charter/releases/ta
 - [x] Release collection/workflow includes updater YAML, and Beta packaging emits `beta-mac.yml` with package feed `channel: beta`.
 - [x] Unit, typed IPC and real Electron Updates-page E2E pass; real DMG install/restart smoke passes 2/2.
 
-These checks describe the source after Beta 3. They do not retroactively add update support to the
-already-published unsigned Beta 3 artifacts, and they do not qualify signed production delivery.
+These checks ship in Beta 4. They do not retroactively add update support to the already-published
+Beta 3 artifacts, and they do not qualify signed production delivery.
 
 ## Stable handoff (intentionally not claimed)
 

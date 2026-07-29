@@ -50,12 +50,24 @@ export async function waitForTerminalOutput(
   await expect.poll(output, { timeout: options.timeout ?? 15_000 }).toMatch(expected);
 }
 
+/** Wait for the PTY stream to acknowledge an input or lifecycle boundary. */
+export async function waitForTerminalSequenceAdvance(
+  page: Page,
+  terminalId: string,
+  previousSequence: number,
+  timeout = 15_000,
+): Promise<void> {
+  await expect
+    .poll(async () => (await terminalPtySnapshot(page)).sequences[terminalId] ?? 0, { timeout })
+    .toBeGreaterThan(previousSequence);
+}
+
 export async function typeTerminalCommand(
   page: Page,
   command: string,
   options: { terminalId: string; xterm?: Locator; timeout?: number },
 ): Promise<void> {
-  await waitForTerminalOutput(page, /[%$#]/, {
+  await waitForTerminalOutput(page, /[%$#❯]/, {
     terminalId: options.terminalId,
     timeout: options.timeout,
   });

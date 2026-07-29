@@ -19,7 +19,10 @@ test.describe('Projects — project actions without a duplicate file tree', () =
       await page.getByTestId('rail-add-project').click();
       await page.getByTestId('home-new-project').click();
       await expect(page.getByTestId('new-project-dialog')).toBeVisible();
-      await page.getByLabel('Close').click();
+      await page
+        .getByTestId('new-project-dialog')
+        .getByRole('button', { name: 'Close', exact: true })
+        .click();
       await expect(page.getByTestId('new-project-dialog')).toHaveCount(0);
       await page.getByTestId('rail-view-sessions').click();
 
@@ -34,7 +37,10 @@ test.describe('Projects — project actions without a duplicate file tree', () =
       await page.getByTestId('rail-add-project').click();
       await page.getByTestId('home-new-project').click();
       await expect(page.getByTestId('new-project-dialog')).toBeVisible();
-      await page.getByLabel('Close').click();
+      await page
+        .getByTestId('new-project-dialog')
+        .getByRole('button', { name: 'Close', exact: true })
+        .click();
     } finally {
       await app.close();
     }

@@ -145,14 +145,15 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
       await page.keyboard.press('Enter');
       await expect(row).toHaveAttribute('data-reply', 'true', { timeout: 15000 });
       await expect(row).toHaveClass(/reply-shake/);
-      await expect(row).toHaveCSS('animation-duration', '2.2s');
+      await expect(row).toHaveCSS('animation-name', 'srAttentionFade');
+      await expect(row).toHaveCSS('animation-duration', '1.2s');
       const replyNotice = page.locator(
         `[data-testid="session-completion-notice"][data-kind="reply"][data-task-id="${taskId}"]`,
       );
       await expect(replyNotice).toBeVisible();
       await expect(replyNotice).toContainText('Claude reply complete');
       await expect(replyNotice).toContainText('Terminal output settled');
-      await page.screenshot({ path: join(SHOTS, 'claude-observed-reply-shake.png') });
+      await page.screenshot({ path: join(SHOTS, 'claude-observed-reply-attention.png') });
       await page.keyboard.press('Escape');
 
       // User-invoked promotion: the LIVE TUI moves to the side panel and keeps

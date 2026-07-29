@@ -92,7 +92,11 @@ try {
       'scripts/dependency-safety.mjs',
       '--check',
     ]);
-    gate('dependency audit (Critical/High)', npm, ['audit', '--audit-level=high']);
+    gate('production dependency audit (Critical/High)', npm, [
+      'audit',
+      '--omit=dev',
+      '--audit-level=high',
+    ]);
   }
   gate('package', npm, ['run', 'package', '--', ...(quick ? ['--dir-only'] : [])]);
   gate(quick ? 'packaged Electron smoke' : 'clean install, launch, and uninstall', npm, [

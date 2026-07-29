@@ -9,7 +9,7 @@ const scriptRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const rules = [
   {
     dependency: 'brace-expansion',
-    expected: '5.0.7',
+    expected: '5.0.8',
     requester: 'node_modules/@earendil-works/pi-coding-agent/node_modules/minimatch/package.json',
     shadow: 'node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion',
   },

@@ -731,6 +731,11 @@ function UpdateSettingsSection(props: {
   const install = useAppStore((s) => s.installUpdate);
   const checking = update?.phase === 'checking';
   const progress = update?.progress;
+  const statusMessage =
+    update?.message ??
+    (update?.phase === 'available' && update.availableVersion
+      ? `Charter ${update.availableVersion} is available. Open its verified Release page to download this unsigned preview.`
+      : 'Loading update status…');
 
   return (
     <>
@@ -764,7 +769,7 @@ function UpdateSettingsSection(props: {
               ) : null}
             </div>
           ) : null}
-          <p>{update?.message ?? 'Loading update status…'}</p>
+          <p>{statusMessage}</p>
           {progress ? (
             <div className="st-update-progress" data-testid="updates-progress">
               <span style={{ width: `${progress.percent}%` }} />

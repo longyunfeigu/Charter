@@ -137,7 +137,7 @@ export function workflowGateReport({ version, tag, commit, runUrl, signingMode }
     'The publish job is reachable only after all required release jobs pass:',
     '',
     '- static, unit/integration, performance, full Electron E2E, security and 50-task soak gates;',
-    '- installed dependency resolution checks and the High/Critical dependency audit;',
+    '- installed dependency resolution checks and the production High/Critical dependency audit;',
     '- native packaging plus clean install/launch/uninstall smoke tests on macOS, Windows and Linux.',
     '',
     'This report records an unsigned prerelease qualification. It is not evidence of Apple Developer ID, notarization, Windows Authenticode or Stable-release approval.',

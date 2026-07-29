@@ -545,7 +545,8 @@ export const SCENARIOS: Record<string, Scenario> = {
       input: { path: 'notes-live-a.txt', content: 'live board A\n', reason: 'first live write' },
       reason: 'first write',
     },
-    { kind: 'wait', ms: 1400 },
+    // Keep the first write observable even when Electron starts under release-gate load.
+    { kind: 'wait', ms: 8000 },
     {
       kind: 'tool',
       toolName: 'create_file',

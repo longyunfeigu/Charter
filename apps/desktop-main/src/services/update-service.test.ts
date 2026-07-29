@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createLogger } from '@pi-ide/foundation';
-import { compareVersions, type NativeUpdater, UpdateService } from './update-service.js';
+import {
+  compareVersions,
+  defaultUpdateChannel,
+  type NativeUpdater,
+  UpdateService,
+} from './update-service.js';
 
 const logger = createLogger('update-test', { write: () => undefined });
 
@@ -21,6 +26,12 @@ describe('UpdateService', () => {
     expect(compareVersions('1.0.0-beta.10', '1.0.0-beta.2')).toBe(1);
     expect(compareVersions('2.0.0-alpha.1', '2.0.0-alpha')).toBe(1);
     expect(compareVersions('not-a-version', '1.0.0')).toBe(0);
+  });
+
+  it('defaults prerelease builds to their Beta feed without opting Stable into prereleases', () => {
+    expect(defaultUpdateChannel('1.0.0-beta.4')).toBe('beta');
+    expect(defaultUpdateChannel('1.0.0')).toBe('stable');
+    expect(defaultUpdateChannel('1.0.0-rc.1')).toBe('stable');
   });
 
   it('checks public releases but keeps unsigned installations manual', async () => {

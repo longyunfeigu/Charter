@@ -9,16 +9,16 @@ Run the built-in Charter Agent, Claude Code, and Codex on real repositories; wat
 
 *The agent says it is done. Charter shows you why you should believe it.*
 
-[![Beta 3](https://img.shields.io/badge/release-v1.0.0--beta.3-C47A19?style=flat-square)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.3)
+[![Beta 4](https://img.shields.io/badge/release-v1.0.0--beta.4-C47A19?style=flat-square)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.4)
 [![CI](https://img.shields.io/github/actions/workflow/status/longyunfeigu/Charter/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/longyunfeigu/Charter/actions/workflows/ci.yml)
-[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1B1A16?style=flat-square&logo=apple&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.3)
-[![Windows](https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.3)
-[![Linux](https://img.shields.io/badge/Linux-x64-F4B728?style=flat-square&logo=linux&logoColor=111111)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.3)
+[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1B1A16?style=flat-square&logo=apple&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.4)
+[![Windows](https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.4)
+[![Linux](https://img.shields.io/badge/Linux-x64-F4B728?style=flat-square&logo=linux&logoColor=111111)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.4)
 [![MIT License](https://img.shields.io/badge/license-MIT-2F855A?style=flat-square)](LICENSE)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-[Download Beta](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.3) · [Product tour](#product-tour) · [What it does](#what-it-does) · [Quick start](#quick-start) · [Architecture](#architecture)
+[Download Beta](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.4) · [Product tour](#product-tour) · [What it does](#what-it-does) · [Quick start](#quick-start) · [Architecture](#architecture)
 
 </div>
 
@@ -190,7 +190,7 @@ Charter combines agent orchestration, a desktop IDE, controlled execution, live 
 
 ### Download the unsigned Beta
 
-Download the current artifact and `SHA256SUMS.txt` from the [latest GitHub Release](https://github.com/longyunfeigu/Charter/releases/latest).
+Download the current artifact and `SHA256SUMS.txt` from the [Beta 4 GitHub Release](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.4).
 
 | Platform | Artifact | Preview target |
 | --- | --- | --- |
@@ -198,7 +198,7 @@ Download the current artifact and `SHA256SUMS.txt` from the [latest GitHub Relea
 | Windows | NSIS installer | `x64` |
 | Linux | `.tar.gz` | `x64` Preview |
 
-The binaries are unsigned and not notarized. Gatekeeper, SmartScreen, Smart App Control, enterprise policy, or antivirus software may refuse to launch them. Read the [release notes](docs/RELEASE_NOTES.md), [known limitations](docs/KNOWN_LIMITATIONS.md), [privacy notice](PRIVACY.md), and [security policy](SECURITY.md) before using the preview on an important repository. Updates for the published Beta 3 artifacts are manual; Beta 3 predates the updater now present in the source tree.
+The binaries are unsigned and not notarized. Gatekeeper, SmartScreen, Smart App Control, enterprise policy, or antivirus software may refuse to launch them. Read the [release notes](docs/RELEASE_NOTES.md), [known limitations](docs/KNOWN_LIMITATIONS.md), [privacy notice](PRIVACY.md), and [security policy](SECURITY.md) before using the preview on an important repository. Beta 4 automatically checks for newer GitHub prereleases and opens their verified download page; unsigned replacement remains manual.
 
 ### Run from source
 
@@ -350,12 +350,12 @@ CHARTER_README_SHOTS=1 npx playwright test \
 
 Charter is being developed in public toward its first signed Stable desktop release.
 
-- **Published now:** `v1.0.0-beta.3` is the current unsigned preview for macOS Apple Silicon, Windows x64, and Linux x64.
+- **Published now:** `v1.0.0-beta.4` is the current unsigned preview for macOS Apple Silicon, Windows x64, and Linux x64.
 - **Implemented on the current source tree:** the Session-first shell, managed agent path, external CLI accounting and orchestration, live file presence, structured context, Preview, Terminal, Verification, Review, Replay, Memory, Skills, desktop update service, and core security boundaries.
 - **Release pipeline:** three-platform packaging, manifests, checksums, SBOM/license inventory, packaged-app smoke tests, database upgrade/restore rehearsal, Stable/Beta updater feeds, and credential-free gates are in place. Unsigned previews and Linux notify and link only; signed macOS/Windows builds can check and download automatically, then wait for an explicit restart/install action.
 - **Still open for Stable:** Apple notarization, trusted Windows signing, signed update qualification on both desktop platforms, fixed-task real-provider qualification, and final owner sign-off.
 
-The README follows the current source tree; the downloadable Beta may trail ongoing work on `main`. See the [Beta 3 release notes](docs/RELEASE_NOTES.md) for its exact contents and [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for current evidence.
+The README follows the current source tree; the downloadable Beta may trail ongoing work on `main`. See the [Beta 4 release notes](docs/RELEASE_NOTES.md) for its exact contents and [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for current evidence.
 
 ## Contributing
 

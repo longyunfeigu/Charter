@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Contract tests may import pi here: this package is the sanctioned adapter boundary.
-import { AuthStorage, ModelRegistry } from '@earendil-works/pi-coding-agent';
 import { buildPriorConversationMessages, PiAgentRuntime, runtimeToolAliases } from './index.js';
 import type { PriorConversationContext, ToolExecutor } from '@pi-ide/agent-contract';
 
@@ -76,11 +75,18 @@ describe('Pi adapter contract (AG-013 / ADR-0001)', () => {
   });
 
   it('pi model catalog is available offline and includes anthropic models', () => {
-    const auth = AuthStorage.inMemory({ anthropic: { type: 'api_key', key: 'sk-test-000' } });
-    const registry = ModelRegistry.inMemory(auth);
-    const models = registry.getAvailable();
-    expect(models.length).toBeGreaterThan(5);
-    expect(models.some((m) => m.provider === 'anthropic')).toBe(true);
+    const runtime = new PiAgentRuntime({
+      toolExecutor: executor,
+      credentials: [{ providerId: 'anthropic', kind: 'api-key', value: 'sk-test-000' }],
+    });
+    return runtime
+      .initialize({ runtimeDataDir: dataDir, appVersion: '1.0.0' })
+      .then(() => runtime.listModels())
+      .then((models) => {
+        expect(models.length).toBeGreaterThan(5);
+        expect(models.some((model) => model.providerId === 'anthropic')).toBe(true);
+        return runtime.dispose();
+      });
   });
 
   it('adapter initializes offline and lists models with configured flags', async () => {

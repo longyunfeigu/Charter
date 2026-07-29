@@ -73,7 +73,10 @@ test.describe('Shell v3 — Task Room and entry consolidation', () => {
       await page.getByTestId(`home-task-${await taskIdOf(page)}`).click();
       await expect(page.getByTestId('task-room')).toBeVisible();
       await expect(page.getByTestId('plan-card')).toBeVisible();
+      await expect(page.getByTestId('session-tools-open')).toBeVisible();
+      await page.getByTestId('session-tools-open').click();
       await expect(page.getByTestId('session-tool-canvas')).toBeVisible();
+      await expect(page.getByTestId('plan-card')).toBeVisible();
       await expect(page.getByTestId('agent-panel-main')).toHaveCount(0);
 
       // The waiting plan is decidable without leaving the conversation.
@@ -104,6 +107,7 @@ test.describe('Shell v3 — layered live supervision (PIVOT-025)', () => {
       // Supervision remains in the Session: timeline action, right-side file
       // heat and touched-file evidence all project the same change events.
       await expect(page.getByTestId('task-room')).toBeVisible();
+      await page.getByTestId('session-tools-open').click();
       await expect(page.getByTestId('session-summary')).toBeVisible();
       await expect(page.locator('[data-testid^="live-board-"]').first()).toBeVisible({
         timeout: 15000,

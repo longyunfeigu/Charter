@@ -1,15 +1,15 @@
-# Charter 1.0.0-beta.3 Test Report
+# Charter 1.0.0-beta.4 Test Report
 
 ## Build identity
 
-- Version: `1.0.0-beta.3`
-- Commit: release candidate; the immutable commit is recorded by tag `v1.0.0-beta.3`
+- Version: `1.0.0-beta.4`
+- Commit: release candidate; the immutable commit is recorded by tag `v1.0.0-beta.4`
 - Pi SDK: `@earendil-works/pi-coding-agent@0.80.6`
 - Electron: `43.1.0`
-- Date: 2026-07-23
+- Date: 2026-07-29
 - Release scope: zero-cost, unsigned GitHub Prerelease
 
-This report qualifies the Beta 3 release candidate. The tag-triggered workflow repeats every release
+This report qualifies the Beta 4 release candidate. The tag-triggered workflow repeats every release
 gate and publishes only after the native macOS, Windows and Linux package jobs pass. It does not
 qualify a signed/notarized Stable release.
 
@@ -35,7 +35,7 @@ the test suite grows.
 | Electron E2E | PASS | Real Electron surface with isolated user-data via `npm run test:e2e` |
 | Security | PASS | Secret scan, security Vitest and Electron boundary matrix via `npm run test:security` |
 | Reliability soak | PASS | 50 deterministic task laps via `npm run test:soak` |
-| Dependency safety | PASS | Pinned-resolution safety and High/Critical audit gate |
+| Dependency safety | PASS | Pinned-resolution safety and production High/Critical audit gate; build-only tooling is excluded from shipped artifacts |
 | Native package matrix | REQUIRED ON TAG | macOS arm64, Windows x64 and Linux x64 package jobs must all pass before publish |
 | Release metadata | REQUIRED ON TAG | SPDX SBOM, license inventory, third-party notices, manifest and SHA-256 checksums |
 
@@ -49,6 +49,30 @@ then include the immutable manifest, checksums and generated gate report for ind
 | E2E-001–022 | PASS | `tests/e2e/*.spec.ts`, `tests/security/*.spec.ts` and the generated gate report |
 | E2E-023 | PASS | `tests/e2e/m12-release.spec.ts`; persistence migration/backup tests |
 | E2E-024 | PASS | `tests/release/packaged.spec.ts`; native package/install jobs |
+
+## Five-role acceptance
+
+Five independent acceptance agents evaluated the application candidate at commit `915a44f` plus
+uncommitted diff SHA-256
+`0013cf774b98897f0aeee9ca7cba019ae4485c73cbeaddf065cb42f70096978e`. After their verdicts,
+this acceptance record and stale E2E selectors/interaction paths were updated to match the already
+accepted Conversation-first UI. No application, runtime or package behavior changed; the corrected
+tests were rerun in their original scope and remain subject to the complete release gate below.
+
+| Role | Dimension scores | Total | Red lines | Result |
+| --- | --- | ---: | ---: | --- |
+| Heavy vibe coder / project owner | 19 / 20 / 19 / 20 / 19 | 97 | 0 | PASS |
+| macOS native visual designer | 18 / 19 / 19 / 18 / 19 | 93 | 0 | PASS |
+| First-time user | 19 / 18 / 20 / 19 / 19 | 95 | 0 | PASS |
+| Terminal-heavy senior engineer | 19 / 18 / 18 / 19 / 19 | 93 | 0 | PASS |
+| Destructive reliability quality officer | 20 / 20 / 20 / 19 / 18 | 97 | 0 | PASS |
+
+All role totals are at least 90, every dimension is at least 18, and no role or global red line was
+observed. The role runs used real Electron with isolated user-data and covered the owner workflow,
+light/dark/narrow visual states, fresh-user recovery, real PTY/Vim/5,000-line output, Git/Diff
+truthfulness, 26 destructive and security scenarios, and a 50-task soak. Mock Runtime results are not
+claimed as real-provider qualification. The unsigned build remains a GitHub Prerelease with manual
+download/replacement; it is not a signed Stable or background-installing release.
 
 ## Release gates
 
@@ -74,7 +98,7 @@ updates this file to the new immutable tag only after its native release workflo
 
 ## Release decision
 
-`1.0.0-beta.3` is approved as an **unsigned GitHub Prerelease candidate** after the local release
+`1.0.0-beta.4` is approved as an **unsigned GitHub Prerelease candidate** after the local release
 gates pass. Publication remains conditional on the tag workflow's repeated gates, native package
 matrix and artifact metadata. Stable remains blocked, and the release policy rejects an unsigned
 Stable version.

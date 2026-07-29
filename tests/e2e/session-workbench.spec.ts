@@ -228,16 +228,14 @@ test.describe('Session Rail Workbench', () => {
       await expect(page.getByTestId('session-terminal-view')).toBeVisible();
       await expect(page.getByTestId('session-terminal-view')).toContainText(fixture);
 
-      // The rail row identifies the provider by mark, not by a hardcoded
-      // CLI-name title. The fake CLI is detected as an external session and
-      // the row converts from terminal to task — both shapes must satisfy
-      // the naming rule.
+      // The rail row identifies the provider by mark and keeps the user's
+      // task title instead of falling back to a provider or session label.
       const railRow = page
         .locator('[data-session-key]')
         .filter({ has: page.locator('.sr-provider.claude') })
         .first();
       await expect(railRow).toBeVisible();
-      await expect(railRow).toContainText(/Session [\w…-]+|external session/i);
+      await expect(railRow).toContainText('Inspect the project architecture');
       await expect(railRow).not.toContainText('Claude Code');
 
       // The external Agent PTY is the conversation in the center column. The
@@ -250,6 +248,8 @@ test.describe('Session Rail Workbench', () => {
       expect(externalTerminalId).not.toBeNull();
       await waitForTerminalOutput(page, 'claude ready', { terminalId: externalTerminalId! });
 
+      await expect(page.getByTestId('session-tools-open')).toBeVisible();
+      await page.getByTestId('session-tools-open').click();
       await page.getByTestId('session-tool-terminal').click();
       await expect(page.getByTestId('session-terminal-create')).toBeVisible();
       await waitForTerminalOutput(page, 'claude ready', { terminalId: externalTerminalId! });

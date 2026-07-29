@@ -48,6 +48,8 @@ test.describe('Shell v5 — in-room file peek and zoom continuity', () => {
       // Esc closes the peek and the rail returns; still in the room.
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('file-peek')).toHaveCount(0);
+      await expect(page.getByTestId('session-tools-open')).toBeVisible();
+      await page.getByTestId('session-tools-open').click();
       await expect(page.getByTestId('task-room-file-src/index.ts')).toBeVisible();
 
       // Explicit edit expands the same File tool; room and conversation stay mounted.

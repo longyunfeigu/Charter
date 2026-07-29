@@ -66,6 +66,15 @@ export class SettingsService {
     return this.resolved.effective;
   }
 
+  get hasExplicitUpdateChannel(): boolean {
+    const updates = this.globalRaw.updates;
+    return (
+      typeof updates === 'object' &&
+      updates !== null &&
+      Object.prototype.hasOwnProperty.call(updates, 'channel')
+    );
+  }
+
   onChange(listener: (state: SettingsState) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

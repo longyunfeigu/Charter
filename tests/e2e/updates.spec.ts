@@ -29,8 +29,8 @@ test.describe('application updates', () => {
       await expect(page.getByTestId('updates-open-download')).toBeVisible();
       await expect(page.getByTestId('updates-install')).toHaveCount(0);
       await expect(page.getByTestId('updates-check')).toBeEnabled();
+      await expect(page.getByTestId('updates-status')).not.toContainText('Loading update status');
 
-      await page.getByTestId('updates-channel').selectOption('beta');
       await expect(page.getByTestId('updates-channel')).toHaveValue('beta');
       await page.getByTestId('updates-auto-check').uncheck();
       await expect(page.getByTestId('updates-auto-check')).not.toBeChecked();

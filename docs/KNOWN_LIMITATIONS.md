@@ -1,4 +1,4 @@
-# Known limitations — Charter 1.0.0-beta.3
+# Known limitations — Charter 1.0.0-beta.4
 
 This is an unsigned public preview, not the signed Stable release defined by the original V1.0
 release gates.
@@ -9,8 +9,9 @@ release gates.
   Control, enterprise policy, or antivirus software may warn or refuse to launch them.
 - Charter does not ask users to disable operating-system security globally. If the local policy does
   not permit the artifact, build from source or wait for a signed release.
-- Updates are manual. Download the next GitHub Release, verify `SHA256SUMS.txt`, quit Charter, retain a
-  backup of the application-data directory, and replace the application.
+- This unsigned Beta checks GitHub Releases and displays a persistent update notice, but download and
+  application replacement remain manual. Native background download/install requires a signed macOS
+  or Windows build; Linux delivery is always manual.
 - There is no automatic downgrade. A database backup is created before a schema migration; restoring
   an older app may require restoring its matching database backup.
 - macOS preview artifacts target Apple Silicon (`arm64`). Windows targets `x64`; Linux Preview targets
@@ -35,7 +36,7 @@ release gates.
 ## Product and release limits
 
 - No telemetry or crash-report transport ships in this build.
-- Automatic Beta/Stable update channels are deferred until signed distribution is available. The beta
-  channel consists of versioned GitHub prereleases plus machine-readable manifests and checksums.
+- Beta/Stable feed selection and update checks are implemented. Native background download/install
+  remains unavailable in this unsigned build and requires qualified signed distribution.
 - The fixed real-model 20-task evaluation and paid signing/notarization gates remain open; therefore
   this build must not be described as Stable.

@@ -187,7 +187,9 @@ test.describe('Shell v4 — worktree isolation and merge-back (ADR-0009)', () =>
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('file-peek')).toHaveCount(0);
 
-      // Review, then explicitly confirm the unverified accept.
+      // Escape returns to Conversation. Reopen the tools before Review, then
+      // explicitly confirm the unverified accept.
+      await page.getByTestId('session-tools-open').click();
       await page.getByTestId('session-tool-review').click();
       await page.getByTestId('review-bar-open').click();
       await expect(page.getByTestId('review-view')).toBeVisible({ timeout: 15000 });
@@ -286,6 +288,7 @@ test.describe('Shell v4 — heartbeat + focus layers (PIVOT-028/025)', () => {
       // (HEAT_WINDOW_MS), so every board assertion must run while the mock
       // run's writes are fresh. On slow hosted runners the old order (rail
       // checks + screenshots before entering the room) ate the whole window.
+      await page.getByTestId('session-tools-open').click();
       await expect(page.getByTestId('session-summary')).toBeVisible();
       const roomBoard = page.locator('[data-testid^="live-board-"]').first();
       await expect(roomBoard).toBeVisible({ timeout: 25000 });

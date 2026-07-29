@@ -1,6 +1,6 @@
 {
   "name": "pi-ide",
-  "version": "1.0.0-beta.3",
+  "version": "1.0.0-beta.4",
   "private": true,
   "description": "Pi-powered Agentic IDE — local-first, task-native, observable, reviewable, revertible desktop IDE",
   "license": "MIT",
@@ -33,7 +33,7 @@
     "test:soak": "PI_IDE_SOAK=1 playwright test --config tests/e2e/playwright.config.ts tests/e2e/soak.spec.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@earendil-works/pi-coding-agent": "0.82.1",
     "@vscode/ripgrep": "1.18.0",
     "electron-updater": "6.8.9",
     "node-pty": "1.1.0",
@@ -46,7 +46,7 @@
     "@types/node": "22.20.1",
     "@types/ssh2": "1.15.5",
     "electron": "43.1.0",
-    "electron-builder": "26.15.3",
+    "electron-builder": "26.15.7",
     "esbuild": "0.28.1",
     "prettier": "3.9.5",
     "typescript": "5.9.3",
@@ -61,7 +61,7 @@
   },
   "overrides": {
     "minimatch@10.2.5": {
-      "brace-expansion": "5.0.7"
+      "brace-expansion": "5.0.8"
     },
     "@google/genai@1.52.0": {
       "protobufjs": "7.6.5"

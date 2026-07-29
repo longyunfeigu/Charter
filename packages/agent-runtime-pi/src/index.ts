@@ -6,7 +6,7 @@
  * - An explicit tools allowlist exposes exactly the host-gateway proxied
  *   customTools; pi's built-in read/bash/edit/write can never activate.
  * - Credentials arrive in memory from the host Secret Store; pi never writes
- *   them to disk (AuthStorage.inMemory).
+ *   them to disk.
  * - Untrusted workspaces get an empty discovery cwd so project-local pi
  *   extensions/skills/prompts are never loaded (AG-014).
  * - Thinking streams are forwarded as dedicated thinking.* events (ADR-0011
@@ -16,9 +16,8 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   AgentSession,
-  AuthStorage,
   DEFAULT_COMPACTION_SETTINGS,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
   createAgentSession,
@@ -248,8 +247,8 @@ export interface PiRuntimeOptions {
 export class PiAgentRuntime implements AgentRuntime {
   private readonly toolExecutor: ToolExecutor;
   private readonly credentials: WorkerCredential[];
-  private auth!: AuthStorage;
-  private registry!: ModelRegistry;
+  private registry!: ModelRuntime;
+  private readonly credentialByProvider = new Map<string, { type: 'api_key'; key?: string }>();
   private dataDir = '';
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly runs = new Map<string, { sessionId: string; aborted: AbortReason | null }>();
@@ -263,12 +262,27 @@ export class PiAgentRuntime implements AgentRuntime {
     this.dataDir = input.runtimeDataDir;
     mkdirSync(join(this.dataDir, 'sessions'), { recursive: true });
     mkdirSync(join(this.dataDir, 'sandbox'), { recursive: true });
-    const data: Record<string, { type: 'api_key'; key: string }> = {};
     for (const credential of this.credentials) {
-      data[credential.providerId] = { type: 'api_key', key: credential.value };
+      this.credentialByProvider.set(credential.providerId, {
+        type: 'api_key',
+        key: credential.value,
+      });
     }
-    this.auth = AuthStorage.inMemory(data);
-    this.registry = ModelRegistry.inMemory(this.auth);
+    this.registry = await ModelRuntime.create({
+      credentials: {
+        read: async (providerId) => this.credentialByProvider.get(providerId),
+        modify: async (providerId, update) => {
+          const next = await update(this.credentialByProvider.get(providerId));
+          if (next?.type === 'api_key') this.credentialByProvider.set(providerId, next);
+          else this.credentialByProvider.delete(providerId);
+          return next;
+        },
+        delete: async (providerId) => {
+          this.credentialByProvider.delete(providerId);
+        },
+        list: async () => [],
+      },
+    });
     // Gateway/proxy support: a credential base URL re-points every model of
     // that provider at the custom endpoint (pi keeps the provider's API shape).
     // Providers unknown to the registry (openrouter/litellm/custom gateways)
@@ -283,7 +297,7 @@ export class PiAgentRuntime implements AgentRuntime {
 
   /** The registry ships models for this provider natively (builtin). */
   private isKnownProvider(providerId: string): boolean {
-    return (this.registry.getAll() as Array<{ provider: string }>).some(
+    return (this.registry.getModels() as unknown as Array<{ provider: string }>).some(
       (m) => m.provider === providerId,
     );
   }
@@ -302,7 +316,7 @@ export class PiAgentRuntime implements AgentRuntime {
    * of that provider) so the user can run exactly what their gateway offers.
    */
   private ensureModel(providerId: string, modelId: string): void {
-    if (this.registry.find(providerId, modelId)) return;
+    if (this.registry.getModel(providerId, modelId)) return;
     const credential = this.credentials.find((c) => c.providerId === providerId);
     if (!credential?.baseUrl) return; // only synthesize for custom endpoints
     type RegisteredModel = {
@@ -315,7 +329,7 @@ export class PiAgentRuntime implements AgentRuntime {
       maxTokens: number;
     };
     const existing = (
-      this.registry.getAll() as Array<{
+      this.registry.getModels() as unknown as Array<{
         provider: string;
         id: string;
         name?: string;
@@ -361,7 +375,7 @@ export class PiAgentRuntime implements AgentRuntime {
 
   async createSession(input: CreateSessionInput): Promise<RuntimeSessionRef> {
     this.ensureModel(input.model.providerId, input.model.modelId);
-    const model = this.registry.find(input.model.providerId, input.model.modelId);
+    const model = this.registry.getModel(input.model.providerId, input.model.modelId);
     if (!model) {
       throw toProductError(
         productError('AG_MODEL_NOT_FOUND', {
@@ -426,8 +440,7 @@ export class PiAgentRuntime implements AgentRuntime {
     const { session } = await createAgentSession({
       cwd: discoveryCwd,
       agentDir: join(this.dataDir, 'agent'),
-      authStorage: this.auth,
-      modelRegistry: this.registry,
+      modelRuntime: this.registry,
       model,
       // Clamp to the model's supported effort levels (nearest neighbour) so a
       // composer/settings default can never produce an invalid provider call.
@@ -831,7 +844,7 @@ export class PiAgentRuntime implements AgentRuntime {
       );
     }
     this.ensureModel(model.providerId, model.modelId);
-    const registered = this.registry.find(model.providerId, model.modelId);
+    const registered = this.registry.getModel(model.providerId, model.modelId);
     if (!registered) {
       throw toProductError(
         productError('AG_MODEL_NOT_FOUND', {
@@ -869,7 +882,7 @@ export class PiAgentRuntime implements AgentRuntime {
   }
 
   async listModels(): Promise<ModelDescriptor[]> {
-    const models = this.registry.getAvailable() as Array<{
+    const models = (await this.registry.getAvailable()) as unknown as Array<{
       provider: string;
       id: string;
       name?: string;
@@ -893,7 +906,7 @@ export class PiAgentRuntime implements AgentRuntime {
   }
 
   async validateCredential(providerId: string): Promise<CredentialCheck> {
-    const credential = this.auth.get(providerId);
+    const credential = this.credentialByProvider.get(providerId);
     return {
       providerId,
       ok: credential !== undefined,
