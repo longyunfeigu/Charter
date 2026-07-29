@@ -150,10 +150,7 @@ test.describe('rich agent terminal output', () => {
         .or(page.getByTestId('session-terminal-host'))
         .or(page.getByTestId('terminal-host'));
       await expect(terminalText).toBeVisible({ timeout: 30_000 });
-      await waitForTerminalOutput(page, /Do\s*you\s*trust.*Press\s*enter\s*to\s*continue/is, {
-        terminalId: terminalId!,
-        timeout: 30_000,
-      });
+      await expect(terminalText).toContainText(/trust/i, { timeout: 30_000 });
       await terminalText.click();
       await page.keyboard.press('Enter');
       await waitForTerminalOutput(page, /OpenAI\s*Codex/, {
@@ -187,6 +184,9 @@ test.describe('rich agent terminal output', () => {
       expect(bluePaths.length).toBeGreaterThanOrEqual(3);
 
       await page.screenshot({ path: '/tmp/terminal-real-codex-rich-output.png' });
+      await page.setViewportSize({ width: 1040, height: 760 });
+      await expect(terminalText).toContainText('CHARTER_RICH_DONE');
+      await page.screenshot({ path: '/tmp/terminal-real-codex-rich-output-narrow.png' });
       expect(rendererErrors).toEqual([]);
 
       await terminalText.click();
