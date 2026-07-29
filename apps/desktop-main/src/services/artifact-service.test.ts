@@ -162,6 +162,9 @@ describe('ArtifactService immutable projection and protocol', () => {
     expect(htmlResponse.headers.get('content-security-policy')).toContain("script-src 'nonce-");
     const safeHtml = await htmlResponse.text();
     expect(safeHtml).toContain('charter-artifact-picked');
+    expect(safeHtml).toContain('charter-artifact-picker-ready');
+    expect(safeHtml).toContain('charter-artifact-picker-state');
+    expect(safeHtml).toContain("event.data.action === 'clear'");
     expect(safeHtml).not.toContain('originalPageScript');
 
     const interactiveOpen = await service.open({

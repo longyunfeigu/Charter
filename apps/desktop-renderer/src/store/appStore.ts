@@ -160,6 +160,9 @@ interface AppStore {
   /** The right-hand tool canvas follows the Session instead of becoming a
    * second application shell. */
   sessionTool: SessionTool;
+  /** Tools stay out of the reading surface until the user opens one or the
+   * Session reaches a review state that requires a decision. */
+  sessionToolsOpen: boolean;
   sessionToolExpanded: boolean;
   /** Manual conversation/tool split (% of the canvas given to the conversation)
    * per Session — set by the drag handle (design mock A). While present it
@@ -193,8 +196,10 @@ interface AppStore {
    * returns to that group so left nav and main content always correspond. */
   savedSurfaces: Record<RailGroup, MainSurface>;
   openPreviewRail(taskId: string, mode?: PreviewRailMode): void;
+  setPreviewRailMode(mode: PreviewRailMode): void;
   closePreviewRail(): void;
   setSessionTool(tool: SessionTool): void;
+  setSessionToolsOpen(open: boolean): void;
   setSessionToolExpanded(expanded: boolean): void;
   /** pct = conversation share (20–80); null returns the Session to the stops. */
   setSessionSplit(taskId: string, pct: number | null): void;
@@ -443,6 +448,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     previewRailTaskId: null,
     previewRailMode: 'live',
     sessionTool: 'summary',
+    sessionToolsOpen: false,
     sessionToolExpanded: false,
     sessionSplit: {},
     sessionSplitDragging: false,
@@ -540,7 +546,13 @@ export const useAppStore = create<AppStore>((set, get) => {
       // Session's tool canvas; otherwise it opens the current project's Files
       // tool beside the persistent global rail.
       if (surface === 'workspace' && get().taskRoomTaskId) {
-        set({ surface: 'home', sessionToolExpanded: true, projectTool: null, remotesOpen: false });
+        set({
+          surface: 'home',
+          sessionToolsOpen: true,
+          sessionToolExpanded: true,
+          projectTool: null,
+          remotesOpen: false,
+        });
         return;
       }
       set({
@@ -565,11 +577,17 @@ export const useAppStore = create<AppStore>((set, get) => {
         peek: peekOpen(get().peek, taskId, path, nextMode),
         previewRailTaskId: null,
         sessionTool: nextMode === 'diff' ? 'diff' : 'file',
+        sessionToolsOpen: true,
         ...(nextMode === 'diff' ? { sessionToolExpanded: true } : {}),
       });
     },
     closePeek() {
-      set({ peek: null, sessionTool: 'summary', sessionToolExpanded: false });
+      set({
+        peek: null,
+        sessionTool: 'summary',
+        sessionToolsOpen: false,
+        sessionToolExpanded: false,
+      });
     },
     openPreviewRail(taskId, previewRailMode = 'live') {
       set({
@@ -577,22 +595,45 @@ export const useAppStore = create<AppStore>((set, get) => {
         previewRailMode,
         peek: null,
         sessionTool: 'preview',
+        sessionToolsOpen: true,
         sessionToolExpanded: false,
       });
     },
+    setPreviewRailMode(previewRailMode) {
+      set({ previewRailMode });
+    },
     closePreviewRail() {
-      set({ previewRailTaskId: null, sessionTool: 'summary', sessionToolExpanded: false });
+      set({
+        previewRailTaskId: null,
+        sessionTool: 'summary',
+        sessionToolsOpen: false,
+        sessionToolExpanded: false,
+      });
     },
     setSessionTool(sessionTool) {
       set({
         sessionTool,
+        sessionToolsOpen: true,
         ...(sessionTool === 'diff' ? { sessionToolExpanded: true } : {}),
         ...(sessionTool !== 'preview' ? { previewRailTaskId: null } : {}),
         ...(sessionTool !== 'diff' && sessionTool !== 'file' ? { peek: null } : {}),
       });
     },
+    setSessionToolsOpen(sessionToolsOpen) {
+      set({
+        sessionToolsOpen,
+        ...(!sessionToolsOpen
+          ? {
+              sessionTool: 'summary' as const,
+              sessionToolExpanded: false,
+              previewRailTaskId: null,
+              peek: null,
+            }
+          : {}),
+      });
+    },
     setSessionToolExpanded(sessionToolExpanded) {
-      set({ sessionToolExpanded });
+      set({ sessionToolExpanded, ...(sessionToolExpanded ? { sessionToolsOpen: true } : {}) });
     },
     setSessionSplit(taskId, pct) {
       const sessionSplit = { ...get().sessionSplit };
@@ -645,6 +686,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         set({
           peek: { ...peek, mode },
           sessionTool: mode === 'diff' ? 'diff' : 'file',
+          sessionToolsOpen: true,
           ...(mode === 'diff' || mode === 'edit' ? { sessionToolExpanded: true } : {}),
         });
       }
@@ -667,6 +709,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         sessionTerminalId: null,
         surface: 'home',
         sessionTool: 'summary',
+        sessionToolsOpen: false,
         sessionToolExpanded: false,
         projectTool: null,
         projectBottomTab: null,
@@ -705,6 +748,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         peek: null,
         previewRailTaskId: null,
         sessionTool: 'terminal',
+        sessionToolsOpen: false,
         sessionToolExpanded: false,
         projectTool: null,
         projectBottomTab: null,
@@ -723,6 +767,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         peek: null,
         previewRailTaskId: null,
         sessionTool: 'terminal',
+        sessionToolsOpen: false,
         sessionToolExpanded: false,
         projectTool: null,
         projectBottomTab: null,
@@ -742,6 +787,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         peek: null,
         previewRailTaskId: null,
         sessionTool: 'summary',
+        sessionToolsOpen: false,
         sessionToolExpanded: false,
         projectTool: null,
         projectBottomTab: null,
@@ -801,13 +847,18 @@ export const useAppStore = create<AppStore>((set, get) => {
     },
     toggleAgentPanel() {
       if (get().taskRoomTaskId) {
-        set({ sessionTool: 'summary', sessionToolExpanded: !get().sessionToolExpanded });
+        set({
+          sessionTool: 'summary',
+          sessionToolsOpen: !get().sessionToolsOpen,
+          sessionToolExpanded: false,
+        });
       }
     },
     toggleBottomPanel() {
       if (get().taskRoomTaskId) {
         set({
           sessionTool: get().sessionTool === 'terminal' ? 'summary' : 'terminal',
+          sessionToolsOpen: get().sessionTool !== 'terminal',
           sessionToolExpanded: get().sessionTool !== 'terminal',
         });
       }
@@ -828,6 +879,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       }
       set({
         sessionTool: view === 'explorer' ? 'file' : view === 'scm' ? 'diff' : 'summary',
+        sessionToolsOpen: true,
         sessionToolExpanded: view === 'explorer' || view === 'scm',
       });
     },
@@ -845,6 +897,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       set({
         surface: 'home',
         sessionTool: tab === 'terminal' ? 'terminal' : tab === 'tests' ? 'review' : 'summary',
+        sessionToolsOpen: true,
         sessionToolExpanded: tab === 'terminal',
       });
     },

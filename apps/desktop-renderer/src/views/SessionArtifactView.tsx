@@ -59,6 +59,32 @@ function anchorLabel(anchor: ArtifactAnchorDto): string {
   return 'Whole file';
 }
 
+function producerLabel(producer: string): string {
+  if (producer.toLowerCase() === 'claude') return 'Claude Code';
+  if (producer.toLowerCase() === 'codex') return 'Codex';
+  if (producer.toLowerCase() === 'charter') return 'Charter';
+  return producer;
+}
+
+function captureLabel(captureGrade: string): string {
+  if (captureGrade === 'observed') return 'Observed write';
+  if (captureGrade === 'full') return 'Agent output';
+  return captureGrade.replaceAll('_', ' ');
+}
+
+function targetLabel(task: TaskDto): string {
+  if (!task.external) return 'next reply';
+  return task.external.cli === 'claude' ? 'Claude Code' : 'Codex';
+}
+
+type SubmissionState =
+  | { status: 'idle'; message: '' }
+  | { status: 'submitting'; message: string }
+  | { status: 'success'; message: string }
+  | { status: 'error'; message: string };
+
+const IDLE_SUBMISSION: SubmissionState = { status: 'idle', message: '' };
+
 function parseDelimited(text: string, delimiter: string, rowLimit = 2000): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -524,6 +550,8 @@ function PdfArtifact(props: {
   );
 }
 
+type HtmlPickerState = 'loading' | 'idle' | 'arming' | 'picking' | 'error';
+
 function HtmlArtifact(props: {
   url: string;
   mode: 'safe' | 'interactive';
@@ -533,17 +561,45 @@ function HtmlArtifact(props: {
   onAnchor: (anchor: ArtifactAnchorDto) => void;
 }): React.JSX.Element {
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const [pickerReady, setPickerReady] = useState(false);
-  useEffect(() => setPickerReady(false), [props.url, props.mode]);
+  const pickerTimerRef = useRef<number | null>(null);
+  const previousAnchorTypeRef = useRef(props.anchor.type);
+  const [pickerState, setPickerState] = useState<HtmlPickerState>('loading');
+
+  const clearPickerTimer = (): void => {
+    if (pickerTimerRef.current !== null) window.clearTimeout(pickerTimerRef.current);
+    pickerTimerRef.current = null;
+  };
+  const postPickerAction = (action: 'start' | 'cancel' | 'clear'): void => {
+    frameRef.current?.contentWindow?.postMessage({ type: 'charter-artifact-pick', action }, '*');
+  };
+
+  useEffect(() => {
+    clearPickerTimer();
+    setPickerState('loading');
+    return clearPickerTimer;
+  }, [props.url, props.mode]);
+
   useEffect(() => {
     const onMessage = (event: MessageEvent): void => {
       if (event.source !== frameRef.current?.contentWindow) return;
       const data = event.data as Record<string, unknown> | null;
+      if (data?.type === 'charter-artifact-picker-ready') {
+        clearPickerTimer();
+        setPickerState('idle');
+        return;
+      }
+      if (data?.type === 'charter-artifact-picker-state' && typeof data.active === 'boolean') {
+        clearPickerTimer();
+        setPickerState(data.active ? 'picking' : 'idle');
+        return;
+      }
       if (data?.type !== 'charter-artifact-picked' || typeof data.selector !== 'string') return;
       const rawRect = data.rect as
         { x?: number; y?: number; width?: number; height?: number } | undefined;
       const viewport = data.viewport as { width?: number; height?: number } | undefined;
       if (!rawRect || !viewport || !viewport.width || !viewport.height) return;
+      clearPickerTimer();
+      setPickerState('idle');
       props.onAnchor({
         type: 'html',
         selector: data.selector.slice(0, 1000),
@@ -560,38 +616,87 @@ function HtmlArtifact(props: {
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [props]);
+
+  useEffect(() => {
+    const clearedHtmlSelection =
+      previousAnchorTypeRef.current === 'html' && props.anchor.type !== 'html';
+    previousAnchorTypeRef.current = props.anchor.type;
+    if (clearedHtmlSelection && pickerState !== 'loading') postPickerAction('clear');
+  }, [props.anchor.type, pickerState]);
+
+  useEffect(() => {
+    if (pickerState !== 'picking' && pickerState !== 'arming') return;
+    const cancelOnEscape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      postPickerAction('cancel');
+      clearPickerTimer();
+      setPickerState('idle');
+    };
+    window.addEventListener('keydown', cancelOnEscape);
+    return () => window.removeEventListener('keydown', cancelOnEscape);
+  }, [pickerState]);
+
+  const togglePicker = (): void => {
+    if (pickerState === 'picking' || pickerState === 'arming') {
+      postPickerAction('cancel');
+      clearPickerTimer();
+      setPickerState('idle');
+      return;
+    }
+    setPickerState('arming');
+    postPickerAction('start');
+    clearPickerTimer();
+    pickerTimerRef.current = window.setTimeout(() => setPickerState('error'), 1200);
+  };
+
+  const pickerCopy =
+    pickerState === 'loading'
+      ? 'Preparing inspector...'
+      : pickerState === 'arming'
+        ? 'Starting inspector...'
+        : pickerState === 'picking'
+          ? 'Click an element in the preview. Esc cancels.'
+          : pickerState === 'error'
+            ? 'Inspector did not start. Retry.'
+            : props.anchor.type === 'html'
+              ? 'Element selected. Inspect again to replace it.'
+              : 'Select an exact element for context.';
+
   return (
-    <div className="artifact-html" data-testid="artifact-html-view">
+    <div className="artifact-html" data-testid="artifact-html-view" data-picker-state={pickerState}>
       <div className="artifact-html-tools">
-        <div className="artifact-segmented">
+        <div className="artifact-html-runtime">
+          <span className={props.mode === 'safe' ? 'safe' : 'interactive'}>
+            {props.mode === 'safe' ? 'Page scripts off' : 'Page interactions on'}
+          </span>
           <button
-            className={props.mode === 'safe' ? 'active' : ''}
+            type="button"
+            aria-pressed={props.mode === 'interactive'}
             onClick={() => {
-              setPickerReady(false);
-              props.onMode('safe');
+              setPickerState('loading');
+              props.onMode(props.mode === 'safe' ? 'interactive' : 'safe');
             }}
           >
-            Safe
-          </button>
-          <button
-            className={props.mode === 'interactive' ? 'active' : ''}
-            onClick={() => {
-              setPickerReady(false);
-              props.onMode('interactive');
-            }}
-          >
-            Interactive
+            {props.mode === 'safe' ? 'Enable interactions' : 'Disable interactions'}
           </button>
         </div>
-        <span>Network blocked. Local assets stay inside the task root.</span>
+        <span className="artifact-html-network">Network blocked</span>
+        <span className={`artifact-picker-status ${pickerState}`} role="status" aria-live="polite">
+          {pickerCopy}
+        </span>
         <button
+          className={pickerState === 'picking' || pickerState === 'arming' ? 'active' : ''}
+          data-testid="artifact-pick-element"
           type="button"
-          disabled={props.busy || !pickerReady}
-          onClick={() =>
-            frameRef.current?.contentWindow?.postMessage({ type: 'charter-artifact-pick' }, '*')
-          }
+          disabled={props.busy || pickerState === 'loading'}
+          aria-pressed={pickerState === 'picking' || pickerState === 'arming'}
+          onClick={togglePicker}
         >
-          Pick element
+          {pickerState === 'picking' || pickerState === 'arming'
+            ? 'Cancel inspect'
+            : pickerState === 'error'
+              ? 'Retry inspect'
+              : 'Inspect element'}
         </button>
       </div>
       <iframe
@@ -600,11 +705,14 @@ function HtmlArtifact(props: {
         src={props.url}
         title="Static HTML artifact"
         sandbox={props.mode === 'interactive' ? 'allow-scripts allow-forms' : 'allow-scripts'}
-        onLoad={() => setPickerReady(true)}
+        onLoad={() => {
+          clearPickerTimer();
+          pickerTimerRef.current = window.setTimeout(
+            () => setPickerState((current) => (current === 'loading' ? 'error' : current)),
+            1200,
+          );
+        }}
       />
-      {props.anchor.type === 'html' ? (
-        <div className="artifact-inline-note">Picked {props.anchor.selector}</div>
-      ) : null}
     </div>
   );
 }
@@ -721,12 +829,18 @@ export function SessionArtifactView({
   const [htmlMode, setHtmlMode] = useState<'safe' | 'interactive'>('safe');
   const [anchor, setAnchor] = useState<ArtifactAnchorDto>(EMPTY_ANCHOR);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [submission, setSubmission] = useState<SubmissionState>(IDLE_SUBMISSION);
   const selectedArtifact = artifacts.find((artifact) => artifact.path === selectedPath) ?? null;
   const noteKey = opened ? `${opened.artifact.path}:${opened.requestedHash}` : null;
   const note = noteKey ? (notes[noteKey] ?? '') : '';
   const setNote = (value: string): void => {
     if (!noteKey) return;
+    setSubmission(IDLE_SUBMISSION);
     setNotes((current) => ({ ...current, [noteKey]: value }));
+  };
+  const selectAnchor = (next: ArtifactAnchorDto): void => {
+    setSubmission(IDLE_SUBMISSION);
+    setAnchor(next);
   };
 
   const refresh = useCallback(async () => {
@@ -774,7 +888,8 @@ export function SessionArtifactView({
         return;
       }
       setOpened(response.data);
-      setAnchor(response.data.artifact.kind === 'pdf' ? { type: 'pdf', page: 1 } : EMPTY_ANCHOR);
+      setAnchor(EMPTY_ANCHOR);
+      setSubmission(IDLE_SUBMISSION);
       setError(null);
     });
     return () => {
@@ -783,7 +898,7 @@ export function SessionArtifactView({
   }, [task.id, selectedPath, selectedHash, selectedArtifact?.contentHash, htmlMode]);
 
   const addFeedback = async (): Promise<void> => {
-    if (!opened) return;
+    if (!opened || submission.status === 'submitting') return;
     const noteText = note.trim();
     const ref: ArtifactFeedbackRefDto = {
       id: `artifact_${crypto.randomUUID()}`,
@@ -795,31 +910,55 @@ export function SessionArtifactView({
       ...(noteText ? { note: noteText } : {}),
       createdAt: new Date().toISOString(),
     };
+    const destination = targetLabel(task);
+    setSubmission({ status: 'submitting', message: `Sending context to ${destination}...` });
     if (task.external) {
       const response = await rpcResult('external.injectContext', {
         taskId: task.id,
         ref: { kind: 'artifact', artifact: ref },
       });
-      if (!response.ok) app.pushToast('error', response.error.userMessage);
-      else {
-        setNote('');
+      if (!response.ok) {
+        setSubmission({ status: 'error', message: response.error.userMessage });
+        app.pushToast('error', response.error.userMessage);
+      } else {
+        if (noteKey) setNotes((current) => ({ ...current, [noteKey]: '' }));
+        setSubmission({
+          status: 'success',
+          message: `Context inserted into ${destination}. Review it there, then press Enter.`,
+        });
         app.pushToast(
           'info',
-          `Artifact context inserted into ${task.external.cli}. Review it and press Enter there.`,
+          `Artifact context inserted into ${destination}. Review it and press Enter there.`,
         );
       }
       return;
     }
     const result = useDraftStore.getState().addArtifactRef(task.id, ref);
-    if (result === 'limit')
+    if (result === 'limit') {
+      setSubmission({
+        status: 'error',
+        message: 'A reply can include up to four artifact anchors.',
+      });
       app.pushToast('warning', 'A reply can include up to four artifact anchors.');
-    else if (result === 'duplicate')
+    } else if (result === 'duplicate') {
+      setSubmission({ status: 'success', message: 'This context is already attached.' });
       app.pushToast('info', 'That artifact feedback is already attached.');
-    else {
-      setNote('');
+    } else {
+      if (noteKey) setNotes((current) => ({ ...current, [noteKey]: '' }));
+      setSubmission({ status: 'success', message: 'Attached to the next reply.' });
       app.focusComposer();
       app.pushToast('info', 'Artifact context attached to the next reply.');
     }
+  };
+
+  const revealArtifact = async (action: 'reveal' | 'open'): Promise<void> => {
+    if (!opened) return;
+    const response = await rpcResult('artifact.reveal', {
+      taskId: task.id,
+      path: opened.artifact.path,
+      action,
+    });
+    if (!response.ok) app.pushToast('error', response.error.userMessage);
   };
 
   if (loading && artifacts.length === 0) {
@@ -848,7 +987,7 @@ export function SessionArtifactView({
     >
       <aside className="artifact-nav" aria-label="Session artifacts">
         <header>
-          <span>SESSION OUTPUT</span>
+          <span>ARTIFACTS</span>
           <strong>{artifacts.length}</strong>
         </header>
         <div className="artifact-nav-list">
@@ -881,58 +1020,53 @@ export function SessionArtifactView({
         {opened ? (
           <>
             <header className="artifact-toolbar">
-              <div>
+              <div className="artifact-identity">
                 <span>{kindLabel(opened.artifact.kind)}</span>
-                <strong>{opened.artifact.path}</strong>
+                <strong>{opened.artifact.path.split('/').at(-1)}</strong>
                 <small>
-                  {formatBytes(opened.artifact.sizeBytes)} / {opened.artifact.producer} /{' '}
-                  {opened.artifact.captureGrade}
+                  {opened.artifact.path} · {formatBytes(opened.artifact.sizeBytes)} ·{' '}
+                  {producerLabel(opened.artifact.producer)} ·{' '}
+                  {captureLabel(opened.artifact.captureGrade)}
                 </small>
               </div>
-              <label>
-                Version
-                <select
-                  value={opened.requestedHash}
-                  onChange={(event) =>
-                    setSelectedHash(
-                      event.target.value === opened.artifact.contentHash
-                        ? null
-                        : event.target.value,
-                    )
-                  }
-                >
-                  {opened.versions.map((version) => (
-                    <option key={version.contentHash} value={version.contentHash}>
-                      v{version.version}
-                      {version.isCurrent ? ' current' : ''} - {version.contentHash.slice(0, 8)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                onClick={() =>
-                  void rpcResult('artifact.reveal', {
-                    taskId: task.id,
-                    path: opened.artifact.path,
-                    action: 'reveal',
-                  })
-                }
-              >
-                Reveal
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  void rpcResult('artifact.reveal', {
-                    taskId: task.id,
-                    path: opened.artifact.path,
-                    action: 'open',
-                  })
-                }
-              >
-                Open externally
-              </button>
+              <div className="artifact-toolbar-actions">
+                <label className="artifact-version-control">
+                  <span>Version</span>
+                  <select
+                    value={opened.requestedHash}
+                    onChange={(event) =>
+                      setSelectedHash(
+                        event.target.value === opened.artifact.contentHash
+                          ? null
+                          : event.target.value,
+                      )
+                    }
+                  >
+                    {opened.versions.map((version) => (
+                      <option key={version.contentHash} value={version.contentHash}>
+                        v{version.version}
+                        {version.isCurrent ? ' · Current' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button type="button" onClick={() => void revealArtifact('open')}>
+                  Open
+                </button>
+                <details className="artifact-overflow">
+                  <summary aria-label="More artifact actions" title="More artifact actions">
+                    •••
+                  </summary>
+                  <div>
+                    <button type="button" onClick={() => void revealArtifact('reveal')}>
+                      Reveal in folder
+                    </button>
+                    <span title={opened.requestedHash}>
+                      Version hash {opened.requestedHash.slice(0, 12)}
+                    </span>
+                  </div>
+                </details>
+              </div>
             </header>
             {opened.stale ? (
               <div className="artifact-stale" data-testid="artifact-stale">
@@ -943,6 +1077,32 @@ export function SessionArtifactView({
                 </button>
               </div>
             ) : null}
+            {opened.artifact.kind === 'pdf' ? (
+              <section
+                className={`artifact-health-strip ${opened.diagnostics.length > 0 ? 'warning' : 'ok'}`}
+                data-testid="artifact-document-health"
+              >
+                <header>
+                  <span>Document health</span>
+                  <strong>
+                    {opened.diagnostics.length > 0 ? 'Needs source fix' : 'Loaded faithfully'}
+                  </strong>
+                </header>
+                {opened.diagnostics.map((diagnostic) => (
+                  <div key={diagnostic.code} className="artifact-health-message">
+                    <span>
+                      <strong>{diagnostic.title}</strong>
+                      <small>{diagnostic.message}</small>
+                    </span>
+                    {diagnostic.repairHint ? (
+                      <button type="button" onClick={() => setNote(diagnostic.repairHint ?? '')}>
+                        Use repair request
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </section>
+            ) : null}
             <div className="artifact-preview-surface">
               <ArtifactBody
                 opened={opened}
@@ -950,70 +1110,59 @@ export function SessionArtifactView({
                 onHtmlMode={setHtmlMode}
                 busy={loading}
                 anchor={anchor}
-                onAnchor={setAnchor}
+                onAnchor={selectAnchor}
               />
             </div>
-            <footer className="artifact-feedback">
-              <div className="artifact-review-heading">
-                <span>REVIEW INSPECTOR</span>
-                <small>Select a range to attach it directly. A note is optional.</small>
-              </div>
-              {opened.artifact.kind === 'pdf' ? (
-                <section className="artifact-health" data-testid="artifact-document-health">
-                  <header>
-                    <span>DOCUMENT HEALTH</span>
-                    <strong className={opened.diagnostics.length > 0 ? 'warning' : 'ok'}>
-                      {opened.diagnostics.length > 0 ? 'Needs source fix' : 'Loaded faithfully'}
-                    </strong>
-                  </header>
-                  {opened.diagnostics.length > 0 ? (
-                    opened.diagnostics.map((diagnostic) => (
-                      <div
-                        key={diagnostic.code}
-                        className={`artifact-diagnostic ${diagnostic.level}`}
-                      >
-                        <strong>{diagnostic.title}</strong>
-                        <p>{diagnostic.message}</p>
-                        {diagnostic.repairHint ? (
-                          <button
-                            type="button"
-                            onClick={() => setNote(diagnostic.repairHint ?? '')}
-                          >
-                            Use repair request
-                          </button>
-                        ) : null}
-                      </div>
-                    ))
-                  ) : (
-                    <p>
-                      PDF.js is rendering the glyphs exactly as stored in this version. It does not
-                      rewrite or silently replace the source PDF.
-                    </p>
-                  )}
-                </section>
-              ) : null}
+            <footer
+              className={`artifact-context-bar ${submission.status}`}
+              data-testid="artifact-context-bar"
+              aria-busy={submission.status === 'submitting'}
+            >
               <div className="artifact-anchor-summary">
-                <span>ANCHOR</span>
+                <span>{anchor.type === 'whole' ? 'WHOLE ARTIFACT' : 'SELECTION'}</span>
                 <strong>{anchorLabel(anchor)}</strong>
                 <small>
-                  {opened.requestedHash.slice(0, 12)}
-                  {opened.stale ? ' / stale version' : ' / current version'}
+                  {opened.stale ? 'Older immutable version' : 'Current version'} ·{' '}
+                  {targetLabel(task)}
                 </small>
+                {anchor.type !== 'whole' ? (
+                  <button
+                    type="button"
+                    data-testid="artifact-selection-clear"
+                    onClick={() => selectAnchor(EMPTY_ANCHOR)}
+                  >
+                    Clear
+                  </button>
+                ) : null}
               </div>
-              <textarea
-                value={note}
-                data-testid="artifact-feedback-note"
-                placeholder="Optional: describe what should change at this exact location..."
-                onChange={(event) => setNote(event.target.value)}
-              />
+              <div className="artifact-context-compose">
+                <textarea
+                  rows={1}
+                  value={note}
+                  data-testid="artifact-feedback-note"
+                  placeholder="Describe what should change (optional)"
+                  onChange={(event) => setNote(event.target.value)}
+                />
+                <span
+                  className={`artifact-submit-status ${submission.status}`}
+                  data-testid="artifact-submit-status"
+                  role="status"
+                  aria-live="polite"
+                >
+                  {submission.message || 'Selection and note become structured agent context.'}
+                </span>
+              </div>
               <button
                 type="button"
                 data-testid="artifact-feedback-add"
+                disabled={submission.status === 'submitting'}
                 onClick={() => void addFeedback()}
               >
-                {task.external
-                  ? `Insert ${anchor.type === 'whole' ? 'artifact' : 'selection'} into ${task.external.cli}`
-                  : `Add ${anchor.type === 'whole' ? 'artifact' : 'selection'} to context`}
+                {submission.status === 'submitting'
+                  ? 'Sending...'
+                  : task.external
+                    ? `Send ${anchor.type === 'whole' ? 'artifact' : 'selection'} to ${targetLabel(task)}`
+                    : `Attach ${anchor.type === 'whole' ? 'artifact' : 'selection'}`}
               </button>
             </footer>
           </>

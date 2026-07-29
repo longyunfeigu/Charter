@@ -3,13 +3,13 @@ import { useAppStore } from '../store/appStore.js';
 
 const MIN_MAIN = 380;
 const MIN_TOOLS = 360;
-const DEFAULT_PCT = 56;
-const EXPANDED_PCT = 38;
+const DEFAULT_PCT = 65;
+const EXPANDED_PCT = 42;
 
 /**
  * The conversation/tool boundary as a real grip (design mock A,
  * docs/design/session-split-mockups/a-free-drag.html): drag to any ratio,
- * double-click to reset 56/44, ←/→ nudge 2%, ratio remembered per Session.
+ * double-click to reset 65/35, ←/→ nudge 2%, ratio remembered per Session.
  * Per-frame drag updates write the `--session-split` var straight into the
  * container so they never fight React renders of the busy room around it;
  * the committed value lives in the app store (and localStorage).

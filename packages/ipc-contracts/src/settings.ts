@@ -8,6 +8,8 @@ export const ThemeSchema = z.enum(['light', 'dark', 'system']);
 export const SkinSchema = z.enum(['studio', 'terminal', 'archive', 'index']);
 export const DEFAULT_EDITOR_FONT_FAMILY =
   "Menlo, Monaco, 'SF Mono', Consolas, 'Courier New', monospace";
+export const DEFAULT_TERMINAL_FONT_FAMILY =
+  "'SF Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace";
 
 export const SettingsSchema = z.object({
   schemaVersion: z.number().int().default(SETTINGS_SCHEMA_VERSION),
@@ -39,7 +41,15 @@ export const SettingsSchema = z.object({
     .prefault({}),
   terminal: z
     .object({
-      fontSize: z.number().min(8).max(32).default(12),
+      fontSize: z.number().min(8).max(32).default(14),
+      fontFamily: z.string().min(1).default(DEFAULT_TERMINAL_FONT_FAMILY),
+      fontWeight: z.number().int().min(100).max(900).default(500),
+      lineHeight: z.number().min(1).max(2).default(1),
+      paddingX: z.number().int().min(0).max(32).default(4),
+      paddingY: z.number().int().min(0).max(32).default(4),
+      /** Orca uses WCAG-corrected Tango Light/Ghostty Dark palettes. Skin
+       * retains Charter's coordinated legacy terminal palettes. */
+      colorTheme: z.enum(['orca', 'skin']).default('orca'),
       shellPath: z.string().nullable().default(null),
       scrollback: z.number().int().min(100).max(200000).default(5000),
       /** Prefer the WebGL renderer, but always fall back to xterm's software

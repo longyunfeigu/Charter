@@ -504,6 +504,9 @@ function terminalControlIdentitySecret(runtimeDir: string): Buffer {
 // Development launches inherit the workspace package name (`pi-ide`). Set the
 // product identity before Electron derives native macOS menu labels from it.
 app.setName('Charter');
+// The terminal service runs in both Electron Main and the detached daemon.
+// Publish one stable version value before either side creates a child PTY.
+process.env.CHARTER_APP_VERSION = app.getVersion();
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {

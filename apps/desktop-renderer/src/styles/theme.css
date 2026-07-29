@@ -54,11 +54,24 @@
 }
 
 :root {
+  --font-shell:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
   --titlebar-height: 38px;
   --statusbar-height: 24px;
-  --activitybar-width: 48px;
-  /* Conversation roles are semantic across every skin. The user speaks in
-     the skin accent; the agent answer belongs to the reading surface. */
+  --activitybar-width: 40px;
+  --rail-width: 280px;
+  --rail-compact-width: 40px;
+  --session-header-height: 58px;
+  --control-height-sm: 28px;
+  --control-height-md: 34px;
+  --row-height: 32px;
+  --space-panel: 12px;
+  --space-content: 24px;
+  --radius-control: 8px;
+  --radius-surface: 12px;
+  /* Conversation roles are semantic across every skin. The user surface takes
+     a quiet tint from the skin accent; the agent answer belongs to the page. */
   --message-user-bg: var(--accent);
   --message-user-fg: var(--accent-fg);
   --message-user-border: color-mix(in srgb, var(--accent) 82%, var(--fg));

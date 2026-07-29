@@ -45,7 +45,7 @@ export interface SessionFileStat {
 const SESSION_TABS: Array<{ id: SessionTool; label: string; icon: string }> = [
   { id: 'file', label: 'File', icon: 'file' },
   { id: 'diff', label: 'Diff', icon: 'file' },
-  { id: 'preview', label: 'Preview', icon: 'eye' },
+  { id: 'preview', label: 'Output', icon: 'eye' },
   { id: 'terminal', label: 'Terminal', icon: 'terminal' },
   { id: 'review', label: 'Review', icon: 'check' },
 ];
@@ -65,7 +65,9 @@ export function SessionToolCanvas(props: {
   const { task, files, fileStats, verifications } = props;
   const app = useAppStore();
   const tool = useAppStore((state) => state.sessionTool);
+  const open = useAppStore((state) => state.sessionToolsOpen);
   const expanded = useAppStore((state) => state.sessionToolExpanded);
+  const tablistRef = useRef<HTMLDivElement>(null);
   const running = RUNNING_TASK_STATES.has(task.state);
   const toolTabs =
     running || files.length === 0 || isAnswered(task) || task.state === 'ROLLED_BACK'
@@ -80,6 +82,7 @@ export function SessionToolCanvas(props: {
       // A zero-change answer has nothing to inspect. Keep the Session summary
       // and its Done action in focus instead of presenting a 0-file review.
       current.setSessionTool('summary');
+      current.setSessionToolsOpen(false);
     } else if (
       (task.state === 'ROLLED_BACK' || task.state === 'IDLE') &&
       current.sessionTool === 'review'
@@ -88,10 +91,39 @@ export function SessionToolCanvas(props: {
       // the timeline record stays, and the rail turn list reopens Review on
       // demand for any still-pending turn.
       current.setSessionTool('summary');
+      current.setSessionToolsOpen(false);
     }
   }, [task.state, task.id, files.length]);
 
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      tablistRef.current
+        ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, tool]);
+
   const chooseTool = (next: SessionTool): void => {
+    if (next === 'diff' && task.external?.status === 'active' && task.external.snapshotRef) {
+      app.setSessionTool('diff');
+      void rpcResult('external.reconcileSession', { taskId: task.id }).then(async (result) => {
+        if (!result.ok) {
+          app.pushToast('error', result.error.userMessage);
+          return;
+        }
+        const external = useExternalStore.getState();
+        useExternalStore.setState({
+          sessions: {
+            ...external.sessions,
+            [task.id]: result.data.session,
+          },
+        });
+        await useTaskStore.getState().refreshChangeSet();
+      });
+      return;
+    }
     if (next === 'file' && files.length > 0) {
       const active = app.peek?.taskId === task.id ? app.peek.active : files[0]!;
       app.openPeek(task.id, active, 'file');
@@ -106,14 +138,21 @@ export function SessionToolCanvas(props: {
 
   return (
     <aside
-      className={`session-tool-canvas ${expanded ? 'expanded' : ''}`}
+      className={`session-tool-canvas ${open ? 'open' : 'closed'} ${expanded ? 'expanded' : ''}`}
       data-testid="session-tool-canvas"
       data-task-id={task.id}
       data-active-tool={tool}
+      data-open={open ? 'true' : 'false'}
+      aria-hidden={!open}
       aria-label="Session tools"
     >
       <header className="session-tool-tabs">
-        <div className="session-tool-tablist" role="tablist" aria-label="Session tools">
+        <div
+          ref={tablistRef}
+          className="session-tool-tablist"
+          role="tablist"
+          aria-label="Session tools"
+        >
           {toolTabs.map((item) => {
             const active = item.id === tool;
             return (
@@ -126,7 +165,10 @@ export function SessionToolCanvas(props: {
                 title={item.label}
                 className={active ? 'active' : ''}
                 data-testid={`session-tool-${item.id}`}
-                disabled={(item.id === 'diff' || item.id === 'file') && files.length === 0}
+                disabled={
+                  (item.id === 'file' && files.length === 0) ||
+                  (item.id === 'diff' && files.length === 0 && !task.external?.snapshotRef)
+                }
                 onClick={() => chooseTool(item.id)}
               >
                 <Ic name={item.icon} size={13} />
@@ -138,20 +180,30 @@ export function SessionToolCanvas(props: {
         </div>
         <button
           type="button"
+          className="session-tool-close"
+          data-testid="session-tool-close"
+          title="Back to conversation"
+          onClick={() => app.setSessionToolsOpen(false)}
+        >
+          <Ic name="x" size={13} />
+          <span>Conversation</span>
+        </button>
+        <button
+          type="button"
           className="session-tool-expand"
           data-testid="session-tool-expand"
           aria-pressed={expanded}
           title={
             tool === 'preview'
               ? expanded
-                ? 'Return to the conversation and Quick Preview'
-                : 'Open Preview as a full Session workspace'
+                ? 'Return to the conversation and compact Output'
+                : 'Open Output as a full Session workspace'
               : expanded
                 ? 'Restore balanced Session view'
                 : 'Give the tool canvas more room'
           }
           onClick={() => {
-            // Preview Focus temporarily covers the split, so the user's exact
+            // Output Focus temporarily covers the split, so the user's exact
             // conversation ratio can return unchanged with Back to Session.
             if (tool !== 'preview') app.setSessionSplit(task.id, null);
             app.setSessionToolExpanded(!expanded);
@@ -219,8 +271,6 @@ export function SessionToolCanvas(props: {
           />
         )}
       </div>
-
-      <SessionActionDock task={task} files={files} verifications={verifications} />
     </aside>
   );
 }
@@ -1105,7 +1155,7 @@ function VerificationSection(props: {
   );
 }
 
-function SessionActionDock({
+export function SessionActionDock({
   task,
   files,
   verifications,
@@ -1171,21 +1221,29 @@ function SessionActionDock({
   }, [task.changedFiles, task.external, task.id, task.state]);
 
   if (task.state === 'REVIEW_READY' && !answered) {
+    const evidenceRiskCopy = executionFailed
+      ? 'Latest request failed · accepting keeps the existing changes without the requested fix'
+      : failedChecks.length > 0
+        ? `${failedChecks.length} check${failedChecks.length === 1 ? '' : 's'} failed · accepting keeps an unverified result`
+        : missingChecks.length > 0
+          ? `${missingChecks.length} configured check${missingChecks.length === 1 ? ' has' : 's have'} not run · accepting requires confirmation`
+          : 'No verification has run · accepting requires confirmation';
     return (
       <footer className="session-action-dock review-decision" data-testid="session-action-dock">
-        {hasEvidenceRisk ? (
-          <span className="session-review-failure" data-testid="review-failed-checks-warning">
-            <Ic name="alert" size={14} />{' '}
-            {executionFailed
-              ? 'Latest request failed · accepting keeps the existing changes without the requested fix'
-              : failedChecks.length > 0
-                ? `${failedChecks.length} check${failedChecks.length === 1 ? '' : 's'} failed · accepting keeps an unverified result`
-                : missingChecks.length > 0
-                  ? `${missingChecks.length} configured check${missingChecks.length === 1 ? ' has' : 's have'} not run · accepting requires confirmation`
-                  : 'No verification has run · accepting requires confirmation'}
-          </span>
-        ) : null}
-        <span className="session-action-note">
+        <span
+          className={`session-action-note ${hasEvidenceRisk ? 'has-risk' : ''}`}
+          {...(hasEvidenceRisk ? { 'data-testid': 'review-failed-checks-warning' } : {})}
+        >
+          {hasEvidenceRisk ? (
+            <>
+              <span className="session-action-risk">
+                <Ic name="alert" size={13} /> {evidenceRiskCopy}
+              </span>
+              <span className="session-action-separator" aria-hidden="true">
+                ·
+              </span>
+            </>
+          ) : null}
           Keeps reviewed files in your workspace · does not create a Git commit
         </span>
         {task.external && externalResumable ? (
@@ -1207,6 +1265,7 @@ function SessionActionDock({
             data-testid="session-request-changes"
             onClick={() => {
               app.setSessionTool('summary');
+              app.setSessionToolsOpen(false);
               app.focusComposer();
             }}
           >

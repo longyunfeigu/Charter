@@ -46,10 +46,13 @@ test('shell v4 visual walk', async () => {
     await page.getByTestId('home-mode-auto').click();
     await page.getByTestId('home-intent').fill('[scenario:edit-live] Live board demo task');
     await page.getByTestId('home-submit').click();
+    await expect(page.getByTestId('session-tools-open')).toBeVisible({ timeout: 25000 });
+    await page.screenshot({ path: `${OUT}/v4-5-room-live.png` });
+    await page.getByTestId('session-tools-open').click();
     await expect(page.getByTestId('task-room-file-notes-live-a.txt')).toBeVisible({
       timeout: 25000,
     });
-    await page.screenshot({ path: `${OUT}/v4-5-room-live.png` });
+    await page.screenshot({ path: `${OUT}/v4-5-room-live-tools.png` });
 
     // Launcher fleet view while running + a review-ready card.
     await page.getByTestId('task-room-back').click();

@@ -824,7 +824,10 @@ export function SettingsView(): React.JSX.Element {
                 <option value="dark">Dark</option>
               </select>
             </Row>
-            <Row label="UI zoom" hint="Whole window, editor and terminal included · ⌘+ / ⌘− / ⌘0">
+            <Row
+              label="UI zoom"
+              hint="Whole window outside a focused terminal · terminal focus uses independent font zoom"
+            >
               <div
                 className="st-zoom-seg"
                 role="radiogroup"
@@ -974,12 +977,83 @@ export function SettingsView(): React.JSX.Element {
             <Row label="Font size">
               <input
                 className="st-input"
+                data-testid="settings-terminal-font-size"
                 type="number"
                 min={8}
                 max={32}
                 value={settings.terminal.fontSize}
                 onChange={(e) => set({ terminal: { fontSize: Number(e.target.value) } })}
               />
+            </Row>
+            <Row label="Font family" hint="A CSS font-family list; SF Mono is the default">
+              <input
+                className="st-input wide mono"
+                data-testid="settings-terminal-font-family"
+                value={settings.terminal.fontFamily}
+                onChange={(e) => set({ terminal: { fontFamily: e.target.value } })}
+              />
+            </Row>
+            <Row label="Font weight" hint="Bold is at least 700 and 200 above normal">
+              <select
+                className="st-input"
+                data-testid="settings-terminal-font-weight"
+                value={settings.terminal.fontWeight}
+                onChange={(e) => set({ terminal: { fontWeight: Number(e.target.value) } })}
+              >
+                {[100, 200, 300, 400, 500, 600, 700, 800, 900].map((weight) => (
+                  <option key={weight} value={weight}>
+                    {weight}
+                  </option>
+                ))}
+              </select>
+            </Row>
+            <Row label="Line height">
+              <input
+                className="st-input"
+                data-testid="settings-terminal-line-height"
+                type="number"
+                min={1}
+                max={2}
+                step={0.05}
+                value={settings.terminal.lineHeight}
+                onChange={(e) => set({ terminal: { lineHeight: Number(e.target.value) } })}
+              />
+            </Row>
+            <Row label="Horizontal padding" hint="Pixels on the left and right of every terminal">
+              <input
+                className="st-input"
+                data-testid="settings-terminal-padding-x"
+                type="number"
+                min={0}
+                max={32}
+                value={settings.terminal.paddingX}
+                onChange={(e) => set({ terminal: { paddingX: Number(e.target.value) } })}
+              />
+            </Row>
+            <Row label="Vertical padding" hint="Pixels above and below every terminal">
+              <input
+                className="st-input"
+                data-testid="settings-terminal-padding-y"
+                type="number"
+                min={0}
+                max={32}
+                value={settings.terminal.paddingY}
+                onChange={(e) => set({ terminal: { paddingY: Number(e.target.value) } })}
+              />
+            </Row>
+            <Row
+              label="Terminal colors"
+              hint="Orca uses Tango Light and Ghostty Dark with contrast correction"
+            >
+              <select
+                className="st-input wide"
+                data-testid="settings-terminal-color-theme"
+                value={settings.terminal.colorTheme}
+                onChange={(e) => set({ terminal: { colorTheme: e.target.value } })}
+              >
+                <option value="orca">Orca · Tango Light / Ghostty Dark</option>
+                <option value="skin">Match Charter skin</option>
+              </select>
             </Row>
             <Row label="Shell path" hint="Empty = system default shell">
               <input

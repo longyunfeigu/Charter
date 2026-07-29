@@ -34,15 +34,16 @@
   -webkit-app-region: drag;
 }
 .tb-chip {
+  min-height: var(--control-height-sm);
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 11px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
+  padding: 0 8px;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
   background: transparent;
   color: var(--fg-muted);
-  font-size: 12px;
+  font: 11px var(--font-shell);
   max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -50,6 +51,7 @@
   cursor: pointer;
 }
 .tb-chip:hover {
+  border-color: var(--border-soft);
   background: var(--bg-hover);
 }
 .tb-quick-console {
@@ -571,7 +573,7 @@ html.xp-resizing * {
 .terminal-host {
   flex: 1;
   min-height: 0;
-  padding: 2px 4px;
+  padding: 4px;
   overflow: hidden;
   background: var(--bg-card);
 }

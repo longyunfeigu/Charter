@@ -17,6 +17,7 @@ export interface TileStat {
   /** 6 × 10s rhythm buckets, oldest → newest, normalized 0..1. */
   rhythm: number[];
   lastWriteAt: number;
+  provenance: 'agent' | 'observed';
 }
 
 export const HEAT_WINDOW_MS = 60_000;
@@ -57,18 +58,23 @@ export function rhythmOf(writes: number[], now: number): number[] {
 
 /** Per-file tile stats for one task, hottest/most recent first. */
 export function tilesForTask(pulses: ActivityPulse[], taskId: string, now: number): TileStat[] {
-  const byPath = new Map<string, number[]>();
+  const byPath = new Map<string, { writes: number[]; provenance: 'agent' | 'observed' }>();
   for (const pulse of pulses) {
     if (pulse.taskId !== taskId) continue;
     if (now - pulse.at > HEAT_WINDOW_MS) continue;
     for (const path of pulse.paths) {
-      const list = byPath.get(path) ?? [];
-      list.push(pulse.at);
-      byPath.set(path, list);
+      const entry = byPath.get(path) ?? {
+        writes: [],
+        provenance: pulse.provenance,
+      };
+      entry.writes.push(pulse.at);
+      if (pulse.provenance === 'agent') entry.provenance = 'agent';
+      byPath.set(path, entry);
     }
   }
   const tiles: TileStat[] = [];
-  for (const [path, writes] of byPath) {
+  for (const [path, entry] of byPath) {
+    const { writes, provenance } = entry;
     writes.sort((a, b) => a - b);
     const lastWriteAt = writes[writes.length - 1] ?? 0;
     tiles.push({
@@ -78,6 +84,7 @@ export function tilesForTask(pulses: ActivityPulse[], taskId: string, now: numbe
       writing: now - lastWriteAt <= WRITING_MS,
       rhythm: rhythmOf(writes, now),
       lastWriteAt,
+      provenance,
     });
   }
   tiles.sort((a, b) => b.lastWriteAt - a.lastWriteAt);

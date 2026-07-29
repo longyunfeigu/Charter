@@ -84,13 +84,23 @@ test.describe('Unified Session Canvas', () => {
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
       await expect(page.getByTestId('session-tool-canvas')).toBeVisible();
       const toolCanvas = page.getByTestId('session-tool-canvas');
-      for (const name of ['File', 'Diff', 'Preview', 'Terminal', 'Review']) {
+      for (const name of ['File', 'Diff', 'Output', 'Terminal', 'Review']) {
         await expect(toolCanvas.getByRole('tab', { name, exact: true })).toBeAttached();
       }
       await expect(page.getByTestId('session-tool-review')).toHaveAttribute(
         'aria-selected',
         'true',
       );
+      await expect(page.getByTestId('session-tools-back')).toContainText('Conversation');
+      await expect
+        .poll(() =>
+          page.getByTestId('session-tool-review').evaluate((tab) => {
+            const list = tab.parentElement?.getBoundingClientRect();
+            const box = tab.getBoundingClientRect();
+            return Boolean(list && box.left >= list.left - 1 && box.right <= list.right + 1);
+          }),
+        )
+        .toBe(true);
       await expect(page.getByTestId('review-bar')).toBeVisible();
       await expect(page.getByTestId('session-action-dock')).toBeVisible();
       await expect(page.getByTestId('agent-panel')).toHaveCount(0);
@@ -124,23 +134,22 @@ test.describe('Unified Session Canvas', () => {
         .getByTestId('session-tool-canvas')
         .screenshot({ path: `${OUT}/diff-panel-1440.png` });
 
-      // At 900px, the tool canvas reorders below the collaboration ledger.
+      // At 900px, Tools owns the canvas instead of stacking under a cramped
+      // conversation pane.
       await page.setViewportSize({ width: 900, height: 900 });
       await expect(page.getByTestId('task-room')).toBeVisible();
+      await expect(page.locator('.session-canvas-body > .tr-main')).toBeHidden();
+      await expect(page.getByTestId('session-tool-canvas')).toBeVisible();
+      await expect(page.getByTestId('session-tool-close')).toContainText('Conversation');
       const narrowLayout = await page.evaluate(() => {
         const body = document.querySelector('.session-canvas-body')?.getBoundingClientRect();
-        const main = document
-          .querySelector('.session-canvas-body > .tr-main')
-          ?.getBoundingClientRect();
         const tools = document.querySelector('.session-tool-canvas')?.getBoundingClientRect();
         return {
           body: body ? { width: body.width, left: body.left, right: body.right } : null,
-          main: main ? { width: main.width, left: main.left, right: main.right } : null,
           tools: tools ? { width: tools.width, left: tools.left, right: tools.right } : null,
         };
       });
       expect(narrowLayout.body).not.toBeNull();
-      expect(narrowLayout.main?.width).toBeCloseTo(narrowLayout.body!.width, 0);
       expect(narrowLayout.tools?.width).toBeCloseTo(narrowLayout.body!.width, 0);
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - window.innerWidth,
@@ -149,12 +158,25 @@ test.describe('Unified Session Canvas', () => {
       await settleLayout(page);
       await page.screenshot({ path: `${OUT}/diff-zoom-900.png` });
 
+      await page.getByTestId('session-tool-close').click();
+      await expect(page.locator('.session-canvas-body > .tr-main')).toBeVisible();
+      await expect(page.getByTestId('session-tool-canvas')).toBeHidden();
+      await expect(page.getByTestId('session-tools-open')).toBeVisible();
+      await page.screenshot({ path: `${OUT}/conversation-900.png` });
+      await page.getByTestId('session-tools-open').click();
+      await expect(page.getByTestId('session-tool-review')).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+
       // The single Action Dock owns the decision; accepting does not switch shells.
       await page.getByTestId('review-bar-accept').click();
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 15000,
       });
-      await expect(page.getByTestId('task-room-accepted')).toBeVisible();
+      await expect(page.getByTestId('session-tool-canvas')).toBeHidden();
+      await expect(page.getByTestId('session-tools-open')).toBeVisible();
+      await expect(page.getByTestId('task-room-accepted')).toBeHidden();
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
 
       expect(errors).toEqual([]);
@@ -200,17 +222,17 @@ test.describe('Unified Session Canvas', () => {
       await expect(handle).toBeVisible();
       const before = await mainWidth();
 
-      // Drag the boundary 160px right: the conversation widens live with the
+      // Drag the boundary 160px left: the conversation narrows live with the
       // readout chip visible, and the ratio is persisted for this Session.
       const box = (await handle.boundingBox())!;
       const dragY = box.y + box.height / 2;
       await page.mouse.move(box.x + box.width / 2, dragY);
       await page.mouse.down();
       await expect(page.getByTestId('session-split-chip')).toBeVisible();
-      await page.mouse.move(box.x + box.width / 2 + 160, dragY, { steps: 8 });
+      await page.mouse.move(box.x + box.width / 2 - 160, dragY, { steps: 8 });
       await page.mouse.up();
       const dragged = await mainWidth();
-      expect(dragged - before).toBeGreaterThan(100);
+      expect(before - dragged).toBeGreaterThan(100);
       expect(
         await page.evaluate(() =>
           Object.keys(window.localStorage).some((key) => key.startsWith('charter.sessionSplit.')),
@@ -232,12 +254,12 @@ test.describe('Unified Session Canvas', () => {
       expect(Math.abs((await mainWidth()) - dragged)).toBeLessThan(8);
 
       // The Expand button is an explicit stop jump: it clears the manual ratio
-      // and lands on the expanded 38/62 stop.
+      // and lands on the expanded 42/58 stop.
       await page.getByTestId('session-tool-expand').click();
       await settleLayout(page);
       expect(before - (await mainWidth())).toBeGreaterThan(100);
 
-      // Double-click resets to the balanced 56/44 default.
+      // Double-click resets to the conversation-first 65/35 default.
       await handle.dblclick();
       await settleLayout(page);
       expect(Math.abs((await mainWidth()) - before)).toBeLessThan(10);

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { launchApp } from './helpers/launch';
@@ -8,6 +8,12 @@ import {
   typeTerminalCommand,
   waitForTerminalOutput,
 } from './helpers/terminal';
+
+async function pressZoomShortcut(page: Page, direction: 'in' | 'out' | 'reset'): Promise<void> {
+  const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+  const key = direction === 'in' ? 'Shift+Equal' : direction === 'out' ? 'Minus' : 'Digit0';
+  await page.keyboard.press(`${mod}+${key}`);
+}
 
 test.describe('terminal renderer and character widths', () => {
   test('WebGL degrades safely and compatibility settings apply to real xterm instances', async () => {
@@ -19,6 +25,21 @@ test.describe('terminal renderer and character widths', () => {
     page.on('pageerror', (error) => pageErrors.push(error.message));
 
     try {
+      await page.evaluate(async () => {
+        await window.product.rpc['settings.update']!({
+          scope: 'global',
+          patch: { general: { theme: 'light' } },
+        });
+      });
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+      await expect
+        .poll(() =>
+          app.evaluate(({ BrowserWindow }) =>
+            Math.round(BrowserWindow.getAllWindows()[0]!.webContents.getZoomFactor() * 100),
+          ),
+        )
+        .toBe(100);
+
       await page.keyboard.press('Control+`');
       const first = page.getByTestId('terminal-host').locator('.xterm');
       await expect(first).toBeVisible({ timeout: 15000 });
@@ -26,23 +47,88 @@ test.describe('terminal renderer and character widths', () => {
       await expect(page.locator('.tsb-context').first()).toContainText('context cwd');
       await expect(first).toHaveAttribute('data-terminal-unicode', '11');
       await expect(first).toHaveAttribute('data-terminal-renderer', /^(webgl|software)$/);
+      await expect(first).toHaveAttribute('data-terminal-font-size', '14');
+      await expect(first).toHaveAttribute('data-terminal-font-weight', '500');
+      await expect(first).toHaveAttribute('data-terminal-font-weight-bold', '700');
+      await expect(first).toHaveAttribute('data-terminal-line-height', '1');
+      await expect(first).toHaveAttribute('data-terminal-min-contrast', '4.5');
+      await expect(page.getByTestId('terminal-host')).toHaveAttribute(
+        'data-terminal-padding',
+        '4x4',
+      );
+      expect(
+        await page.getByTestId('terminal-host').evaluate((host) => {
+          const style = getComputedStyle(host);
+          return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft];
+        }),
+      ).toEqual(['4px', '4px', '4px', '4px']);
+      const originalTerminalId = (await terminalPtySnapshot(page)).items[0]!.id;
 
       await page.getByTestId('home-settings').click();
       await page.getByTestId('settings-section-terminal').click();
+      await page.getByTestId('settings-terminal-font-size').fill('16');
+      await page.getByTestId('settings-terminal-font-weight').selectOption('600');
+      await page.getByTestId('settings-terminal-line-height').fill('1.1');
+      await page.getByTestId('settings-terminal-padding-x').fill('6');
+      await page.getByTestId('settings-terminal-padding-y').fill('6');
       await page.getByTestId('settings-terminal-renderer').selectOption('software');
       await page.getByTestId('settings-terminal-unicode').selectOption('6');
+      await expect(first).toHaveAttribute('data-terminal-font-size', '16');
+      await expect(first).toHaveAttribute('data-terminal-font-weight', '600');
+      await expect(first).toHaveAttribute('data-terminal-font-weight-bold', '800');
+      await expect(first).toHaveAttribute('data-terminal-line-height', '1.1');
+      await expect(first).toHaveAttribute('data-terminal-renderer', 'software');
+      await expect(first).toHaveAttribute('data-terminal-unicode', '6');
+      await expect(page.getByTestId('terminal-host')).toHaveAttribute(
+        'data-terminal-padding',
+        '6x6',
+      );
+      expect((await terminalPtySnapshot(page)).items.map((item) => item.id)).toContain(
+        originalTerminalId,
+      );
       await page.keyboard.press('Escape');
 
-      // A fresh terminal picks up both settings; an older terminal will sync on
-      // its next mount as it moves between the dock, room and side tool canvas.
-      await page.getByTestId('terminal-new').click();
+      // Renderer, Unicode and typography all update the existing xterm/PTY.
       const compatible = page.getByTestId('terminal-host').locator('.xterm');
       await expect(compatible).toHaveAttribute('data-terminal-renderer', 'software');
       await expect(compatible).toHaveAttribute('data-terminal-unicode', '6');
       await compatible.click();
+      await pressZoomShortcut(page, 'in');
+      await expect(compatible).toHaveAttribute('data-terminal-font-size', '17');
+      await expect
+        .poll(() =>
+          app.evaluate(({ BrowserWindow }) =>
+            Math.round(BrowserWindow.getAllWindows()[0]!.webContents.getZoomFactor() * 100),
+          ),
+        )
+        .toBe(100);
+      await pressZoomShortcut(page, 'reset');
+      await expect(compatible).toHaveAttribute('data-terminal-font-size', '16');
+
+      // Outside xterm, the same command keeps its whole-window behavior.
+      await page.getByTestId('home-settings').click();
+      await pressZoomShortcut(page, 'in');
+      await expect
+        .poll(() =>
+          app.evaluate(({ BrowserWindow }) =>
+            Math.round(BrowserWindow.getAllWindows()[0]!.webContents.getZoomFactor() * 100),
+          ),
+        )
+        .toBe(110);
+      await pressZoomShortcut(page, 'reset');
+      await expect
+        .poll(() =>
+          app.evaluate(({ BrowserWindow }) =>
+            Math.round(BrowserWindow.getAllWindows()[0]!.webContents.getZoomFactor() * 100),
+          ),
+        )
+        .toBe(100);
+      await page.keyboard.press('Escape');
+
+      await compatible.click();
       await page.keyboard.type("printf '中文%s ABC123\\n' '对齐'");
       await page.keyboard.press('Enter');
-      const terminalId = (await terminalPtySnapshot(page)).items.at(-1)!.id;
+      const terminalId = originalTerminalId;
       await waitForTerminalOutput(page, '中文对齐 ABC123', { terminalId });
 
       // Exercise Electron's native clipboard and xterm paste handler. A
@@ -70,15 +156,22 @@ test.describe('terminal renderer and character widths', () => {
       });
       expect(readFileSync(probePath, 'utf8')).toBe(`${expectedLines.join('\n')}\n`);
 
+      if (process.env.PI_IDE_QA_SCREENSHOT) {
+        await page.screenshot({ path: '/tmp/terminal-rendering-orca-1440x900.png' });
+      }
+
       await app.evaluate(({ BrowserWindow }) => {
         BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 900, height: 900 });
       });
       await expect(compatible).toBeVisible();
+      // Let the responsive rail finish its 170ms compacting transition before
+      // judging or capturing the narrow layout.
+      await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
       await expect(page.locator('vite-error-overlay')).toHaveCount(0);
       expect(pageErrors).toEqual([]);
 
       if (process.env.PI_IDE_QA_SCREENSHOT) {
-        await page.screenshot({ path: '/tmp/terminal-rendering-compat-900x900.png' });
+        await page.screenshot({ path: '/tmp/terminal-rendering-orca-900x900.png' });
       }
     } finally {
       await app.close();

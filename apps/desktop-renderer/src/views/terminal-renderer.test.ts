@@ -4,6 +4,7 @@ import type { Terminal } from '@xterm/xterm';
 const webglHarness = vi.hoisted(() => ({
   instances: [] as Array<{
     dispose: ReturnType<typeof vi.fn>;
+    clearTextureAtlas: ReturnType<typeof vi.fn>;
     loseContext(): void;
   }>,
 }));
@@ -14,6 +15,7 @@ vi.mock('@xterm/addon-webgl', () => ({
   WebglAddon: class {
     private contextLoss: (() => void) | null = null;
     dispose = vi.fn();
+    clearTextureAtlas = vi.fn();
 
     constructor() {
       webglHarness.instances.push(this);
@@ -40,6 +42,8 @@ vi.mock('@xterm/addon-unicode11', () => ({
 
 import {
   installTerminalUnicode,
+  repaintTerminalRenderer,
+  resetTerminalRendererRecovery,
   syncTerminalRenderer,
   syncTerminalUnicode,
 } from './terminal-renderer.js';
@@ -82,6 +86,7 @@ describe('terminal renderer enhancement', () => {
 
     expect(webglHarness.instances).toHaveLength(1);
     expect(term.loadAddon).toHaveBeenCalledTimes(1);
+    expect(term.refresh).toHaveBeenCalledWith(0, 23);
     expect(term.element?.dataset.terminalRenderer).toBe('webgl');
   });
 
@@ -95,7 +100,7 @@ describe('terminal renderer enhancement', () => {
     expect(software.element?.dataset.terminalRenderer).toBe('software');
   });
 
-  it('falls back permanently for the terminal after WebGL context loss', () => {
+  it('falls back after context loss and retries at a recovery boundary', () => {
     const term = fakeTerminal();
     expect(syncTerminalRenderer(term, 'auto')).toBe('webgl');
 
@@ -107,6 +112,21 @@ describe('terminal renderer enhancement', () => {
     expect(term.element?.dataset.terminalRenderer).toBe('software');
     expect(syncTerminalRenderer(term, 'auto')).toBe('software');
     expect(webglHarness.instances).toHaveLength(1);
+
+    resetTerminalRendererRecovery(term);
+    expect(syncTerminalRenderer(term, 'auto')).toBe('webgl');
+    expect(webglHarness.instances).toHaveLength(2);
+  });
+
+  it('clears the WebGL atlas and repaints after remount', () => {
+    const term = fakeTerminal();
+    syncTerminalRenderer(term, 'auto');
+    vi.mocked(term.refresh).mockClear();
+
+    repaintTerminalRenderer(term);
+
+    expect(webglHarness.instances[0]?.clearTextureAtlas).toHaveBeenCalledOnce();
+    expect(term.refresh).toHaveBeenCalledWith(0, 23);
   });
 
   it('falls back when WebGL setup throws', () => {

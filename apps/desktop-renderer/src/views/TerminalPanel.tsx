@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
-import type { RecentWorkspaceDto, SshHostDto } from '@pi-ide/ipc-contracts';
+import {
+  DEFAULT_TERMINAL_FONT_FAMILY,
+  type RecentWorkspaceDto,
+  type Settings,
+  type SshHostDto,
+} from '@pi-ide/ipc-contracts';
 import { Terminal, type IMarker, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -31,9 +36,19 @@ import { TerminalUserInputTracker } from './terminal-input-provenance.js';
 import { TerminalInputWriter } from './terminal-input-writer.js';
 import {
   installTerminalUnicode,
+  repaintTerminalRenderer,
+  resetTerminalRendererRecovery,
   syncTerminalRenderer,
   syncTerminalUnicode,
 } from './terminal-renderer.js';
+import {
+  ORCA_DARK_TERMINAL_THEME,
+  ORCA_LIGHT_TERMINAL_THEME,
+  resolveTerminalFontWeights,
+  resolveTerminalMinimumContrastRatio,
+  terminalThemesEqual,
+} from './terminal-visuals.js';
+import { nextTerminalFontSize, type TerminalZoomDirection } from './terminal-zoom.js';
 import {
   externalAgentLifecycle,
   externalTerminalLifecycle,
@@ -89,6 +104,8 @@ export interface TermInstance {
   restored: boolean;
   /** Daemon sequence covered by pendingReplay; newer live events append after it. */
   replaySequence: number;
+  /** Per-terminal zoom; null follows the live global terminal font setting. */
+  fontSizeOverride: number | null;
 }
 
 interface CreateTerminalRequest {
@@ -135,6 +152,8 @@ interface TerminalStore {
   confirmKill(id: string, confirmed: boolean): Promise<void>;
   rename(id: string, title: string): void;
   clearActive(): void;
+  /** Returns false when focus is outside xterm so the caller can zoom the UI. */
+  zoomFocused(direction: TerminalZoomDirection): boolean;
 }
 
 export interface TerminalAppearance {
@@ -307,6 +326,13 @@ function reportCommandEnd(terminalId: string, block: TermBlock, durationMs: numb
 export function terminalAppearance(): TerminalAppearance {
   const skin = document.documentElement.dataset.skin ?? 'studio';
   const dark = document.documentElement.dataset.theme === 'dark';
+  const terminalSettings = useAppStore.getState().settings?.terminal;
+  if ((terminalSettings?.colorTheme ?? 'orca') === 'orca') {
+    return {
+      fontFamily: terminalSettings?.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY,
+      theme: dark ? ORCA_DARK_TERMINAL_THEME : ORCA_LIGHT_TERMINAL_THEME,
+    };
+  }
   if (skin === 'studio') {
     return {
       fontFamily: "Menlo, Monaco, 'SF Mono', monospace",
@@ -483,7 +509,10 @@ export function terminalAppearance(): TerminalAppearance {
  */
 export function mountTerminal(
   host: HTMLElement,
-  item: Pick<TermInstance, 'id' | 'term' | 'fit' | 'pendingReplay' | 'restoreRepaintPending'>,
+  item: Pick<
+    TermInstance,
+    'id' | 'term' | 'fit' | 'pendingReplay' | 'restoreRepaintPending' | 'fontSizeOverride'
+  >,
   appearance: 'normal' | 'quick' = 'normal',
 ): void {
   applyTerminalAppearance(item, appearance);
@@ -495,9 +524,13 @@ export function mountTerminal(
   } else if (el.parentElement !== host) {
     host.replaceChildren(el);
   }
+  // The first appearance pass configures xterm before open; this one publishes
+  // the same live values and padding onto the newly mounted DOM surface.
+  applyTerminalAppearance(item, appearance);
   const terminalSettings = useAppStore.getState().settings?.terminal;
   syncTerminalUnicode(item.term, terminalSettings?.unicodeVersion ?? '11');
   syncTerminalRenderer(item.term, terminalSettings?.renderer ?? 'auto');
+  repaintTerminalRenderer(item.term);
   wireTerminalUserInput(item.term);
   try {
     item.fit.fit();
@@ -579,12 +612,48 @@ const QUICK_TERMINAL_APPEARANCE: TerminalAppearance = {
 };
 
 export function applyTerminalAppearance(
-  item: Pick<TermInstance, 'term'>,
+  item: Pick<TermInstance, 'term'> & { fontSizeOverride?: number | null },
   mode: 'normal' | 'quick',
 ): void {
   const appearance = mode === 'quick' ? QUICK_TERMINAL_APPEARANCE : terminalAppearance();
-  item.term.options.fontFamily = appearance.fontFamily;
-  item.term.options.theme = appearance.theme;
+  const settings = useAppStore.getState().settings?.terminal;
+  const fontSize = item.fontSizeOverride ?? settings?.fontSize ?? 14;
+  const fontFamily = settings?.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY;
+  const lineHeight = settings?.lineHeight ?? 1;
+  const paddingX = settings?.paddingX ?? 4;
+  const paddingY = settings?.paddingY ?? 4;
+  const { fontWeight, fontWeightBold } = resolveTerminalFontWeights(settings?.fontWeight ?? 500);
+  const appDark = document.documentElement.dataset.theme === 'dark';
+  const minimumContrastRatio = resolveTerminalMinimumContrastRatio(appearance.theme, appDark);
+
+  item.term.options.fontSize = fontSize;
+  item.term.options.fontFamily = fontFamily;
+  item.term.options.fontWeight = fontWeight;
+  item.term.options.fontWeightBold = fontWeightBold;
+  item.term.options.lineHeight = lineHeight;
+  item.term.options.minimumContrastRatio = minimumContrastRatio;
+  if (settings && item.term.options.scrollback !== settings.scrollback) {
+    item.term.options.scrollback = settings.scrollback;
+  }
+  // Avoid resetting xterm's live OSC palette on unrelated settings updates.
+  if (!terminalThemesEqual(item.term.options.theme, appearance.theme)) {
+    item.term.options.theme = appearance.theme;
+  }
+
+  const element = item.term.element;
+  const host = element?.parentElement;
+  if (host) {
+    host.style.padding = `${paddingY}px ${paddingX}px`;
+    host.style.boxSizing = 'border-box';
+    host.dataset.terminalPadding = `${paddingX}x${paddingY}`;
+  }
+  if (element) {
+    element.dataset.terminalFontSize = String(fontSize);
+    element.dataset.terminalFontWeight = String(fontWeight);
+    element.dataset.terminalFontWeightBold = String(fontWeightBold);
+    element.dataset.terminalLineHeight = String(lineHeight);
+    element.dataset.terminalMinContrast = String(minimumContrastRatio);
+  }
 }
 
 /** Selection wins; otherwise capture the most recent visible non-empty output. */
@@ -783,12 +852,18 @@ function wireFileLinks(item: TermInstance): void {
   });
 }
 
-function makeTerm(fontSize: number, scrollback: number): { term: Terminal; fit: FitAddon } {
+function makeTerm(settings: Settings['terminal'] | undefined): { term: Terminal; fit: FitAddon } {
   const appearance = terminalAppearance();
+  const { fontWeight, fontWeightBold } = resolveTerminalFontWeights(settings?.fontWeight ?? 500);
+  const appDark = document.documentElement.dataset.theme === 'dark';
   const term = new Terminal({
-    fontSize,
-    fontFamily: appearance.fontFamily,
-    scrollback,
+    fontSize: settings?.fontSize ?? 14,
+    fontFamily: settings?.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY,
+    fontWeight,
+    fontWeightBold,
+    lineHeight: settings?.lineHeight ?? 1,
+    minimumContrastRatio: resolveTerminalMinimumContrastRatio(appearance.theme, appDark),
+    scrollback: settings?.scrollback ?? 5000,
     cursorBlink: true,
     allowProposedApi: true,
     theme: appearance.theme,
@@ -812,10 +887,7 @@ function createTermInstance(
 ): TermInstance {
   const settings = useAppStore.getState().settings;
   const quick = options.quick ?? false;
-  const { term, fit } = makeTerm(
-    settings?.terminal.fontSize ?? 12,
-    settings?.terminal.scrollback ?? 5000,
-  );
+  const { term, fit } = makeTerm(settings?.terminal);
   const inputTracker = new TerminalUserInputTracker();
   const inputWriter = new TerminalInputWriter(
     async (input) => {
@@ -864,6 +936,7 @@ function createTermInstance(
     restoreRepaintPending: options.outputTail !== undefined,
     restored: options.restored ?? false,
     replaySequence: options.replaySequence ?? 0,
+    fontSizeOverride: null,
   };
   term.onData((data) => {
     if (data === '\r') {
@@ -897,6 +970,18 @@ function agentDisplayName(agent: string): string {
   return agent;
 }
 
+function refitAndRefreshTerminal(item: Pick<TermInstance, 'term' | 'fit'>): void {
+  requestAnimationFrame(() => {
+    if (!item.term.element?.parentElement?.isConnected) return;
+    try {
+      item.fit.fit();
+      repaintTerminalRenderer(item.term);
+    } catch {
+      // Settings and zoom events can race terminal teardown.
+    }
+  });
+}
+
 export const useTerminalStore = create<TerminalStore>((set, get) => ({
   items: [],
   active: null,
@@ -916,6 +1001,25 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     appearanceObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ['data-theme', 'data-skin'],
+    });
+    useAppStore.subscribe((state, previous) => {
+      if (state.settings?.terminal === previous.settings?.terminal) return;
+      const settings = state.settings?.terminal;
+      for (const item of get().items) {
+        applyTerminalAppearance(item, item.quick ? 'quick' : 'normal');
+        syncTerminalUnicode(item.term, settings?.unicodeVersion ?? '11');
+        syncTerminalRenderer(item.term, settings?.renderer ?? 'auto');
+        refitAndRefreshTerminal(item);
+      }
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      const renderer = useAppStore.getState().settings?.terminal.renderer ?? 'auto';
+      for (const item of get().items) {
+        resetTerminalRendererRecovery(item.term);
+        syncTerminalRenderer(item.term, renderer);
+        refitAndRefreshTerminal(item);
+      }
     });
     onEvent('terminal.data', ({ id, data, sequence }) => {
       const item = get().items.find((t) => t.id === id);
@@ -1274,6 +1378,25 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   clearActive() {
     const active = get().items.find((t) => t.id === get().active);
     active?.term.clear();
+  },
+
+  zoomFocused(direction) {
+    const focused = document.activeElement;
+    if (!(focused instanceof HTMLElement)) return false;
+    const item = get().items.find(
+      (candidate) =>
+        focused.classList.contains('xterm-helper-textarea') &&
+        candidate.term.element?.contains(focused),
+    );
+    if (!item) return false;
+
+    const baseSize = useAppStore.getState().settings?.terminal.fontSize ?? 14;
+    const currentSize = item.fontSizeOverride ?? baseSize;
+    const next = nextTerminalFontSize(currentSize, baseSize, direction);
+    item.fontSizeOverride = next.override;
+    applyTerminalAppearance(item, item.quick ? 'quick' : 'normal');
+    refitAndRefreshTerminal(item);
+    return true;
   },
 }));
 

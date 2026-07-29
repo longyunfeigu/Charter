@@ -12,7 +12,12 @@ import type { ActivityPulse } from '../../apps/desktop-renderer/src/store/activi
 const NOW = 1_000_000_000;
 
 function pulses(taskId: string, entries: Array<[string, number]>): ActivityPulse[] {
-  return entries.map(([path, agoMs]) => ({ taskId, paths: [path], at: NOW - agoMs }));
+  return entries.map(([path, agoMs]) => ({
+    taskId,
+    paths: [path],
+    at: NOW - agoMs,
+    provenance: 'agent',
+  }));
 }
 
 describe('live board heat/decay (PIVOT-025)', () => {
@@ -55,5 +60,14 @@ describe('live board heat/decay (PIVOT-025)', () => {
     expect(tiles[0]!.heat).not.toBe('cool');
     expect(tiles[1]!.writing).toBe(false);
     expect(writesPerMinute(all, 't1', NOW)).toBe(3);
+  });
+
+  it('keeps observed external provenance on a file tile', () => {
+    const tiles = tilesForTask(
+      [{ taskId: 't1', paths: ['new.html'], at: NOW - 100, provenance: 'observed' }],
+      't1',
+      NOW,
+    );
+    expect(tiles[0]).toMatchObject({ path: 'new.html', provenance: 'observed', writing: true });
   });
 });

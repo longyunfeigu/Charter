@@ -10,9 +10,9 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-editor);
-  /* Size container for the Session Canvas breakpoints: the stacked layout
-     must react to the width the room ACTUALLY has (window minus rails and
-     sidebars), which a window media query cannot see. */
+  /* Size container for the Session Canvas breakpoints: the single-surface
+     switch reacts to the room width (window minus rails and sidebars), which
+     a window media query cannot see. */
   container: task-room / inline-size;
 }
 
@@ -324,8 +324,8 @@
   display: none;
 }
 
-/* The request is a compact, high-contrast object; the answer stays on the
-   page's reading surface. This hierarchy is shared by all four skins. */
+/* The request stays distinct without competing with the answer's reading
+   surface. This hierarchy is shared by all four skins. */
 .rt-bubble {
   display: flex;
   flex-direction: column;
@@ -355,12 +355,12 @@
   text-align: left;
 }
 .rt-bubble.you .rt-text {
-  border: 1px solid var(--message-user-border);
-  border-radius: 12px 12px 3px 12px;
-  background: var(--message-user-bg);
-  color: var(--message-user-fg);
-  padding: 10px 13px;
-  box-shadow: 0 5px 16px color-mix(in srgb, var(--message-user-bg) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--message-user-bg) 18%, var(--border-soft));
+  border-radius: 9px 9px 3px 9px;
+  background: color-mix(in srgb, var(--message-user-bg) 8%, var(--bg-card));
+  color: var(--fg);
+  padding: 8px 11px;
+  box-shadow: none;
 }
 .rt-bubble.agent .rt-text {
   width: 100%;
@@ -375,7 +375,7 @@
   text-decoration-color: color-mix(in srgb, currentColor 62%, transparent);
 }
 .rt-bubble.you .md-inlinecode {
-  background: var(--message-user-code-bg);
+  background: color-mix(in srgb, var(--message-user-bg) 10%, var(--bg-hover));
   color: inherit;
 }
 /* Serif prose keeps mono chips at worklog scale. */
@@ -659,10 +659,10 @@
    a timeline card — it presents as the review bar (ADR-0016). */
 .rt-plan {
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  box-shadow: var(--shadow-card);
-  padding: 11px 14px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-surface);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--fg) 4%, transparent);
+  padding: 10px 12px 11px;
   margin: 0 0 10px;
 }
 .rt-plan-head {
@@ -999,7 +999,7 @@
   gap: 9px;
   align-items: flex-end;
   justify-content: center;
-  padding: 8px 24px 16px;
+  padding: 7px var(--space-content) 12px;
 }
 /* Reply card: textarea on top, quiet meta + round send in the foot. */
 .tr-ccard {
@@ -1012,9 +1012,9 @@
   max-width: 760px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: var(--shadow-card);
-  padding: 11px 13px 9px;
+  border-radius: var(--radius-surface);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--fg) 5%, transparent);
+  padding: 9px 11px 8px;
   transition:
     border-color 0.15s ease,
     box-shadow 0.2s ease;
@@ -1044,7 +1044,7 @@
 .tr-fcard .hm-card:focus-within {
   border-color: var(--fg-muted);
   box-shadow:
-    var(--shadow-card),
+    0 3px 12px color-mix(in srgb, var(--fg) 5%, transparent),
     0 0 0 3px color-mix(in srgb, var(--fg) 7%, transparent);
 }
 .tr-cfoot {
@@ -1819,7 +1819,7 @@
 .tr-exthost {
   flex: 1;
   min-height: 0;
-  padding: 2px 4px;
+  padding: 4px;
   background: #14120d;
 }
 .tr-extgone {
@@ -2907,7 +2907,7 @@ button.tr-extlive {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  padding: 10px 8px 6px;
+  padding: 4px;
   box-sizing: border-box;
 }
 .orch-native-terminal-host .xterm {

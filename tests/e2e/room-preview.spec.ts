@@ -77,7 +77,7 @@ test.describe('Room live preview (ADR-0022 am.2)', () => {
       await expect(frame).toBeVisible({ timeout: 15000 });
       await expect(frame).toHaveAttribute('src', new RegExp(`localhost:${started.port}`));
       expect((await frame.boundingBox())?.height ?? 0).toBeGreaterThan(80);
-      await expect(page.locator('.session-canvas-body > .tr-main')).toBeVisible();
+      await expect(page.locator('.session-canvas-body > .tr-main')).toBeHidden();
       // Wait for the iframe content to actually commit before picking.
       await expect(page.frameLocator('[data-testid="preview-frame"]').locator('#hint')).toBeVisible(
         { timeout: 15000 },
@@ -88,6 +88,8 @@ test.describe('Room live preview (ADR-0022 am.2)', () => {
       await page.getByTestId('preview-mode-pick').click();
       await expect(page.getByTestId('preview-pick-hint')).toBeVisible({ timeout: 10000 });
       await page.frameLocator('[data-testid="preview-frame"]').locator('#hint').click();
+      await page.getByTestId('session-tool-close').click();
+      await expect(page.locator('.session-canvas-body > .tr-main')).toBeVisible();
       const chip = page.getByTestId('room-preview-ref');
       await expect(chip).toBeVisible({ timeout: 15000 });
       await expect(chip).toContainText('#hint');

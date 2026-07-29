@@ -29,6 +29,7 @@ test.describe('Session artifact platform', () => {
       await page.getByTestId('session-tool-preview').click();
       await expect(page.getByTestId('preview-mode-live')).toHaveAttribute('aria-selected', 'true');
       await page.getByTestId('preview-mode-artifacts').click();
+      await expect(page.getByTestId('task-room-preview-badge')).toContainText('Artifacts 6');
       await expect(page.getByTestId('session-artifact-view')).toBeVisible({ timeout: 15_000 });
       const headerMeta = await page.locator('.session-identity-meta').boundingBox();
       const artifactButton = await page.getByTestId('task-room-preview-badge').boundingBox();
@@ -131,7 +132,7 @@ test.describe('Session artifact platform', () => {
         'focus',
       );
       await expect(page.locator('.session-canvas-body > .tr-main')).toBeHidden();
-      await expect(page.locator('.artifact-review-heading')).toBeVisible();
+      await expect(page.getByTestId('artifact-context-bar')).toBeVisible();
       await expect(page.getByTestId('artifact-feedback-note')).toHaveValue(
         'Review draft survives Preview Focus.',
       );
@@ -217,15 +218,46 @@ test.describe('Session artifact platform', () => {
       });
       await page
         .getByTestId('artifact-html-view')
-        .getByRole('button', { name: 'Interactive' })
+        .getByRole('button', { name: 'Enable interactions' })
         .click();
-      const pickElement = page
-        .getByTestId('artifact-html-view')
-        .getByRole('button', { name: 'Pick element' });
+      await expect(
+        page.getByTestId('artifact-html-view').getByText('Page interactions on'),
+      ).toBeVisible();
+      const pickElement = page.getByTestId('artifact-pick-element');
       await expect(pickElement).toBeEnabled({ timeout: 10_000 });
       await pickElement.click();
+      await expect(page.getByTestId('artifact-html-view')).toHaveAttribute(
+        'data-picker-state',
+        'picking',
+      );
+      await expect(pickElement).toHaveText('Cancel inspect');
+      await expect(pickElement).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('artifact-html-view').getByRole('status')).toContainText(
+        'Click an element in the preview',
+      );
+      await expect
+        .poll(() => htmlFrame.locator('html').evaluate((element) => element.style.cursor))
+        .toBe('crosshair');
+      await pickElement.click();
+      await expect(pickElement).toHaveText('Inspect element');
+      await expect(page.getByTestId('artifact-html-view')).toHaveAttribute(
+        'data-picker-state',
+        'idle',
+      );
+      await expect
+        .poll(() => htmlFrame.locator('html').evaluate((element) => element.style.cursor))
+        .toBe('');
+      await pickElement.click();
+      await expect(page.getByTestId('artifact-html-view')).toHaveAttribute(
+        'data-picker-state',
+        'picking',
+      );
+      await page.screenshot({ path: '/tmp/charter-artifact-inspector-active.png' });
       await htmlFrame.getByRole('heading', { name: 'Revenue pulse' }).click();
+      await expect(pickElement).toHaveText('Inspect element');
+      await expect(pickElement).toHaveAttribute('aria-pressed', 'false');
       await expect(page.locator('.artifact-anchor-summary')).toContainText('DOM');
+      await expect(page.getByTestId('artifact-selection-clear')).toBeVisible();
 
       await page
         .getByTestId('artifact-feedback-note')
@@ -250,11 +282,22 @@ test.describe('Session artifact platform', () => {
       });
       await expect(page.getByTestId('session-artifact-view')).toBeVisible();
       await expect(page.locator('.artifact-nav-list')).toBeVisible();
-      await expect(page.locator('.artifact-review-heading')).toBeVisible();
+      await expect(page.getByTestId('artifact-context-bar')).toBeVisible();
+      const compactContext = await page.getByTestId('artifact-context-bar').boundingBox();
+      const compactPreview = await page.locator('.artifact-preview-surface').boundingBox();
+      expect(compactContext).not.toBeNull();
+      expect(compactPreview).not.toBeNull();
+      expect(compactContext!.height).toBeLessThan(180);
+      expect(compactPreview!.height).toBeGreaterThan(220);
       await page.screenshot({ path: '/tmp/charter-session-artifacts-narrow.png' });
 
       await focusButton.click();
+      await expect(page.locator('.session-canvas-body')).not.toHaveClass(/preview-focused/);
+      await expect(page.getByTestId('session-tool-canvas')).toBeVisible();
+      await expect(page.locator('.session-canvas-body > .tr-main')).toBeHidden();
+      await page.getByTestId('session-tool-close').click();
       await expect(page.locator('.session-canvas-body > .tr-main')).toBeVisible();
+      await expect(page.getByTestId('session-tool-canvas')).toBeHidden();
 
       expect(pageErrors).toEqual([]);
       expect(consoleErrors).toEqual([]);

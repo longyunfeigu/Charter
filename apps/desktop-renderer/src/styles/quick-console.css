@@ -189,7 +189,7 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 9px 12px 4px;
+  padding: 4px;
   background: var(--qc-bg);
 }
 

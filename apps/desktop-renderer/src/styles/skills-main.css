@@ -742,14 +742,6 @@
 }
 
 @media (max-width: 1050px) {
-  .sr-rail.view-skills {
-    width: 44px !important;
-    min-width: 44px !important;
-    grid-template-columns: 44px !important;
-  }
-  .sr-rail.view-skills .sr-panel {
-    display: none;
-  }
   .skills-controls {
     flex-wrap: wrap;
   }

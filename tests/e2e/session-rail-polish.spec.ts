@@ -55,8 +55,10 @@ test.describe('Session rail and conversation role polish', () => {
       await expect(page.getByTestId('rail-session-search')).toBeVisible();
       await expect(page.getByTestId('rail-needs-filter')).toBeVisible();
       await expect(page.getByTestId('rail-view-sessions')).toHaveClass(/active/);
-      await expect(page.locator('.sr-rail')).toHaveCSS('width', '320px');
-      await expect(page.locator('.sr-activity')).toHaveCSS('width', '44px');
+      await expect(page.locator('.sr-rail')).toHaveCSS('width', '280px');
+      await expect(page.locator('.sr-activity')).toHaveCSS('width', '40px');
+      await expect(page.getByTestId('session-tool-canvas')).toBeHidden();
+      await expect(page.getByTestId('session-tools-open')).toBeVisible();
 
       // Session metadata uses the fast in-app tooltip, not Chromium's delayed title popup.
       const compactSession = page.locator('.sr-session:not(.has-detail)').first();
@@ -112,15 +114,19 @@ test.describe('Session rail and conversation role polish', () => {
       });
 
       await page.setViewportSize({ width: 960, height: 720 });
-      await expect(page.locator('.sr-rail')).toHaveCSS('width', '304px');
+      await expect(page.locator('.sr-rail')).toHaveCSS('width', '40px');
+      await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
       await page.screenshot({
         path: join(tmpdir(), 'charter-session-rail-production-narrow.png'),
         fullPage: true,
       });
 
       await page.setViewportSize({ width: 963, height: 749 });
+      await page.getByTestId('rail-view-sessions').click();
+      await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '1');
       await page.getByTestId('home-new-task').click();
       await expect(page.getByTestId('home-view')).toBeVisible();
+      await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
       await expect(page.locator('.hm-mc')).toHaveCount(0);
       await expect(page.getByTestId('home-mc-needs')).toHaveCount(0);
       await expect(page.getByTestId('home-mc-running')).toHaveCount(0);

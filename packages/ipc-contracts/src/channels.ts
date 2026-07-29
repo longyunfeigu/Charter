@@ -129,6 +129,23 @@ const TerminalInfoSchema = z.object({
   remote: TerminalRemoteInfoSchema.optional(),
 });
 
+const ExternalSessionFileSchema = z.object({
+  path: z.string(),
+  status: z.enum(['created', 'modified', 'deleted', 'renamed']),
+  additions: z.number(),
+  deletions: z.number(),
+});
+
+const ExternalSessionSnapshotSchema = z.object({
+  terminalId: z.string(),
+  taskId: z.string(),
+  cli: z.string(),
+  snapshotRef: z.string().nullable(),
+  status: z.enum(['active', 'ended']),
+  captureGrade: z.enum(['structured', 'observed']),
+  files: z.array(ExternalSessionFileSchema),
+});
+
 export interface ChannelDef<Req extends z.ZodType = z.ZodType, Res extends z.ZodType = z.ZodType> {
   name: string;
   schemaVersion: number;
@@ -905,25 +922,17 @@ export const CHANNELS = {
     'external.listSessions',
     1,
     z.object({}).strict(),
+    z.object({ sessions: z.array(ExternalSessionSnapshotSchema) }),
+  ),
+  /** Reconcile a live external Session with its entry snapshot before Diff.
+   * This is an on-demand correctness fallback for coalesced watcher events. */
+  'external.reconcileSession': ch(
+    'external.reconcileSession',
+    1,
+    z.object({ taskId: z.string().min(1) }).strict(),
     z.object({
-      sessions: z.array(
-        z.object({
-          terminalId: z.string(),
-          taskId: z.string(),
-          cli: z.string(),
-          snapshotRef: z.string().nullable(),
-          status: z.enum(['active', 'ended']),
-          captureGrade: z.enum(['structured', 'observed']),
-          files: z.array(
-            z.object({
-              path: z.string(),
-              status: z.enum(['created', 'modified', 'deleted', 'renamed']),
-              additions: z.number(),
-              deletions: z.number(),
-            }),
-          ),
-        }),
-      ),
+      reconciled: z.number().int().nonnegative(),
+      session: ExternalSessionSnapshotSchema,
     }),
   ),
   /** End the active external Agent while preserving its terminal and shell. */

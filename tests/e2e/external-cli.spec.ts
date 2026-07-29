@@ -172,6 +172,37 @@ function createComposerClaudeBin(): { bin: string; probe: string } {
   return { bin, probe };
 }
 
+function createSilentWritingClaudeBin(fixture: string): string {
+  const bin = mkdtempSync(join(tmpdir(), 'pi-ide-silent-write-bin-'));
+  const target = join(fixture, 'silent-new.html').replace(/\\/g, '/');
+  writeFileSync(
+    join(bin, 'claude'),
+    [
+      '#!/usr/bin/env node',
+      "const fs = require('node:fs');",
+      `const target = ${JSON.stringify(target)};`,
+      'let started = false;',
+      "console.log('silent-claude-ready');",
+      "process.stdin.on('data', (chunk) => {",
+      "  if (started || !chunk.toString().includes('build silent file')) return;",
+      '  started = true;',
+      "  console.log('prompt-accepted-before-silence');",
+      // Longer than the historical 1s quiet + 2s fs grace window.
+      '  setTimeout(() => {',
+      "    fs.writeFileSync(target, '<!doctype html><title>silent write</title>\\n');",
+      '  }, 4500);',
+      "  setTimeout(() => console.log('silent-write-complete'), 4800);",
+      '});',
+      'process.stdin.resume();',
+      'setTimeout(() => process.exit(0), 30000);',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(join(bin, 'claude'), 0o755);
+  pinFixtureCliPath(bin);
+  return bin;
+}
+
 function createParallelAgentBin(): string {
   const bin = mkdtempSync(join(tmpdir(), 'pi-ide-parallel-bin-'));
   for (const cli of ['claude', 'codex']) {
@@ -806,6 +837,74 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
     }
   });
 
+  test('a file created after observed terminal quiet stays live in Summary and Diff', async () => {
+    const fixture = createGitFixture();
+    const bin = createSilentWritingClaudeBin(fixture);
+    const { app, page } = await launchApp({
+      env: {
+        PI_IDE_OPEN_WORKSPACE: fixture,
+        PI_IDE_EXTERNAL_CLIS: 'claude',
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        ZDOTDIR: bin,
+      },
+    });
+    try {
+      const terminalId = await page.evaluate(async () => {
+        const result = (await window.product.rpc['terminal.create']!({
+          context: { kind: 'focused' },
+          launch: 'claude',
+          initialPrompt: 'build silent file',
+        })) as { ok: boolean; data?: { id: string } };
+        return result.ok ? (result.data?.id ?? null) : null;
+      });
+      expect(terminalId).not.toBeNull();
+      await waitForTerminalOutput(page, 'prompt-accepted-before-silence', {
+        terminalId: terminalId!,
+        timeout: 20_000,
+      });
+
+      const readTaskId = (): Promise<string | null> =>
+        page.evaluate(async () => {
+          const result = (await window.product.rpc['task.list']!({
+            filter: 'all',
+            includeArchived: false,
+          })) as {
+            ok: boolean;
+            data?: { tasks: Array<{ id: string; external: unknown }> };
+          };
+          return result.ok ? (result.data?.tasks.find((task) => task.external)?.id ?? null) : null;
+        });
+      await expect.poll(readTaskId, { timeout: 20_000 }).not.toBeNull();
+      const taskId = await readTaskId();
+      expect(taskId).not.toBeNull();
+
+      const row = page.getByTestId(`home-task-${taskId!}`);
+      await expect(row).toHaveAttribute('data-working', 'false', { timeout: 10_000 });
+      await row.click();
+      const tools = page.getByTestId('session-tools-open');
+      if (await tools.isVisible()) await tools.click();
+
+      const tile = page.getByTestId('live-tile-silent-new.html');
+      await expect(tile).toBeVisible({ timeout: 15_000 });
+      await expect(tile).toContainText('observed');
+      await expect(page.getByTestId('session-summary')).toContainText('changes/min');
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: '/tmp/charter-external-delayed-write-summary.png' });
+
+      const diff = page.getByTestId('session-tool-diff');
+      await expect(diff).toBeEnabled();
+      await diff.click();
+      await expect(page.getByTestId('session-diff-file-silent-new.html')).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(page.getByTestId('session-inline-diff')).toContainText('silent write');
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: '/tmp/charter-external-delayed-write-diff.png' });
+    } finally {
+      await app.close();
+    }
+  });
+
   test('ended Claude session resumes in the same Task and terminal', async () => {
     const fixture = createGitFixture();
     const bin = createResumableClaudeBin();
@@ -920,9 +1019,10 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 20000,
       });
-      // Settling stays visible; the external terminal replaces the normal
-      // timeline, so its durable PR draft is an explicit dock action.
+      // Settling returns to the conversation. The external terminal replaces
+      // the normal timeline, so its durable PR draft is an explicit Tools action.
       await expect(page.getByTestId('pr-draft-card')).toHaveCount(0);
+      await page.getByTestId('session-tools-open').click();
       await page.getByTestId('settled-pr-draft-open').click();
       await expect(page.getByTestId('pr-draft-card')).toBeVisible();
       await page.getByTestId('pr-draft-dismiss').click();

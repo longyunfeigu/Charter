@@ -17,6 +17,7 @@ import { TransferCenter } from '../views/TransferCenter.js';
 import type { BottomTab, SideBarView } from '@pi-ide/ipc-contracts';
 import { useTaskStore } from '../store/taskStore.js';
 import { stepZoom, ZOOM_DEFAULT } from '../views/ui-zoom.js';
+import { useTerminalStore } from '../views/TerminalPanel.js';
 
 function useRegisterCoreCommands(): void {
   const store = useAppStore;
@@ -64,8 +65,12 @@ function useRegisterCoreCommands(): void {
         run: () => {
           const s = store.getState();
           if (s.taskRoomTaskId) {
-            s.setSessionTool(s.sessionTool === 'file' ? 'summary' : 'file');
-            s.setSessionToolExpanded(s.sessionTool !== 'file');
+            if (s.sessionToolsOpen && s.sessionTool === 'file') {
+              s.setSessionToolsOpen(false);
+            } else {
+              s.setSessionTool('file');
+              s.setSessionToolExpanded(true);
+            }
           } else {
             s.setSurface('home');
             s.focusComposer();
@@ -166,7 +171,9 @@ function useRegisterCoreCommands(): void {
         id: 'view.zoomIn',
         title: 'Zoom In',
         category: 'View',
+        keybinding: 'mod+plus',
         run: () => {
+          if (useTerminalStore.getState().zoomFocused('in')) return;
           const s = store.getState().settings?.general.uiScale ?? ZOOM_DEFAULT;
           void store.getState().updateSettings('global', { general: { uiScale: stepZoom(s, 1) } });
         },
@@ -175,7 +182,9 @@ function useRegisterCoreCommands(): void {
         id: 'view.zoomOut',
         title: 'Zoom Out',
         category: 'View',
+        keybinding: 'mod+minus',
         run: () => {
+          if (useTerminalStore.getState().zoomFocused('out')) return;
           const s = store.getState().settings?.general.uiScale ?? ZOOM_DEFAULT;
           void store.getState().updateSettings('global', { general: { uiScale: stepZoom(s, -1) } });
         },
@@ -184,8 +193,11 @@ function useRegisterCoreCommands(): void {
         id: 'view.zoomReset',
         title: 'Reset Zoom',
         category: 'View',
-        run: () =>
-          void store.getState().updateSettings('global', { general: { uiScale: ZOOM_DEFAULT } }),
+        keybinding: 'mod+0',
+        run: () => {
+          if (useTerminalStore.getState().zoomFocused('reset')) return;
+          void store.getState().updateSettings('global', { general: { uiScale: ZOOM_DEFAULT } });
+        },
       },
     ]);
   }, [store]);

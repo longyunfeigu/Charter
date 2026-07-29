@@ -5,23 +5,26 @@
 
 /* ---------- Session identity ---------- */
 .session-identity-head {
-  --session-header-control-height: 30px;
-  min-height: 78px;
-  gap: 14px;
-  padding: 8px 14px;
+  --session-header-control-height: var(--control-height-sm);
+  min-height: var(--session-header-height);
+  gap: 10px;
+  padding: 6px 12px;
   background: color-mix(in srgb, var(--bg-editor) 92%, var(--bg-titlebar));
+  font-family: var(--font-shell);
 }
 
 .session-identity {
   flex: 1 1 0;
   min-width: 0;
   display: grid;
-  gap: 5px;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
 }
 
 .session-identity-title {
   min-width: 0;
-  min-height: 24px;
+  min-height: 28px;
   display: flex;
   align-items: center;
 }
@@ -40,7 +43,7 @@
 }
 
 .session-identity-name [data-testid='task-state'] {
-  height: 22px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
@@ -52,10 +55,10 @@
 
 .session-identity-secondary {
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
-  gap: 14px;
+  justify-content: flex-end;
+  gap: 9px;
 }
 
 .session-identity-meta {
@@ -70,7 +73,7 @@
   max-width: none;
   color: var(--fg);
   font-family: var(--font-display);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 650;
   letter-spacing: -0.018em;
 }
@@ -79,8 +82,8 @@
 .session-agent-chip,
 .session-identity-meta .tr-extchip {
   flex: none;
-  height: var(--session-header-control-height);
-  min-height: var(--session-header-control-height);
+  height: var(--control-height-sm);
+  min-height: var(--control-height-sm);
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
@@ -92,6 +95,10 @@
   color: var(--fg-muted);
   font-size: 10.5px;
   line-height: 1;
+}
+
+.session-identity-meta > [data-testid='task-room-project'] {
+  display: none;
 }
 
 .session-identity-meta > .tr-proj:first-child {
@@ -124,6 +131,31 @@
   color: var(--fg-muted);
   font: 11px var(--font-ui);
   cursor: pointer;
+}
+
+.session-tools-button {
+  height: var(--control-height-sm);
+  min-height: var(--control-height-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--fg-muted);
+  font: 10.5px var(--font-shell);
+  cursor: pointer;
+}
+
+.session-tools-button:hover {
+  border-color: var(--border);
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.session-tools-back-icon {
+  transform: rotate(90deg);
 }
 
 .session-header-actions .tr-pvbadge {
@@ -221,9 +253,9 @@
 }
 
 .session-canvas-body > .tr-main {
-  flex: 1 1 56%;
-  width: 56%;
-  min-width: 390px;
+  flex: 1 1 65%;
+  width: 65%;
+  min-width: 460px;
   border-right: 0;
   transition:
     width 160ms ease,
@@ -231,28 +263,43 @@
 }
 
 .session-canvas-body.tool-expanded > .tr-main {
-  flex-basis: 38%;
-  width: 38%;
-  min-width: 340px;
+  flex-basis: 42%;
+  width: 42%;
+  min-width: 400px;
 }
 
 .session-tool-canvas {
-  flex: 1 1 44%;
-  width: 44%;
-  min-width: 390px;
+  flex: 1 1 35%;
+  width: 35%;
+  min-width: 360px;
   min-height: 0;
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--border);
   background: var(--bg-card);
+  font-family: var(--font-shell);
   transition:
     width 160ms ease,
     flex-basis 160ms ease;
 }
 
 .session-canvas-body.tool-expanded > .session-tool-canvas {
-  flex-basis: 62%;
-  width: 62%;
+  flex-basis: 58%;
+  width: 58%;
+}
+
+.session-canvas-body.tools-closed > .tr-main,
+.session-canvas-body.tools-closed.tool-expanded > .tr-main,
+.session-canvas-body.tools-closed.split-manual > .tr-main {
+  flex: 1 1 100%;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+
+.session-canvas-body.tools-closed > .session-tool-canvas,
+.session-canvas-body.tools-closed > .session-split-handle {
+  display: none;
 }
 
 /* ---------- draggable split (design mock A: session-split-mockups) ---------- */
@@ -260,7 +307,7 @@
  * on window resize without JS. */
 .session-canvas-body.split-manual > .tr-main {
   flex: 0 0 auto;
-  width: var(--session-split, 56%);
+  width: var(--session-split, 65%);
   min-width: 380px;
   max-width: calc(100% - 360px);
 }
@@ -382,7 +429,7 @@
 }
 
 .session-tool-tabs {
-  min-height: 48px;
+  min-height: 42px;
   display: flex;
   align-items: stretch;
   gap: 4px;
@@ -400,7 +447,8 @@
 }
 
 .session-tool-tablist button,
-.session-tool-expand {
+.session-tool-expand,
+.session-tool-close {
   min-width: max-content;
   display: inline-flex;
   align-items: center;
@@ -416,7 +464,8 @@
 }
 
 .session-tool-tablist button:hover,
-.session-tool-expand:hover {
+.session-tool-expand:hover,
+.session-tool-close:hover {
   color: var(--fg);
   background: color-mix(in srgb, var(--bg-hover) 52%, transparent);
 }
@@ -447,6 +496,17 @@
   margin-left: auto;
   border-bottom: 0;
   border-left: 1px solid var(--border-soft);
+}
+
+.session-tool-close {
+  flex: none;
+  display: none;
+  border-bottom: 0;
+  border-left: 1px solid var(--border-soft);
+}
+
+.session-tool-close span {
+  display: none;
 }
 
 /* Diff focus follows the supplied review reference: text-only tabs and no
@@ -541,7 +601,46 @@
 }
 
 .session-review-checks .ck-toolbar {
-  padding-inline: 0;
+  padding: 10px 0 8px;
+  border-bottom: 0;
+}
+
+.session-review-checks .ck-hint {
+  display: none;
+}
+
+.session-review-checks .ck-toolbar .btn {
+  margin-left: auto;
+}
+
+.session-review-checks .ck-unverified {
+  max-width: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+  padding: 9px 0 12px;
+  border: 0;
+  border-radius: 0;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.session-review-checks .ck-unverified-title {
+  flex: none;
+  gap: 5px;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.session-review-checks .ck-unverified > div:last-child {
+  display: none;
+}
+
+.session-review-checks .ck-groups {
+  padding: 0 0 12px;
 }
 
 .session-tool-empty-copy {
@@ -1210,15 +1309,15 @@ button.hm-board-now:hover {
 
 /* ---------- the single responsive Action Dock ---------- */
 .session-action-dock {
-  min-height: 64px;
+  min-height: 56px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  padding: 11px 14px;
+  padding: 9px 12px;
   border-top: 1px solid var(--border);
   background: var(--bg-editor);
-  box-shadow: 0 -10px 28px color-mix(in srgb, var(--fg) 5%, transparent);
+  box-shadow: 0 -8px 20px color-mix(in srgb, var(--fg) 3%, transparent);
 }
 
 .session-action-dock.empty {
@@ -1230,8 +1329,8 @@ button.hm-board-now:hover {
 }
 
 .session-action-dock .btn {
-  min-height: 36px;
-  border-radius: 7px;
+  min-height: var(--control-height-md);
+  border-radius: var(--radius-control);
   padding: 0 13px;
 }
 
@@ -1240,27 +1339,17 @@ button.hm-board-now:hover {
 }
 
 .session-action-dock.review-decision {
-  min-height: 80px;
+  min-height: 68px;
   flex-wrap: wrap;
-  gap: 10px 12px;
-  padding: 14px 16px;
-}
-
-.session-review-failure {
-  flex: 1 0 100%;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--danger);
-  font-size: 11px;
-  font-weight: 650;
+  gap: 8px 10px;
+  padding: 10px 12px;
 }
 
 .session-action-dock.review-decision .btn {
-  min-height: 44px;
-  border-radius: 8px;
-  padding: 0 16px;
-  font-size: 12px;
+  min-height: 38px;
+  border-radius: var(--radius-control);
+  padding: 0 14px;
+  font-size: 11.5px;
   white-space: nowrap;
 }
 
@@ -1296,6 +1385,25 @@ button.hm-board-now:hover {
   line-height: 1.4;
   text-overflow: clip;
   white-space: normal;
+}
+
+.session-action-note.has-risk {
+  color: var(--fg-muted);
+}
+
+.session-action-risk {
+  color: var(--danger);
+  font-weight: 650;
+}
+
+.session-action-risk .app-icon {
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+.session-action-separator {
+  padding: 0 4px;
+  color: var(--fg-faint);
 }
 
 .session-action-live {
@@ -1370,7 +1478,7 @@ button.hm-board-now:hover {
 .session-terminal-host {
   flex: 1;
   min-height: 0;
-  padding: 6px 8px;
+  padding: 4px;
   overflow: hidden;
 }
 
@@ -1480,15 +1588,14 @@ button.hm-board-now:hover {
   cursor: default;
 }
 
-/* ---------- responsive priority reordering ----------
- * Container query on .tr-root (task-room), not a window media query: the
- * conversation + tool canvas need 390px each, and whether they fit depends on
- * what the window leaves the room after rails/sidebars — a 1500px window with
- * the Files sidebar open is as tight as a 1100px window without it. */
-@container task-room (max-width: 880px) {
+/* ---------- responsive single-surface switch ----------
+ * The room's own width decides when a split stops being useful. At this size
+ * Conversation and Tools each get the full canvas instead of becoming two
+ * cramped panes or a long vertical stack. */
+@container task-room (max-width: 1080px) {
   .session-identity-head {
-    min-height: 66px;
-    padding: 8px 11px;
+    min-height: var(--session-header-height);
+    padding: 6px 10px;
   }
 
   .session-identity-title .tr-title {
@@ -1498,19 +1605,18 @@ button.hm-board-now:hover {
 
   .session-canvas-body,
   .session-canvas-body.tool-expanded {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(350px, 57%) minmax(260px, 43%);
+    display: flex;
     align-items: stretch;
     overflow: hidden;
   }
 
-  .session-canvas-body > .tr-main,
-  .session-canvas-body.tool-expanded > .tr-main,
-  .session-canvas-body.split-manual > .tr-main,
-  .session-canvas-body > .session-tool-canvas,
-  .session-canvas-body.tool-expanded > .session-tool-canvas,
-  .session-canvas-body.split-manual > .session-tool-canvas {
+  .session-canvas-body.tools-closed > .tr-main,
+  .session-canvas-body.tools-closed.tool-expanded > .tr-main,
+  .session-canvas-body.tools-closed.split-manual > .tr-main,
+  .session-canvas-body.tools-open > .session-tool-canvas,
+  .session-canvas-body.tools-open.tool-expanded > .session-tool-canvas,
+  .session-canvas-body.tools-open.split-manual > .session-tool-canvas {
+    flex: 1 1 100%;
     width: 100%;
     min-width: 0;
     min-height: 0;
@@ -1518,42 +1624,40 @@ button.hm-board-now:hover {
     transition: none;
   }
 
-  /* The stacked layout has no horizontal boundary to drag. */
+  .session-canvas-body.tools-open > .tr-main,
+  .session-canvas-body.tools-closed > .session-tool-canvas,
   .session-split-handle {
     display: none;
   }
 
-  .session-tool-canvas {
-    border-top: 1px solid var(--border);
+  .session-canvas-body.tools-open > .session-tool-canvas {
+    border-top: 0;
     border-left: 0;
   }
 
-  .session-canvas-body.tool-expanded {
-    grid-template-rows: minmax(300px, 42%) minmax(330px, 58%);
+  .session-tool-close span {
+    display: inline;
   }
 
-  /* A live surface needs enough first-screen height to show the page, not only
-   * its controls. The conversation remains present above and Focus is still
-   * available when the user wants the whole canvas. */
-  .session-canvas-body:has(> .session-tool-canvas[data-active-tool='preview']) {
-    grid-template-rows: minmax(260px, 42%) minmax(360px, 58%);
+  .session-tool-close {
+    display: inline-flex;
   }
 
-  .session-tool-expand span,
-  .session-tool-tablist button span {
+  .session-tools-button.back-to-conversation {
     display: none;
   }
 
-  /* Wide Diff is intentionally text-only; once labels collapse at this
-   * breakpoint the icons must return or the entire tab bar becomes blank. */
+  /* Wide Diff is intentionally text-only. Its icons return when the canvas is
+   * the only surface so the tab strip remains quickly scannable. */
   .session-tool-canvas[data-active-tool='diff'] .session-tool-tablist .app-icon {
     display: block;
   }
 
   .session-tool-tablist button,
-  .session-tool-expand {
-    min-width: 42px;
-    padding: 0 9px;
+  .session-tool-expand,
+  .session-tool-close {
+    min-width: 38px;
+    padding: 0 8px;
   }
 
   .rt-scroll {
@@ -1633,15 +1737,6 @@ button.hm-board-now:hover {
  * Keep Review's evidence scroller and decision dock in separate, non-overlapping
  * flex space while giving the decision-heavy tool pane priority. */
 @media (max-height: 600px) {
-  .session-canvas-body:has(> .session-tool-canvas .review-decision),
-  .session-canvas-body.tool-expanded:has(> .session-tool-canvas .review-decision) {
-    grid-template-rows: minmax(0, 1fr) minmax(270px, 5fr);
-  }
-
-  .session-canvas-body:has(> .session-tool-canvas .review-decision) > .tr-main {
-    overflow: hidden;
-  }
-
   .session-action-dock.review-decision {
     flex: none;
     gap: 6px 8px;

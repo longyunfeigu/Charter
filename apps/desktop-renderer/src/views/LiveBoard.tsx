@@ -54,6 +54,7 @@ export function LiveBoard(props: {
   const rail = props.variant === 'rail';
   if (tiles.length === 0 && (!rail || !props.currentAction)) return null;
   const rate = writesPerMinute(pulses, props.taskId, now);
+  const observedOnly = tiles.length > 0 && tiles.every((tile) => tile.provenance === 'observed');
   const livePath = props.currentAction?.path ?? null;
   const actionIsWritingTile =
     livePath !== null && tiles.some((tile) => tile.path === livePath && tile.writing);
@@ -75,7 +76,9 @@ export function LiveBoard(props: {
           <span>Working right now</span>
         )}
         <span className="hm-board-rate">
-          {rate > 0 ? `${rate} writes/min` : 'waiting for a file change'}
+          {rate > 0
+            ? `${rate} ${observedOnly ? 'changes' : 'writes'}/min`
+            : 'waiting for a file change'}
         </span>
       </div>
       {showCurrentAction ? (
@@ -110,7 +113,7 @@ export function LiveBoard(props: {
               className={`hm-tile ${tile.heat}`}
               data-testid={`live-tile-${tile.path}`}
               data-heat={tile.heat}
-              title={`${tile.path} — open the diff so far (read-only)`}
+              title={`${tile.path} — open the ${tile.provenance === 'observed' ? 'observed change' : 'diff so far'} (read-only)`}
               onClick={() => props.onOpenLens(tile.path)}
             >
               <span className="hm-tile-f">{name}</span>
@@ -129,7 +132,7 @@ export function LiveBoard(props: {
               {tile.writing && now - tile.lastWriteAt <= WRITING_MS ? (
                 <span className="hm-tile-writing">
                   <i />
-                  writing
+                  {tile.provenance === 'observed' ? 'observed' : 'writing'}
                 </span>
               ) : null}
             </button>

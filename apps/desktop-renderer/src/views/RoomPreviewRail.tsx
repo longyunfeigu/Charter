@@ -6,7 +6,7 @@ import { LivePreview } from './LivePreview.js';
 import { SessionArtifactView } from './SessionArtifactView.js';
 
 /**
- * The Room's live window (ADR-0022 am.2): a persistent, resizable preview
+ * The Room's output window (ADR-0022 am.2): persistent artifacts and live app
  * column beside the conversation — available in EVERY task state (running,
  * review, full-auto, accepted). Detection only lights the header badge; this
  * column appears when the user asks and its width is remembered.
@@ -25,10 +25,9 @@ export function RoomPreviewRail({ task }: { task: TaskDto }): React.JSX.Element 
   const focused = useAppStore(
     (state) => state.sessionTool === 'preview' && state.sessionToolExpanded,
   );
-  const entryMode = useAppStore((state) => state.previewRailMode);
+  const mode = useAppStore((state) => state.previewRailMode);
   const [width, setWidth] = useState(savedWidth);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const [mode, setMode] = useState<'artifact' | 'live'>(entryMode);
   const [artifactCount, setArtifactCount] = useState(0);
 
   const clamp = useCallback(
@@ -40,10 +39,6 @@ export function RoomPreviewRail({ task }: { task: TaskDto }): React.JSX.Element 
   useEffect(() => {
     window.localStorage.setItem(WIDTH_KEY, String(width));
   }, [width]);
-
-  useEffect(() => {
-    setMode(entryMode);
-  }, [entryMode, task.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +66,7 @@ export function RoomPreviewRail({ task }: { task: TaskDto }): React.JSX.Element 
         className="tr-preview-splitter"
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize the preview"
+        aria-label="Resize the output panel"
         tabIndex={0}
         onPointerDown={(e) => {
           dragRef.current = { startX: e.clientX, startWidth: width };
@@ -91,15 +86,15 @@ export function RoomPreviewRail({ task }: { task: TaskDto }): React.JSX.Element 
         }}
       />
       <div className="tr-preview-head">
-        <span className="tr-preview-title">Session preview</span>
-        <div className="tr-preview-modes" role="tablist" aria-label="Preview mode">
+        <span className="tr-preview-title">Session output</span>
+        <div className="tr-preview-modes" role="tablist" aria-label="Output view">
           <button
             type="button"
             role="tab"
             aria-selected={mode === 'artifact'}
             className={mode === 'artifact' ? 'active' : ''}
             data-testid="preview-mode-artifacts"
-            onClick={() => setMode('artifact')}
+            onClick={() => app.setPreviewRailMode('artifact')}
           >
             Artifacts {artifactCount > 0 ? artifactCount : ''}
           </button>
@@ -109,16 +104,16 @@ export function RoomPreviewRail({ task }: { task: TaskDto }): React.JSX.Element 
             aria-selected={mode === 'live'}
             className={mode === 'live' ? 'active' : ''}
             data-testid="preview-mode-live"
-            onClick={() => setMode('live')}
+            onClick={() => app.setPreviewRailMode('live')}
           >
-            Live web
+            Live app
           </button>
         </div>
         <span className="pv-sp" />
         <button
           className="ghostbtn"
           data-testid="room-preview-close"
-          title="Close the preview column"
+          title="Close the output panel"
           onClick={app.closePreviewRail}
         >
           ✕
@@ -173,9 +168,9 @@ export function PreviewBadge({ task }: { task: TaskDto }): React.JSX.Element | n
       data-testid="task-room-preview-badge"
       title={
         open
-          ? 'Close the Session preview column'
+          ? 'Close the Session output panel'
           : hasLive
-            ? `A dev server is listening in this task's tree — open the live preview`
+            ? `A dev server is listening in this task's tree — open Session output`
             : 'Open the Session artifacts'
       }
       onClick={() =>
@@ -186,11 +181,11 @@ export function PreviewBadge({ task }: { task: TaskDto }): React.JSX.Element | n
       {open
         ? openMode === 'artifact'
           ? `Artifacts ${artifactCount}`
-          : 'Preview live'
+          : 'Live app'
         : hasLive
           ? firstPort !== null
-            ? `Preview :${firstPort}`
-            : 'Preview'
+            ? `Live :${firstPort}`
+            : 'Output'
           : `Artifacts ${artifactCount}`}
     </button>
   );

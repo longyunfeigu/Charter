@@ -25,6 +25,9 @@ export interface ActivityPulse {
   taskId: string;
   paths: string[];
   at: number;
+  /** Observed external writes animate presence without being presented as a
+   * structured Agent tool call. */
+  provenance: 'agent' | 'observed';
 }
 
 interface ActivityStore {
@@ -101,14 +104,26 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
     const perTask = get().perTask;
     const next = fold(perTask[item.taskId] ?? EMPTY, item);
     const patch: Partial<ActivityStore> = { perTask: { ...perTask, [item.taskId]: next } };
+    const observedExternalWrite =
+      item.author === 'system' &&
+      item.kind === 'write' &&
+      item.captureGrade === 'observed' &&
+      item.source !== undefined &&
+      item.source !== 'pi' &&
+      item.evidenceKinds?.includes('file') === true;
     if (
-      item.author === 'agent' &&
+      (item.author === 'agent' || observedExternalWrite) &&
       (item.kind === 'write' || item.kind === 'review') &&
       item.paths.length > 0
     ) {
       patch.pulses = [
         ...get().pulses.slice(-(MAX_PULSES - 1)),
-        { taskId: item.taskId, paths: item.paths, at: Date.now() },
+        {
+          taskId: item.taskId,
+          paths: item.paths,
+          at: Date.now(),
+          provenance: observedExternalWrite ? 'observed' : 'agent',
+        },
       ];
     }
     set(patch as never);

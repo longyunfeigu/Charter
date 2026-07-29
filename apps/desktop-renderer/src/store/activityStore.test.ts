@@ -22,6 +22,16 @@ function write(author: 'agent' | 'system'): ActivityItem {
   };
 }
 
+function observedExternalWrite(): ActivityItem {
+  return {
+    ...write('system'),
+    key: 'observed-external-write',
+    source: 'claude',
+    captureGrade: 'observed',
+    evidenceKinds: ['file'],
+  };
+}
+
 beforeEach(() => {
   useActivityStore.setState({ perTask: {}, pulses: [], initialized: false });
 });
@@ -39,6 +49,15 @@ describe('activity write presence', () => {
     useActivityStore.getState().ingest(write('agent'));
 
     expect(useActivityStore.getState().pulses).toHaveLength(1);
+    expect(useActivityStore.getState().pulses[0]?.provenance).toBe('agent');
     expect(useActivityStore.getState().perTask['task-1']?.lastAction?.author).toBe('agent');
+  });
+
+  it('animates explicitly observed external writes without claiming a tool action', () => {
+    useActivityStore.getState().ingest(observedExternalWrite());
+
+    expect(useActivityStore.getState().pulses).toHaveLength(1);
+    expect(useActivityStore.getState().pulses[0]?.provenance).toBe('observed');
+    expect(useActivityStore.getState().perTask['task-1']?.lastAction).toBeNull();
   });
 });

@@ -48,6 +48,10 @@ export function formatKeybinding(binding: string): string {
           return 'Esc';
         case 'backquote':
           return '`';
+        case 'plus':
+          return '+';
+        case 'minus':
+          return '−';
         default:
           return part.length === 1 ? part.toUpperCase() : part;
       }
@@ -70,6 +74,8 @@ function matches(binding: string, e: KeyboardEvent): boolean {
   if (needAlt !== e.altKey) return false;
   const eventKey = e.key === ' ' ? 'space' : e.key.toLowerCase();
   const wanted = key === 'backquote' ? '`' : key.toLowerCase();
+  if (wanted === 'plus') return eventKey === '+' || (e.code === 'Equal' && e.shiftKey);
+  if (wanted === 'minus') return eventKey === '-' || e.code === 'Minus';
   return eventKey === wanted || (key === ',' && e.key === ',');
 }
 

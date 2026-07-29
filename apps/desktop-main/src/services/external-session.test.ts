@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { CodeContextRefDto } from '@pi-ide/ipc-contracts';
 import {
+  codexStartupComposerReady,
+  codexStartupTrustGateActive,
   externalInjectText,
   isExternalPromptSubmit,
   externalResumeCommand,
   externalTitleFromPrompt,
   isAccountablePath,
   selectFileAttributionOwner,
+  shouldReconcileSnapshotPath,
 } from './external-session-service.js';
 import { ExternalLaunchIntents } from './external-launch-intents.js';
 
@@ -39,6 +42,40 @@ describe('isAccountablePath (ADR-0017)', () => {
     expect(isAccountablePath('notes.tmp.md')).toBe(true);
     expect(isAccountablePath('data.tmp.2.csv')).toBe(true);
     expect(isAccountablePath('src/tmp.7fa33.ts')).toBe(true);
+  });
+});
+
+describe('codexStartupTrustGateActive', () => {
+  it('blocks Composer prompt delivery while the directory trust gate is current', () => {
+    expect(
+      codexStartupTrustGateActive(
+        '\u001b[2JDo you trust the contents of this directory? Press enter to continue',
+      ),
+    ).toBe(true);
+  });
+
+  it('unblocks after Codex paints its real composer and ignores old gate scrollback', () => {
+    expect(
+      codexStartupTrustGateActive(
+        'Do you trust the contents of this directory? Press enter to continue' +
+          '\u001b[2J>_ OpenAI Codex (v0.145.0) model: loading /model to change',
+      ),
+    ).toBe(false);
+    expect(codexStartupTrustGateActive('>_ OpenAI Codex /model to change')).toBe(false);
+  });
+
+  it('does not treat shell echo as a composer and recognizes the real Codex screen', () => {
+    expect(codexStartupComposerReady('codex\r\n❯ codex')).toBe(false);
+    expect(
+      codexStartupComposerReady(
+        'Do you trust the contents of this directory? Press enter to continue',
+      ),
+    ).toBe(false);
+    expect(
+      codexStartupComposerReady(
+        'Press enter to continue\u001b[2J>_ OpenAI Codex (v0.145.0) /model to change',
+      ),
+    ).toBe(true);
   });
 });
 
@@ -75,6 +112,17 @@ describe('selectFileAttributionOwner', () => {
     const settling = session('settling', '/repo', 100, false, 1_500);
     expect(selectFileAttributionOwner([settling], '/repo', 1_000)).toBe(settling);
     expect(selectFileAttributionOwner([settling], '/repo', 1_501)).toBeNull();
+  });
+});
+
+describe('shouldReconcileSnapshotPath', () => {
+  it('discovers missed paths for a single external Session root', () => {
+    expect(shouldReconcileSnapshotPath(false, false)).toBe(true);
+  });
+
+  it('only refreshes watcher-owned paths when external Sessions share a root', () => {
+    expect(shouldReconcileSnapshotPath(true, true)).toBe(true);
+    expect(shouldReconcileSnapshotPath(true, false)).toBe(false);
   });
 });
 

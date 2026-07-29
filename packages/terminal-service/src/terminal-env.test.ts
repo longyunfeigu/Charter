@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizedTerminalEnv } from './index.js';
+import { sanitizedTerminalEnv, terminalPresentationEnv } from './index.js';
 
 describe('sanitizedTerminalEnv (agent-session markers never leak into user PTYs)', () => {
   it('strips nested Claude Code session markers', () => {
@@ -42,5 +42,28 @@ describe('sanitizedTerminalEnv (agent-session markers never leak into user PTYs)
     expect(env.ANTHROPIC_AUTH_TOKEN).toBe('tok');
     expect(env.PI_IDE_EXTERNAL_CLIS).toBe('claude,codex');
     expect(env.ZDOTDIR).toBe('/tmp/bin');
+  });
+
+  it('does not leak parent-process color opt-outs into a user terminal', () => {
+    const env = sanitizedTerminalEnv({
+      NO_COLOR: '1',
+      FORCE_COLOR: '0',
+      CLICOLOR: '0',
+      PATH: '/usr/bin',
+    });
+    expect(env).toEqual({ PATH: '/usr/bin' });
+  });
+
+  it('advertises the rich terminal capabilities used by agent TUIs', () => {
+    const env = terminalPresentationEnv({ NO_COLOR: '1', PATH: '/usr/bin' }, '1.2.3-test');
+    expect(env).toMatchObject({
+      PATH: '/usr/bin',
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+      TERM_PROGRAM: 'Charter',
+      TERM_PROGRAM_VERSION: '1.2.3-test',
+      FORCE_HYPERLINK: '1',
+    });
+    expect(env.NO_COLOR).toBeUndefined();
   });
 });

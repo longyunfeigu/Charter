@@ -9,6 +9,14 @@ describe('settings resolution (SET-002 / WS-014)', () => {
     expect(effective.general.skin).toBe('studio');
     expect(effective.editor.fontSize).toBeGreaterThan(0);
     expect(effective.editor.autoSave).toBe('off');
+    expect(effective.general.uiScale).toBe(1);
+    expect(effective.terminal.fontSize).toBe(14);
+    expect(effective.terminal.fontFamily).toContain('SF Mono');
+    expect(effective.terminal.fontWeight).toBe(500);
+    expect(effective.terminal.lineHeight).toBe(1);
+    expect(effective.terminal.paddingX).toBe(4);
+    expect(effective.terminal.paddingY).toBe(4);
+    expect(effective.terminal.colorTheme).toBe('orca');
     expect(effective.terminal.renderer).toBe('auto');
     expect(effective.terminal.unicodeVersion).toBe('11');
     expect(effective.privacy.telemetryEnabled).toBe(false);
@@ -49,6 +57,33 @@ describe('settings resolution (SET-002 / WS-014)', () => {
     expect(issues).toHaveLength(0);
     expect(effective.terminal.renderer).toBe('software');
     expect(effective.terminal.unicodeVersion).toBe('6');
+  });
+
+  it('validates terminal typography and spacing limits', () => {
+    const { effective, issues } = resolveSettings(
+      {
+        terminal: {
+          fontSize: 18,
+          fontFamily: 'Berkeley Mono',
+          fontWeight: 600,
+          lineHeight: 1.2,
+          paddingX: 6,
+          paddingY: 7,
+          colorTheme: 'skin',
+        },
+      },
+      undefined,
+    );
+    expect(issues).toHaveLength(0);
+    expect(effective.terminal).toMatchObject({
+      fontSize: 18,
+      fontFamily: 'Berkeley Mono',
+      fontWeight: 600,
+      lineHeight: 1.2,
+      paddingX: 6,
+      paddingY: 7,
+      colorTheme: 'skin',
+    });
   });
 
   it('accepts the four coordinated application skins and rejects unknown ones', () => {

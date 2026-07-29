@@ -556,6 +556,7 @@ export function SessionRail(): React.JSX.Element {
   // "open project files" flows can reveal the Files tree.
   const view = app.railView;
   const [projectsPanelOpen, setProjectsPanelOpen] = useState(view === 'projects');
+  const [compactPanelOpen, setCompactPanelOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(loadCollapsed);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [historyPeriodLimits, setHistoryPeriodLimits] = useState<
@@ -582,6 +583,7 @@ export function SessionRail(): React.JSX.Element {
   const unknownDirs = useMemo(() => unknownDirectories(discovered), [discovered]);
   const setView = (next: RailView): void => {
     app.setRailView(next);
+    if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(true);
     // Rail navigation dismisses the Remotes surface — switching the left panel
     // while the main area stays parked on hosts reads as a dead click.
     if (useAppStore.getState().remotesOpen) useAppStore.getState().closeRemotes();
@@ -613,6 +615,12 @@ export function SessionRail(): React.JSX.Element {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (app.taskRoomTaskId && window.matchMedia('(max-width: 1120px)').matches) {
+      setCompactPanelOpen(false);
+    }
+  }, [app.taskRoomTaskId]);
 
   useEffect(() => {
     if (!addMenuOpen) return;
@@ -705,6 +713,7 @@ export function SessionRail(): React.JSX.Element {
     const reveal = app.sessionReveal;
     if (!reveal) return;
     useAppStore.getState().setRailView('sessions');
+    if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(true);
     setQuery('');
     setNeedsOnly(false);
     const key = `task:${reveal.taskId}`;
@@ -946,6 +955,7 @@ export function SessionRail(): React.JSX.Element {
     app.closeTaskRoom();
     app.setSurface('home');
     app.focusComposer();
+    if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(false);
   };
 
   const renderSessionEntry = (entry: SessionEntry, showProject: boolean): React.ReactNode =>
@@ -1506,7 +1516,9 @@ export function SessionRail(): React.JSX.Element {
 
   return (
     <aside
-      className={`sr-rail view-${view} ${projectsPanelOpen ? 'projects-panel-open' : ''}`}
+      className={`sr-rail view-${view} ${projectsPanelOpen ? 'projects-panel-open' : ''} ${
+        compactPanelOpen ? 'compact-open' : ''
+      }`}
       data-testid="home-sidebar"
       aria-label={view === 'skills' ? 'Skills' : 'Sessions'}
     >
@@ -1515,12 +1527,33 @@ export function SessionRail(): React.JSX.Element {
         projectsOpen={projectsPanelOpen}
         onSelect={setView}
         onProjects={() => {
-          if (view === 'projects') setProjectsPanelOpen((open) => !open);
-          else showProjects();
+          if (view !== 'projects') {
+            showProjects();
+            return;
+          }
+          setProjectsPanelOpen(true);
+          if (window.matchMedia('(max-width: 1120px)').matches) {
+            setCompactPanelOpen((open) => !open);
+          }
         }}
         onRemotes={() => app.openRemotes()}
       />
+      <button
+        type="button"
+        className="sr-compact-backdrop"
+        aria-label="Close navigation drawer"
+        onClick={() => setCompactPanelOpen(false)}
+      />
       <section className="sr-panel">
+        <button
+          type="button"
+          className="sr-compact-close"
+          data-testid="rail-compact-close"
+          aria-label="Close navigation drawer"
+          onClick={() => setCompactPanelOpen(false)}
+        >
+          <Ic name="x" size={13} />
+        </button>
         {view === 'inbox' ? (
           inboxPanel
         ) : view === 'projects' ? (

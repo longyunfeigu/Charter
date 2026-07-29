@@ -8,7 +8,8 @@ export type ActiveTerminalRenderer = 'webgl' | 'software';
 
 interface WebglState {
   addon: WebglAddon | null;
-  failed: boolean;
+  failures: number;
+  retryAfter: number;
 }
 
 const webglStates = new WeakMap<Terminal, WebglState>();
@@ -38,20 +39,26 @@ export function syncTerminalUnicode(term: Terminal, version: TerminalUnicodeVers
 }
 
 /**
- * Enable WebGL only after xterm is mounted. A failed setup or context loss is
- * sticky for that terminal instance, avoiding a retry/flicker loop while the
- * normal renderer keeps the shell usable.
+ * Enable WebGL only after xterm is mounted. Setup failures and context loss
+ * fall back immediately, then retry with bounded backoff at a mount/resume
+ * boundary instead of leaving that terminal permanently on a stale renderer.
  */
 export function syncTerminalRenderer(
   term: Terminal,
   mode: TerminalRendererMode,
 ): ActiveTerminalRenderer {
-  const state = webglStates.get(term) ?? { addon: null, failed: false };
+  const state = webglStates.get(term) ?? { addon: null, failures: 0, retryAfter: 0 };
   webglStates.set(term, state);
 
   if (mode === 'software') {
-    state.addon?.dispose();
+    try {
+      state.addon?.dispose();
+    } catch {
+      // A partially initialized or context-lost addon may throw on disposal.
+    }
     state.addon = null;
+    state.failures = 0;
+    state.retryAfter = 0;
     tagTerminal(term, 'software');
     return 'software';
   }
@@ -60,7 +67,7 @@ export function syncTerminalRenderer(
     tagTerminal(term, 'webgl');
     return 'webgl';
   }
-  if (state.failed || !term.element) {
+  if (state.retryAfter > Date.now() || !term.element) {
     tagTerminal(term, 'software');
     return 'software';
   }
@@ -69,8 +76,13 @@ export function syncTerminalRenderer(
   addon.onContextLoss(() => {
     if (state.addon !== addon) return;
     state.addon = null;
-    state.failed = true;
-    addon.dispose();
+    state.failures += 1;
+    state.retryAfter = Date.now() + Math.min(30_000, 500 * 2 ** (state.failures - 1));
+    try {
+      addon.dispose();
+    } catch {
+      // Context loss teardown must never prevent software fallback.
+    }
     tagTerminal(term, 'software');
     try {
       term.refresh(0, term.rows - 1);
@@ -82,12 +94,46 @@ export function syncTerminalRenderer(
   try {
     term.loadAddon(addon);
     state.addon = addon;
+    state.failures = 0;
+    state.retryAfter = 0;
     tagTerminal(term, 'webgl');
+    try {
+      // A newly attached WebGL canvas is empty until the next render event.
+      term.refresh(0, term.rows - 1);
+    } catch {
+      // Mount and teardown can race.
+    }
     return 'webgl';
   } catch {
-    state.failed = true;
-    addon.dispose();
+    state.failures += 1;
+    state.retryAfter = Date.now() + Math.min(30_000, 500 * 2 ** (state.failures - 1));
+    try {
+      addon.dispose();
+    } catch {
+      // A half-constructed addon can throw on disposal.
+    }
     tagTerminal(term, 'software');
     return 'software';
+  }
+}
+
+/** A visibility/resume boundary is a safe time to retry a failed GPU context. */
+export function resetTerminalRendererRecovery(term: Terminal): void {
+  const state = webglStates.get(term);
+  if (state && !state.addon) state.retryAfter = 0;
+}
+
+/** Reparenting can leave a stale WebGL atlas or a paused software frame. */
+export function repaintTerminalRenderer(term: Terminal): void {
+  const state = webglStates.get(term);
+  try {
+    state?.addon?.clearTextureAtlas();
+  } catch {
+    // Atlas reset is best effort; refresh still repaints software/WebGL output.
+  }
+  try {
+    term.refresh(0, term.rows - 1);
+  } catch {
+    // The terminal may have been disposed between reveal and repaint.
   }
 }

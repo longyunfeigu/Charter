@@ -41,7 +41,7 @@ const TERMINAL_EVENT_CHARS = 12_000;
 const OBSERVED_REPLY_QUIET_MS = 1_000;
 /** First-prompt delivery: the TUI is treated as ready once its paint settles. */
 const PROMPT_SETTLE_QUIET_MS = 600;
-/** …and delivered regardless after this, so a quiet TUI never swallows it. */
+/** A quiet TUI gets a deadline, but startup trust gates still block delivery. */
 const PROMPT_DELIVERY_DEADLINE_MS = 8_000;
 /** Let delayed fs events land just after a terminal turn reports completion. */
 const FILE_ATTRIBUTION_GRACE_MS = 2_000;
@@ -74,6 +74,30 @@ export function isAccountablePath(relativePath: string): boolean {
   return true;
 }
 
+/** Codex paints the directory-trust gate before its composer. Quiet-time alone
+ * cannot distinguish those screens, and typing into the gate discards the
+ * Composer's first message. Compare the last gate and ready-screen paints so
+ * retained scrollback from an accepted gate does not keep blocking forever. */
+function codexStartupScreenPositions(output: string): { gate: number; ready: number } {
+  const compact = cleanTerminalText(output).toLowerCase().replace(/\s+/g, '');
+  const gate = Math.max(
+    compact.lastIndexOf('doyoutrustthecontentsofthisdirectory'),
+    compact.lastIndexOf('pressentertocontinue'),
+  );
+  const ready = Math.max(compact.lastIndexOf('openaicodex'), compact.lastIndexOf('/modeltochange'));
+  return { gate, ready };
+}
+
+export function codexStartupTrustGateActive(output: string): boolean {
+  const { gate, ready } = codexStartupScreenPositions(output);
+  return gate >= 0 && gate > ready;
+}
+
+export function codexStartupComposerReady(output: string): boolean {
+  const { gate, ready } = codexStartupScreenPositions(output);
+  return ready >= 0 && ready > gate;
+}
+
 export interface ExternalSessionSnapshot {
   terminalId: string;
   taskId: string;
@@ -87,6 +111,11 @@ export interface ExternalSessionSnapshot {
     additions: number;
     deletions: number;
   }>;
+}
+
+export interface ExternalSessionReconcileResult {
+  reconciled: number;
+  session: ExternalSessionSnapshot;
 }
 
 export interface ExternalFleetResumeSummary {
@@ -119,6 +148,8 @@ interface LiveSession {
   watcher: WorkspaceWatcher;
   unsubscribe: () => void;
   seen: Set<string>;
+  /** Once terminals overlap on one root, full-tree recovery becomes ambiguous. */
+  sharedRoot: boolean;
   recomputeTimer: ReturnType<typeof setTimeout> | null;
   terminalFlushTimer: ReturnType<typeof setTimeout> | null;
   terminalBuffer: string;
@@ -256,6 +287,13 @@ export function selectFileAttributionOwner<T extends FileAttributionCandidate>(
   return candidates[0] ?? null;
 }
 
+/** A full-tree fallback is only unambiguous while one external Session owns
+ * the root. Shared roots may safely refresh paths already attributed by the
+ * watcher, but must not discover the same new path into multiple Sessions. */
+export function shouldReconcileSnapshotPath(sharedRoot: boolean, seen: boolean): boolean {
+  return !sharedRoot || seen;
+}
+
 /**
  * ADR-0017 — external CLI agent sessions. Listens for agent enter/exit on user
  * terminals; on enter snapshots the project (temp-index write-tree), creates
@@ -271,6 +309,15 @@ export class ExternalSessionService {
   private readonly unsubscribeManager: () => void;
   private readonly unsubscribeData: () => void;
   private readonly unsubscribeInput: () => void;
+
+  private registerLiveSession(session: LiveSession): void {
+    const peers = [...this.byTerminal.values()].filter(
+      (candidate) => !candidate.ended && candidate.root === session.root,
+    );
+    session.sharedRoot = peers.length > 0;
+    for (const peer of peers) peer.sharedRoot = true;
+    this.byTerminal.set(session.terminalId, session);
+  }
 
   constructor(
     private readonly terminals: TerminalManager,
@@ -346,15 +393,36 @@ export class ExternalSessionService {
 
   /** Active sessions for renderer state restore. */
   list(): ExternalSessionSnapshot[] {
-    return [...this.byTerminal.values()].map((s) => ({
-      terminalId: s.terminalId,
-      taskId: s.taskId,
-      cli: s.cli,
-      snapshotRef: s.snapshotRef,
-      status: s.ended ? 'ended' : 'active',
-      captureGrade: s.captureGrade,
-      files: s.lastFiles,
-    }));
+    return [...this.byTerminal.values()].map((session) => this.snapshot(session));
+  }
+
+  /** Reconcile the live worktree with its entry snapshot before opening Diff.
+   * The watcher remains the fast path; this closes correctness gaps when a
+   * platform watcher coalesces or drops a filesystem event. */
+  async reconcile(taskId: string): Promise<ExternalSessionReconcileResult> {
+    const session = [...this.byTerminal.values()].find((candidate) => candidate.taskId === taskId);
+    if (!session || session.ended) {
+      throw new ProductFailure(
+        productError('EXTERNAL_SESSION_REQUIRED', {
+          userMessage: 'This external Session is no longer live. Resume it before refreshing Diff.',
+        }),
+      );
+    }
+    const reconciled = await this.reconcileSnapshotChanges(session, 'on-demand');
+    await this.publish(session, 'active');
+    return { reconciled, session: this.snapshot(session) };
+  }
+
+  private snapshot(session: LiveSession): ExternalSessionSnapshot {
+    return {
+      terminalId: session.terminalId,
+      taskId: session.taskId,
+      cli: session.cli,
+      snapshotRef: session.snapshotRef,
+      status: session.ended ? 'ended' : 'active',
+      captureGrade: session.captureGrade,
+      files: session.lastFiles,
+    };
   }
 
   taskIdForTerminal(terminalId: string): string | null {
@@ -566,7 +634,11 @@ export class ExternalSessionService {
       }
       session.presenceAwaitingReply = false;
       session.presenceSawOutput = false;
-      this.settleFileAttribution(session);
+      // Terminal quiet is only a notification edge for an observed TUI. Claude
+      // and Codex can think silently for tens of seconds before writing; ending
+      // accounting here loses those later files. Keep the live Session as the
+      // workspace owner until process exit (shared roots still pick one owner
+      // by most-recent terminal activity).
       this.emitTurnSettled({
         terminalId: session.terminalId,
         taskId: session.taskId,
@@ -633,14 +705,18 @@ export class ExternalSessionService {
    */
   private armPromptDelivery(session: LiveSession, prompt: string): void {
     session.pendingPrompt = prompt;
-    session.promptDeadlineTimer = setTimeout(
-      () => this.deliverPendingPrompt(session),
-      PROMPT_DELIVERY_DEADLINE_MS,
-    );
-    session.promptDeadlineTimer.unref?.();
+    this.schedulePromptDeadline(session, PROMPT_DELIVERY_DEADLINE_MS);
     // An already-painted TUI (slow detection) produces no further output —
-    // seed one settle window instead of waiting for the deadline.
-    this.notePromptReadiness(session);
+    // seed one settle window instead of waiting for the deadline. Codex is the
+    // exception: process detection regularly wins the race against its first
+    // trust-gate paint, so a seeded timer would type into an unseen gate.
+    if (session.cli !== 'codex') this.notePromptReadiness(session);
+  }
+
+  private schedulePromptDeadline(session: LiveSession, delayMs: number): void {
+    if (session.promptDeadlineTimer) clearTimeout(session.promptDeadlineTimer);
+    session.promptDeadlineTimer = setTimeout(() => this.deliverPendingPrompt(session), delayMs);
+    session.promptDeadlineTimer.unref?.();
   }
 
   private notePromptReadiness(session: LiveSession): void {
@@ -653,6 +729,16 @@ export class ExternalSessionService {
   }
 
   private deliverPendingPrompt(session: LiveSession): void {
+    if (
+      session.cli === 'codex' &&
+      !codexStartupComposerReady(this.terminals.recentData(session.terminalId))
+    ) {
+      // Process detection and the shell's command echo both precede the first
+      // Codex screen. Wait for the actual composer, not merely an absent gate.
+      // Keep this deadline independent of continuously animated MCP startup.
+      this.schedulePromptDeadline(session, PROMPT_SETTLE_QUIET_MS);
+      return;
+    }
     const prompt = session.pendingPrompt;
     session.pendingPrompt = null;
     if (session.promptSettleTimer) clearTimeout(session.promptSettleTimer);
@@ -861,6 +947,7 @@ export class ExternalSessionService {
       watcher,
       unsubscribe: () => {},
       seen: new Set(),
+      sharedRoot: false,
       recomputeTimer: null,
       terminalFlushTimer: null,
       terminalBuffer: '',
@@ -890,7 +977,7 @@ export class ExternalSessionService {
     };
     session.unsubscribe = watcher.onBatch((changes) => this.onBatch(session, changes));
     watcher.start();
-    this.byTerminal.set(terminalId, session);
+    this.registerLiveSession(session);
     if (reattachedTask) await this.reconcileReattachedFiles(session);
     this.onSessionBound?.({ terminalId, taskId });
 
@@ -943,15 +1030,22 @@ export class ExternalSessionService {
   /** Rebuild accounting for writes that landed while no Electron watcher was
    * alive. Both trees include tracked and untracked files, so establishing
    * the original bytes as baselines restores Review and byte-exact rollback. */
-  private async reconcileReattachedFiles(session: LiveSession): Promise<void> {
-    if (!session.git || !session.snapshotRef) return;
+  private async reconcileSnapshotChanges(
+    session: LiveSession,
+    reason: 'reattach' | 'on-demand' | 'exit',
+  ): Promise<number> {
+    if (!session.git || !session.snapshotRef) return 0;
     let reconciled = 0;
     session.work = session.work
       .then(async () => {
         const currentTree = await session.git!.snapshotTree();
         const changed = (
           await session.git!.changedPathsBetweenTrees(session.snapshotRef!, currentTree)
-        ).filter((change) => isAccountablePath(change.path));
+        ).filter(
+          (change) =>
+            isAccountablePath(change.path) &&
+            shouldReconcileSnapshotPath(session.sharedRoot, session.seen.has(change.path)),
+        );
         if (changed.length === 0) return;
         const context = this.tasks.contextForTask(session.taskId);
         for (const change of changed) {
@@ -976,18 +1070,25 @@ export class ExternalSessionService {
             deletions: stats.deletions,
             beforeHash: record.beforeHash,
             afterHash: record.afterHash,
-            recoveredAfterRestart: true,
+            reconciliation: reason,
+            ...(reason === 'reattach' ? { recoveredAfterRestart: true } : {}),
           });
         }
       })
       .catch((error) => {
-        this.logger.warn('external offline change reconciliation failed', {
+        this.logger.warn('external snapshot reconciliation failed', {
           taskId: session.taskId,
           terminalId: session.terminalId,
+          reason,
           error: errorMessage(error),
         });
       });
     await session.work;
+    return reconciled;
+  }
+
+  private async reconcileReattachedFiles(session: LiveSession): Promise<void> {
+    const reconciled = await this.reconcileSnapshotChanges(session, 'reattach');
     await this.publish(session, 'active');
     this.tasks.recordEvent(session.taskId, 'external.offlineChangesReconciled', {
       cli: session.cli,
@@ -1127,6 +1228,10 @@ export class ExternalSessionService {
     session.unsubscribe();
     session.watcher.dispose();
     this.byTerminal.delete(terminalId);
+    // A final tree comparison is the correctness boundary. fs.watch is the
+    // low-latency path, but it is explicitly lossy/coalescing on every desktop
+    // platform and cannot be the only source for the review ledger.
+    await this.reconcileSnapshotChanges(session, 'exit');
     await this.publish(session, 'ended');
     // Establish the conversation id before the task closes into review, so a
     // later resume targets THIS session even after newer ones ran in the same
@@ -1461,7 +1566,8 @@ export class ExternalSessionService {
       git,
       watcher,
       unsubscribe: () => {},
-      seen: new Set(),
+      seen: new Set(changeSet.files.map((file) => file.path)),
+      sharedRoot: false,
       recomputeTimer: null,
       terminalFlushTimer: null,
       terminalBuffer: '',
@@ -1494,7 +1600,7 @@ export class ExternalSessionService {
     };
     session.unsubscribe = watcher.onBatch((changes) => this.onBatch(session, changes));
     watcher.start();
-    this.byTerminal.set(terminalId, session);
+    this.registerLiveSession(session);
     // A continuation task is born active; only a same-task resume flips the
     // source task's status back (and is state-gated in the task service).
     if (input.sameTaskResume) this.tasks.resumeExternalSession(task.id, terminalId);

@@ -39,7 +39,7 @@ import { PreviewBadge } from './RoomPreviewRail.js';
 import { buildPreviewFeedbackText } from './preview-feedback.js';
 import { ExternalTerminalColumn, useExternalFiles } from './ExternalRoom.js';
 import { roomCopyFor } from './roomCopy.js';
-import { SessionToolCanvas, type SessionFileStat } from './SessionToolCanvas.js';
+import { SessionActionDock, SessionToolCanvas, type SessionFileStat } from './SessionToolCanvas.js';
 import { isCurrentVerificationPass, useVerificationEvidence } from './verification-evidence.js';
 import { SessionSplitHandle } from './SessionSplitHandle.js';
 import { CodeContextAttachments } from './CodeContextAttachments.js';
@@ -176,6 +176,14 @@ export function TaskRoomView(): React.JSX.Element {
 
   const running = RUNNING_TASK_STATES.has(task.state);
   const answered = isAnswered(task);
+  const actionDockVisible =
+    app.sessionToolsOpen ||
+    task.state === 'REVIEW_READY' ||
+    task.state === 'FAILED' ||
+    task.state === 'INTERRUPTED' ||
+    task.state === 'AWAITING_USER' ||
+    task.state === 'AWAITING_PERMISSION' ||
+    task.state === 'AWAITING_PLAN_APPROVAL';
   // ADR-0017: an external session's rail is fed by watcher accounting, not by
   // agent tool events (there are none). Same rows, same peek behavior.
   const externalFiles = useExternalFiles(task);
@@ -330,6 +338,29 @@ export function TaskRoomView(): React.JSX.Element {
                 </nav>
               ) : null}
               <PreviewBadge task={task} />
+              <button
+                type="button"
+                className={`session-tools-button ${
+                  app.sessionToolsOpen ? 'back-to-conversation' : ''
+                }`}
+                data-testid={app.sessionToolsOpen ? 'session-tools-back' : 'session-tools-open'}
+                onClick={() => {
+                  if (app.sessionToolsOpen) {
+                    app.setSessionToolsOpen(false);
+                  } else if (task.state === 'REVIEW_READY' && files.length > 0) {
+                    app.setSessionTool('review');
+                  } else {
+                    app.setSessionToolsOpen(true);
+                  }
+                }}
+              >
+                <Ic
+                  name={app.sessionToolsOpen ? 'chevron' : 'layout'}
+                  size={12}
+                  className={app.sessionToolsOpen ? 'session-tools-back-icon' : undefined}
+                />
+                <span>{app.sessionToolsOpen ? 'Conversation' : 'Tools'}</span>
+              </button>
               <div className="session-more" ref={moreRef}>
                 <button
                   className="session-more-button"
@@ -397,7 +428,9 @@ export function TaskRoomView(): React.JSX.Element {
       ) : (
         <div
           ref={canvasBodyRef}
-          className={`tr-body session-canvas-body ${app.sessionToolExpanded ? 'tool-expanded' : ''} ${
+          className={`tr-body session-canvas-body ${
+            app.sessionToolsOpen ? 'tools-open' : 'tools-closed'
+          } ${app.sessionToolExpanded ? 'tool-expanded' : ''} ${
             app.sessionTool === 'preview' && app.sessionToolExpanded ? 'preview-focused' : ''
           } ${
             app.sessionSplit[task.id] !== undefined || app.sessionSplitDragging
@@ -448,6 +481,9 @@ export function TaskRoomView(): React.JSX.Element {
           />
         </div>
       )}
+      {actionDockVisible ? (
+        <SessionActionDock task={task} files={files} verifications={verifications} />
+      ) : null}
       <SessionRenameDialog task={task} open={renameOpen} onClose={() => setRenameOpen(false)} />
     </div>
   );

@@ -42,7 +42,9 @@ test.describe('P3 full mode (ADR-0012)', () => {
       expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).toContain('add(3, 4)');
 
       // Post-settlement rollback (ADR-0012 scoped by ADR-0032): snapshots
-      // survive settlement — the settled dock offers "roll back everything".
+      // survive settlement — Tools reveals the settled dock on demand.
+      await expect(page.getByTestId('task-room-accepted')).toBeHidden();
+      await page.getByTestId('session-tools-open').click();
       await expect(page.getByTestId('task-room-accepted')).toBeVisible();
       await page.getByTestId('task-rollback').click();
       await page.getByTestId('task-rollback-confirm').click();

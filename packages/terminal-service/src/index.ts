@@ -408,7 +408,31 @@ export function sanitizedTerminalEnv(
     if (AGENT_SESSION_ENV_EXACT.includes(key)) continue;
     out[key] = value;
   }
+  // A desktop terminal must not inherit color-disable flags from the process
+  // that launched the app. Login-shell startup files can still opt out again.
+  delete out.NO_COLOR;
+  if (out.FORCE_COLOR === '0') delete out.FORCE_COLOR;
+  if (out.CLICOLOR === '0') delete out.CLICOLOR;
   return out;
+}
+
+/** Advertise the color, Unicode-grid and OSC 8 capabilities xterm actually
+ * provides. Agent TUIs use these flags to enable linked file paths and rich
+ * Markdown output instead of falling back to plain text. */
+export function terminalPresentationEnv(
+  env: Record<string, string | undefined>,
+  appVersion = process.env.CHARTER_APP_VERSION ?? '0.0.0-dev',
+): Record<string, string> {
+  return {
+    ...sanitizedTerminalEnv(env),
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    TERM_PROGRAM: 'Charter',
+    TERM_PROGRAM_VERSION: appVersion,
+    // supports-hyperlinks allowlists known terminal names. Charter uses xterm's
+    // OSC 8 implementation, so explicitly advertise what the renderer handles.
+    FORCE_HYPERLINK: '1',
+  } as Record<string, string>;
 }
 
 // ---------- external agent CLI detection (ADR-0017) ----------
@@ -831,11 +855,9 @@ export class TerminalManager {
     const cols = options.cols ?? 80;
     const rows = options.rows ?? 24;
     const env = {
-      ...sanitizedTerminalEnv(process.env),
+      ...terminalPresentationEnv(process.env),
       ...plan.env,
       ...terminalEnv,
-      TERM: 'xterm-256color',
-      COLORTERM: 'truecolor',
     } as Record<string, string>;
     const info: TerminalInfo = {
       id,

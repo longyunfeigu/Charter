@@ -78,18 +78,21 @@ test.describe('Project Files — one canonical tree in the rail', () => {
       expect(desktopOverflow).toBeLessThanOrEqual(0);
       await page.screenshot({ path: '/tmp/charter-project-files-production-1320.png' });
 
-      // At narrow width the project list becomes an overlay controlled by the
-      // same global Projects icon; the Files pane stays a full rail panel.
+      // At narrow width every rail panel becomes an overlay controlled by the
+      // stable 40px navigation strip.
       await page.setViewportSize({ width: 900, height: 900 });
-      await expect(page.locator('.sr-rail')).toHaveCSS('width', '288px');
-      await expect(page.getByTestId('explorer')).toBeVisible();
+      await expect(page.locator('.sr-rail')).toHaveCSS('width', '40px');
+      await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
       await page.getByTestId('rail-view-projects').click();
-      await expect(page.locator('.sr-rail')).toHaveCSS('width', '44px');
       await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '1');
       await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
       await page.locator('[data-testid^="home-recent-"].active').click();
-      await expect(page.locator('.sr-rail')).toHaveCSS('width', '288px');
+      await expect(page.locator('.sr-rail')).toHaveCSS('width', '40px');
+      await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '1');
       await expect(page.getByTestId('explorer')).toBeVisible();
+      await page.screenshot({ path: '/tmp/charter-project-files-drawer-900.png' });
+      await page.getByTestId('rail-compact-close').click();
+      await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
 
       const narrowOverflow = await page.evaluate(
         () => document.documentElement.scrollWidth - window.innerWidth,

@@ -45,6 +45,8 @@ test.describe('mature CodeContextRef', () => {
       await page.getByTestId('home-intent').fill('[scenario:edit-live] code context live turn');
       await page.getByTestId('home-submit').click();
 
+      await expect(page.getByTestId('session-tools-open')).toBeVisible({ timeout: 20000 });
+      await page.getByTestId('session-tools-open').click();
       const roomBoard = page.locator('[data-testid^="live-board-"]').first();
       await expect(roomBoard).toBeVisible({ timeout: 20000 });
       const liveFile = roomBoard.getByTestId('live-tile-notes-live-a.txt');
@@ -76,11 +78,15 @@ test.describe('mature CodeContextRef', () => {
         await page.screenshot({ path: '/tmp/charter-code-context-1440.png' });
         await page.setViewportSize({ width: 900, height: 900 });
         await expect(page.getByTestId('session-tool-canvas')).toBeVisible();
-        await expect(page.getByTestId('room-code-context-refs')).toBeVisible();
+        await expect(page.getByTestId('room-code-context-refs')).toBeHidden();
         await expect(page.locator('.session-inline-line.addition').first()).toContainText(
           'live board A',
         );
         await page.waitForTimeout(300);
+        await page.screenshot({ path: '/tmp/charter-code-context-tools-900.png' });
+        await page.getByTestId('session-tool-close').click();
+        await expect(page.getByTestId('session-tool-canvas')).toBeHidden();
+        await expect(page.getByTestId('room-code-context-refs')).toBeVisible();
         await page.screenshot({ path: '/tmp/charter-code-context-900.png' });
         await page.setViewportSize({ width: 1440, height: 900 });
       }
