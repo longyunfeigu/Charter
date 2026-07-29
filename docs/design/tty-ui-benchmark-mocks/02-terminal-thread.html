@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>方案 2 - 对话与终端是两个房间</title>
+    <style>
+      :root { --ink:#20322d; --muted:#73827d; --paper:#f5f5ee; --side:#e7ece4; --line:#cfd8d1; --green:#315f53; --mint:#b9e1d2; --terminal:#17211e; }
+      * { box-sizing:border-box; }
+      body { margin:0; min-width:320px; height:100vh; overflow:hidden; color:var(--ink); background:var(--paper); font-family:"Optima","PingFang SC",sans-serif; }
+      button,input { font:inherit; }
+      .app { height:100vh; display:grid; grid-template-columns:240px 1fr; }
+      aside { min-height:0; display:flex; flex-direction:column; background:var(--side); border-right:1px solid var(--line); }
+      .brand { height:54px; display:flex; align-items:center; gap:10px; padding:0 17px; border-bottom:1px solid var(--line); font-weight:800; }
+      .brand i { width:22px; height:22px; display:grid; place-items:center; border-radius:7px; color:white; background:var(--green); font-style:normal; }
+      .section-label { margin:18px 16px 8px; color:#7c8a84; font:800 9px/1 "SF Mono",monospace; letter-spacing:.12em; }
+      .thread { display:grid; grid-template-columns:30px 1fr; gap:8px; margin:3px 8px; padding:9px 10px; border-radius:10px; cursor:pointer; }
+      .thread:hover,.thread.active { background:#f7faf5; box-shadow:0 1px 1px rgba(31,56,47,.05); }
+      .thread .icon { width:27px; height:27px; display:grid; place-items:center; border:1px solid #c3cfc7; border-radius:8px; font:700 11px/1 "SF Mono",monospace; }
+      .thread.active .icon { color:white; background:var(--green); border-color:var(--green); }
+      .thread b { display:block; font-size:12px; }
+      .thread small { display:block; margin-top:3px; color:var(--muted); font-size:10px; }
+      .rule { height:1px; background:var(--line); margin:10px 16px; }
+      .aside-note { margin:auto 12px 12px; padding:13px; border:1px dashed #aebdb4; border-radius:12px; color:#65736e; background:rgba(255,255,255,.35); font-size:11px; line-height:1.65; }
+      .aside-note b { color:var(--green); }
+      main { min-width:0; display:grid; grid-template-rows:54px 1fr; }
+      .top { display:flex; align-items:center; gap:9px; padding:0 18px; border-bottom:1px solid var(--line); background:rgba(252,252,246,.82); backdrop-filter:blur(12px); }
+      .top h1 { margin:0; font-size:14px; }
+      .pill { padding:5px 8px; color:var(--green); background:#dfefe8; border-radius:999px; font:800 9px/1 "SF Mono",monospace; }
+      .switch { margin-left:auto; display:flex; gap:4px; padding:4px; border:1px solid var(--line); border-radius:11px; background:#edf0ea; }
+      .switch button { border:0; border-radius:7px; padding:6px 10px; color:var(--muted); background:transparent; cursor:pointer; font-size:11px; }
+      .switch button.active { color:var(--ink); background:white; box-shadow:0 1px 4px rgba(25,49,40,.12); }
+      .body { min-height:0; position:relative; overflow:hidden; }
+      .view { position:absolute; inset:0; opacity:0; pointer-events:none; transform:translateY(5px); transition:opacity .2s,transform .2s; }
+      .view.active { opacity:1; pointer-events:auto; transform:none; }
+      .terminal-view { display:grid; grid-template-rows:1fr auto; color:#dce8e0; background:var(--terminal); }
+      .terminal-content { overflow:auto; padding:28px clamp(20px,4vw,58px); background:
+          linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px); background-size:100% 25px; font:13px/1.72 "SF Mono","PingFang SC",monospace; }
+      .terminal-head { display:flex; align-items:center; gap:12px; margin-bottom:25px; }
+      .terminal-head .glyph { width:42px; height:42px; display:grid; place-items:center; border:1px solid #507264; border-radius:11px; color:var(--mint); font-size:20px; }
+      .terminal-head b { display:block; }
+      .terminal-head small { color:#789188; }
+      .line { margin:8px 0; white-space:pre-wrap; }
+      .prompt { color:#9ce2c5; font-weight:800; }
+      .dim { color:#81968d; }
+      .tool { margin:15px 0; padding:10px 13px; border-left:2px solid #5d8d78; background:#1b2924; color:#a9bdb4; }
+      .terminal-input { display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center; padding:13px 20px; border-top:1px solid #304038; background:#121b18; }
+      .terminal-input span { color:#9ce2c5; font:800 16px/1 "SF Mono",monospace; }
+      .terminal-input input { min-width:0; color:#e9f1ec; background:transparent; border:0; outline:0; font:12px/1 "SF Mono","PingFang SC",monospace; }
+      .terminal-input button { border:1px solid #4f695e; border-radius:8px; padding:7px 10px; color:#cfe0d8; background:#203029; cursor:pointer; }
+      .conversation-view { overflow:auto; padding:38px clamp(22px,8vw,120px); background:
+          radial-gradient(circle at 70% 15%,rgba(185,225,210,.35),transparent 25rem),var(--paper); }
+      .conversation-view .kicker { color:var(--green); font:800 10px/1 "SF Mono",monospace; letter-spacing:.12em; }
+      .conversation-view h2 { max-width:560px; margin:10px 0 22px; font:700 35px/1.12 "Iowan Old Style","Songti SC",serif; letter-spacing:-.025em; }
+      .message { max-width:760px; margin:14px 0; padding:18px 20px; border:1px solid var(--line); border-radius:16px; background:rgba(255,255,255,.72); box-shadow:0 8px 24px rgba(34,61,51,.06); font-size:13px; line-height:1.75; }
+      .message.user { max-width:590px; margin-left:auto; color:white; background:var(--green); border-color:var(--green); }
+      .handoff { max-width:760px; margin:18px 0; padding:14px 16px; border:1px dashed #96afa3; border-radius:13px; color:#60716a; font-size:12px; }
+      .handoff button { margin-left:8px; border:0; border-bottom:1px solid var(--green); color:var(--green); background:transparent; cursor:pointer; font-weight:800; }
+      @media(max-width:760px){ .app{grid-template-columns:70px 1fr}.brand{justify-content:center;padding:0}.brand span,.section-label,.thread div:not(.icon),.aside-note{display:none}.thread{display:block;padding:8px;margin:5px 10px}.thread .icon{width:34px;height:34px}.top{padding:0 10px}.top .pill{display:none}.conversation-view{padding:24px 16px} }
+      @media(max-width:500px){ .app{grid-template-columns:1fr}.app>aside{display:none}.switch button{padding:6px 7px}.terminal-content{padding:20px 14px} }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside>
+        <div class="brand"><i>C</i><span>Charter</span></div>
+        <div class="section-label">NATIVE THREADS</div>
+        <div class="thread" data-open="conversation"><div class="icon">✦</div><div><b>支付重试设计</b><small>Charter Agent · 12m</small></div></div>
+        <div class="section-label">TERMINAL THREADS</div>
+        <div class="thread active" data-open="terminal"><div class="icon">›_</div><div><b>Claude Code</b><small>native CLI · running</small></div></div>
+        <div class="thread"><div class="icon">›_</div><div><b>Codex</b><small>native CLI · idle</small></div></div>
+        <div class="rule"></div>
+        <div class="thread"><div class="icon">+</div><div><b>New thread</b><small>Agent or Terminal</small></div></div>
+        <div class="aside-note"><b>抄什么</b><br>Zed 的做法：原生 Agent 是一种 Thread，Claude/Codex Terminal 是另一种 Thread。切换就是切换整个房间。</div>
+      </aside>
+      <main>
+        <header class="top"><h1 id="title">Claude Code</h1><span class="pill" id="kind">TERMINAL THREAD</span><div class="switch"><button data-open="conversation">原生对话</button><button class="active" data-open="terminal">CLI Terminal</button></div></header>
+        <section class="body">
+          <div class="view terminal-view active" id="terminalView">
+            <div class="terminal-content" id="terminalContent">
+              <div class="terminal-head"><div class="glyph">›_</div><div><b>Claude Code Terminal Thread</b><small>CLI 自己负责 /model、/skills、权限与补全</small></div></div>
+              <div class="line"><span class="prompt">❯</span> 检查支付重试的幂等性问题</div>
+              <div class="line dim">⏺ 正在搜索 payment attempt 与 retry policy...</div>
+              <div class="tool">Read　src/payment-service.ts<br>Search　idempotencyKey · 8 results</div>
+              <div class="line">第二次 retry 会重新生成 key，这可能造成重复扣款。我准备把 key 绑定到 attempt，而不是 request。</div>
+              <div class="line"><span class="prompt">❯</span> <span class="dim">现在可以直接输入 /model、方向键或 Tab；这里没有 Charter 自制输入框。</span></div>
+            </div>
+            <div class="terminal-input"><span>❯</span><input id="terminalInput" placeholder="Terminal Thread 的真实 CLI 输入" /><button id="send">Enter</button></div>
+          </div>
+          <div class="view conversation-view" id="conversationView">
+            <div class="kicker">CHARTER NATIVE THREAD</div><h2>这是另一个房间，不是假装成 Terminal 的聊天界面。</h2>
+            <div class="message user">总结一下刚才修复了什么，并准备 Review。</div>
+            <div class="message">这次修改把 <code>idempotencyKey</code> 的生命周期提升到了 Payment Attempt，避免重试时生成新 key。新增了并发重试和网络超时两个测试场景。</div>
+            <div class="handoff">CLI 的完整交互仍在相邻的 Terminal Thread。<button data-open="terminal">切回 Claude Code Terminal →</button></div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script>
+      const terminalView=document.querySelector('#terminalView');
+      const conversationView=document.querySelector('#conversationView');
+      const title=document.querySelector('#title');
+      const kind=document.querySelector('#kind');
+      function openView(name){
+        const terminal=name==='terminal'; terminalView.classList.toggle('active',terminal); conversationView.classList.toggle('active',!terminal);
+        document.querySelectorAll('[data-open]').forEach(el=>el.classList.toggle('active',el.dataset.open===name));
+        title.textContent=terminal?'Claude Code':'支付重试设计'; kind.textContent=terminal?'TERMINAL THREAD':'NATIVE THREAD';
+      }
+      document.querySelectorAll('[data-open]').forEach(el=>el.addEventListener('click',()=>openView(el.dataset.open)));
+      const input=document.querySelector('#terminalInput'), content=document.querySelector('#terminalContent');
+      document.querySelector('#send').addEventListener('click',()=>{ if(!input.value.trim())return; const line=document.createElement('div'); line.className='line'; line.textContent='❯ '+input.value; content.append(line); input.value=''; content.scrollTop=content.scrollHeight; });
+    </script>
+  </body>
+</html>

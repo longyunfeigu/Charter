@@ -222,7 +222,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 | Windows | NSIS 安装程序 | `x64` |
 | Linux | `.tar.gz` | `x64` Preview |
 
-这些安装包尚未签名或公证。Gatekeeper、SmartScreen、Smart App Control、企业策略或杀毒软件都可能拒绝启动。请在重要仓库中使用前阅读[发布说明](docs/RELEASE_NOTES.md)、[已知限制](docs/KNOWN_LIMITATIONS.md)、[隐私声明](PRIVACY.md)和[安全策略](SECURITY.md)。预览版需要手动更新。
+这些安装包尚未签名或公证。Gatekeeper、SmartScreen、Smart App Control、企业策略或杀毒软件都可能拒绝启动。请在重要仓库中使用前阅读[发布说明](docs/RELEASE_NOTES.md)、[已知限制](docs/KNOWN_LIMITATIONS.md)、[隐私声明](PRIVACY.md)和[安全策略](SECURITY.md)。已发布 Beta 3 需要手动更新；它早于当前源码树中的更新服务。
 
 ### 从源码运行
 
@@ -375,9 +375,9 @@ CHARTER_README_SHOTS=1 npx playwright test \
 Charter 正在公开开发，并朝首个签名 Stable 桌面版本推进。
 
 - **当前已发布：** `v1.0.0-beta.3` 是当前 unsigned 公开预览版，支持 macOS Apple Silicon、Windows x64 和 Linux x64。
-- **当前源码树已实现：** Session-first 壳层、受管 Agent 路径、外部 CLI 核算与编排、实时文件现场、结构化上下文、Preview、Terminal、Verification、Review、Replay、Memory、Skills 和核心安全边界。
-- **发布流水线：** 三平台打包、发布清单、校验和、SBOM/许可证清单、打包态启动测试、数据库升级/恢复演练和无凭据门禁都已就绪。
-- **Stable 仍待完成：** Apple 公证、可信 Windows 签名、自动更新、固定任务真实 Provider 评估和项目负责人最终确认。
+- **当前源码树已实现：** Session-first 壳层、受管 Agent 路径、外部 CLI 核算与编排、实时文件现场、结构化上下文、Preview、Terminal、Verification、Review、Replay、Memory、Skills、桌面更新服务和核心安全边界。
+- **发布流水线：** 三平台打包、发布清单、校验和、SBOM/许可证清单、打包态启动测试、数据库升级/恢复演练、Stable/Beta updater feed 和无凭据门禁都已就绪。unsigned 预览版与 Linux 只通知并打开下载页；signed macOS/Windows 可以自动检查和后台下载，再等待用户明确重启安装。
+- **Stable 仍待完成：** Apple 公证、可信 Windows 签名、macOS/Windows 双平台 signed update qualification、固定任务真实 Provider 评估和项目负责人最终确认。
 
 本 README 描述当前源码树；可下载 Beta 可能落后于 `main` 上正在进行的工作。Beta 3 的准确内容请查看 [Beta 3 发布说明](docs/RELEASE_NOTES.md)，当前实施证据请查看 [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md)。
 

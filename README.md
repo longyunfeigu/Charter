@@ -198,7 +198,7 @@ Download the current artifact and `SHA256SUMS.txt` from the [latest GitHub Relea
 | Windows | NSIS installer | `x64` |
 | Linux | `.tar.gz` | `x64` Preview |
 
-The binaries are unsigned and not notarized. Gatekeeper, SmartScreen, Smart App Control, enterprise policy, or antivirus software may refuse to launch them. Read the [release notes](docs/RELEASE_NOTES.md), [known limitations](docs/KNOWN_LIMITATIONS.md), [privacy notice](PRIVACY.md), and [security policy](SECURITY.md) before using the preview on an important repository. Updates are manual.
+The binaries are unsigned and not notarized. Gatekeeper, SmartScreen, Smart App Control, enterprise policy, or antivirus software may refuse to launch them. Read the [release notes](docs/RELEASE_NOTES.md), [known limitations](docs/KNOWN_LIMITATIONS.md), [privacy notice](PRIVACY.md), and [security policy](SECURITY.md) before using the preview on an important repository. Updates for the published Beta 3 artifacts are manual; Beta 3 predates the updater now present in the source tree.
 
 ### Run from source
 
@@ -351,9 +351,9 @@ CHARTER_README_SHOTS=1 npx playwright test \
 Charter is being developed in public toward its first signed Stable desktop release.
 
 - **Published now:** `v1.0.0-beta.3` is the current unsigned preview for macOS Apple Silicon, Windows x64, and Linux x64.
-- **Implemented on the current source tree:** the Session-first shell, managed agent path, external CLI accounting and orchestration, live file presence, structured context, Preview, Terminal, Verification, Review, Replay, Memory, Skills, and core security boundaries.
-- **Release pipeline:** three-platform packaging, manifests, checksums, SBOM/license inventory, packaged-app smoke tests, database upgrade/restore rehearsal, and credential-free gates are in place.
-- **Still open for Stable:** Apple notarization, trusted Windows signing, automatic updates, fixed-task real-provider qualification, and final owner sign-off.
+- **Implemented on the current source tree:** the Session-first shell, managed agent path, external CLI accounting and orchestration, live file presence, structured context, Preview, Terminal, Verification, Review, Replay, Memory, Skills, desktop update service, and core security boundaries.
+- **Release pipeline:** three-platform packaging, manifests, checksums, SBOM/license inventory, packaged-app smoke tests, database upgrade/restore rehearsal, Stable/Beta updater feeds, and credential-free gates are in place. Unsigned previews and Linux notify and link only; signed macOS/Windows builds can check and download automatically, then wait for an explicit restart/install action.
+- **Still open for Stable:** Apple notarization, trusted Windows signing, signed update qualification on both desktop platforms, fixed-task real-provider qualification, and final owner sign-off.
 
 The README follows the current source tree; the downloadable Beta may trail ongoing work on `main`. See the [Beta 3 release notes](docs/RELEASE_NOTES.md) for its exact contents and [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for current evidence.
 

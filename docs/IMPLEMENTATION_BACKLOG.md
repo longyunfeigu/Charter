@@ -143,11 +143,11 @@
 | --- | --- | --- | --- | --- |
 | M12-01 | macOS/Windows/Linux package pipelines | M10,M11 | DONE | CI candidate matrix + tag-triggered native release matrix；mac 本地 DMG/ZIP 已验证，远端三平台结果在打 tag 前回填 |
 | M12-02 | 签名/公证配置与 secrets procedure | M12-01 | VERIFIED (Beta) / BLOCKED (Stable) | `docs/SIGNING.md` + ADR-0043；无证书 Beta 仅允许 prerelease，Stable policy fail-closed；付费证书留作 Stable handoff |
-| M12-03 | Stable/Beta update channels 与 rollback | M12-01,M2-03 | VERIFIED (Beta) / BLOCKED (Stable) | GitHub Prerelease 手动下载通道 + E2E-023 migration/restore；无 updater 服务，不宣称自动升级或 Stable |
+| M12-03 | Stable/Beta update channels 与 rollback | M12-01,M2-03 | VERIFIED (source + unsigned Beta) / BLOCKED (signed production qualification) | ADR-0048：signed macOS/Windows 经 `electron-updater` 自动检查/后台下载，显式重启安装前检查 quit blockers 并创建 SQLite 一致备份；unsigned 预览与 Linux 自动查 GitHub Releases、仅通知/链接；Stable=`latest`、Beta=`beta`、禁止降级；unit + IPC + Electron E2E + `beta-mac.yml`/包内 feed 验证。真实签名更新仍待证书与双平台升级资格测试 |
 | M12-04 | SBOM、第三方许可证、隐私与用户文档 | M12-01 | VERIFIED | SPDX SBOM、license inventory、THIRD_PARTY_NOTICES、manifest/checksums + SECURITY/PRIVACY/recovery/limitations/release notes |
-| M12-05 | 干净机器安装/升级/卸载矩阵 | M12-03 | DONE | mac DMG 真安装/启动/清理通过；Windows NSIS 与 Linux tar native CI smoke 已实现，远端结果在打 tag 前回填 |
+| M12-05 | 干净机器安装/升级/卸载矩阵 | M12-03 | DONE | mac DMG 真安装/启动/清理通过；最新 packaged smoke 2/2 含 daemon 跨完整重启；Windows NSIS 与 Linux tar native CI smoke 已实现，远端结果在打 tag 前回填 |
 | M12-06 | E2E-001..024 与 Release Gates 全量 | 全部 | DONE | 本地 138 E2E + 19 条件 skip、E2E-023/024、805 unit、139+2 security、6 perf、50-lap soak；tag workflow 再跑全量 |
-| M12-07 | Beta 修复、RC 冻结、Stable 发布 | M12-06 | READY (Beta 3 candidate) / BLOCKED (Stable) | `1.0.0-beta.3` 由 tag workflow 重跑完整门禁和三平台打包后发布为 Prerelease；Beta 2 的 13 个资产与渠道元数据已验证。Stable 仍需 Apple/Windows 证书、notarization、真实 20-task eval 与 owner sign-off |
+| M12-07 | Beta 修复、RC 冻结、Stable 发布 | M12-06 | READY (Beta 3 published; current source ahead) / BLOCKED (Stable) | 已发布 `1.0.0-beta.3` 仍按 ADR-0043 手动更新；当前源码已实现 ADR-0048 更新服务与 updater feed。Stable 仍需 Apple/Windows 证书、notarization、真实签名升级资格测试、真实 20-task eval 与 owner sign-off |
 
 ## Milestone 13: 会话编排（agent 指挥 agent）
 

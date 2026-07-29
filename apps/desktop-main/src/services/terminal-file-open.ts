@@ -1,4 +1,4 @@
-import { extname, isAbsolute, relative } from 'node:path';
+import { extname, isAbsolute, relative, sep } from 'node:path';
 import { TERMINAL_EXTERNAL_OPEN_EXTENSIONS } from '@pi-ide/ipc-contracts';
 
 const EXTERNAL_EXTS = new Set<string>(TERMINAL_EXTERNAL_OPEN_EXTENSIONS);
@@ -8,22 +8,27 @@ export function terminalOpenAction(path: string): 'external' | 'editor' {
   return EXTERNAL_EXTS.has(extname(path).toLowerCase()) ? 'external' : 'editor';
 }
 
+export type TerminalPathToken =
+  { kind: 'relative'; path: string } | { kind: 'absolute'; path: string };
+
 /**
- * Normalize a clicked terminal token to a cwd-relative path. Absolute tokens
- * (OSC 8 file:// links) must already live under the terminal's cwd — anything
- * else is rejected here, so `resolveInsideRoot` only ever sees relative input
- * and still enforces the lexical + symlink containment on top of this.
+ * Classify a clicked terminal token without weakening relative-path containment.
+ * Absolute paths outside the terminal cwd are an explicit user capability and
+ * may be read for a bounded preview. Relative paths still go through
+ * `resolveInsideRoot`, so `../../secret` never becomes an existence oracle.
  */
-export function cwdRelativeToken(cwd: string, token: string): string | null {
+export function classifyTerminalPathToken(cwd: string, token: string): TerminalPathToken | null {
   const trimmed = token.trim();
   if (!trimmed) return null;
   if (isAbsolute(trimmed)) {
     const rel = relative(cwd, trimmed);
-    // '' means the token IS the cwd — a directory, never an openable file.
-    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null;
-    return rel;
+    if (rel === '') return null;
+    if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+      return { kind: 'absolute', path: trimmed };
+    }
+    return { kind: 'relative', path: rel };
   }
-  return trimmed;
+  return { kind: 'relative', path: trimmed };
 }
 
 /**
@@ -36,14 +41,14 @@ export function cwdRelativeToken(cwd: string, token: string): string | null {
 export async function verifyTokens(
   cwd: string,
   tokens: string[],
-  probe: (cwd: string, rel: string) => Promise<boolean>,
+  probe: (cwd: string, candidate: TerminalPathToken) => Promise<boolean>,
 ): Promise<boolean[]> {
   return Promise.all(
     tokens.map(async (token) => {
-      const rel = cwdRelativeToken(cwd, token);
-      if (rel === null) return false;
+      const candidate = classifyTerminalPathToken(cwd, token);
+      if (candidate === null) return false;
       try {
-        return await probe(cwd, rel);
+        return await probe(cwd, candidate);
       } catch {
         return false;
       }

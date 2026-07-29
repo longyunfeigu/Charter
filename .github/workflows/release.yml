@@ -87,6 +87,7 @@ jobs:
             release/*.zip
             release/*.exe
             release/*.blockmap
+            release/*.yml
             release/*.tar.gz
           if-no-files-found: error
 

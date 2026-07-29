@@ -38,7 +38,7 @@ export const bundles = [
     sourcemap: true,
     target: 'node22',
     alias,
-    external: ['electron', 'node-pty', '@vscode/ripgrep', 'ssh2'],
+    external: ['electron', 'electron-updater', 'node-pty', '@vscode/ripgrep', 'ssh2'],
     define: { 'process.env.NODE_ENV': '"production"' },
   },
   {

@@ -6,6 +6,7 @@ import type {
   SideBarView,
   BottomTab,
   TaskDto,
+  UpdateStateDto,
 } from '@pi-ide/ipc-contracts';
 import { LayoutStateSchema } from '@pi-ide/ipc-contracts';
 import { newId, type ProductError } from '@pi-ide/foundation';
@@ -90,6 +91,17 @@ export interface Toast {
   message: string;
 }
 
+export function updateNoticeKey(update: UpdateStateDto | null): string | null {
+  if (!update?.availableVersion) return null;
+  if (update.phase === 'available' && update.delivery === 'manual') {
+    return `manual:${update.availableVersion}`;
+  }
+  if (update.phase === 'downloaded' && update.delivery === 'automatic') {
+    return `automatic:${update.availableVersion}`;
+  }
+  return null;
+}
+
 export interface SessionCompletionSignal {
   id: string;
   edgeKey: string;
@@ -117,6 +129,8 @@ interface AppStore {
   appInfo: AppInfoDto | null;
   settings: Settings | null;
   settingsIssues: string[];
+  updateState: UpdateStateDto | null;
+  dismissedUpdateNoticeKey: string | null;
   layout: LayoutState;
   paletteOpen: boolean;
   /** ⌘K quick launcher (PIVOT-018): projects, tasks, files, actions. */
@@ -241,6 +255,10 @@ interface AppStore {
   openSettings(section?: SettingsSection): void;
   updateSettings(scope: 'global' | 'workspace', patch: Record<string, unknown>): Promise<void>;
   refreshSettings(): Promise<void>;
+  checkForUpdates(): Promise<void>;
+  openUpdateDownload(): Promise<boolean>;
+  installUpdate(): Promise<boolean>;
+  dismissUpdateNotice(): void;
   pushToast(kind: Toast['kind'], message: string): void;
   dismissToast(id: string): void;
   signalSessionReply(taskId: string, edgeKey: string): void;
@@ -426,6 +444,8 @@ export const useAppStore = create<AppStore>((set, get) => {
     appInfo: null,
     settings: null,
     settingsIssues: [],
+    updateState: null,
+    dismissedUpdateNoticeKey: null,
     layout: LayoutStateSchema.parse({}),
     paletteOpen: false,
     launcherOpen: false,
@@ -813,10 +833,11 @@ export const useAppStore = create<AppStore>((set, get) => {
     },
 
     async init() {
-      const [info, settingsState, layoutRes] = await Promise.all([
+      const [info, settingsState, layoutRes, updateState] = await Promise.all([
         rpcResult('app.getInfo', {}),
         rpcResult('settings.get', {}),
         rpcResult('layout.get', {}),
+        rpcResult('updates.getState', {}),
       ]);
       if (info.ok) set({ appInfo: info.data });
       if (settingsState.ok) {
@@ -824,6 +845,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         set({ settings: settingsState.data.effective, settingsIssues: settingsState.data.issues });
       }
       if (layoutRes.ok && layoutRes.data.layout) set({ layout: layoutRes.data.layout });
+      if (updateState.ok) set({ updateState: updateState.data });
       set({ ready: true });
 
       window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -831,6 +853,9 @@ export const useAppStore = create<AppStore>((set, get) => {
       });
       onEvent('settings.changed', () => {
         void get().refreshSettings();
+      });
+      onEvent('updates.changed', (next) => {
+        set({ updateState: next });
       });
     },
 
@@ -934,6 +959,53 @@ export const useAppStore = create<AppStore>((set, get) => {
         applyAppearance(result.data.effective);
         set({ settings: result.data.effective, settingsIssues: result.data.issues });
       }
+    },
+
+    async checkForUpdates() {
+      const result = await rpcResult('updates.check', {});
+      if (result.ok) set({ updateState: result.data });
+      else get().pushToast('error', result.error.userMessage);
+    },
+
+    async openUpdateDownload() {
+      const result = await rpcResult('updates.openDownload', {});
+      if (!result.ok || !result.data.opened) {
+        get().pushToast(
+          'error',
+          result.ok ? 'Could not open the release page.' : result.error.userMessage,
+        );
+        return false;
+      }
+      get().dismissUpdateNotice();
+      return true;
+    },
+
+    async installUpdate() {
+      let result = await rpcResult('updates.install', { force: false });
+      if (result.ok && result.data.blockers.length > 0) {
+        const detail = result.data.blockers.map((blocker) => `• ${blocker}`).join('\n');
+        if (
+          !window.confirm(`Work is still in progress:\n\n${detail}\n\nRestart and install anyway?`)
+        ) {
+          return false;
+        }
+        result = await rpcResult('updates.install', { force: true });
+      }
+      if (!result.ok) {
+        get().pushToast('error', result.error.userMessage);
+        return false;
+      }
+      if (!result.data.installing) {
+        get().pushToast('warning', 'The update is not ready to install yet.');
+        return false;
+      }
+      get().dismissUpdateNotice();
+      return true;
+    },
+
+    dismissUpdateNotice() {
+      const key = updateNoticeKey(get().updateState);
+      if (key) set({ dismissedUpdateNoticeKey: key });
     },
 
     pushToast(kind, message) {

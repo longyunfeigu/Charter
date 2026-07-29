@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>方案 1 - 终端就是产品</title>
+    <style>
+      :root { --bg:#0c1110; --panel:#111816; --panel2:#151d1a; --line:#27312d; --text:#e8eee9; --muted:#84918a; --lime:#bbf06a; --orange:#ff7550; }
+      * { box-sizing: border-box; }
+      body { margin:0; min-width:320px; height:100vh; overflow:hidden; color:var(--text); background:var(--bg); font-family:"Avenir Next","PingFang SC",sans-serif; }
+      button, textarea { font:inherit; }
+      .app { height:100vh; display:grid; grid-template-rows:44px 1fr; }
+      .topbar { display:flex; align-items:center; gap:12px; padding:0 15px; background:#0a0e0d; border-bottom:1px solid var(--line); }
+      .mark { display:flex; align-items:center; gap:8px; font-weight:800; letter-spacing:.03em; }
+      .mark i { width:17px; height:17px; border:5px solid var(--lime); border-right-color:transparent; border-radius:50%; transform:rotate(-20deg); }
+      .tag { color:#0b100e; background:var(--lime); border-radius:999px; padding:4px 8px; font:800 9px/1 "SF Mono",monospace; letter-spacing:.08em; }
+      .crumb { color:var(--muted); font:11px/1 "SF Mono",monospace; }
+      .top-actions { margin-left:auto; display:flex; gap:6px; }
+      .top-actions button { color:var(--muted); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 9px; cursor:pointer; font-size:11px; }
+      .top-actions button:hover { color:var(--text); border-color:#46534d; }
+      .workspace { min-height:0; display:grid; grid-template-columns:52px 210px minmax(0,1fr) 240px; }
+      .rail { border-right:1px solid var(--line); padding:10px 7px; display:flex; flex-direction:column; gap:7px; background:#0b100f; }
+      .rail button { width:38px; height:38px; border:0; border-radius:10px; color:#75827b; background:transparent; cursor:pointer; font-size:16px; }
+      .rail button.active { color:var(--lime); background:#1a251f; }
+      .tree { min-width:0; border-right:1px solid var(--line); background:var(--panel); padding:15px 12px; }
+      .tree-head, .side-head { display:flex; align-items:center; justify-content:space-between; color:var(--muted); font:800 9px/1 "SF Mono",monospace; letter-spacing:.12em; }
+      .branch { margin-top:16px; color:#b7c1bb; font-size:11px; }
+      .files { margin-top:12px; display:grid; gap:8px; color:var(--muted); font:11px/1.2 "SF Mono",monospace; }
+      .files span.active { color:var(--text); background:#1d2823; border-radius:6px; padding:7px 8px; margin:-7px -8px; }
+      .terminal-wrap { min-width:0; display:grid; grid-template-rows:40px 1fr auto; background:
+          radial-gradient(circle at 86% 8%,rgba(187,240,106,.06),transparent 22rem),#0d1311; }
+      .term-tabs { display:flex; align-items:end; gap:2px; padding:0 10px; border-bottom:1px solid var(--line); background:#0d1210; }
+      .term-tab { height:34px; display:flex; align-items:center; gap:8px; padding:0 12px; margin-top:6px; color:var(--text); background:var(--panel2); border:1px solid var(--line); border-bottom:0; border-radius:8px 8px 0 0; font:11px/1 "SF Mono",monospace; }
+      .live { width:6px; height:6px; border-radius:50%; background:var(--lime); box-shadow:0 0 10px var(--lime); }
+      .terminal { min-height:0; overflow:auto; padding:22px 24px 14px; font:12.5px/1.65 "SF Mono","PingFang SC",monospace; }
+      .hero { display:flex; align-items:center; gap:12px; margin-bottom:22px; color:var(--lime); }
+      .hero-logo { font-size:31px; font-weight:900; letter-spacing:-.12em; }
+      .hero b { display:block; color:var(--text); letter-spacing:.03em; }
+      .hero small { color:var(--muted); }
+      .line { margin:7px 0; white-space:pre-wrap; }
+      .prompt { color:var(--lime); font-weight:800; }
+      .dim { color:var(--muted); }
+      .tool { margin:14px 0; padding:10px 12px; border-left:2px solid #52645b; background:#111915; color:#a9b6ae; }
+      .tool strong { color:#d8e3dc; }
+      .success { color:var(--lime); }
+      .slash-menu, .permission { display:none; width:min(540px,95%); margin:10px 0 6px; padding:8px; background:#18211e; border:1px solid #3c4a43; border-radius:10px; box-shadow:0 18px 45px rgba(0,0,0,.36); }
+      .slash-menu.show, .permission.show { display:block; }
+      .slash-row { display:grid; grid-template-columns:110px 1fr; gap:12px; padding:7px 9px; border-radius:6px; color:var(--muted); }
+      .slash-row:first-child { color:#0b100e; background:var(--lime); }
+      .slash-row code { color:inherit; }
+      .permission { border-color:#6d5d2d; background:#211e15; }
+      .permission b { color:#ffcc68; }
+      .permission .keys { margin-top:10px; color:#b9ae8a; }
+      .inputbar { display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:end; margin:0 14px 14px; padding:12px 14px; background:#141d19; border:1px solid #344039; border-radius:12px; box-shadow:0 16px 36px rgba(0,0,0,.24); }
+      .inputbar .chev { color:var(--lime); font:900 19px/1 "SF Mono",monospace; padding-bottom:5px; }
+      textarea { resize:none; min-height:32px; max-height:76px; padding:6px 0; color:var(--text); background:transparent; border:0; outline:0; font:13px/1.5 "SF Mono","PingFang SC",monospace; }
+      .send { border:0; border-radius:8px; padding:8px 12px; color:#0c110f; background:var(--lime); cursor:pointer; font-weight:800; }
+      .changes { min-width:0; background:var(--panel); border-left:1px solid var(--line); padding:15px 14px; }
+      .metric { margin-top:15px; padding:12px; background:#17201c; border:1px solid var(--line); border-radius:10px; }
+      .metric strong { color:var(--lime); font-size:22px; }
+      .metric small { display:block; margin-top:3px; color:var(--muted); }
+      .change { margin-top:14px; color:#b5c0b9; font:11px/1.55 "SF Mono",monospace; }
+      .change em { color:var(--lime); font-style:normal; }
+      .principle { margin-top:22px; padding-top:16px; border-top:1px solid var(--line); color:var(--muted); font-size:11px; line-height:1.65; }
+      .principle b { display:block; color:var(--orange); margin-bottom:4px; }
+      @media(max-width:900px){ .workspace{grid-template-columns:48px 1fr}.tree,.changes{display:none}.terminal{padding:18px 16px}.topbar .crumb{display:none} }
+      @media(max-width:540px){ .top-actions button:nth-child(1){display:none}.tag{display:none}.terminal{font-size:11.5px}.inputbar{margin:0 8px 8px}.rail{display:none}.workspace{grid-template-columns:1fr} }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="mark"><i></i> CHARTER</div><span class="tag">方案 1 · 零适配</span>
+        <span class="crumb">payments / agent-terminal</span>
+        <div class="top-actions">
+          <button data-demo="normal">普通回答</button><button data-demo="slash">输入 /model</button><button data-demo="permission">权限确认</button>
+        </div>
+      </header>
+      <div class="workspace">
+        <nav class="rail"><button>⌂</button><button class="active">›_</button><button>⌘</button><button>⇄</button></nav>
+        <aside class="tree">
+          <div class="tree-head">EXPLORER <span>•••</span></div><div class="branch">⌄ charter-payments</div>
+          <div class="files"><span>⌄ src</span><span class="active">　payment-service.ts</span><span>　retry-policy.ts</span><span>⌄ tests</span><span>　payment.spec.ts</span><span>　package.json</span></div>
+        </aside>
+        <main class="terminal-wrap">
+          <div class="term-tabs"><div class="term-tab"><i class="live"></i> claude · payments</div></div>
+          <section class="terminal" id="terminal">
+            <div class="hero"><div class="hero-logo">◢◤</div><div><b>Claude Code</b><small>Opus 4.1 · ~/charter-payments</small></div></div>
+            <div class="line"><span class="prompt">❯</span> 修复支付重试时可能重复扣款的问题，并补测试。</div>
+            <div class="line dim">⏺ 我会先检查 retry path 和 idempotency key 的生成位置。</div>
+            <div class="tool"><strong>Read</strong>　src/payment-service.ts<br><strong>Search</strong>　"retryPayment" in src</div>
+            <div class="line">问题出在第二次重试重新生成了 idempotency key。我会把 key 提升到整个 payment attempt 的生命周期。</div>
+            <div class="tool"><strong>Edit</strong>　src/payment-service.ts <span class="success">+12 -5</span><br><strong>Write</strong>　tests/payment.spec.ts <span class="success">+38</span></div>
+            <div class="line success">✓ 12 tests passed　·　2 files changed</div>
+            <div class="slash-menu" id="slashMenu">
+              <div class="slash-row"><code>/model</code><span>切换当前模型</span></div><div class="slash-row"><code>/memory</code><span>查看与编辑项目记忆</span></div><div class="slash-row"><code>/skills</code><span>浏览当前可用 Skills</span></div><div class="slash-row"><code>/effort</code><span>调整推理强度</span></div>
+            </div>
+            <div class="permission" id="permission"><b>Allow Bash command?</b><br><span>npm test -- payment.spec.ts</span><div class="keys">› 1. Yes　 2. Yes, always　 3. No　　↑↓ select · Enter confirm</div></div>
+          </section>
+          <div class="inputbar"><span class="chev">❯</span><textarea id="ttyInput" rows="1" spellcheck="false" placeholder="这里就是 CLI 的真实输入行；试试输入 /"></textarea><button class="send" id="send">发送</button></div>
+        </main>
+        <aside class="changes"><div class="side-head">LIVE CHANGES <span>●</span></div><div class="metric"><strong>2</strong><small>files changed</small></div><div class="change"><em>+12 -5</em>　payment-service.ts</div><div class="change"><em>+38</em>　　 payment.spec.ts</div><div class="principle"><b>抄什么</b>抄 Warp / Superset：终端不是“备用入口”，终端本身就是 Agent 产品。Charter 只在旁边增加 Changes、Review 和文件树。</div></aside>
+      </div>
+    </div>
+    <script>
+      const input = document.querySelector('#ttyInput');
+      const slash = document.querySelector('#slashMenu');
+      const permission = document.querySelector('#permission');
+      const terminal = document.querySelector('#terminal');
+      function reset(){ slash.classList.remove('show'); permission.classList.remove('show'); }
+      function demo(type){ reset(); if(type === 'slash'){ input.value='/model'; slash.classList.add('show'); } else if(type === 'permission'){ input.value=''; permission.classList.add('show'); } else { input.value='继续解释一下你的修改'; input.focus(); } terminal.scrollTop=terminal.scrollHeight; }
+      document.querySelectorAll('[data-demo]').forEach(button => button.addEventListener('click', () => demo(button.dataset.demo)));
+      input.addEventListener('input', () => { permission.classList.remove('show'); slash.classList.toggle('show', input.value.startsWith('/')); terminal.scrollTop=terminal.scrollHeight; });
+      document.querySelector('#send').addEventListener('click', () => { if(!input.value.trim()) return; reset(); const line=document.createElement('div'); line.className='line'; line.innerHTML='<span class="prompt">❯</span> '+input.value.replace(/[<>]/g,''); terminal.append(line); input.value=''; terminal.scrollTop=terminal.scrollHeight; });
+    </script>
+  </body>
+</html>

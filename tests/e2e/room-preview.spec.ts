@@ -7,7 +7,7 @@ import { createTsSmallFixture } from './helpers/fixtures';
 
 /**
  * ADR-0022 am.2 — the Room's live window: badge-only detection, persistent
- * rail in ANY state (incl. after full-auto accept), element pick → composer
+ * rail in ANY state (incl. after full-auto accept), element select → composer
  * chip → steer with selector+screenshot, console capture with manual send,
  * and closed-task feedback seeding a follow-up task.
  */
@@ -40,7 +40,7 @@ function startServer(
 }
 
 test.describe('Room live preview (ADR-0022 am.2)', () => {
-  test('full-auto task: badge lights, rail opens after auto-accept, pick → chip → follow-up seeded with the screenshot', async () => {
+  test('full-auto task: badge lights, rail opens after auto-accept, select → chip → follow-up seeded with the screenshot', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
@@ -83,9 +83,12 @@ test.describe('Room live preview (ADR-0022 am.2)', () => {
         { timeout: 15000 },
       );
 
-      // Element pick: injected picker → click the hint INSIDE the iframe →
+      // Element select: injected picker → click the hint INSIDE the iframe →
       // chip lands in the composer with the selector.
-      await page.getByTestId('preview-mode-pick').click();
+      const selectMode = page.getByTestId('preview-mode-pick');
+      await expect(selectMode).toContainText('Select');
+      await selectMode.click();
+      await expect(selectMode).toHaveAttribute('aria-checked', 'true');
       await expect(page.getByTestId('preview-pick-hint')).toBeVisible({ timeout: 10000 });
       await page.frameLocator('[data-testid="preview-frame"]').locator('#hint').click();
       await page.getByTestId('session-tool-close').click();
@@ -121,7 +124,7 @@ test.describe('Room live preview (ADR-0022 am.2)', () => {
     }
   });
 
-  test('running task: pick feedback steers the SAME run; console errors collect and send manually', async () => {
+  test('running task: selected-element feedback steers the SAME run; console errors collect and send manually', async () => {
     const fixture = createTsSmallFixture();
     writeFileSync(
       join(fixture, 'package.json'),

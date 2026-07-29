@@ -32,6 +32,7 @@ import { useEditorStore } from '../store/editorStore.js';
 import { Ic } from '../views/home-icons.js';
 import { QuickConsole } from '../views/QuickConsole.js';
 import { useQuickConsoleStore } from '../store/quickConsoleStore.js';
+import { ExternalFilePreview } from '../views/ExternalFilePreview.js';
 
 function ProblemsStatusItem(): React.JSX.Element {
   const problems = useProblems();
@@ -75,7 +76,7 @@ export function registerM4(): void {
   bottomTabRegistry.problems = ProblemsPanel;
   bottomTabRegistry.terminal = TerminalPanel;
   externalPanelRegistry.main = ExternalPanel;
-  overlayRegistry.push(QuickOpen, RenamePreviewOverlay, QuickConsole);
+  overlayRegistry.push(QuickOpen, RenamePreviewOverlay, QuickConsole, ExternalFilePreview);
   editorBannerRegistry.push(PythonBanner);
   statusBarRegistry.left.push(ProblemsStatusItem, TsProjectStatusItem);
   statusBarRegistry.right.unshift(TerminalContextsStatusItem);

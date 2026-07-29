@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en" data-mock-mode="playable">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pi — Session Replay Story Stage</title>
+  <style>
+    :root {
+      --ink: #242521;
+      --muted: #6e6d65;
+      --faint: #98958b;
+      --paper: #f6f3ec;
+      --sheet: #fffdf8;
+      --line: #dcd6ca;
+      --line-strong: #c9c1b3;
+      --green: #2f7354;
+      --green-soft: #e3eee5;
+      --blue: #3f6595;
+      --blue-soft: #e8edf4;
+      --amber: #9d6a22;
+      --amber-soft: #f4e9d2;
+      --violet: #725d87;
+      --violet-soft: #eee9f1;
+      --gray-soft: #ece9e2;
+      --red: #a84d3f;
+      --shadow: 0 12px 34px rgba(48, 42, 32, .08);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { min-width: 68rem; font-synthesis: none; overflow-wrap: break-word; background: #ded9ce; }
+    body {
+      margin: 0;
+      height: 100vh;
+      min-height: 44rem;
+      overflow: hidden;
+      color: var(--ink);
+      background: #ded9ce;
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input { color: inherit; font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible { outline: 3px solid rgba(63, 101, 149, .42); outline-offset: 2px; }
+    [hidden] { display: none !important; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    svg { display: block; }
+
+    .shell {
+      height: calc(100vh - 62px);
+      min-height: 638px;
+      display: grid;
+      grid-template-rows: 60px minmax(0, 1fr);
+      overflow: hidden;
+      background: var(--paper);
+      border-bottom: 1px solid #c8c1b5;
+    }
+
+    .product-head {
+      display: grid;
+      grid-template-columns: minmax(250px, 1fr) auto minmax(250px, 1fr);
+      align-items: center;
+      gap: 20px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 253, 248, .94);
+    }
+    .back-btn, .session-btn, .quiet-btn, .icon-btn, .chapter, .evidence-card, .file-pill {
+      border: 0;
+      background: none;
+    }
+    .back-btn { justify-self: start; display: inline-flex; align-items: center; gap: 9px; padding: 8px 10px 8px 2px; font-size: 12px; font-weight: 680; }
+    .back-btn .arrow { font-size: 17px; transform: translateY(-1px); }
+    .head-title { text-align: center; line-height: 1.15; }
+    .head-title strong { display: block; font-family: Georgia, "Times New Roman", serif; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+    .head-title span { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; letter-spacing: .02em; }
+    .head-actions { justify-self: end; display: flex; align-items: center; gap: 12px; }
+    .read-only { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .09em; }
+    .read-only::before { content: ""; width: 7px; height: 7px; border: 1px solid var(--blue); border-radius: 50%; background: var(--blue-soft); }
+    .session-btn { padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--sheet); font-size: 11px; font-weight: 700; box-shadow: 0 1px 0 rgba(40, 35, 28, .04); }
+
+    .replay-layout {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 226px minmax(0, 1fr) 306px;
+      overflow: hidden;
+    }
+
+    .chapter-rail {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 20px 12px 14px 18px;
+      border-right: 1px solid var(--line);
+      background: #f0ede5;
+    }
+    .rail-kicker, .eyebrow, .panel-kicker { color: var(--faint); font-size: 9px; font-weight: 760; letter-spacing: .12em; text-transform: uppercase; }
+    .rail-title { margin: 7px 4px 14px 0; font-family: Georgia, "Times New Roman", serif; font-size: 21px; line-height: 1.08; font-weight: 500; letter-spacing: -.025em; }
+    .rail-title small { display: block; margin-top: 7px; color: var(--muted); font-family: Inter, sans-serif; font-size: 10px; line-height: 1.45; letter-spacing: 0; }
+    .chapters { position: relative; display: flex; flex-direction: column; gap: 3px; min-height: 0; }
+    .chapters::before { content: ""; position: absolute; left: 15px; top: 20px; bottom: 20px; width: 1px; background: var(--line-strong); }
+    .chapter {
+      position: relative;
+      display: grid;
+      grid-template-columns: 31px minmax(0, 1fr);
+      gap: 8px;
+      width: 100%;
+      padding: 7px 6px 7px 0;
+      border-radius: 9px;
+      text-align: left;
+      transition: background .18s ease, transform .18s ease;
+    }
+    .chapter:hover { background: rgba(255,255,255,.55); }
+    .chapter.active { background: var(--sheet); box-shadow: 0 2px 12px rgba(48,42,32,.05); transform: translateX(2px); }
+    .chapter .dot { position: relative; z-index: 1; display: grid; place-items: center; width: 31px; height: 31px; border: 1px solid var(--line-strong); border-radius: 50%; background: #f0ede5; color: var(--muted); font-size: 10px; font-weight: 760; }
+    .chapter.active .dot { border-color: var(--ink); background: var(--ink); color: #fff; }
+    .chapter-copy { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+    .chapter-copy strong { font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chapter-copy small { margin-top: 2px; color: var(--muted); font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rail-footer { margin-top: auto; padding: 11px 4px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 9px; line-height: 1.45; }
+    .rail-footer strong { color: var(--ink); }
+
+    .stage-column { min-width: 0; min-height: 0; display: grid; grid-template-rows: 126px minmax(0, 1fr); overflow: hidden; background: var(--paper); }
+    .result-contract { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(180px, .8fr); gap: 22px; padding: 17px 24px 15px; border-bottom: 1px solid var(--line); background: var(--sheet); }
+    .contract-title { min-width: 0; }
+    .contract-title .eyebrow { display: flex; align-items: center; gap: 9px; color: var(--green); }
+    .contract-title .eyebrow::before { content: "✓"; display: grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; background: var(--green); color: #fff; font-size: 10px; }
+    .contract-title h1 { margin: 6px 0 5px; font-family: Georgia, "Times New Roman", serif; font-size: clamp(22px, 2vw, 29px); line-height: 1.06; font-weight: 500; letter-spacing: -.03em; }
+    .contract-title p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .contract-facts { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); align-content: center; gap: 11px 16px; }
+    .contract-fact span { display: block; margin-bottom: 3px; color: var(--faint); font-size: 8px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+    .contract-fact strong { display: block; font-size: 11px; font-weight: 720; white-space: nowrap; }
+    .contract-fact strong.good { color: var(--green); }
+    .coverage { display: flex; height: 5px; margin-top: 5px; overflow: hidden; border-radius: 5px; background: var(--gray-soft); }
+    .coverage i:nth-child(1) { width: 34%; background: var(--green); }
+    .coverage i:nth-child(2) { width: 47%; background: var(--blue); }
+    .coverage i:nth-child(3) { width: 14%; background: var(--amber); }
+    .coverage i:nth-child(4) { width: 5%; background: #aaa59a; }
+
+    .artifact-stage { min-height: 0; display: flex; flex-direction: column; padding: 18px 24px 20px; overflow: hidden; }
+    .stage-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 13px; }
+    .stage-head-left { min-width: 0; }
+    .stage-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+    .step-count { color: var(--faint); font-size: 9px; font-weight: 760; letter-spacing: .1em; text-transform: uppercase; }
+    .truth-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border: 1px solid currentColor; border-radius: 99px; font-size: 8px; font-weight: 780; letter-spacing: .06em; text-transform: uppercase; }
+    .truth-chip.verified { color: var(--green); background: var(--green-soft); }
+    .truth-chip.recorded { color: var(--blue); background: var(--blue-soft); }
+    .truth-chip.observed { color: var(--amber); background: var(--amber-soft); border-style: dashed; }
+    .truth-chip.inferred { color: var(--violet); background: var(--violet-soft); border-style: dashed; }
+    .truth-chip.missing { color: var(--muted); background: var(--gray-soft); }
+    .stage-head h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 24px; line-height: 1.14; font-weight: 500; letter-spacing: -.02em; }
+    .stage-head p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+    .stage-clock { flex: none; padding-top: 19px; color: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+    .stage-canvas { flex: 1; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: var(--sheet); box-shadow: var(--shadow); }
+    .canvas-inner { height: 100%; animation: settle .32s ease both; }
+
+    .result-scene { height: 100%; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(250px, .85fr); }
+    .result-copy { display: flex; flex-direction: column; justify-content: center; padding: 34px 40px; border-right: 1px solid var(--line); }
+    .result-copy .mark { display: grid; place-items: center; width: 36px; height: 36px; margin-bottom: 18px; border-radius: 50%; background: var(--green); color: #fff; font-size: 19px; }
+    .result-copy h3 { max-width: 520px; margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(25px, 2.4vw, 38px); line-height: 1.08; font-weight: 500; letter-spacing: -.035em; }
+    .result-copy p { max-width: 530px; margin: 13px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .output-stack { display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 28px; background: #f2efe7; }
+    .output-card { padding: 15px; border: 1px solid var(--line); border-radius: 11px; background: var(--sheet); }
+    .output-card header { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
+    .file-icon { display: grid; place-items: center; width: 25px; height: 29px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--blue); font-size: 10px; font-weight: 800; }
+    .output-card strong { display: block; font-size: 10px; }
+    .output-card small { display: block; margin-top: 2px; color: var(--faint); font-size: 8px; }
+    .tiny-lines { display: grid; gap: 5px; }
+    .tiny-lines i { display: block; height: 4px; border-radius: 3px; background: #e4dfd5; }
+    .tiny-lines i:nth-child(1) { width: 92%; } .tiny-lines i:nth-child(2) { width: 74%; } .tiny-lines i:nth-child(3) { width: 83%; }
+
+    .quote-scene { height: 100%; display: grid; place-items: center; padding: 42px; background: #f3efe6; }
+    .quote-card { position: relative; max-width: 720px; padding: 32px 36px 28px; border: 1px solid var(--line); background: var(--sheet); box-shadow: 0 8px 30px rgba(48,42,32,.07); }
+    .quote-card::before { content: "“"; position: absolute; top: 8px; left: 15px; color: #d3cab9; font-family: Georgia, serif; font-size: 52px; line-height: 1; }
+    .quote-card blockquote { margin: 0; padding-left: 15px; font-family: Georgia, serif; font-size: 24px; line-height: 1.35; letter-spacing: -.015em; }
+    .quote-card footer { display: flex; align-items: center; justify-content: space-between; margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+
+    .plan-scene { height: 100%; display: grid; grid-template-columns: .75fr 1.25fr; }
+    .plan-index { padding: 28px; border-right: 1px solid var(--line); background: #f2efe7; }
+    .plan-index h3 { margin: 7px 0 18px; font-family: Georgia, serif; font-size: 22px; font-weight: 500; }
+    .plan-index ol { margin: 0; padding-left: 18px; color: var(--muted); font-size: 11px; line-height: 2; }
+    .plan-index li.active { color: var(--ink); font-weight: 750; }
+    .plan-note { display: flex; flex-direction: column; justify-content: center; padding: 34px; }
+    .plan-note h4 { margin: 0 0 8px; font-family: Georgia, serif; font-size: 27px; font-weight: 500; }
+    .plan-note p { max-width: 560px; margin: 0 0 16px; color: var(--muted); font-size: 12px; line-height: 1.65; }
+    .revision { display: flex; gap: 11px; padding: 13px 14px; border-left: 3px solid var(--amber); background: var(--amber-soft); font-size: 11px; line-height: 1.45; }
+    .revision strong { color: var(--amber); white-space: nowrap; }
+
+    .research-scene { height: 100%; padding: 26px 30px; background: #f2efe7; }
+    .source-grid { height: 100%; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+    .source-card { display: flex; flex-direction: column; padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); }
+    .source-card .source-no { color: var(--faint); font-size: 9px; }
+    .source-card h4 { margin: 17px 0 8px; font-family: Georgia, serif; font-size: 18px; line-height: 1.2; font-weight: 500; }
+    .source-card p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+    .source-card footer { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); color: var(--blue); font-size: 9px; }
+
+    .permission-scene { height: 100%; display: grid; place-items: center; padding: 36px; background: #f3efe7; }
+    .permission-card { width: min(620px, 92%); border: 1px solid var(--line-strong); border-radius: 12px; background: var(--sheet); box-shadow: 0 12px 34px rgba(48,42,32,.09); }
+    .permission-card header { display: flex; justify-content: space-between; gap: 20px; padding: 17px 19px; border-bottom: 1px solid var(--line); }
+    .permission-card h3 { margin: 0; font-family: Georgia, serif; font-size: 20px; font-weight: 500; }
+    .permission-card header span { color: var(--green); font-size: 10px; font-weight: 750; }
+    .permission-body { padding: 18px 20px; }
+    .permission-body p { margin: 0 0 13px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .command { padding: 11px 13px; border: 1px solid var(--line); border-radius: 8px; background: #f0ede6; font-size: 10px; }
+    .permission-card footer { display: flex; align-items: center; justify-content: space-between; padding: 13px 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 9px; }
+
+    .document-scene { height: 100%; display: grid; grid-template-columns: 56px minmax(0,1fr); background: #efebe3; }
+    .doc-gutter { display: flex; justify-content: center; padding-top: 24px; border-right: 1px solid var(--line); color: var(--faint); font-size: 9px; }
+    .paper-page { width: min(660px, calc(100% - 52px)); height: calc(100% - 34px); margin: 17px auto; padding: 28px 42px; overflow: hidden; background: #fffefa; box-shadow: 0 5px 24px rgba(48,42,32,.08); }
+    .paper-page h3 { margin: 0 0 6px; font-family: Georgia, serif; font-size: 26px; font-weight: 500; letter-spacing: -.02em; }
+    .paper-page .byline { margin-bottom: 19px; color: var(--faint); font-size: 8px; text-transform: uppercase; letter-spacing: .12em; }
+    .paper-page h4 { margin: 15px 0 6px; font-family: Georgia, serif; font-size: 13px; }
+    .paper-page p { margin: 0 0 8px; color: #56564f; font-size: 10px; line-height: 1.55; }
+    .highlight-line { margin-left: -11px !important; padding: 7px 10px; border-left: 3px solid var(--green); background: var(--green-soft); }
+
+    .sheet-scene { height: 100%; display: flex; flex-direction: column; background: #f0ede6; }
+    .sheet-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--sheet); font-size: 9px; }
+    .sheet-toolbar strong { margin-right: auto; }
+    .sheet-grid { flex: 1; padding: 14px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; background: var(--sheet); table-layout: fixed; font-size: 9px; }
+    th, td { height: 34px; padding: 7px 9px; border: 1px solid var(--line); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    th { color: var(--muted); background: #ebe7de; font-weight: 750; }
+    td.done { color: var(--green); font-weight: 750; background: var(--green-soft); }
+    td.owner { color: var(--blue); }
+
+    .validation-scene { height: 100%; display: grid; grid-template-columns: minmax(0,1fr) 210px; background: #f1eee7; }
+    .terminal { margin: 18px; padding: 20px; overflow: hidden; border-radius: 10px; background: #252824; color: #e8ece5; box-shadow: 0 8px 24px rgba(28,29,26,.14); font-size: 10px; line-height: 1.75; }
+    .terminal .prompt { color: #91bca2; }
+    .terminal .pass { color: #9bd3aa; }
+    .checks { display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 18px; border-left: 1px solid var(--line); }
+    .check { display: flex; align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--sheet); font-size: 9px; }
+    .check b { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--green); color: white; font-size: 9px; }
+
+    .evidence-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 19px 17px 14px; overflow-y: auto; border-left: 1px solid var(--line); background: #f8f6f0; }
+    .evidence-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
+    .evidence-head h2 { margin: 4px 0 0; font-family: Georgia, serif; font-size: 18px; font-weight: 500; }
+    .sequence { color: var(--faint); font-size: 9px; font-variant-numeric: tabular-nums; }
+    .claim-card { padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); }
+    .claim-card strong { display: block; margin-top: 8px; font-family: Georgia, serif; font-size: 16px; line-height: 1.3; font-weight: 500; }
+    .claim-card p { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .evidence-section { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--line); }
+    .section-label { display: flex; justify-content: space-between; margin-bottom: 8px; color: var(--faint); font-size: 8px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
+    .evidence-card { display: grid; grid-template-columns: 27px minmax(0,1fr) auto; align-items: center; gap: 8px; width: 100%; padding: 9px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--sheet); text-align: left; }
+    .evidence-card:hover { border-color: var(--line-strong); }
+    .ev-icon { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font-size: 11px; }
+    .evidence-card strong { display: block; font-size: 9px; }
+    .evidence-card small { display: block; margin-top: 2px; color: var(--faint); font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .evidence-card em { color: var(--faint); font-size: 8px; font-style: normal; }
+    .evidence-detail { margin-top: 7px; padding: 10px; border: 1px solid #c8d2df; border-radius: 8px; background: var(--blue-soft); font-size: 9px; line-height: 1.5; }
+    .evidence-detail dl { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 4px 10px; margin: 0; }
+    .evidence-detail dt { color: var(--muted); }
+    .evidence-detail dd { margin: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; }
+    .provenance { display: grid; gap: 7px; margin: 0; }
+    .provenance div { display: flex; justify-content: space-between; gap: 12px; }
+    .provenance dt { color: var(--muted); font-size: 9px; }
+    .provenance dd { margin: 0; font-size: 9px; text-align: right; }
+    .boundary-note { margin-top: 14px; padding: 10px; border: 1px dashed #d1b782; border-radius: 8px; background: var(--amber-soft); color: #74501d; font-size: 9px; line-height: 1.5; }
+    .panel-return { margin-top: auto; padding-top: 14px; }
+    .panel-return button { width: 100%; padding: 10px 12px; border: 1px solid var(--ink); border-radius: 8px; background: var(--ink); color: #fff; font-size: 10px; font-weight: 730; }
+    .panel-return p { margin: 7px 0 0; color: var(--muted); font-size: 8px; line-height: 1.4; text-align: center; }
+
+    [data-demo-chrome] {
+      height: 62px;
+      display: grid;
+      grid-template-columns: auto minmax(260px, 1fr) auto;
+      align-items: center;
+      gap: 20px;
+      padding: 0 22px;
+      background: #292a27;
+      color: #f5f1e8;
+      box-shadow: 0 -7px 22px rgba(35,32,28,.12);
+    }
+    .transport { display: flex; align-items: center; gap: 6px; }
+    .transport button { display: grid; place-items: center; min-width: 32px; height: 32px; padding: 0 10px; border: 1px solid rgba(255,255,255,.16); border-radius: 7px; background: rgba(255,255,255,.04); color: #f5f1e8; font-size: 10px; }
+    .transport button:hover { background: rgba(255,255,255,.09); }
+    .transport .play { display: inline-flex; grid-template-columns: auto auto; gap: 7px; min-width: 70px; background: #f5f1e8; color: #252622; font-weight: 760; }
+    .transport .restart { width: auto; margin-left: 4px; color: #bbb7ae; }
+    .timeline-control { min-width: 0; display: grid; grid-template-columns: minmax(120px,1fr) auto; gap: 14px; align-items: center; }
+    .timeline-control input { width: 100%; accent-color: #d7b678; cursor: pointer; }
+    .timeline-control output { min-width: 83px; color: #c5c0b6; font-size: 9px; font-variant-numeric: tabular-nums; text-align: right; }
+    .demo-status { min-width: 250px; text-align: right; }
+    .demo-status span { display: block; font-size: 10px; font-weight: 730; }
+    .demo-status small { display: block; margin-top: 3px; color: #aaa69d; font-size: 8px; }
+    .demo-status.manual small { color: #d7b678; }
+    .toast { position: fixed; right: 20px; bottom: 76px; z-index: 5; padding: 10px 13px; border-radius: 8px; background: var(--ink); color: white; box-shadow: 0 9px 28px rgba(0,0,0,.18); font-size: 10px; }
+
+    @keyframes settle { from { opacity: .76; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+    @media (max-width: 1180px) {
+      .replay-layout { grid-template-columns: 202px minmax(0, 1fr) 276px; }
+      .stage-column { grid-template-rows: 119px minmax(0,1fr); }
+      .result-contract { padding-inline: 18px; gap: 14px; }
+      .artifact-stage { padding: 15px 18px 18px; }
+      .result-copy { padding: 28px; }
+      .output-stack { padding: 20px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell" aria-label="Pi session replay">
+    <header class="product-head">
+      <button class="back-btn" id="backTop" type="button"><span class="arrow">←</span> Back to Session</button>
+      <div class="head-title">
+        <strong>Session Replay</strong>
+        <span>Launch brief &amp; rollout checklist · 28 min 14 sec</span>
+      </div>
+      <div class="head-actions">
+        <span class="read-only">Replay is read-only</span>
+        <button class="session-btn" id="jumpResult" type="button">Jump to result</button>
+      </div>
+    </header>
+
+    <div class="replay-layout">
+      <nav class="chapter-rail" aria-label="Replay chapters">
+        <span class="rail-kicker">Story chapters</span>
+        <div class="rail-title">A short record<br>of the work
+          <small>Meaningful turns only. Repeated reads and 21 minutes of quiet work are folded.</small>
+        </div>
+        <div class="chapters" id="chapters"></div>
+        <div class="rail-footer"><strong>Story time · 32 sec</strong><br>Actual timestamps remain attached to every moment.</div>
+      </nav>
+
+      <section class="stage-column" aria-label="Replay story stage">
+        <div class="result-contract">
+          <div class="contract-title">
+            <span class="eyebrow">Agent finished · awaiting your review</span>
+            <h1>Launch brief prepared and rollout tasks made actionable.</h1>
+            <p>Two durable outputs were written. Validation passed; one date still needs an owner in the Session.</p>
+          </div>
+          <div class="contract-facts">
+            <div class="contract-fact"><span>Outcome</span><strong class="good">Review ready</strong></div>
+            <div class="contract-fact"><span>Verification</span><strong>4 checks passed</strong></div>
+            <div class="contract-fact"><span>Outputs</span><strong>2 files</strong></div>
+            <div class="contract-fact"><span>Coverage</span><strong>95% measured</strong><div class="coverage" aria-label="Verified 34%, Recorded 47%, Observed 14%, Missing 5%"><i></i><i></i><i></i><i></i></div></div>
+          </div>
+        </div>
+
+        <article class="artifact-stage" aria-live="polite">
+          <header class="stage-head">
+            <div class="stage-head-left">
+              <div class="stage-meta"><span class="step-count" id="stepCount"></span><span id="stageTruth"></span></div>
+              <h2 id="stageTitle"></h2>
+              <p id="stageSubtitle"></p>
+            </div>
+            <time class="stage-clock" id="stageClock"></time>
+          </header>
+          <div class="stage-canvas" id="stageCanvas"></div>
+        </article>
+      </section>
+
+      <aside class="evidence-panel" aria-label="Evidence for selected moment">
+        <header class="evidence-head">
+          <div><span class="panel-kicker">Evidence follows the moment</span><h2>Why this is shown</h2></div>
+          <span class="sequence mono" id="sequence"></span>
+        </header>
+        <div class="claim-card" id="claimCard"></div>
+        <section class="evidence-section">
+          <div class="section-label"><span>Direct evidence</span><span id="evidenceCount"></span></div>
+          <button type="button" class="evidence-card" id="evidenceToggle" aria-expanded="false">
+            <span class="ev-icon">⌁</span>
+            <span><strong id="evidenceName"></strong><small class="mono" id="evidenceId"></small></span>
+            <em>Inspect</em>
+          </button>
+          <div class="evidence-detail" id="evidenceDetail" hidden></div>
+        </section>
+        <section class="evidence-section">
+          <div class="section-label"><span>Source &amp; integrity</span><span>categorical</span></div>
+          <dl class="provenance" id="provenance"></dl>
+        </section>
+        <div class="boundary-note" id="boundaryNote"></div>
+        <footer class="panel-return">
+          <button type="button" id="backPanel">Return to Session to review</button>
+          <p>Accept, request changes, and rollback remain in the Session.</p>
+        </footer>
+      </aside>
+    </div>
+  </main>
+
+  <aside data-demo-chrome aria-label="Prototype playback">
+    <div class="transport">
+      <button type="button" data-demo-prev aria-label="Previous chapter">←</button>
+      <button type="button" class="play" data-demo-play><span>▶</span> Play</button>
+      <button type="button" data-demo-pause aria-label="Pause">Ⅱ</button>
+      <button type="button" data-demo-next aria-label="Next chapter">→</button>
+      <button type="button" class="restart" data-demo-restart>Restart</button>
+    </div>
+    <label class="timeline-control">
+      <span class="visually-hidden">Journey position</span>
+      <input data-demo-seek type="range" min="0" max="32" value="0" step=".05">
+      <output data-demo-time>0.0 / 32.0s</output>
+    </label>
+    <div class="demo-status" id="demoStatus"><span data-demo-label aria-live="polite">Result at a glance</span><small>Guided story · ready to play</small></div>
+  </aside>
+
+  <div class="toast" id="toast" hidden>Replay is read-only. Returning would open the live Session.</div>
+
+  <script>
+    const moments = [
+      {
+        id: 'result', rail: 'Result at a glance', railNote: 'Outcome and durable work', title: 'The result, before the story', subtitle: 'Start here; play only if you want to understand how the result came together.', time: '10:18:41', truth: 'verified',
+        claim: 'Two durable files exist and the recorded checks passed.', detail: 'The session is review-ready, not accepted.', evidence: 'Validation receipt', evidenceId: 'receipt:run-7f21', source: 'Pi managed session', capture: 'Structured ledger + receipts', integrity: 'sha256 63c9…e711', relation: 'Final report → validation receipt', boundary: 'Acceptance is not part of Replay. The user has not approved these changes.', scene: 'result'
+      },
+      {
+        id: 'goal', rail: 'The request', railNote: 'Recorded user goal', title: 'The work began with a clear request', subtitle: 'The user asked for launch material that could be shared and operated—not code.', time: '09:50:27', truth: 'recorded',
+        claim: 'Prepare a launch brief and a rollout checklist for the July release.', detail: 'Recorded verbatim from the opening user message.', evidence: 'User message', evidenceId: 'event:msg-0192', source: 'Conversation ledger', capture: 'Structured event', integrity: 'Ledger sequence #192', relation: 'No causal relation asserted', boundary: 'This is the recorded goal. Replay does not claim the later steps were caused by mere time adjacency.', scene: 'goal'
+      },
+      {
+        id: 'plan', rail: 'The approach', railNote: 'Plan recorded', title: 'A four-part plan set the shape of the work', subtitle: 'The agent separated source review, synthesis, artifact writing, and validation.', time: '09:51:03', truth: 'recorded',
+        claim: 'The initial plan named four concrete phases and two output files.', detail: 'This plan was recorded before research began.', evidence: 'Plan update', evidenceId: 'event:plan-0198', source: 'Agent event stream', capture: 'Structured event', integrity: 'Ledger sequence #198', relation: 'Parent request msg-0192', boundary: 'Private reasoning is not captured or reconstructed. Only the plan the agent recorded is shown.', scene: 'plan'
+      },
+      {
+        id: 'research', rail: 'Source review', railNote: '3 sources, 8 reads folded', title: 'Research narrowed the brief to three source truths', subtitle: 'Repeated file reads are folded; the cited sources remain inspectable.', time: '09:55:46', truth: 'observed',
+        claim: 'Three product sources were consulted before writing.', detail: 'File and document access was observed; interpretation is summarized separately.', evidence: 'Read observations', evidenceId: 'events:read-203…218', source: 'File-system observer', capture: 'Observed reads', integrity: '8 bounded observations', relation: 'Surrounding context only', boundary: 'Replay observed the reads. It cannot confirm that a particular source caused a later wording choice.', scene: 'research'
+      },
+      {
+        id: 'pivot', rail: 'The pivot', railNote: 'Plan revised', title: 'A constraint changed the rollout approach', subtitle: 'The launch date stayed fixed, but the checklist shifted to a staged rollout.', time: '10:02:11', truth: 'recorded',
+        claim: 'The plan was revised from a single launch to three rollout stages.', detail: 'The pivot is explicit in a recorded plan revision.', evidence: 'Plan revision', evidenceId: 'event:plan-0231', source: 'Agent event stream', capture: 'Structured event', integrity: 'Ledger sequence #231', relation: 'Supersedes plan-0198', boundary: 'This is a recorded revision. Replay does not attribute it to the preceding read without an explicit id-backed link.', scene: 'pivot'
+      },
+      {
+        id: 'permission', rail: 'Permission', railNote: 'One decision recorded', title: 'One permission decision bounded the write', subtitle: 'The user allowed creation of two new files; no external messages were sent.', time: '10:04:38', truth: 'recorded',
+        claim: 'Permission to write the two named artifacts was granted once.', detail: 'The approved scope excludes publishing, messaging, and deployment.', evidence: 'Permission receipt', evidenceId: 'approval:req-0242', source: 'Pi permission broker', capture: 'Request + disposition', integrity: 'requestId req-0242', relation: 'Applies to writes #247 and #259', boundary: 'Recorded approval covers only the named local file writes. It is not approval of their content.', scene: 'permission'
+      },
+      {
+        id: 'document', rail: 'Launch brief', railNote: 'Markdown written', title: 'The launch narrative became a durable document', subtitle: 'The stage shows the recorded after-version, not a fabricated document preview.', time: '10:09:16', truth: 'recorded',
+        claim: 'docs/launch-brief.md was created with audience, message, stages, and success measures.', detail: 'The complete after-version is retained in the evidence blob.', evidence: 'File change record', evidenceId: 'change:8b1d…2c44', source: 'File change ledger', capture: 'Before/after blob', integrity: 'sha256 af09…71bd', relation: 'Write tool call write-0247', boundary: 'Recorded proves the bytes written. Editorial quality remains a review judgment.', scene: 'document'
+      },
+      {
+        id: 'sheet', rail: 'Rollout checklist', railNote: 'CSV written', title: 'The rollout became an owner-ready checklist', subtitle: 'Stages, owners, gates, and rollback signals are visible in the recorded CSV.', time: '10:13:29', truth: 'recorded',
+        claim: 'rollout-checklist.csv contains seven actionable rows across three stages.', detail: 'One launch-date owner is intentionally marked TBD.', evidence: 'File change record', evidenceId: 'change:d192…7f03', source: 'File change ledger', capture: 'Before/after blob', integrity: 'sha256 0d82…b9ae', relation: 'Write tool call write-0259', boundary: 'The owner field marked TBD is not inferred or silently filled. It needs attention in Session.', scene: 'sheet'
+      },
+      {
+        id: 'validation', rail: 'Validation', railNote: '4 checks passed', title: 'Checks passed, with one honest attention item', subtitle: 'Formatting, links, CSV shape, and required sections were verified.', time: '10:17:52', truth: 'verified',
+        claim: 'Four automated checks completed successfully; one ownership gap remains.', detail: 'Successful commands and their exit status are attached.', evidence: 'Command receipt', evidenceId: 'receipt:validate-0274', source: 'Pi command runner', capture: 'Exit code + output', integrity: 'sha256 b921…c71a', relation: 'Validates changes 8b1d and d192', boundary: 'Checks verify structure and references. They do not prove the launch strategy will succeed.', scene: 'validation'
+      }
+    ];
+
+    const initialState = { momentId: 'result', evidenceOpen: false, manual: false, toast: false };
+
+    function reducer(state, action, meta) {
+      switch (action.type) {
+        case 'SELECT_MOMENT': return { ...state, momentId: action.id, evidenceOpen: false, manual: meta.source === 'manual', toast: false };
+        case 'TOGGLE_EVIDENCE': return { ...state, evidenceOpen: !state.evidenceOpen, manual: meta.source === 'manual' ? true : state.manual };
+        case 'RETURN_SESSION': return { ...state, toast: true, manual: meta.source === 'manual' ? true : state.manual };
+        case 'DISMISS_TOAST': return { ...state, toast: false };
+        default: return state;
+      }
+    }
+
+    function truthChip(level) { return `<span class="truth-chip ${level}">${level}</span>`; }
+
+    function sceneFor(kind) {
+      if (kind === 'result') return `<div class="canvas-inner result-scene"><div class="result-copy"><span class="mark">✓</span><h3>Ready for review, with the work left tangible.</h3><p>The brief tells the launch story. The checklist turns it into staged actions. Validation passed, while the unresolved owner stays visible rather than being guessed.</p></div><div class="output-stack"><div class="output-card"><header><span class="file-icon">MD</span><span><strong>docs/launch-brief.md</strong><small>2.8 KB · 6 sections</small></span></header><div class="tiny-lines"><i></i><i></i><i></i></div></div><div class="output-card"><header><span class="file-icon">CSV</span><span><strong>rollout-checklist.csv</strong><small>7 rows · 3 stages · 1 TBD</small></span></header><div class="tiny-lines"><i></i><i></i><i></i></div></div></div></div>`;
+      if (kind === 'goal') return `<div class="canvas-inner quote-scene"><article class="quote-card"><blockquote>Prepare a concise launch brief and a rollout checklist for the July release. Make the checklist practical for product, support, and operations.</blockquote><footer><span>Recorded user message</span><span class="mono">09:50:27 · #0192</span></footer></article></div>`;
+      if (kind === 'plan') return `<div class="canvas-inner plan-scene"><aside class="plan-index"><span class="eyebrow">Recorded plan</span><h3>Four phases</h3><ol><li>Review source material</li><li>Synthesize launch story</li><li>Create both artifacts</li><li>Validate structure and links</li></ol></aside><div class="plan-note"><h4>Two outputs, one coherent launch story</h4><p>The plan keeps the narrative document and operational checklist connected, while giving each an independent validation step.</p><div class="revision"><strong>Output contract</strong><span><span class="mono">docs/launch-brief.md</span><br><span class="mono">rollout-checklist.csv</span></span></div></div></div>`;
+      if (kind === 'research') return `<div class="canvas-inner research-scene"><div class="source-grid"><article class="source-card"><span class="source-no mono">SOURCE 01</span><h4>Release positioning notes</h4><p>Audience language, value proposition, and the non-goals that should stay out of launch copy.</p><footer>Observed file read · no causal claim</footer></article><article class="source-card"><span class="source-no mono">SOURCE 02</span><h4>Rollout constraints</h4><p>Support coverage and operational limits favor a staged enablement rather than one global switch.</p><footer>Observed file read · no causal claim</footer></article><article class="source-card"><span class="source-no mono">SOURCE 03</span><h4>Success measures</h4><p>Adoption, incident volume, and rollback signals provide checkable launch gates.</p><footer>Observed file read · no causal claim</footer></article></div></div>`;
+      if (kind === 'pivot') return `<div class="canvas-inner plan-scene"><aside class="plan-index"><span class="eyebrow">Revision #0231</span><h3>Staged rollout</h3><ol><li>Internal cohort</li><li class="active">10% customer cohort</li><li>General availability</li><li>Measure between stages</li></ol></aside><div class="plan-note"><h4>The date held. The rollout shape changed.</h4><p>The revised plan adds gates between cohorts so support load and rollback signals can be checked before broad release.</p><div class="revision"><strong>Plan revision</strong><span>Replace one-step launch with three controlled stages. Keep July release target.</span></div></div></div>`;
+      if (kind === 'permission') return `<div class="canvas-inner permission-scene"><article class="permission-card"><header><h3>Write two local artifacts</h3><span>✓ Allowed once</span></header><div class="permission-body"><p>Permission applied only to creating the launch brief and rollout checklist in the current workspace.</p><div class="command mono">write docs/launch-brief.md<br>write rollout-checklist.csv</div></div><footer><span>Requested by Agent · approved by user</span><span class="mono">req-0242</span></footer></article></div>`;
+      if (kind === 'document') return `<div class="canvas-inner document-scene"><aside class="doc-gutter mono">MD</aside><article class="paper-page"><h3>July release launch brief</h3><div class="byline">Prepared 26 July · draft for review</div><h4>Why this release matters</h4><p>This release turns repeatable agent work into a visible, reviewable session—without asking teams to trust a black box.</p><h4>Rollout approach</h4><p class="highlight-line">Launch in three stages: internal cohort, 10% customer cohort, then general availability after the support and rollback gates pass.</p><h4>Success measures</h4><p>Track activation, completed sessions, support volume, and rollback signals at every stage.</p></article></div>`;
+      if (kind === 'sheet') return `<div class="canvas-inner sheet-scene"><div class="sheet-toolbar"><strong>rollout-checklist.csv</strong><span>7 rows</span><span>UTF-8</span></div><div class="sheet-grid"><table><thead><tr><th style="width:17%">Stage</th><th style="width:31%">Action</th><th style="width:17%">Owner</th><th style="width:20%">Gate</th><th style="width:15%">Status</th></tr></thead><tbody><tr><td>Internal</td><td>Enable employee cohort</td><td class="owner">Product Ops</td><td>Smoke checks pass</td><td class="done">Ready</td></tr><tr><td>Internal</td><td>Brief support team</td><td class="owner">Support</td><td>Macros published</td><td class="done">Ready</td></tr><tr><td>10% cohort</td><td>Enable customer cohort</td><td class="owner">Release Eng</td><td>Incidents &lt; 2%</td><td>Pending</td></tr><tr><td>10% cohort</td><td>Review rollback signal</td><td class="owner">SRE</td><td>Error budget intact</td><td>Pending</td></tr><tr><td>GA</td><td>Confirm launch date</td><td style="color:var(--amber);font-weight:750">TBD</td><td>Owner assigned</td><td style="color:var(--amber)">Attention</td></tr></tbody></table></div></div>`;
+      return `<div class="canvas-inner validation-scene"><pre class="terminal mono"><span class="prompt">$</span> validate-launch-artifacts<br>Checking docs/launch-brief.md … <span class="pass">PASS</span><br>  required sections ............ <span class="pass">4/4</span><br>  local references ............. <span class="pass">valid</span><br><br>Checking rollout-checklist.csv … <span class="pass">PASS</span><br>  columns ...................... <span class="pass">5/5</span><br>  rows parse ................... <span class="pass">7/7</span><br><br>Exit code 0</pre><aside class="checks"><div class="check"><b>✓</b> Brief structure</div><div class="check"><b>✓</b> Links resolved</div><div class="check"><b>✓</b> CSV shape</div><div class="check"><b>✓</b> Required fields</div></aside></div>`;
+    }
+
+    function render(state) {
+      const moment = moments.find(item => item.id === state.momentId) || moments[0];
+      const index = moments.indexOf(moment);
+      document.querySelectorAll('.chapter').forEach(btn => {
+        const active = btn.dataset.id === moment.id;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-current', active ? 'step' : 'false');
+      });
+      document.getElementById('stepCount').textContent = `Moment ${index + 1} of ${moments.length}`;
+      document.getElementById('stageTruth').innerHTML = truthChip(moment.truth);
+      document.getElementById('stageTitle').textContent = moment.title;
+      document.getElementById('stageSubtitle').textContent = moment.subtitle;
+      document.getElementById('stageClock').textContent = moment.time;
+      document.getElementById('stageCanvas').innerHTML = sceneFor(moment.scene);
+      document.getElementById('sequence').textContent = `#${String(index + 1).padStart(2, '0')}`;
+      document.getElementById('claimCard').innerHTML = `${truthChip(moment.truth)}<strong>${moment.claim}</strong><p>${moment.detail}</p>`;
+      document.getElementById('evidenceCount').textContent = '1 item';
+      document.getElementById('evidenceName').textContent = moment.evidence;
+      document.getElementById('evidenceId').textContent = moment.evidenceId;
+      const detail = document.getElementById('evidenceDetail');
+      detail.hidden = !state.evidenceOpen;
+      detail.innerHTML = `<dl><dt>Type</dt><dd>${moment.evidence}</dd><dt>Captured</dt><dd>${moment.time}</dd><dt>Integrity</dt><dd class="mono">${moment.integrity}</dd></dl>`;
+      document.getElementById('evidenceToggle').setAttribute('aria-expanded', String(state.evidenceOpen));
+      document.getElementById('provenance').innerHTML = `<div><dt>Source</dt><dd>${moment.source}</dd></div><div><dt>Capture</dt><dd>${moment.capture}</dd></div><div><dt>Relation</dt><dd>${moment.relation}</dd></div>`;
+      document.getElementById('boundaryNote').textContent = moment.boundary;
+      document.getElementById('toast').hidden = !state.toast;
+      const demo = document.getElementById('demoStatus');
+      demo.classList.toggle('manual', state.manual);
+      demo.querySelector('small').textContent = state.manual ? 'Manual takeover · playback paused' : 'Guided story · one shared state';
+    }
+
+    function createPlayableMockRuntime({ initialState, reducer, render, steps, duration }) {
+      let state = structuredClone(initialState), time = 0, applied = 0, playing = false, frame = null, last = 0, dirty = false;
+      const listeners = new Set();
+      const publish = (type, rerender = false) => {
+        if (rerender) render(state, { type, time, playing });
+        const event = { type, state, time, duration, playing, step: applied ? steps[applied - 1] : null };
+        listeners.forEach(listener => listener(event));
+      };
+      const reduce = (action, source, step = null) => { state = reducer(state, action, { source, time, step }); };
+      const rebuild = target => {
+        state = structuredClone(initialState); applied = 0;
+        for (const step of steps) { if (step.at > target) break; reduce(step.action, 'seek', step); applied++; }
+        time = target; dirty = false;
+      };
+      const pause = (reason = 'pause') => { playing = false; if (frame) cancelAnimationFrame(frame); frame = null; last = 0; publish(reason); };
+      const seek = target => { pause('pause-for-seek'); rebuild(Math.max(0, Math.min(duration, Number(target) || 0))); publish('seek', true); };
+      const tick = timestamp => {
+        if (!playing) return;
+        if (!last) last = timestamp;
+        time = Math.min(duration, time + Math.max(0, timestamp - last) / 1000); last = timestamp;
+        let changed = false;
+        while (applied < steps.length && steps[applied].at <= time) { reduce(steps[applied].action, 'autoplay', steps[applied]); applied++; changed = true; }
+        publish(changed ? 'step' : 'tick', changed);
+        if (time >= duration) { playing = false; frame = null; publish('complete'); return; }
+        frame = requestAnimationFrame(tick);
+      };
+      const play = () => { if (playing) return; if (time >= duration) rebuild(0); if (dirty) rebuild(time); playing = true; last = 0; publish('play', true); frame = requestAnimationFrame(tick); };
+      const restart = () => { pause('pause-for-restart'); rebuild(0); publish('restart', true); };
+      const dispatch = (action, { source = 'manual' } = {}) => { if (source === 'manual') { pause('manual-takeover'); dirty = true; } reduce(action, source); publish('dispatch', true); };
+      const stepTo = index => seek(steps[Math.max(0, Math.min(steps.length - 1, index))].at);
+      const next = () => stepTo(Math.min(applied, steps.length - 1));
+      const previous = () => stepTo(Math.max(0, applied - 2));
+      const subscribe = listener => { listeners.add(listener); listener({ type: 'subscribe', state, time, duration, playing, step: applied ? steps[applied - 1] : null }); return () => listeners.delete(listener); };
+      const bindControls = root => {
+        root.querySelector('[data-demo-play]').addEventListener('click', play);
+        root.querySelector('[data-demo-pause]').addEventListener('click', () => pause());
+        root.querySelector('[data-demo-restart]').addEventListener('click', restart);
+        root.querySelector('[data-demo-prev]').addEventListener('click', previous);
+        root.querySelector('[data-demo-next]').addEventListener('click', next);
+        root.querySelector('[data-demo-seek]').addEventListener('input', event => seek(event.target.value));
+        subscribe(event => {
+          const slider = root.querySelector('[data-demo-seek]');
+          if (document.activeElement !== slider) slider.value = event.time;
+          root.querySelector('[data-demo-time]').value = `${event.time.toFixed(1)} / ${duration.toFixed(1)}s`;
+          const selected = moments.find(moment => moment.id === event.state.momentId);
+          root.querySelector('[data-demo-label]').textContent = event.state.manual
+            ? selected?.rail || 'Manual selection'
+            : event.step?.label || 'Result at a glance';
+          root.querySelector('[data-demo-play]').setAttribute('aria-pressed', String(event.playing));
+        });
+      };
+      render(state, { type: 'init', time, playing });
+      window.__mockReady = true;
+      return { bindControls, dispatch, play, pause, restart, seek, next, previous, subscribe, getState: () => structuredClone(state) };
+    }
+
+    const steps = [
+      { at: 1.5, label: 'The request', action: { type: 'SELECT_MOMENT', id: 'goal' } },
+      { at: 4.7, label: 'The approach', action: { type: 'SELECT_MOMENT', id: 'plan' } },
+      { at: 7.9, label: 'Source review', action: { type: 'SELECT_MOMENT', id: 'research' } },
+      { at: 11.1, label: 'The plan pivot', action: { type: 'SELECT_MOMENT', id: 'pivot' } },
+      { at: 14.5, label: 'Permission decision', action: { type: 'SELECT_MOMENT', id: 'permission' } },
+      { at: 18.1, label: 'Launch brief written', action: { type: 'SELECT_MOMENT', id: 'document' } },
+      { at: 21.7, label: 'Rollout checklist written', action: { type: 'SELECT_MOMENT', id: 'sheet' } },
+      { at: 25.2, label: 'Validation', action: { type: 'SELECT_MOMENT', id: 'validation' } },
+      { at: 28.4, label: 'Final result', action: { type: 'SELECT_MOMENT', id: 'result' } }
+    ];
+
+    const runtime = createPlayableMockRuntime({ initialState, reducer, render, steps, duration: 32 });
+    runtime.bindControls(document);
+
+    const chapterRoot = document.getElementById('chapters');
+    moments.slice(1).concat(moments[0]).forEach((moment, index) => {
+      const originalIndex = moments.indexOf(moment);
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'chapter'; button.dataset.id = moment.id;
+      button.innerHTML = `<span class="dot">${String(index + 1).padStart(2, '0')}</span><span class="chapter-copy"><strong>${moment.rail}</strong><small>${moment.railNote}</small></span>`;
+      button.addEventListener('click', () => runtime.dispatch({ type: 'SELECT_MOMENT', id: moment.id }));
+      chapterRoot.appendChild(button);
+      if (originalIndex === 0) button.classList.add('active');
+    });
+    render(runtime.getState());
+
+    document.getElementById('evidenceToggle').addEventListener('click', () => runtime.dispatch({ type: 'TOGGLE_EVIDENCE' }));
+    document.getElementById('jumpResult').addEventListener('click', () => runtime.dispatch({ type: 'SELECT_MOMENT', id: 'result' }));
+    [document.getElementById('backTop'), document.getElementById('backPanel')].forEach(button => button.addEventListener('click', () => runtime.dispatch({ type: 'RETURN_SESSION' })));
+    document.getElementById('toast').addEventListener('click', () => runtime.dispatch({ type: 'DISMISS_TOAST' }));
+  </script>
+</body>
+</html>

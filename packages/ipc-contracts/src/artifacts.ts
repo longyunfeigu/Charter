@@ -71,6 +71,15 @@ const NormalizedRegionSchema = z
     }
   });
 
+const ArtifactHtmlElementSchema = z
+  .object({
+    tagName: z.string().min(1).max(50),
+    text: z.string().max(300).optional(),
+    accessibleName: z.string().max(300).optional(),
+    role: z.string().max(100).optional(),
+  })
+  .strict();
+
 export const ArtifactAnchorSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('whole') }).strict(),
   z
@@ -126,6 +135,7 @@ export const ArtifactAnchorSchema = z.discriminatedUnion('type', [
         })
         .strict(),
       mode: z.enum(['safe', 'interactive']),
+      element: ArtifactHtmlElementSchema.optional(),
     })
     .strict(),
   z.object({ type: z.literal('archive'), innerPath: ArtifactPathSchema }).strict(),

@@ -68,10 +68,10 @@ test('room live preview visual walk', async () => {
     await page.waitForTimeout(500);
     await page.screenshot({ path: `${OUT}/rp-2-rail-open.png` });
 
-    // 3 — pick mode armed (hint banner over the frame).
+    // 3 — select mode armed (hint banner over the frame).
     await page.getByTestId('preview-mode-pick').click();
     await expect(page.getByTestId('preview-pick-hint')).toBeVisible({ timeout: 10000 });
-    await page.screenshot({ path: `${OUT}/rp-3-pick-armed.png` });
+    await page.screenshot({ path: `${OUT}/rp-3-select-armed.png` });
 
     // 4 — picked element → composer chip with the selector.
     await page.frameLocator('[data-testid="preview-frame"]').locator('#coupon-hint').click();

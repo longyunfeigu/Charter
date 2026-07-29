@@ -17,6 +17,7 @@ import { rpcResult } from '../bridge.js';
 import { useAppStore } from '../store/appStore.js';
 import { useDraftStore } from '../store/draftStore.js';
 import { ArtifactPdfViewer } from './ArtifactPdfViewer.js';
+import { Ic } from './home-icons.js';
 import '../styles/artifact.css';
 
 const EMPTY_ANCHOR: ArtifactAnchorDto = { type: 'whole' };
@@ -54,7 +55,12 @@ function anchorLabel(anchor: ArtifactAnchorDto): string {
     const end = anchor.endSeconds === undefined ? '' : `-${anchor.endSeconds.toFixed(2)}s`;
     return `Timeline ${anchor.startSeconds.toFixed(2)}s${end}`;
   }
-  if (anchor.type === 'html') return `DOM ${anchor.selector}`;
+  if (anchor.type === 'html') {
+    const element = anchor.element;
+    if (!element) return `Element ${anchor.selector}`;
+    const name = element.accessibleName || element.text;
+    return `${element.tagName}${name ? ` "${name}"` : ''}`;
+  }
   if (anchor.type === 'archive') return `Archive ${anchor.innerPath}`;
   return 'Whole file';
 }
@@ -552,6 +558,15 @@ function PdfArtifact(props: {
 
 type HtmlPickerState = 'loading' | 'idle' | 'arming' | 'picking' | 'error';
 
+function boundedPickerText(value: unknown, max: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const compact = value
+    .replace(/[\u0000-\u001f\u007f]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  return compact ? compact.slice(0, max) : undefined;
+}
+
 function HtmlArtifact(props: {
   url: string;
   mode: 'safe' | 'interactive';
@@ -598,6 +613,20 @@ function HtmlArtifact(props: {
         { x?: number; y?: number; width?: number; height?: number } | undefined;
       const viewport = data.viewport as { width?: number; height?: number } | undefined;
       if (!rawRect || !viewport || !viewport.width || !viewport.height) return;
+      const rawElement = data.element as
+        { tagName?: unknown; text?: unknown; accessibleName?: unknown; role?: unknown } | undefined;
+      const tagName = boundedPickerText(rawElement?.tagName, 50)?.toLowerCase();
+      const text = boundedPickerText(rawElement?.text, 300);
+      const accessibleName = boundedPickerText(rawElement?.accessibleName, 300);
+      const role = boundedPickerText(rawElement?.role, 100);
+      const element = tagName
+        ? {
+            tagName,
+            ...(text ? { text } : {}),
+            ...(accessibleName ? { accessibleName } : {}),
+            ...(role ? { role } : {}),
+          }
+        : undefined;
       clearPickerTimer();
       setPickerState('idle');
       props.onAnchor({
@@ -611,6 +640,7 @@ function HtmlArtifact(props: {
         }),
         viewport: { width: Math.round(viewport.width), height: Math.round(viewport.height) },
         mode: props.mode,
+        ...(element ? { element } : {}),
       });
     };
     window.addEventListener('message', onMessage);
@@ -651,52 +681,63 @@ function HtmlArtifact(props: {
 
   const pickerCopy =
     pickerState === 'loading'
-      ? 'Preparing inspector...'
+      ? 'Preparing element selection...'
       : pickerState === 'arming'
-        ? 'Starting inspector...'
+        ? 'Starting element selection...'
         : pickerState === 'picking'
-          ? 'Click an element in the preview. Esc cancels.'
+          ? 'Select an element in the preview. Esc cancels.'
           : pickerState === 'error'
-            ? 'Inspector did not start. Retry.'
+            ? 'Element selection did not start. Retry.'
             : props.anchor.type === 'html'
-              ? 'Element selected. Inspect again to replace it.'
-              : 'Select an exact element for context.';
+              ? 'Element selected. Select again to replace it.'
+              : 'Select a page element to reference in your request.';
 
   return (
     <div className="artifact-html" data-testid="artifact-html-view" data-picker-state={pickerState}>
       <div className="artifact-html-tools">
-        <div className="artifact-html-runtime">
-          <span className={props.mode === 'safe' ? 'safe' : 'interactive'}>
-            {props.mode === 'safe' ? 'Page scripts off' : 'Page interactions on'}
-          </span>
-          <button
-            type="button"
-            aria-pressed={props.mode === 'interactive'}
-            onClick={() => {
-              setPickerState('loading');
-              props.onMode(props.mode === 'safe' ? 'interactive' : 'safe');
-            }}
+        <details className="artifact-html-security" data-testid="artifact-html-security">
+          <summary
+            aria-label={`${props.mode === 'safe' ? 'Safe' : 'Interactive'} HTML preview settings`}
+            role="button"
+            title="HTML preview security and interaction settings"
           >
-            {props.mode === 'safe' ? 'Enable interactions' : 'Disable interactions'}
-          </button>
-        </div>
-        <span className="artifact-html-network">Network blocked</span>
+            <Ic name="shield" size={12} />
+            <span>{props.mode === 'safe' ? 'Safe preview' : 'Interactive preview'}</span>
+          </summary>
+          <div>
+            <strong>
+              {props.mode === 'safe' ? 'Page scripts are disabled' : 'Page scripts are enabled'}
+            </strong>
+            <small>Network requests remain blocked in both modes.</small>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.currentTarget.closest('details')?.removeAttribute('open');
+                setPickerState('loading');
+                props.onMode(props.mode === 'safe' ? 'interactive' : 'safe');
+              }}
+            >
+              {props.mode === 'safe' ? 'Enable interactions' : 'Disable interactions'}
+            </button>
+          </div>
+        </details>
         <span className={`artifact-picker-status ${pickerState}`} role="status" aria-live="polite">
           {pickerCopy}
         </span>
         <button
-          className={pickerState === 'picking' || pickerState === 'arming' ? 'active' : ''}
+          className={`artifact-select-button ${pickerState === 'picking' || pickerState === 'arming' ? 'active' : ''}`}
           data-testid="artifact-pick-element"
           type="button"
           disabled={props.busy || pickerState === 'loading'}
           aria-pressed={pickerState === 'picking' || pickerState === 'arming'}
+          title="Select one page element to attach as Agent context"
           onClick={togglePicker}
         >
           {pickerState === 'picking' || pickerState === 'arming'
-            ? 'Cancel inspect'
+            ? 'Cancel selection'
             : pickerState === 'error'
-              ? 'Retry inspect'
-              : 'Inspect element'}
+              ? 'Retry selection'
+              : 'Select element'}
         </button>
       </div>
       <iframe
@@ -1122,6 +1163,7 @@ export function SessionArtifactView({
                 <span>{anchor.type === 'whole' ? 'WHOLE ARTIFACT' : 'SELECTION'}</span>
                 <strong>{anchorLabel(anchor)}</strong>
                 <small>
+                  {anchor.type === 'html' ? `${anchor.selector} · ` : ''}
                   {opened.stale ? 'Older immutable version' : 'Current version'} ·{' '}
                   {targetLabel(task)}
                 </small>

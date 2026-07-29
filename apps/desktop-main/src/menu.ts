@@ -162,6 +162,8 @@ export function installApplicationMenu(opts: { isDev: boolean }): void {
     {
       label: 'Help',
       submenu: [
+        { label: 'Check for Updates…', click: send('app.openUpdates') },
+        { type: 'separator' },
         { label: 'About Charter', click: send('app.about') },
         { label: 'Diagnostics', click: send('app.openDiagnostics') },
       ],

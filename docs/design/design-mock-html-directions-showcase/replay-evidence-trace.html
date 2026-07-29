@@ -1,0 +1,824 @@
+<!doctype html>
+<html lang="en" data-mock-mode="playable">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Session Replay — Evidence Trace</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f3f1e8;
+      --muted: #9a9b96;
+      --dim: #666964;
+      --line: #2f322f;
+      --line-strong: #484c47;
+      --paper: #111311;
+      --panel: #171917;
+      --panel-2: #1c1f1c;
+      --acid: #d8ff54;
+      --acid-ink: #0e1307;
+      --verified: #85e59f;
+      --recorded: #80aefc;
+      --observed: #e2b96a;
+      --inferred: #bd94ee;
+      --missing: #8a8b87;
+      --danger: #ff8a74;
+      --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+
+    body {
+      background: var(--paper);
+      color: var(--ink);
+      font: 13px/1.42 var(--sans);
+      letter-spacing: -0.006em;
+    }
+
+    button, input { font: inherit; }
+
+    button {
+      border: 0;
+      color: inherit;
+    }
+
+    button:focus-visible, input:focus-visible {
+      outline: 2px solid var(--acid);
+      outline-offset: 2px;
+    }
+
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 58px minmax(0, 1fr) 88px;
+      background:
+        linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px),
+        var(--paper);
+      background-size: 24px 24px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 18px;
+      background: rgba(17,19,17,.97);
+      border-bottom: 1px solid var(--line-strong);
+      position: relative;
+      z-index: 10;
+    }
+
+    .product-mark {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      background: var(--acid);
+      color: var(--acid-ink);
+      font-weight: 860;
+      font-size: 16px;
+      letter-spacing: -.05em;
+    }
+
+    .back-button {
+      min-width: 126px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 9px;
+      background: transparent;
+      color: #c5c7c2;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .back-button:hover { border-color: var(--line-strong); background: var(--panel); }
+    .back-button span:first-child { font-family: var(--mono); color: var(--acid); }
+
+    .title-block { min-width: 0; margin-right: auto; }
+    .title-block strong { display: block; font-size: 13px; font-weight: 680; }
+    .title-block span {
+      display: block;
+      max-width: 520px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .session-state {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #cfd1cb;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
+    .state-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--verified); box-shadow: 0 0 0 3px rgba(133,229,159,.12); }
+
+    .source-chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 9px;
+      background: #141714;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font: 10px var(--mono);
+    }
+
+    .depths {
+      display: flex;
+      padding: 3px;
+      background: #0d0f0d;
+      border: 1px solid var(--line);
+    }
+
+    .depths button {
+      padding: 6px 10px;
+      color: #80837e;
+      background: transparent;
+      cursor: pointer;
+      font-size: 11px;
+      letter-spacing: .03em;
+    }
+
+    .depths button.active { color: var(--ink); background: var(--panel-2); box-shadow: inset 0 -2px var(--acid); }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 292px minmax(690px, 1fr) 350px;
+      background: rgba(17,19,17,.94);
+    }
+
+    .column { min-width: 0; min-height: 0; }
+    .claims { border-right: 1px solid var(--line-strong); background: rgba(20,22,20,.96); }
+    .inspector { border-left: 1px solid var(--line-strong); background: rgba(20,22,20,.98); }
+
+    .section-kicker {
+      font: 10px var(--mono);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .13em;
+    }
+
+    .claims-head { padding: 20px 20px 13px; border-bottom: 1px solid var(--line); }
+    .claims-head h1 { margin: 5px 0 4px; font-size: 27px; line-height: 1.05; letter-spacing: -.045em; font-weight: 720; }
+    .claims-head p { margin: 0; color: var(--muted); font-size: 11.5px; }
+
+    .contract {
+      margin: 14px 14px 9px;
+      padding: 12px 12px 11px;
+      border-left: 2px solid var(--recorded);
+      background: #101310;
+    }
+
+    .contract label { display: block; color: var(--recorded); font: 9px var(--mono); text-transform: uppercase; letter-spacing: .11em; }
+    .contract p { margin: 5px 0 8px; color: #e7e5dc; font-size: 12px; line-height: 1.35; }
+    .contract .meta { color: var(--muted); font: 9.5px var(--mono); }
+
+    .claim-list { padding: 0 14px 14px; display: grid; gap: 7px; }
+
+    .claim-card {
+      width: 100%;
+      text-align: left;
+      padding: 11px 11px 10px;
+      background: #151815;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--level, var(--line-strong));
+      cursor: pointer;
+      transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+    }
+
+    .claim-card:hover { background: #1a1d1a; transform: translateX(2px); }
+    .claim-card.active { border-color: var(--level); background: color-mix(in srgb, var(--level) 8%, #151815); }
+    .claim-card.unconnected { border-style: dashed; }
+    .claim-card .claim-no { color: var(--dim); font: 9px var(--mono); }
+    .claim-card strong { display: block; margin: 5px 0 8px; font-size: 12.3px; line-height: 1.34; font-weight: 630; }
+
+    .level {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font: 9px var(--mono);
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: var(--level);
+    }
+    .level::before { content: ""; width: 6px; height: 6px; background: currentColor; border-radius: 50%; }
+
+    .legend { padding: 12px 18px 0; border-top: 1px solid var(--line); }
+    .legend-row { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; }
+    .legend-row span { font: 9px var(--mono); color: var(--muted); }
+    .legend-row i { display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: var(--legend); }
+
+    .trace { display: grid; grid-template-rows: 78px minmax(0,1fr) 52px; min-height: 0; overflow: hidden; }
+
+    .trace-head {
+      display: flex;
+      align-items: center;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(14,16,14,.92);
+    }
+    .trace-head-copy { margin-right: auto; }
+    .trace-head h2 { margin: 3px 0 0; font-size: 17px; letter-spacing: -.025em; }
+    .trace-head h2 span { color: var(--muted); font-weight: 450; }
+    .trace-summary { display: flex; gap: 20px; }
+    .trace-summary div { text-align: right; }
+    .trace-summary span { display: block; color: var(--muted); font: 9px var(--mono); text-transform: uppercase; letter-spacing: .1em; }
+    .trace-summary strong { display: block; margin-top: 4px; font: 12px var(--mono); color: #e8e7df; }
+
+    .trace-viewport { min-height: 0; display: grid; place-items: center; overflow: hidden; padding: 6px 8px; }
+
+    .trace-map {
+      width: min(100%, 780px);
+      height: 512px;
+      position: relative;
+      background: #101210;
+      border: 1px solid var(--line);
+      overflow: hidden;
+    }
+
+    .trace-map::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: linear-gradient(90deg, transparent 49px, rgba(255,255,255,.025) 50px);
+      background-size: 50px 100%;
+      pointer-events: none;
+    }
+
+    .lane {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 98px;
+      border-bottom: 1px solid #272a27;
+    }
+    .lane:nth-child(1) { top: 21px; }
+    .lane:nth-child(2) { top: 119px; }
+    .lane:nth-child(3) { top: 217px; }
+    .lane:nth-child(4) { top: 315px; border-bottom: 0; }
+    .lane span { position: absolute; left: 8px; top: 8px; font: 8.5px var(--mono); color: #676a65; letter-spacing: .12em; writing-mode: vertical-rl; transform: rotate(180deg); }
+
+    .map-note { position: absolute; left: 12px; right: 12px; bottom: 11px; display: flex; justify-content: space-between; color: var(--dim); font: 9px var(--mono); }
+    .map-note b { color: #9da09a; font-weight: 500; }
+
+    .edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .edge { fill: none; stroke: #454944; stroke-width: 1.25; stroke-dasharray: 3 4; opacity: .72; transition: stroke 180ms ease, opacity 180ms ease, stroke-width 180ms ease; }
+    .edge.active { stroke: var(--acid); stroke-width: 2.2; stroke-dasharray: none; opacity: 1; }
+    .edge-label { fill: #737772; font: 8px var(--mono); letter-spacing: .02em; }
+    .edge-label.active { fill: var(--acid); }
+
+    .fact {
+      --fact-level: var(--recorded);
+      position: absolute;
+      width: 126px;
+      min-height: 59px;
+      padding: 8px 8px 7px 10px;
+      text-align: left;
+      background: #171a17;
+      border: 1px solid #3a3e39;
+      border-top: 2px solid var(--fact-level);
+      cursor: pointer;
+      z-index: 2;
+      transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease, opacity 160ms ease;
+    }
+    .fact:hover { transform: translateY(-2px); background: #1e221e; }
+    .fact.active { background: color-mix(in srgb, var(--fact-level) 10%, #171a17); box-shadow: 0 0 0 1px var(--fact-level), 0 9px 24px rgba(0,0,0,.35); }
+    .fact.lit:not(.active) { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acid) 50%, transparent); }
+    .fact.future { opacity: .38; }
+    .fact.unconnected { border-style: dashed; --fact-level: var(--missing); }
+    .fact small { display: block; color: var(--fact-level); font: 8px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+    .fact strong { display: block; margin-top: 4px; color: #e2e2da; font-size: 10.5px; line-height: 1.25; font-weight: 620; }
+    .fact code { display: block; margin-top: 4px; color: #767a75; font: 7.8px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    #fact-goal { left: 24px; top: 49px; }
+    #fact-plan { left: 178px; top: 49px; }
+    #fact-research { left: 178px; top: 151px; --fact-level: var(--observed); }
+    #fact-revision { left: 330px; top: 49px; }
+    #fact-permission { left: 330px; top: 349px; }
+    #fact-brief { left: 482px; top: 249px; }
+    #fact-sheet { left: 482px; top: 319px; }
+    #fact-validation { left: 634px; top: 349px; --fact-level: var(--verified); }
+    #fact-result { left: 634px; top: 49px; --fact-level: var(--verified); }
+    #fact-unsupported { left: 634px; top: 119px; }
+
+    .story-strip {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 18px;
+      border-top: 1px solid var(--line);
+      background: #0f110f;
+    }
+    .story-strip span { font: 9px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .09em; }
+    .story-rail { height: 5px; position: relative; background: #272b27; }
+    .story-rail::before { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--progress, 0%); background: var(--acid); transition: width 80ms linear; }
+    .story-rail i { position: absolute; width: 2px; top: -3px; bottom: -3px; background: #5e625d; }
+
+    .inspector { display: grid; grid-template-rows: 78px minmax(0, 1fr); }
+    .inspector-head { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; }
+    .inspector-head > div { margin-right: auto; }
+    .inspector-head strong { display: block; margin-top: 3px; font-size: 14px; }
+    .readonly { padding: 4px 7px; color: #858984; border: 1px solid var(--line); font: 8px var(--mono); letter-spacing: .1em; }
+
+    .inspector-body { min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #4a4e49 transparent; }
+    .current-claim { padding: 16px; border-bottom: 1px solid var(--line); }
+    .current-claim h3 { margin: 9px 0 7px; font-size: 17px; line-height: 1.25; letter-spacing: -.02em; }
+    .current-claim p { margin: 0; color: var(--muted); font-size: 11.3px; }
+
+    .evidence-section { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    .evidence-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+    .evidence-section-head span { font: 9px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+    .evidence-section-head b { color: var(--ink); font: 9px var(--mono); font-weight: 500; }
+
+    .evidence-row {
+      width: 100%;
+      padding: 9px;
+      display: grid;
+      grid-template-columns: 20px minmax(0,1fr) auto;
+      gap: 8px;
+      align-items: start;
+      text-align: left;
+      background: #111411;
+      border: 1px solid var(--line);
+      cursor: pointer;
+      margin-top: 6px;
+    }
+    .evidence-row:hover, .evidence-row.open { border-color: var(--line-strong); background: #191c19; }
+    .evidence-icon { display: grid; place-items: center; width: 20px; height: 20px; color: var(--acid); border: 1px solid #485038; font: 10px var(--mono); }
+    .evidence-row strong { display: block; font-size: 10.5px; font-weight: 580; }
+    .evidence-row code { display: block; margin-top: 3px; color: var(--muted); font: 8.5px var(--mono); overflow: hidden; text-overflow: ellipsis; }
+    .evidence-row em { color: var(--dim); font: normal 8px var(--mono); }
+
+    .source-detail { display: none; margin-top: 7px; padding: 10px; background: #0c0f0c; border: 1px solid var(--line); color: #b8bbb5; }
+    .source-detail.visible { display: block; }
+    .source-detail dl { margin: 0; display: grid; grid-template-columns: 64px 1fr; gap: 5px 8px; font-size: 9px; }
+    .source-detail dt { color: var(--dim); }
+    .source-detail dd { margin: 0; color: #babdb7; font-family: var(--mono); overflow-wrap: anywhere; }
+    .source-detail pre { margin: 9px 0 0; padding: 8px; color: #cfd2cb; background: #141714; border-left: 2px solid var(--acid); white-space: pre-wrap; font: 8.5px/1.5 var(--mono); }
+
+    .relation-note { display: flex; gap: 9px; padding: 10px; background: #111411; border-left: 2px solid var(--recorded); color: #aeb0ab; font-size: 10px; }
+    .relation-note b { color: var(--recorded); font: 9px var(--mono); }
+    .empty-relation { border-left-color: var(--missing); }
+    .empty-relation b { color: var(--missing); }
+
+    .provenance { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .provenance div { min-width: 0; padding: 8px; background: #111411; }
+    .provenance span { display: block; color: var(--dim); font: 8px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+    .provenance strong { display: block; margin-top: 4px; color: #c5c8c2; font: 9px var(--mono); overflow: hidden; text-overflow: ellipsis; }
+
+    .demo-chrome {
+      display: grid;
+      grid-template-columns: 280px minmax(280px, 1fr) 270px;
+      gap: 18px;
+      align-items: center;
+      padding: 10px 18px;
+      border-top: 1px solid #5a5f58;
+      background: #090b09;
+      position: relative;
+      z-index: 20;
+    }
+    .demo-label { min-width: 0; }
+    .demo-label .section-kicker { color: #71746f; }
+    .demo-label strong { display: block; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
+    .demo-label small { display: block; margin-top: 2px; color: var(--muted); font: 9px var(--mono); }
+
+    .transport { display: flex; align-items: center; justify-content: center; gap: 7px; }
+    .transport button {
+      width: 34px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      color: #c7cac4;
+      background: #141714;
+      border: 1px solid var(--line-strong);
+      cursor: pointer;
+      font: 12px var(--mono);
+    }
+    .transport button:hover { border-color: #7a8077; background: #1a1e1a; }
+    .transport button.primary { width: 42px; background: var(--acid); color: var(--acid-ink); border-color: var(--acid); font-weight: 800; }
+    .transport button.active { box-shadow: 0 0 0 2px rgba(216,255,84,.22); }
+    .transport .pause { display: none; }
+    .transport.playing .play { display: none; }
+    .transport.playing .pause { display: grid; }
+
+    .seek-group { display: grid; grid-template-columns: minmax(120px,1fr) 84px; gap: 12px; align-items: center; }
+    input[type="range"] { width: 100%; accent-color: var(--acid); cursor: pointer; }
+    output { color: #aeb1aa; font: 9.5px var(--mono); text-align: right; }
+
+    .takeover {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font: 9px var(--mono);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .takeover i { width: 7px; height: 7px; border-radius: 50%; background: #5c605b; }
+    .takeover.manual { color: var(--observed); }
+    .takeover.manual i { background: var(--observed); box-shadow: 0 0 0 3px rgba(226,185,106,.11); }
+    .takeover.complete { color: var(--verified); }
+    .takeover.complete i { background: var(--verified); }
+
+    .session-surface {
+      display: none;
+      grid-column: 1 / -1;
+      background: #111311;
+      position: relative;
+      align-items: center;
+      justify-content: center;
+    }
+    .workspace.in-session > .column { display: none; }
+    .workspace.in-session .session-surface { display: flex; }
+    .session-panel { width: 760px; border: 1px solid var(--line-strong); background: #171917; box-shadow: 0 28px 80px rgba(0,0,0,.46); }
+    .session-panel header { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+    .session-panel header strong { font-size: 15px; }
+    .session-panel header span { margin-left: auto; color: var(--observed); font: 9px var(--mono); text-transform: uppercase; }
+    .session-panel main { display: grid; grid-template-columns: 1fr 260px; min-height: 320px; }
+    .session-transcript { padding: 24px; border-right: 1px solid var(--line); }
+    .session-transcript .agent-message { margin-top: 22px; padding-left: 14px; border-left: 2px solid var(--acid); }
+    .session-transcript p { color: #c7c9c3; margin: 6px 0; }
+    .session-transcript code { color: var(--recorded); font: 10px var(--mono); }
+    .session-actions { padding: 20px; }
+    .session-actions h3 { margin: 4px 0 15px; font-size: 14px; }
+    .session-actions button { width: 100%; margin-bottom: 8px; padding: 10px; border: 1px solid var(--line-strong); background: #111411; cursor: pointer; }
+    .session-actions .accept { background: var(--acid); color: var(--acid-ink); border-color: var(--acid); font-weight: 700; }
+    .session-actions .rollback { color: var(--danger); }
+    .session-actions .reopen { margin-top: 18px; color: var(--ink); border-color: var(--acid); }
+    .session-actions small { display: block; margin-top: 5px; color: var(--muted); font: 9px/1.4 var(--mono); }
+
+    .toast { position: fixed; left: 50%; bottom: 104px; transform: translateX(-50%) translateY(12px); opacity: 0; pointer-events: none; padding: 8px 12px; background: #e8e8df; color: #151815; box-shadow: 0 8px 30px rgba(0,0,0,.35); font: 10px var(--mono); transition: opacity .16s ease, transform .16s ease; z-index: 50; }
+    .toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 1180px) {
+      .workspace { grid-template-columns: 250px minmax(640px,1fr) 310px; }
+      .source-chip, .depths { display: none; }
+      .trace-map { transform: scale(.92); transform-origin: center; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="product-mark" aria-hidden="true">π</div>
+      <button type="button" class="back-button" id="backToSession"><span>←</span><span>Back to Session</span></button>
+      <div class="title-block">
+        <strong>Session Replay / Launch readiness</strong>
+        <span>Prepare a launch brief and rollout checklist</span>
+      </div>
+      <div class="session-state"><i class="state-dot"></i>Agent finished</div>
+      <div class="source-chip">PI LEDGER · 28m 14s</div>
+      <nav class="depths" aria-label="Replay depth">
+        <button type="button" class="active" data-depth="recap">Recap</button>
+        <button type="button" data-depth="explore">Explore</button>
+        <button type="button" data-depth="verify">Verify</button>
+      </nav>
+    </header>
+
+    <main class="workspace" id="workspace">
+      <aside class="column claims" aria-label="Result claims">
+        <div class="claims-head">
+          <span class="section-kicker">Result first / 03 claims</span>
+          <h1>Launch materials<br/>are ready.</h1>
+          <p>Each claim keeps its own evidence level.</p>
+        </div>
+        <div class="contract">
+          <label>Recorded request</label>
+          <p>Prepare a launch brief and rollout checklist for the staged rollout.</p>
+          <div class="meta">RECORDED · evt_goal_01 · 28m 14s elapsed</div>
+        </div>
+        <div class="claim-list">
+          <button type="button" class="claim-card active" data-select="result" style="--level:var(--verified)">
+            <span class="claim-no">CLAIM 01</span>
+            <strong>Launch brief and 12-row rollout checklist were created and validated.</strong>
+            <span class="level" style="--level:var(--verified)">Verified</span>
+          </button>
+          <button type="button" class="claim-card" data-select="permission" style="--level:var(--recorded)">
+            <span class="claim-no">CLAIM 02 · ATTENTION</span>
+            <strong>One permission decision allowed local writes; no publish action was recorded.</strong>
+            <span class="level" style="--level:var(--recorded)">Recorded</span>
+          </button>
+          <button type="button" class="claim-card unconnected" data-select="unsupported" style="--level:var(--missing)">
+            <span class="claim-no">CLAIM 03 · NO RECORDED EDGE</span>
+            <strong>All launch stakeholders reviewed the final materials.</strong>
+            <span class="level" style="--level:var(--missing)">Missing</span>
+          </button>
+        </div>
+        <div class="legend">
+          <span class="section-kicker">Evidence vocabulary</span>
+          <div class="legend-row">
+            <span><i style="--legend:var(--verified)"></i>Verified</span>
+            <span><i style="--legend:var(--recorded)"></i>Recorded</span>
+            <span><i style="--legend:var(--observed)"></i>Observed</span>
+            <span><i style="--legend:var(--inferred)"></i>Inferred</span>
+            <span><i style="--legend:var(--missing)"></i>Missing</span>
+          </div>
+        </div>
+      </aside>
+
+      <section class="column trace" aria-label="Recorded relation trace">
+        <header class="trace-head">
+          <div class="trace-head-copy">
+            <span class="section-kicker">Recorded relation trace</span>
+            <h2 id="traceTitle">Verified result <span>← explicit IDs only</span></h2>
+          </div>
+          <div class="trace-summary">
+            <div><span>Story / Real</span><strong>33s / 28m</strong></div>
+            <div><span>Direct refs</span><strong id="directRefCount">02</strong></div>
+            <div><span>Attention</span><strong style="color:var(--observed)">01</strong></div>
+          </div>
+        </header>
+
+        <div class="trace-viewport">
+          <div class="trace-map" id="traceMap">
+            <div class="lane"><span>INTENT</span></div>
+            <div class="lane"><span>ACTIONS</span></div>
+            <div class="lane"><span>ARTIFACTS</span></div>
+            <div class="lane"><span>RISK + VERIFY</span></div>
+
+            <svg class="edges" viewBox="0 0 780 512" preserveAspectRatio="none" aria-hidden="true">
+              <path class="edge" data-edge="goal-plan" d="M150 79 H178" />
+              <path class="edge" data-edge="plan-research" d="M241 109 V151" />
+              <path class="edge" data-edge="research-revision" d="M304 181 C323 181 309 79 330 79" />
+              <path class="edge" data-edge="revision-permission" d="M393 109 V349" />
+              <path class="edge" data-edge="permission-brief" d="M456 379 C477 379 459 279 482 279" />
+              <path class="edge" data-edge="permission-sheet" d="M456 379 H466 C474 379 474 349 482 349" />
+              <path class="edge" data-edge="brief-validation" d="M608 279 C624 279 616 379 634 379" />
+              <path class="edge" data-edge="sheet-validation" d="M608 349 C620 349 622 379 634 379" />
+              <path class="edge" data-edge="validation-result" d="M697 349 V109" />
+              <text class="edge-label" data-edge-label="goal-plan" x="153" y="72">requestId</text>
+              <text class="edge-label" data-edge-label="research-revision" x="303" y="140">refFactIds</text>
+              <text class="edge-label" data-edge-label="revision-permission" x="400" y="232">requestId</text>
+              <text class="edge-label" data-edge-label="permission-brief" x="460" y="324">resolves</text>
+              <text class="edge-label" data-edge-label="brief-validation" x="611" y="322">verified-by</text>
+              <text class="edge-label" data-edge-label="validation-result" x="704" y="230">factId</text>
+            </svg>
+
+            <button type="button" class="fact" id="fact-goal" data-select="goal"><small>Recorded · Request</small><strong>Goal captured</strong><code>evt_goal_01</code></button>
+            <button type="button" class="fact" id="fact-plan" data-select="plan"><small>Recorded · Plan</small><strong>3-part approach</strong><code>plan_04</code></button>
+            <button type="button" class="fact future" id="fact-research" data-select="research"><small>Observed · Research</small><strong>Read rollout notes</strong><code>pty_obs_09</code></button>
+            <button type="button" class="fact future" id="fact-revision" data-select="revision"><small>Recorded · Pivot</small><strong>Plan revised</strong><code>plan_rev_17</code></button>
+            <button type="button" class="fact future" id="fact-permission" data-select="permission"><small>Recorded · Approval</small><strong>Local writes allowed</strong><code>perm_18</code></button>
+            <button type="button" class="fact future" id="fact-brief" data-select="brief"><small>Recorded · Artifact</small><strong>Launch brief written</strong><code>chg_21</code></button>
+            <button type="button" class="fact future" id="fact-sheet" data-select="sheet"><small>Recorded · Artifact</small><strong>Checklist written</strong><code>chg_23</code></button>
+            <button type="button" class="fact future" id="fact-validation" data-select="validation"><small>Verified · Check</small><strong>12 rows validated</strong><code>check_27</code></button>
+            <button type="button" class="fact active" id="fact-result" data-select="result"><small>Verified · Result</small><strong>Materials ready</strong><code>result_28</code></button>
+            <button type="button" class="fact unconnected" id="fact-unsupported" data-select="unsupported"><small>Missing · Claim</small><strong>Stakeholders reviewed</strong><code>no recorded id</code></button>
+
+            <div class="map-note"><span><b>Story Time</b> folds 25m 08s idle / repetition</span><span>Adjacency ≠ causality</span></div>
+          </div>
+        </div>
+
+        <div class="story-strip">
+          <span>Story time</span>
+          <div class="story-rail" id="storyRail">
+            <i style="left:6%"></i><i style="left:20%"></i><i style="left:35%"></i><i style="left:46%"></i><i style="left:60%"></i><i style="left:73%"></i><i style="left:82%"></i><i style="left:91%"></i>
+          </div>
+          <span>28m 14s real</span>
+        </div>
+      </section>
+
+      <aside class="column inspector" aria-label="Evidence inspector">
+        <header class="inspector-head">
+          <div><span class="section-kicker">Evidence inspector</span><strong>Direct support</strong></div>
+          <span class="readonly">READ ONLY</span>
+        </header>
+        <div class="inspector-body">
+          <section class="current-claim">
+            <span class="level" id="inspectorLevel" style="--level:var(--verified)">Verified</span>
+            <h3 id="inspectorTitle">Launch brief and 12-row rollout checklist were created and validated.</h3>
+            <p id="inspectorDetail">The result is supported by two durable file changes and one successful validation record.</p>
+          </section>
+          <section class="evidence-section">
+            <div class="evidence-section-head"><span>Direct evidence</span><b id="evidenceCount">02 refs</b></div>
+            <div id="evidenceList"></div>
+            <div class="source-detail" id="sourceDetail"></div>
+          </section>
+          <section class="evidence-section">
+            <div class="evidence-section-head"><span>Explicit relationship</span><b>ID-BACKED</b></div>
+            <div class="relation-note" id="relationNote"><b>verified-by</b><span>check_27 joins both change IDs to result_28. No edge is derived from time.</span></div>
+          </section>
+          <section class="evidence-section">
+            <div class="evidence-section-head"><span>Source + integrity</span></div>
+            <div class="provenance">
+              <div><span>Source</span><strong id="sourceValue">Pi activity ledger</strong></div>
+              <div><span>Capture</span><strong id="captureValue">Structured</strong></div>
+              <div><span>Sequence</span><strong id="sequenceValue">#028</strong></div>
+              <div><span>Reversibility</span><strong id="reversibilityValue">Reversible</strong></div>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <section class="session-surface" aria-label="Session review">
+        <div class="session-panel">
+          <header><div class="product-mark">π</div><strong>Launch readiness</strong><span>Awaiting your review</span></header>
+          <main>
+            <div class="session-transcript">
+              <span class="section-kicker">Recorded goal</span>
+              <p>Prepare a launch brief and rollout checklist for the staged rollout.</p>
+              <div class="agent-message">
+                <span class="section-kicker">Agent result</span>
+                <p>Created <code>docs/launch-brief.md</code> and <code>rollout-checklist.csv</code>. Validation passed for all 12 checklist rows.</p>
+                <p>No publish or stakeholder notification was performed.</p>
+              </div>
+            </div>
+            <aside class="session-actions">
+              <span class="section-kicker">Review actions</span>
+              <h3>Durable changes</h3>
+              <button type="button" class="accept" data-session-action="Accept changes">Accept changes</button>
+              <button type="button" class="rollback" data-session-action="Rollback requested">Rollback session</button>
+              <small>Accept and rollback belong to Session. Replay remains read-only.</small>
+              <button type="button" class="reopen" id="reopenReplay">Reopen replay at saved position</button>
+            </aside>
+          </main>
+        </div>
+      </section>
+    </main>
+
+    <footer class="demo-chrome" data-demo-chrome aria-label="Playable journey controls">
+      <div class="demo-label">
+        <span class="section-kicker">Guided investigation</span>
+        <strong data-demo-label>Ready — result-first orientation</strong>
+        <small id="guidedHint">Play 33 seconds or choose any claim for manual takeover.</small>
+      </div>
+      <div class="transport" id="transport">
+        <button type="button" data-demo-restart title="Restart" aria-label="Restart">↺</button>
+        <button type="button" data-demo-prev title="Previous step" aria-label="Previous step">|‹</button>
+        <button type="button" class="primary play" data-demo-play title="Play" aria-label="Play">▶</button>
+        <button type="button" class="primary pause" data-demo-pause title="Pause" aria-label="Pause">Ⅱ</button>
+        <button type="button" data-demo-next title="Next step" aria-label="Next step">›|</button>
+      </div>
+      <div>
+        <div class="seek-group"><input data-demo-seek type="range" aria-label="Seek journey"/><output data-demo-time>0.0 / 33.0s</output></div>
+        <div class="takeover" id="takeover"><i></i><span>Guided position</span></div>
+      </div>
+    </footer>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+  (function installPlayableMockRuntime(global) {
+    'use strict';
+    function clone(value) { return typeof global.structuredClone === 'function' ? global.structuredClone(value) : JSON.parse(JSON.stringify(value)); }
+    function clamp(value, min, max) { return Math.min(max, Math.max(min, value)); }
+    function createPlayableMockRuntime(options) {
+      const initialState = clone(options.initialState || {});
+      const steps = [...(options.steps || [])].map((step,index)=>({...step, at:Number(step.at)||0,index})).sort((a,b)=>a.at-b.at||a.index-b.index);
+      const duration = Math.max(Number(options.duration)||0, steps.length ? steps[steps.length-1].at+1.5 : 1);
+      const reducedMotion = !!(global.matchMedia && global.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      const listeners = new Set();
+      let state=clone(initialState), time=0, appliedCount=0, playing=false, dirtyManualState=false, animationFrame=null, lastTimestamp=null;
+      function currentStep(){ return appliedCount>0 ? steps[appliedCount-1] : null; }
+      function snapshot(type,detail={}){ return {type,state,time,duration,progress:duration?time/duration:0,playing,reducedMotion,step:currentStep(),...detail}; }
+      function publish(type,detail={},shouldRender=false){ const event=snapshot(type,detail); if(shouldRender) options.render(state,event); if(options.onTick) options.onTick(event); listeners.forEach(fn=>fn(event)); return event; }
+      function reduce(action,source,step=null){ const next=options.reducer(state,action,{source,time,step,reducedMotion}); if(typeof next==='undefined') throw new TypeError('Reducer must return state'); state=next; }
+      function rebuild(target){ state=clone(initialState); appliedCount=0; for(const step of steps){ if(step.at>target) break; reduce(step.action,'seek',step); appliedCount++; } time=target; dirtyManualState=false; }
+      function cancelFrame(){ if(animationFrame!==null) global.cancelAnimationFrame(animationFrame); animationFrame=null; lastTimestamp=null; }
+      function pause(reason='pause'){ if(!playing&&animationFrame===null) return; playing=false; cancelFrame(); publish(reason); }
+      function seek(nextTime,reason='seek'){ pause('pause-for-seek'); rebuild(clamp(Number(nextTime)||0,0,duration)); publish(reason,{},true); }
+      function advance(ts){ if(!playing)return; if(lastTimestamp===null)lastTimestamp=ts; const delta=Math.max(0,(ts-lastTimestamp)/1000); lastTimestamp=ts; time=clamp(time+delta,0,duration); let changed=false; while(appliedCount<steps.length&&steps[appliedCount].at<=time){ const step=steps[appliedCount]; reduce(step.action,'autoplay',step); appliedCount++; changed=true; } publish(changed?'step':'tick',{},changed); if(time>=duration){ playing=false; cancelFrame(); publish('complete'); return; } animationFrame=global.requestAnimationFrame(advance); }
+      function play(){ if(playing)return; if(time>=duration)rebuild(0); if(dirtyManualState)rebuild(time); playing=true; lastTimestamp=null; publish('play',{},true); animationFrame=global.requestAnimationFrame(advance); }
+      function restart({autoplay=false}={}){ pause('pause-for-restart'); rebuild(0); publish('restart',{},true); if(autoplay)play(); }
+      function dispatch(action,{source='manual'}={}){ if(source==='manual'){ pause('manual-takeover'); dirtyManualState=true; } reduce(action,source); return publish('dispatch',{action,source},true); }
+      function stepTo(index){ if(!steps.length)return; seek(steps[clamp(index,0,steps.length-1)].at,'step-navigation'); }
+      function next(){ stepTo(Math.min(appliedCount,steps.length-1)); }
+      function previous(){ stepTo(Math.max(0,appliedCount-2)); }
+      function subscribe(fn){ listeners.add(fn); fn(snapshot('subscribe')); return()=>listeners.delete(fn); }
+      function bindControls(root=document){
+        const q=s=>root.querySelector(s), playButton=q('[data-demo-play]'), pauseButton=q('[data-demo-pause]'), restartButton=q('[data-demo-restart]'), previousButton=q('[data-demo-prev]'), nextButton=q('[data-demo-next]'), seekInput=q('[data-demo-seek]'), timeOutput=q('[data-demo-time]'), labelOutput=q('[data-demo-label]');
+        playButton?.addEventListener('click',play); pauseButton?.addEventListener('click',()=>pause()); restartButton?.addEventListener('click',()=>restart()); previousButton?.addEventListener('click',previous); nextButton?.addEventListener('click',next); seekInput?.addEventListener('input',e=>seek(Number(e.currentTarget.value)));
+        if(seekInput){ seekInput.min='0'; seekInput.max=String(duration); seekInput.step='0.05'; }
+        return subscribe(event=>{ if(seekInput&&document.activeElement!==seekInput)seekInput.value=String(event.time); if(timeOutput)timeOutput.value=`${event.time.toFixed(1)} / ${duration.toFixed(1)}s`; if(labelOutput)labelOutput.textContent=event.step?.label||'Ready — result-first orientation'; if(playButton)playButton.setAttribute('aria-pressed',String(event.playing)); });
+      }
+      rebuild(0); publish('init',{},true); global.__mockReady=true;
+      return {bindControls,dispatch,getDuration:()=>duration,getState:()=>clone(state),getTime:()=>time,isPlaying:()=>playing,next,pause,play,previous,restart,seek,subscribe,steps:steps.map(s=>({...s}))};
+    }
+    global.createPlayableMockRuntime=createPlayableMockRuntime;
+  })(window);
+
+  const facts = {
+    goal: {label:'Recorded', color:'var(--recorded)', title:'Goal captured', detail:'The request was stored verbatim before the Agent began.', refs:[['E','Event ledger record','evt_goal_01']], relation:'requestId goal_01 starts the recorded plan chain.', source:'Pi activity ledger', capture:'Structured', seq:'#001', reverse:'N/A'},
+    plan: {label:'Recorded', color:'var(--recorded)', title:'3-part approach recorded', detail:'Draft the brief, build the checklist, then validate required rollout fields.', refs:[['E','Plan event','plan_04']], relation:'requestId goal_01 → plan_04.', source:'Pi activity ledger', capture:'Structured', seq:'#004', reverse:'Reversible'},
+    research: {label:'Observed', color:'var(--observed)', title:'Rollout notes were read', detail:'Terminal output showed the notes being inspected. Their internal meaning is not recorded.', refs:[['T','PTY observation','pty_obs_09']], relation:'Surrounding context only. No recorded parent ID joins this observation to the later decision.', source:'Terminal observation', capture:'Observed stream', seq:'#009', reverse:'N/A'},
+    revision: {label:'Recorded', color:'var(--recorded)', title:'Plan revised after research', detail:'The Agent recorded a pivot: add explicit readiness gates and an owner column.', refs:[['E','Plan revision event','plan_rev_17']], relation:'refFactIds [plan_04, pty_obs_09] are recorded on plan_rev_17.', source:'Pi activity ledger', capture:'Structured', seq:'#017', reverse:'Reversible'},
+    permission: {label:'Recorded', color:'var(--recorded)', title:'Local file writes approved', detail:'One permission decision allowed only the two named workspace writes. Publish was not requested.', refs:[['P','Permission decision','perm_18'],['E','Request record','request_18']], relation:'perm_18 resolves callId write_bundle_20. Scope: local workspace writes.', source:'Permission ledger', capture:'Structured', seq:'#018', reverse:'Compensatable'},
+    brief: {label:'Recorded', color:'var(--recorded)', title:'Launch brief written', detail:'A durable file version was recorded for docs/launch-brief.md.', refs:[['Δ','File change record','change:chg_21'],['#','After-version blob','sha256:8f24b9…']], relation:'callId write_bundle_20 produced chg_21.', source:'File change ledger', capture:'Version pair', seq:'#021', reverse:'Reversible'},
+    sheet: {label:'Recorded', color:'var(--recorded)', title:'Checklist written', detail:'A 12-row CSV with owner, gate, rollback trigger, and status columns was recorded.', refs:[['Δ','File change record','change:chg_23'],['#','After-version blob','sha256:21ca8e…']], relation:'callId write_bundle_20 produced chg_23.', source:'File change ledger', capture:'Version pair', seq:'#023', reverse:'Reversible'},
+    validation: {label:'Verified', color:'var(--verified)', title:'All 12 checklist rows validated', detail:'The validator confirmed row count, required headers, owners, and rollback triggers.', refs:[['✓','Validation event','check_27'],['E','Exit receipt','exit:0']], relation:'check_27 verified-by change IDs chg_21 and chg_23.', source:'Validation receipt', capture:'Structured + exit', seq:'#027', reverse:'N/A'},
+    result: {label:'Verified', color:'var(--verified)', title:'Launch brief and 12-row rollout checklist were created and validated.', detail:'The result is supported by two durable file changes and one successful validation record.', refs:[['Δ','docs/launch-brief.md','change:chg_21'],['✓','rollout-checklist.csv · 12 rows','check_27']], relation:'check_27 joins both change IDs to result_28. No edge is derived from time.', source:'Pi activity ledger', capture:'Structured', seq:'#028', reverse:'Reversible'},
+    unsupported: {label:'Missing', color:'var(--missing)', title:'All launch stakeholders reviewed the final materials.', detail:'No message, receipt, comment, or provider-emitted app identity was recorded.', refs:[], relation:'No recorded edge. This claim remains visibly unconnected.', source:'Not recorded', capture:'Missing', seq:'—', reverse:'Unknown'}
+  };
+
+  const edgeSets = {
+    goal:['goal-plan'], plan:['goal-plan','plan-research'], research:['plan-research'], revision:['research-revision','revision-permission'],
+    permission:['revision-permission','permission-brief','permission-sheet'], brief:['permission-brief','brief-validation'], sheet:['permission-sheet','sheet-validation'],
+    validation:['brief-validation','sheet-validation','validation-result'], result:['research-revision','revision-permission','permission-brief','permission-sheet','brief-validation','sheet-validation','validation-result'], unsupported:[]
+  };
+  const arrival = {goal:0,plan:1,research:2,revision:3,permission:4,brief:5,sheet:6,validation:7,result:8,unsupported:0};
+
+  const initialState = {selected:'result', revealed:0, evidenceOpen:false, surface:'replay', manual:false, final:false, toast:''};
+  function reducer(state, action, meta) {
+    switch(action.type) {
+      case 'SELECT': return {...state, selected:action.id, evidenceOpen:false, manual:meta.source==='manual'||state.manual, final:false, surface:'replay'};
+      case 'REVEAL': return {...state, revealed:Math.max(state.revealed,action.index), selected:action.id, evidenceOpen:false, manual:false, final:false, surface:'replay'};
+      case 'OPEN_EVIDENCE': return {...state, selected:action.id||state.selected, evidenceOpen:true, manual:meta.source==='manual'||state.manual};
+      case 'RETURN_SESSION': return {...state, surface:'session', manual:true};
+      case 'REOPEN_REPLAY': return {...state, surface:'replay', manual:true};
+      case 'FINAL_HOLD': return {...state, selected:'result', revealed:8, evidenceOpen:true, final:true, surface:'replay'};
+      case 'TOAST': return {...state, toast:action.message};
+      default: return state;
+    }
+  }
+
+  const steps = [
+    {at:2.0,label:'01 / Request — orient to the recorded goal',action:{type:'REVEAL',index:0,id:'goal'}},
+    {at:5.0,label:'02 / Approach — inspect the recorded plan',action:{type:'REVEAL',index:1,id:'plan'}},
+    {at:8.0,label:'03 / Research — distinguish observation from record',action:{type:'REVEAL',index:2,id:'research'}},
+    {at:11.0,label:'04 / Pivot — follow the explicit refFactIds',action:{type:'REVEAL',index:3,id:'revision'}},
+    {at:14.0,label:'05 / Permission — inspect the approved scope',action:{type:'REVEAL',index:4,id:'permission'}},
+    {at:18.0,label:'06 / Change — trace the launch brief write',action:{type:'REVEAL',index:5,id:'brief'}},
+    {at:20.5,label:'07 / Change — trace the checklist write',action:{type:'REVEAL',index:6,id:'sheet'}},
+    {at:24.0,label:'08 / Verification — connect the validation receipt',action:{type:'REVEAL',index:7,id:'validation'}},
+    {at:27.0,label:'09 / Result — illuminate the supported chain',action:{type:'REVEAL',index:8,id:'result'}},
+    {at:29.5,label:'10 / Evidence — inspect the direct source',action:{type:'OPEN_EVIDENCE',id:'result'}},
+    {at:30.5,label:'Complete — evidence remains inspectable',action:{type:'FINAL_HOLD'}}
+  ];
+
+  const $ = (selector,root=document)=>root.querySelector(selector);
+  const $$ = (selector,root=document)=>[...root.querySelectorAll(selector)];
+  function render(state,event) {
+    const fact=facts[state.selected];
+    $('#workspace').classList.toggle('in-session',state.surface==='session');
+    $$('.claim-card').forEach(el=>el.classList.toggle('active',el.dataset.select===state.selected));
+    $$('.fact').forEach(el=>{
+      const id=el.dataset.select;
+      el.classList.toggle('active',id===state.selected);
+      el.classList.toggle('lit',edgeSets[state.selected].some(edge=>edge.includes(id))||id===state.selected);
+      if(id!=='unsupported') el.classList.toggle('future',arrival[id]>state.revealed && !(state.revealed===0&&id==='result'));
+    });
+    $$('.edge').forEach(el=>el.classList.toggle('active',edgeSets[state.selected].includes(el.dataset.edge)));
+    $$('.edge-label').forEach(el=>el.classList.toggle('active',edgeSets[state.selected].includes(el.dataset.edgeLabel)));
+    $('#traceTitle').innerHTML=`${fact.title.length>46?fact.title.slice(0,46)+'…':fact.title} <span>← ${state.selected==='unsupported'?'unconnected claim':'explicit IDs only'}</span>`;
+    $('#directRefCount').textContent=String(fact.refs.length).padStart(2,'0');
+    $('#inspectorLevel').textContent=fact.label; $('#inspectorLevel').style.setProperty('--level',fact.color);
+    $('#inspectorTitle').textContent=fact.title; $('#inspectorDetail').textContent=fact.detail; $('#evidenceCount').textContent=`${String(fact.refs.length).padStart(2,'0')} refs`;
+    $('#evidenceList').innerHTML=fact.refs.map((ref,i)=>`<button type="button" class="evidence-row ${state.evidenceOpen&&i===0?'open':''}" data-evidence-index="${i}"><span class="evidence-icon">${ref[0]}</span><span><strong>${ref[1]}</strong><code>${ref[2]}</code></span><em>#${String(i+1).padStart(2,'0')}</em></button>`).join('') || '<div class="relation-note empty-relation"><b>MISSING</b><span>No direct evidence was captured for this claim.</span></div>';
+    const source=$('#sourceDetail');
+    if(state.evidenceOpen&&fact.refs.length){ source.classList.add('visible'); source.innerHTML=`<dl><dt>Type</dt><dd>${fact.refs[0][1]}</dd><dt>Source</dt><dd>${fact.source}</dd><dt>Captured</dt><dd>2026-07-26 09:42:18 +08:00</dd><dt>Integrity</dt><dd>${fact.refs[0][2].startsWith('change:')?'sha256 8f24b9d0a3c1…':'ledger row · no independent hash'}</dd></dl><pre>${state.selected==='result'?'+ docs/launch-brief.md\n+ readiness gates · rollback criteria\n✓ referenced by validation check_27':fact.detail}</pre>`; }
+    else { source.classList.remove('visible'); source.innerHTML=''; }
+    const relation=$('#relationNote'); relation.classList.toggle('empty-relation',state.selected==='unsupported'||state.selected==='research'); relation.innerHTML=`<b>${state.selected==='unsupported'?'NO EDGE':state.selected==='research'?'CONTEXT':'ID-BACKED'}</b><span>${fact.relation}</span>`;
+    $('#sourceValue').textContent=fact.source; $('#captureValue').textContent=fact.capture; $('#sequenceValue').textContent=fact.seq; $('#reversibilityValue').textContent=fact.reverse;
+    $('#transport').classList.toggle('playing',event?.playing||false);
+    const takeover=$('#takeover'); takeover.className='takeover'+(state.final?' complete':state.manual?' manual':''); takeover.innerHTML=`<i></i><span>${state.final?'Final hold · inspectable':state.manual?'Manual takeover · position saved':'Guided position'}</span>`;
+    $('#guidedHint').textContent=state.manual?'Playback paused. Press Play to rejoin the recorded journey.':'Play 33 seconds or choose any claim for manual takeover.';
+  }
+
+  const runtime=createPlayableMockRuntime({initialState,reducer,render,steps,duration:33,onTick(event){
+    $('#storyRail').style.setProperty('--progress',`${event.progress*100}%`);
+    $('#transport').classList.toggle('playing',event.playing);
+  }});
+  runtime.bindControls(document);
+  runtime.subscribe(event=>render(event.state,event));
+
+  $$('[data-select]').forEach(el=>el.addEventListener('click',()=>runtime.dispatch({type:'SELECT',id:el.dataset.select})));
+  $('#evidenceList').addEventListener('click',e=>{ if(e.target.closest('.evidence-row')) runtime.dispatch({type:'OPEN_EVIDENCE'}); });
+  $('#backToSession').addEventListener('click',()=>runtime.dispatch({type:'RETURN_SESSION'}));
+  $('#reopenReplay').addEventListener('click',()=>runtime.dispatch({type:'REOPEN_REPLAY'}));
+  $$('.depths button').forEach(btn=>btn.addEventListener('click',()=>{
+    $$('.depths button').forEach(b=>b.classList.toggle('active',b===btn));
+    runtime.dispatch({type:'SELECT',id:btn.dataset.depth==='verify'?runtime.getState().selected:btn.dataset.depth==='explore'?'revision':'result'});
+  }));
+  $$('[data-session-action]').forEach(btn=>btn.addEventListener('click',()=>{
+    runtime.dispatch({type:'TOAST',message:btn.dataset.sessionAction});
+    const toast=$('#toast'); toast.textContent=`${btn.dataset.sessionAction} — Session owns this action`; toast.classList.add('visible'); setTimeout(()=>toast.classList.remove('visible'),1800);
+  }));
+  window.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'){e.preventDefault();runtime.next();}
+    if(e.key==='ArrowLeft'){e.preventDefault();runtime.previous();}
+    if(e.key===' '&&!['INPUT','BUTTON'].includes(document.activeElement?.tagName)){e.preventDefault();runtime.isPlaying()?runtime.pause():runtime.play();}
+    if(e.key==='Escape'&&runtime.getState().surface==='replay') runtime.dispatch({type:'RETURN_SESSION'});
+  });
+  </script>
+</body>
+</html>

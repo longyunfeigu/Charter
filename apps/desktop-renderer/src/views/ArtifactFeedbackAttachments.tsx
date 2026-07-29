@@ -14,7 +14,12 @@ function anchorLabel(ref: ArtifactFeedbackRefDto): string {
     return `${anchor.startSeconds.toFixed(2)}s${end}`;
   }
   if (anchor.type === 'pdf') return `page ${anchor.page}`;
-  if (anchor.type === 'html') return anchor.selector;
+  if (anchor.type === 'html') {
+    const element = anchor.element;
+    if (!element) return anchor.selector;
+    const name = element.accessibleName || element.text;
+    return `${element.tagName}${name ? ` "${name}"` : ''} · ${anchor.selector}`;
+  }
   if (anchor.type === 'archive') return anchor.innerPath;
   if (anchor.type === 'image') return 'image region';
   return 'whole file';

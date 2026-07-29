@@ -1,0 +1,953 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Charter — SFTP Spatial Native</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --font-mono: Menlo, Monaco, "SF Mono", Consolas, monospace;
+      --canvas: #eceae5;
+      --chrome: #f6f5f1;
+      --paper: #fbfaf7;
+      --card: #ffffff;
+      --ink: #201e1a;
+      --muted: #706c63;
+      --faint: #9f9a90;
+      --line: #e5e1d8;
+      --line-strong: #cbc6bb;
+      --hover: #f1efe9;
+      --selected: #e9f1fd;
+      --selected-line: #91b8ed;
+      --blue: #3f7bd9;
+      --green: #2f9e63;
+      --green-soft: #e7f5ec;
+      --amber: #ae6d0b;
+      --amber-soft: #fbf1dd;
+      --red: #c4453d;
+      --red-soft: #fdecea;
+      --shadow: 0 18px 48px rgba(30, 26, 18, .12), 0 2px 8px rgba(30, 26, 18, .06);
+      --hairline: 0 1px 0 rgba(255,255,255,.65) inset;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    body {
+      background: var(--canvas);
+      color: var(--ink);
+      font: 13px/1.35 var(--font-ui);
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+    }
+    button { font: inherit; color: inherit; }
+    [hidden] { display: none !important; }
+    button:focus-visible { outline: 2px solid #1f1e1a; outline-offset: 2px; }
+    .mono { font-family: var(--font-mono); }
+
+    .app {
+      width: 100vw;
+      height: 100vh;
+      min-width: 980px;
+      display: grid;
+      grid-template-rows: 38px minmax(0, 1fr) 24px;
+      background: var(--paper);
+    }
+
+    .titlebar {
+      display: grid;
+      grid-template-columns: 190px 1fr 190px;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      background: var(--chrome);
+      -webkit-app-region: drag;
+    }
+    .traffic { display: flex; gap: 8px; padding-left: 14px; }
+    .traffic i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+    .traffic i:nth-child(1) { background: #ff5f57; }
+    .traffic i:nth-child(2) { background: #febc2e; }
+    .traffic i:nth-child(3) { background: #28c840; }
+    .window-title { text-align: center; font-size: 12px; font-weight: 620; color: #4c4942; }
+    .window-meta { padding-right: 14px; text-align: right; font: 10px var(--font-mono); color: var(--faint); }
+
+    .body { min-height: 0; display: grid; grid-template-columns: 48px 218px minmax(0, 1fr); }
+    .rail {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 0;
+      border-right: 1px solid var(--line);
+      background: var(--chrome);
+    }
+    .rail-button {
+      position: relative;
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #777269;
+      cursor: pointer;
+    }
+    .rail-button:hover { background: #e9e6df; color: var(--ink); }
+    .rail-button.active { background: #e4e1d9; color: var(--ink); }
+    .rail-button.active::before {
+      content: "";
+      position: absolute;
+      left: -7px;
+      width: 3px;
+      height: 20px;
+      border-radius: 0 3px 3px 0;
+      background: var(--ink);
+    }
+    .rail svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+    .rail-spacer { flex: 1; }
+
+    .sidebar {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--line);
+      background: var(--chrome);
+    }
+    .side-head {
+      height: 43px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px 0 14px;
+      color: #5e5a52;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+    .icon-button {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .icon-button:hover { background: #e8e5de; color: var(--ink); }
+    .connections { padding: 3px 8px; }
+    .group-label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 6px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+    }
+    .host {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255,255,255,.58);
+      box-shadow: var(--hairline);
+    }
+    .host-main { display: grid; grid-template-columns: 25px minmax(0,1fr); gap: 8px; padding: 10px; }
+    .host-mark {
+      width: 25px;
+      height: 25px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      background: #25231f;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .host-copy { min-width: 0; }
+    .host-copy b { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .host-copy span { display: block; margin-top: 2px; overflow: hidden; color: var(--faint); font: 9.5px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+    .host-nav { padding: 0 5px 5px; }
+    .host-nav button {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 9px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11.5px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .host-nav button.active { background: #e5e2db; color: var(--ink); font-weight: 650; }
+    .tiny-icon { width: 14px; text-align: center; color: var(--faint); }
+    .sidebar-foot { margin-top: auto; padding: 10px 12px 12px; color: var(--faint); font: 9.5px/1.5 var(--font-mono); }
+    .sidebar-foot strong { color: var(--green); font-weight: 600; }
+
+    .main { min-width: 0; min-height: 0; display: grid; grid-template-rows: 72px minmax(0, 1fr) 124px; background: var(--paper); }
+    .page-head { display: flex; align-items: center; gap: 14px; padding: 12px 18px; }
+    .back {
+      width: 29px;
+      height: 29px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--card);
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .back:hover { border-color: var(--line-strong); color: var(--ink); }
+    .page-title { flex: 1; min-width: 0; }
+    .page-title h1 { margin: 0; font-size: 16px; font-weight: 680; letter-spacing: -.012em; }
+    .page-title p { margin: 3px 0 0; color: var(--faint); font: 10.5px var(--font-mono); }
+    .head-actions { display: flex; align-items: center; gap: 7px; }
+    .connection {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--card);
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .connection:hover { border-color: var(--line-strong); }
+    .connection .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+    .connection.offline { color: var(--red); border-color: #eac3bf; background: #fffafa; }
+    .connection.offline .dot { background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
+    .tool-button {
+      height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--card);
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .tool-button:hover { border-color: var(--line-strong); color: var(--ink); }
+
+    .file-space { min-height: 0; padding: 0 18px 12px; }
+    .panes { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(330px,1fr) 94px minmax(330px,1fr); }
+    .pane {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 40px 42px 27px minmax(0,1fr) 31px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: var(--card);
+      box-shadow: 0 1px 2px rgba(30,26,18,.035), var(--hairline);
+      overflow: hidden;
+    }
+    .pane-head { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line); background: #faf9f6; }
+    .machine-icon { width: 23px; height: 23px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: var(--card); font-size: 11px; }
+    .pane-head-copy { flex: 1; min-width: 0; }
+    .pane-head-copy b { display: block; overflow: hidden; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+    .pane-head-copy span { display: block; margin-top: 1px; color: var(--faint); font: 9px var(--font-mono); }
+    .pane-status { display: flex; align-items: center; gap: 5px; color: var(--faint); font-size: 9.5px; }
+    .pane-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+    .pane-status.off i { background: var(--red); }
+    .pathbar { display: flex; align-items: center; gap: 3px; padding: 6px 9px; border-bottom: 1px solid var(--line); background: var(--card); }
+    .crumb {
+      min-width: 0;
+      padding: 4px 6px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font: 10.5px var(--font-mono);
+      cursor: pointer;
+    }
+    .crumb:hover { background: var(--hover); color: var(--ink); }
+    .crumb.current { color: var(--ink); font-weight: 650; }
+    .sep { color: #c4bfb5; font: 10px var(--font-mono); }
+    .path-spacer { flex: 1; }
+    .path-action { border: 0; background: transparent; color: var(--faint); cursor: pointer; }
+    .columns { display: grid; grid-template-columns: minmax(0,1fr) 80px 76px; align-items: center; padding: 0 11px 0 39px; border-bottom: 1px solid var(--line); background: #faf9f6; color: var(--faint); font-size: 9px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; }
+    .columns span:not(:first-child) { text-align: right; }
+    .file-list { min-height: 0; overflow: auto; background: var(--card); }
+    .file-row {
+      position: relative;
+      width: 100%;
+      min-height: 39px;
+      display: grid;
+      grid-template-columns: 25px minmax(0,1fr) 80px 76px;
+      align-items: center;
+      gap: 5px;
+      padding: 0 11px;
+      border: 0;
+      border-bottom: 1px solid #f0eee8;
+      background: transparent;
+      text-align: left;
+      cursor: default;
+    }
+    .file-row.selectable { cursor: pointer; }
+    .file-row:hover { background: var(--hover); }
+    .file-row.selected { background: var(--selected); box-shadow: inset 3px 0 0 var(--blue); }
+    .file-row.conflicted { background: var(--amber-soft); box-shadow: inset 3px 0 0 #d99936; }
+    .file-row.new-arrival { animation: arrival 700ms ease-out; }
+    @keyframes arrival { from { background: #d9f2e3; } to { background: transparent; } }
+    .file-icon { width: 19px; height: 19px; display: grid; place-items: center; color: var(--muted); }
+    .file-icon.folder { color: var(--blue); }
+    .file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+    .file-name small { margin-left: 6px; padding: 2px 5px; border-radius: 5px; background: var(--amber-soft); color: var(--amber); font: 8.5px var(--font-ui); font-weight: 700; text-transform: uppercase; }
+    .file-size, .file-date { color: var(--faint); font: 9.5px var(--font-mono); text-align: right; white-space: nowrap; }
+    .select-indicator { width: 15px; height: 15px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--card); color: transparent; font-size: 10px; }
+    .selected .select-indicator { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .pane-foot { display: flex; align-items: center; gap: 7px; padding: 0 11px; border-top: 1px solid var(--line); background: #faf9f6; color: var(--faint); font: 9.5px var(--font-mono); }
+    .pane-foot strong { color: var(--muted); font-weight: 600; }
+    .foot-spacer { flex: 1; }
+
+    .route {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      overflow: visible;
+      z-index: 4;
+    }
+    .route::before { content: ""; position: absolute; left: 8px; right: 8px; top: 50%; height: 1px; background: #d7d2c9; }
+    .route::after { content: ""; position: absolute; right: 8px; top: calc(50% - 3px); width: 6px; height: 6px; border-top: 1px solid #aaa49a; border-right: 1px solid #aaa49a; transform: rotate(45deg); }
+    .route-label { position: relative; z-index: 2; margin-top: -68px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 99px; background: var(--paper); color: var(--faint); font: 8.5px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+    .upload {
+      position: relative;
+      z-index: 5;
+      width: 56px;
+      height: 56px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 15px;
+      background: var(--card);
+      box-shadow: 0 8px 20px rgba(30,26,18,.08);
+      color: var(--faint);
+      cursor: pointer;
+    }
+    .upload:not(:disabled) { border-color: #22211d; background: #22211d; color: #fff; transform: translateY(-1px); }
+    .upload:not(:disabled):hover { background: #000; box-shadow: 0 10px 26px rgba(30,26,18,.16); }
+    .upload:disabled { cursor: default; opacity: .72; }
+    .upload .arrow { display: block; font-size: 20px; line-height: 15px; }
+    .upload .count { display: block; margin-top: 2px; font: 8.5px var(--font-mono); }
+    .route-hint { position: relative; z-index: 2; width: 80px; margin-top: 36px; color: var(--faint); font-size: 9px; text-align: center; }
+    .packet {
+      position: absolute;
+      z-index: 7;
+      top: calc(50% - 18px);
+      left: 50%;
+      width: 94px;
+      height: 35px;
+      display: none;
+      align-items: center;
+      gap: 6px;
+      padding: 0 8px;
+      border: 1px solid #b9d2f2;
+      border-radius: 8px;
+      background: #f7fbff;
+      box-shadow: 0 8px 22px rgba(52,94,150,.16);
+      color: #345e96;
+      transform: translateX(-50%);
+    }
+    .packet.visible { display: flex; }
+    .packet.flying { animation: cross-route 900ms cubic-bezier(.2,.8,.2,1) both; }
+    @keyframes cross-route {
+      0% { transform: translateX(-150px) scale(.94); opacity: .2; }
+      35% { opacity: 1; }
+      100% { transform: translateX(56px) scale(1); opacity: 1; }
+    }
+    .packet b { min-width: 0; overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+    .packet span { font: 11px var(--font-mono); }
+
+    .conflict-card {
+      position: absolute;
+      z-index: 12;
+      top: 148px;
+      right: 13px;
+      width: min(390px, calc(100% - 26px));
+      padding: 13px;
+      border: 1px solid #deb86d;
+      border-radius: 11px;
+      background: #fffbf3;
+      box-shadow: var(--shadow);
+      display: none;
+    }
+    .conflict-card.visible { display: block; }
+    .conflict-cap { display: flex; align-items: center; gap: 8px; color: var(--amber); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+    .conflict-card h2 { margin: 7px 0 3px; font-size: 14px; letter-spacing: -.01em; }
+    .conflict-card > p { margin: 0; color: var(--muted); font-size: 10.5px; }
+    .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 10px 0; }
+    .compare div { padding: 8px; border: 1px solid #eadfca; border-radius: 7px; background: rgba(255,255,255,.8); }
+    .compare span { display: block; color: var(--faint); font-size: 8.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .compare b { display: block; margin-top: 3px; font: 10px var(--font-mono); }
+    .safe-note { display: flex; gap: 6px; margin: 0 0 11px; color: #776342; font-size: 9.5px; }
+    .conflict-actions { display: flex; align-items: center; gap: 6px; }
+    .action {
+      height: 29px;
+      padding: 0 10px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      background: var(--card);
+      color: var(--muted);
+      font-size: 10.5px;
+      font-weight: 620;
+      cursor: pointer;
+    }
+    .action:hover { color: var(--ink); border-color: #9e988d; }
+    .action.primary { border-color: #24231f; background: #24231f; color: #fff; }
+    .action.primary:hover { background: #000; }
+    .action.link { padding: 0 4px; border: 0; background: transparent; color: var(--muted); font-weight: 500; }
+    .action.success { border-color: #227a4a; background: #277f4f; color: #fff; }
+    .conflict-spacer { flex: 1; }
+
+    .transfer-shelf {
+      min-width: 0;
+      margin: 0 18px 12px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 16px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #f7f6f2;
+      box-shadow: var(--hairline);
+    }
+    .transfer-shelf.running { border-color: #c6d9f3; background: #f7faff; }
+    .transfer-shelf.interrupted { border-color: #e4b3ae; background: #fff8f7; }
+    .transfer-shelf.complete { border-color: #badbc7; background: #f5fbf7; }
+    .transfer-main { min-width: 0; }
+    .transfer-heading { display: flex; align-items: center; gap: 8px; }
+    .transfer-icon { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 7px; background: #ece9e2; color: var(--muted); font-size: 12px; }
+    .running .transfer-icon { background: #e4eefb; color: var(--blue); }
+    .interrupted .transfer-icon { background: var(--red-soft); color: var(--red); }
+    .complete .transfer-icon { background: var(--green-soft); color: var(--green); }
+    .transfer-title { min-width: 0; }
+    .transfer-title b { display: block; font-size: 11.5px; }
+    .transfer-title span { display: block; margin-top: 1px; overflow: hidden; color: var(--faint); font: 9.5px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+    .progress-line { display: flex; align-items: center; gap: 9px; margin-top: 9px; }
+    .progress { flex: 1; height: 5px; overflow: hidden; border-radius: 99px; background: #e5e2db; }
+    .progress i { display: block; height: 100%; width: 0; border-radius: 99px; background: var(--blue); transition: width 280ms ease; }
+    .interrupted .progress i { background: var(--red); }
+    .complete .progress i { background: var(--green); }
+    .progress-copy { width: 205px; color: var(--muted); font: 9.5px var(--font-mono); text-align: right; white-space: nowrap; }
+    .transfer-actions { display: flex; align-items: center; gap: 7px; }
+    .selection-summary { display: flex; gap: 7px; align-items: center; color: var(--muted); font-size: 10.5px; }
+    .selection-summary .badge { padding: 3px 7px; border-radius: 99px; background: #e7e4dc; color: #5e5a52; font: 9px var(--font-mono); }
+
+    .statusbar { display: flex; align-items: center; gap: 14px; padding: 0 10px; border-top: 1px solid var(--line); background: var(--chrome); color: var(--muted); font-size: 9.5px; }
+    .statusbar .online { color: var(--green); }
+    .statusbar .offline { color: var(--red); }
+    .status-spacer { flex: 1; }
+    .toast {
+      position: fixed;
+      z-index: 30;
+      top: 51px;
+      left: 50%;
+      display: none;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--card);
+      box-shadow: var(--shadow);
+      color: var(--muted);
+      font-size: 10.5px;
+      transform: translateX(-50%);
+    }
+    .toast.visible { display: flex; animation: toast-in 180ms ease-out; }
+    @keyframes toast-in { from { opacity: 0; transform: translate(-50%,-5px); } }
+
+    @media (max-width: 1120px) {
+      .body { grid-template-columns: 48px 178px minmax(0,1fr); }
+      .sidebar-foot { display: none; }
+      .panes { grid-template-columns: minmax(280px,1fr) 70px minmax(280px,1fr); }
+      .route-hint { width: 66px; }
+      .upload { width: 48px; height: 48px; }
+      .columns, .file-row { grid-template-columns: 25px minmax(0,1fr) 68px 0; }
+      .columns span:last-child, .file-date { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="titlebar">
+      <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="window-title">Charter — Remote Files</div>
+      <div class="window-meta">SFTP · PROD-API-01</div>
+    </header>
+
+    <div class="body">
+      <nav class="rail" aria-label="Primary navigation">
+        <button type="button" class="rail-button" title="Workspace" aria-label="Workspace">
+          <svg viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
+        </button>
+        <button type="button" class="rail-button" title="Sessions" aria-label="Sessions">
+          <svg viewBox="0 0 24 24"><path d="M4 6h16v12H4zM7 9l3 3-3 3M12 15h5"/></svg>
+        </button>
+        <button type="button" class="rail-button active" title="Remotes" aria-label="Remotes">
+          <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01M8 17h.01M16 7h1M16 17h1"/></svg>
+        </button>
+        <button type="button" class="rail-button" title="Search" aria-label="Search">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+        </button>
+        <div class="rail-spacer"></div>
+        <button type="button" class="rail-button" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.4 1A7 7 0 0 0 14.4 5L14 2h-4l-.4 3a7 7 0 0 0-2.1.9l-2.4-1-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 2.1.9l.4 3h4l.4-3a7 7 0 0 0 2.1-.9l2.4 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2Z"/></svg>
+        </button>
+      </nav>
+
+      <aside class="sidebar">
+        <div class="side-head"><span>Remotes</span><button type="button" class="icon-button" aria-label="Add remote" title="Add remote">＋</button></div>
+        <div class="connections">
+          <div class="group-label"><span>⌄</span><span>Connections</span><span style="margin-left:auto;color:var(--faint)">3</span></div>
+          <section class="host" aria-label="prod-api-01 connection">
+            <div class="host-main">
+              <div class="host-mark">P1</div>
+              <div class="host-copy"><b>prod-api-01</b><span>root@10.0.3.46</span></div>
+            </div>
+            <div class="host-nav">
+              <button type="button"><span class="tiny-icon">›_</span> Terminal</button>
+              <button type="button" class="active"><span class="tiny-icon">⇄</span> Files</button>
+              <button type="button"><span class="tiny-icon">↪</span> Ports</button>
+              <button type="button"><span class="tiny-icon">ⓘ</span> Overview</button>
+            </div>
+          </section>
+          <div class="group-label" style="margin-top:8px"><span>›</span><span>Staging</span><span style="margin-left:auto;color:var(--faint)">2</span></div>
+        </div>
+        <div class="sidebar-foot"><strong id="sideConnection">● CONNECTED</strong><br><span id="sideConnectionMeta">ED25519 · 18 ms</span><br>server fingerprint verified</div>
+      </aside>
+
+      <main class="main">
+        <header class="page-head">
+          <button type="button" class="back" aria-label="Back to remotes" title="Back to remotes">←</button>
+          <div class="page-title">
+            <h1>prod-api-01 <span style="color:var(--faint);font-weight:450">/ Files</span></h1>
+            <p>root@10.0.3.46 · SFTP · host key verified</p>
+          </div>
+          <div class="head-actions">
+            <button type="button" class="connection" id="connectionButton" title="Disconnect this SFTP session"><span class="dot"></span><span id="connectionLabel">Connected</span><span id="connectionAction" style="color:var(--faint)">Disconnect</span></button>
+            <button type="button" class="tool-button" id="newFolderButton">＋ New folder</button>
+            <button type="button" class="tool-button" id="refreshButton">↻ Refresh</button>
+          </div>
+        </header>
+
+        <section class="file-space" aria-label="SFTP file browser">
+          <div class="panes">
+            <section class="pane local-pane" aria-label="Local files">
+              <div class="pane-head">
+                <div class="machine-icon">⌘</div>
+                <div class="pane-head-copy"><b>This Mac</b><span>LOCAL · EDY-MBP</span></div>
+                <span class="pane-status"><i></i> Ready</span>
+              </div>
+              <div class="pathbar" aria-label="Local path">
+                <button type="button" class="crumb">~</button><span class="sep">/</span><button type="button" class="crumb">Projects</button><span class="sep">/</span><button type="button" class="crumb">charter</button><span class="sep">/</span><button type="button" class="crumb current">dist</button><span class="path-spacer"></span><button type="button" class="path-action" aria-label="Edit local path">⌘L</button>
+              </div>
+              <div class="columns"><span>Name</span><span>Size</span><span>Modified</span></div>
+              <div class="file-list" id="localList"></div>
+              <div class="pane-foot"><strong id="localFoot">5 items</strong><span class="foot-spacer"></span><span>⌘-click to select</span></div>
+            </section>
+
+            <div class="route" aria-label="Upload route">
+              <span class="route-label">SFTP upload</span>
+              <button type="button" class="upload" id="uploadButton" disabled aria-label="Upload selected files">
+                <span><span class="arrow">→</span><span class="count" id="uploadCount">Select files</span></span>
+              </button>
+              <span class="route-hint" id="routeHint">Choose local files to send here</span>
+              <div class="packet" id="packet"><span>⇧</span><b id="packetName">charter-1.0.0.dmg</b></div>
+            </div>
+
+            <section class="pane remote-pane" aria-label="Remote files">
+              <div class="pane-head">
+                <div class="machine-icon">▣</div>
+                <div class="pane-head-copy"><b>prod-api-01</b><span>REMOTE · ROOT@10.0.3.46</span></div>
+                <span class="pane-status" id="remotePaneStatus"><i></i><span id="remoteReady">SFTP</span></span>
+              </div>
+              <div class="pathbar" aria-label="Remote path">
+                <button type="button" class="crumb">/</button><button type="button" class="crumb">home</button><span class="sep">/</span><button type="button" class="crumb">deploy</button><span class="sep">/</span><button type="button" class="crumb current">releases</button><span class="path-spacer"></span><button type="button" class="path-action" aria-label="Edit remote path">⌘L</button>
+              </div>
+              <div class="columns"><span>Name</span><span>Size</span><span>Modified</span></div>
+              <div class="file-list" id="remoteList"></div>
+              <div class="pane-foot"><strong id="remoteFoot">4 items</strong><span class="foot-spacer"></span><span>/home/deploy/releases</span></div>
+
+              <aside class="conflict-card" id="conflictCard" aria-live="polite">
+                <div class="conflict-cap"><span>⚠</span><span>Same name on prod-api-01</span></div>
+                <h2>Replace charter-1.0.0.dmg?</h2>
+                <p>The existing build stays live until the incoming file is complete.</p>
+                <div class="compare">
+                  <div><span>On server</span><b>91.7 MB · Jul 19</b></div>
+                  <div><span>Incoming</span><b>98.2 MB · Today</b></div>
+                </div>
+                <div class="safe-note"><span>◈</span><span>Charter uploads to a temporary part, verifies it, then replaces atomically.</span></div>
+                <div class="conflict-actions">
+                  <button type="button" class="action primary" data-conflict="replace">Replace</button>
+                  <button type="button" class="action" data-conflict="keep">Keep both</button>
+                  <button type="button" class="action link" data-conflict="skip">Skip</button>
+                  <span class="conflict-spacer"></span>
+                  <button type="button" class="action link" data-conflict="cancel">Cancel</button>
+                </div>
+              </aside>
+            </section>
+          </div>
+        </section>
+
+        <section class="transfer-shelf" id="transferShelf" aria-live="polite">
+          <div class="transfer-main">
+            <div class="transfer-heading">
+              <div class="transfer-icon" id="transferIcon">⇧</div>
+              <div class="transfer-title"><b id="transferTitle">No active transfers</b><span id="transferSubtitle">Select files on This Mac to upload them to /home/deploy/releases</span></div>
+            </div>
+            <div class="progress-line" id="progressLine" hidden><div class="progress"><i id="progressBar"></i></div><span class="progress-copy" id="progressCopy"></span></div>
+          </div>
+          <div class="transfer-actions" id="transferActions"><div class="selection-summary"><span class="badge">SFTP</span><span>Encrypted over SSH</span></div></div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="statusbar">
+      <span id="statusConnection" class="online">● prod-api-01</span><span>root@10.0.3.46</span><span>SFTP</span><span class="status-spacer"></span><span id="statusMessage">Ready</span><span>UTF-8</span>
+    </footer>
+  </div>
+
+  <div class="toast" id="toast"><span id="toastIcon">✓</span><span id="toastText"></span></div>
+
+  <script>
+    const state = {
+      connection: 'connected',
+      localPath: '~/Projects/charter/dist',
+      remotePath: '/home/deploy/releases',
+      selected: [],
+      phase: 'orientation',
+      conflictDecision: null,
+      replacementName: 'charter-1.0.0.dmg',
+      progressBytes: 0,
+      verifiedBytes: 0,
+      durable: { notesUploaded: false, dmgUploaded: false, partRetained: false, skippedDmg: false },
+      terminalOpened: false,
+      localFiles: [
+        { name: 'charter-1.0.0.dmg', kind: 'file', size: '98.2 MB', bytes: 102970163, modified: 'Today, 14:22' },
+        { name: 'release-notes.md', kind: 'file', size: '4.1 KB', bytes: 4198, modified: 'Today, 14:19' },
+        { name: 'latest-mac.yml', kind: 'file', size: '538 B', bytes: 538, modified: 'Today, 14:22' },
+        { name: 'mac-arm64', kind: 'folder', size: '—', bytes: 0, modified: 'Today, 14:21' },
+        { name: 'checksums.txt', kind: 'file', size: '184 B', bytes: 184, modified: 'Today, 14:23' }
+      ],
+      remoteFiles: [
+        { name: 'charter-1.0.0.dmg', kind: 'file', size: '91.7 MB', modified: 'Jul 19, 09:41', existing: true },
+        { name: 'charter-0.9.4.dmg', kind: 'file', size: '89.4 MB', modified: 'Jul 02, 16:08' },
+        { name: 'archive', kind: 'folder', size: '—', modified: 'Jun 28, 11:12' },
+        { name: 'deploy.log', kind: 'file', size: '12.8 KB', modified: 'Today, 13:54' }
+      ]
+    };
+
+    const $ = (selector) => document.querySelector(selector);
+    const $$ = (selector) => [...document.querySelectorAll(selector)];
+    const formatMB = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+
+    function fileGlyph(kind, selected) {
+      if (selected !== undefined) return `<span class="select-indicator">✓</span>`;
+      return kind === 'folder' ? '<span class="file-icon folder">▰</span>' : '<span class="file-icon">▤</span>';
+    }
+
+    function renderLocal() {
+      $('#localList').innerHTML = state.localFiles.map((file) => {
+        const selected = state.selected.includes(file.name);
+        return `<button type="button" class="file-row selectable${selected ? ' selected' : ''}" data-local="${file.name}" aria-pressed="${selected}">
+          ${fileGlyph(file.kind, selected)}<span class="file-name">${file.name}</span><span class="file-size">${file.size}</span><span class="file-date">${file.modified}</span>
+        </button>`;
+      }).join('');
+      const bytes = state.localFiles.filter(file => state.selected.includes(file.name)).reduce((sum, file) => sum + file.bytes, 0);
+      $('#localFoot').textContent = state.selected.length ? `${state.selected.length} selected · ${bytes > 1024 * 1024 ? formatMB(bytes) : '4.1 KB'}` : `${state.localFiles.length} items`;
+      $$('[data-local]').forEach((row) => row.addEventListener('click', () => toggleSelection(row.dataset.local)));
+    }
+
+    function effectiveRemoteFiles() {
+      const files = state.remoteFiles.map(file => ({ ...file }));
+      if (state.durable.notesUploaded && !files.some(file => file.name === 'release-notes.md')) {
+        files.splice(1, 0, { name: 'release-notes.md', kind: 'file', size: '4.1 KB', modified: 'Just now', arrived: state.phase === 'complete' });
+      }
+      if (state.durable.partRetained && !state.durable.dmgUploaded) {
+        files.splice(1, 0, { name: `${state.replacementName}.charter-part`, kind: 'file', size: formatMB(state.verifiedBytes), modified: state.phase === 'interrupted' ? 'Interrupted' : 'Uploading', partial: true });
+      }
+      if (state.durable.dmgUploaded) {
+        const existing = files.findIndex(file => file.name === (state.conflictDecision === 'keep' ? 'charter-1.0.0.dmg' : state.replacementName));
+        if (state.conflictDecision === 'replace' && existing >= 0) {
+          files[existing] = { name: state.replacementName, kind: 'file', size: '98.2 MB', modified: 'Just now', arrived: true };
+        } else if (state.conflictDecision === 'keep') {
+          files.splice(1, 0, { name: state.replacementName, kind: 'file', size: '98.2 MB', modified: 'Just now', arrived: true });
+        }
+      }
+      return files;
+    }
+
+    function renderRemote() {
+      const files = effectiveRemoteFiles();
+      $('#remoteList').innerHTML = files.map((file) => {
+        const conflict = state.phase === 'conflict' && file.name === 'charter-1.0.0.dmg';
+        const suffix = file.partial ? '<small>resume data</small>' : conflict ? '<small>same name</small>' : '';
+        return `<div class="file-row${conflict ? ' conflicted' : ''}${file.arrived ? ' new-arrival' : ''}">
+          ${fileGlyph(file.kind)}<span class="file-name">${file.name}${suffix}</span><span class="file-size">${file.size}</span><span class="file-date">${file.modified}</span>
+        </div>`;
+      }).join('');
+      $('#remoteFoot').textContent = `${files.length} items${state.durable.partRetained && !state.durable.dmgUploaded ? ' · 1 resumable part' : ''}`;
+    }
+
+    function toggleSelection(name) {
+      if (state.selected.includes(name)) state.selected = state.selected.filter(item => item !== name);
+      else state.selected = [...state.selected, name];
+      if (state.phase === 'orientation' || state.phase === 'selected') state.phase = state.selected.length ? 'selected' : 'orientation';
+      render();
+    }
+
+    function startUpload() {
+      if (state.connection !== 'connected' || state.selected.length === 0) return;
+      if (state.selected.includes('charter-1.0.0.dmg')) {
+        state.phase = 'conflict';
+        showToast('1 conflict needs a decision before transfer starts', '⚠');
+      } else {
+        state.phase = 'complete';
+        if (state.selected.includes('release-notes.md')) state.durable.notesUploaded = true;
+      }
+      render();
+    }
+
+    function resolveConflict(decision) {
+      if (decision === 'cancel') {
+        state.phase = state.selected.length ? 'selected' : 'orientation';
+        state.conflictDecision = null;
+        render();
+        return;
+      }
+      state.conflictDecision = decision;
+      if (decision === 'skip') {
+        state.durable.notesUploaded = state.selected.includes('release-notes.md');
+        state.durable.skippedDmg = true;
+        state.phase = 'complete';
+        state.selected = [];
+        render();
+        showToast('release-notes.md uploaded · disk image skipped', '✓');
+        return;
+      }
+      state.replacementName = decision === 'keep' ? 'charter-1.0.0-copy.dmg' : 'charter-1.0.0.dmg';
+      state.phase = 'running';
+      state.progressBytes = 35861299;
+      state.verifiedBytes = 35861299;
+      state.durable.notesUploaded = state.selected.includes('release-notes.md');
+      state.durable.partRetained = true;
+      animatePacket();
+      render();
+    }
+
+    function toggleConnection() {
+      if (state.connection === 'connected') {
+        state.connection = 'offline';
+        if (state.phase === 'running') {
+          state.phase = 'interrupted';
+          state.verifiedBytes = state.progressBytes;
+          state.durable.partRetained = true;
+          showToast(`Connection lost · ${formatMB(state.verifiedBytes)} retained for resume`, '↺');
+        }
+      } else {
+        state.connection = 'connected';
+        if (state.phase !== 'interrupted') showToast('SFTP reconnected to prod-api-01', '✓');
+      }
+      render();
+    }
+
+    function resumeTransfer() {
+      state.connection = 'connected';
+      state.phase = 'running';
+      state.progressBytes = state.verifiedBytes;
+      render();
+      animatePacket();
+      window.setTimeout(() => {
+        if (state.phase !== 'running') return;
+        state.progressBytes = 79691776;
+        state.verifiedBytes = 79691776;
+        render();
+      }, 420);
+      window.setTimeout(() => {
+        if (state.phase !== 'running') return;
+        completeTransfer();
+      }, 1050);
+    }
+
+    function completeTransfer() {
+      state.phase = 'complete';
+      state.progressBytes = 102970163;
+      state.verifiedBytes = 102970163;
+      state.durable.dmgUploaded = true;
+      state.durable.partRetained = false;
+      state.selected = [];
+      render();
+      showToast('2 uploads verified · remote listing refreshed', '✓');
+    }
+
+    function reviewSkipped() {
+      state.phase = 'conflict';
+      state.durable.skippedDmg = false;
+      state.selected = ['charter-1.0.0.dmg', 'release-notes.md'];
+      render();
+    }
+
+    function openTerminal() {
+      state.terminalOpened = true;
+      render();
+      showToast('Terminal opened at /home/deploy/releases', '›_');
+    }
+
+    function animatePacket() {
+      const packet = $('#packet');
+      packet.classList.remove('flying');
+      void packet.offsetWidth;
+      packet.classList.add('visible', 'flying');
+      window.setTimeout(() => packet.classList.remove('flying'), 950);
+    }
+
+    let toastTimer;
+    function showToast(text, icon = '✓') {
+      $('#toastText').textContent = text;
+      $('#toastIcon').textContent = icon;
+      $('#toast').classList.add('visible');
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => $('#toast').classList.remove('visible'), 2600);
+    }
+
+    function renderConnection() {
+      const connected = state.connection === 'connected';
+      $('#connectionButton').classList.toggle('offline', !connected);
+      $('#connectionLabel').textContent = connected ? 'Connected' : 'Disconnected';
+      $('#connectionAction').textContent = connected ? 'Disconnect' : 'Reconnect';
+      $('#connectionButton').title = connected ? 'Disconnect this SFTP session' : 'Reconnect to prod-api-01';
+      $('#remotePaneStatus').classList.toggle('off', !connected);
+      $('#remoteReady').textContent = connected ? 'SFTP' : 'Offline';
+      $('#statusConnection').className = connected ? 'online' : 'offline';
+      $('#statusConnection').textContent = connected ? '● prod-api-01' : '● prod-api-01 offline';
+      $('#sideConnection').textContent = connected ? '● CONNECTED' : '● DISCONNECTED';
+      $('#sideConnection').style.color = connected ? 'var(--green)' : 'var(--red)';
+      $('#sideConnectionMeta').textContent = connected ? 'ED25519 · 18 ms' : 'SFTP channel interrupted';
+    }
+
+    function renderRoute() {
+      const count = state.selected.length;
+      const enabled = count > 0 && state.connection === 'connected' && !['conflict','running','interrupted'].includes(state.phase);
+      $('#uploadButton').disabled = !enabled;
+      $('#uploadCount').textContent = count ? `${count} file${count === 1 ? '' : 's'}` : 'Select files';
+      const hints = {
+        orientation: 'Choose local files to send here',
+        selected: `${count} selected · ready to upload`,
+        conflict: 'Waiting for conflict decision',
+        running: 'Uploading safely to a part file',
+        interrupted: 'Route interrupted · source intact',
+        complete: 'Remote listing is authoritative'
+      };
+      $('#routeHint').textContent = hints[state.phase] || hints.orientation;
+      $('#packet').classList.toggle('visible', ['running','interrupted'].includes(state.phase));
+      $('#packetName').textContent = state.replacementName;
+    }
+
+    function actionButton(label, handler, style = '') {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `action ${style}`.trim();
+      button.textContent = label;
+      button.addEventListener('click', handler);
+      return button;
+    }
+
+    function renderTransfer() {
+      const shelf = $('#transferShelf');
+      shelf.className = `transfer-shelf ${state.phase}`;
+      const progressVisible = ['running','interrupted','complete'].includes(state.phase) && (state.conflictDecision !== 'skip');
+      $('#progressLine').hidden = !progressVisible;
+      const actions = $('#transferActions');
+      actions.innerHTML = '';
+
+      if (state.phase === 'orientation') {
+        $('#transferIcon').textContent = '⇧';
+        $('#transferTitle').textContent = 'No active transfers';
+        $('#transferSubtitle').textContent = 'Select files on This Mac to upload them to /home/deploy/releases';
+        actions.innerHTML = '<div class="selection-summary"><span class="badge">SFTP</span><span>Encrypted over SSH</span></div>';
+      } else if (state.phase === 'selected') {
+        const total = state.localFiles.filter(file => state.selected.includes(file.name)).reduce((sum,file) => sum + file.bytes,0);
+        $('#transferIcon').textContent = '⇧';
+        $('#transferTitle').textContent = `${state.selected.length} file${state.selected.length === 1 ? '' : 's'} ready to upload`;
+        $('#transferSubtitle').textContent = `${formatMB(total)} · This Mac → prod-api-01:/home/deploy/releases`;
+        actions.append(actionButton(`Upload ${state.selected.length}`, startUpload, 'primary'));
+      } else if (state.phase === 'conflict') {
+        $('#transferIcon').textContent = '⚠';
+        $('#transferTitle').textContent = '1 decision required';
+        $('#transferSubtitle').textContent = 'release-notes.md is ready · charter-1.0.0.dmg has the same name on the server';
+        actions.append(actionButton('Cancel upload', () => resolveConflict('cancel')));
+      } else if (state.phase === 'running') {
+        const pct = Math.round((state.progressBytes / 102970163) * 100);
+        $('#transferIcon').textContent = '↑';
+        $('#transferTitle').textContent = `Uploading ${state.replacementName}`;
+        $('#transferSubtitle').textContent = `release-notes.md complete · existing 91.7 MB build remains intact until verification`;
+        $('#progressBar').style.width = `${pct}%`;
+        $('#progressCopy').textContent = `${formatMB(state.progressBytes)} / 98.2 MB · 11.8 MB/s`;
+        actions.append(actionButton('Disconnect', toggleConnection));
+      } else if (state.phase === 'interrupted') {
+        const pct = Math.round((state.verifiedBytes / 102970163) * 100);
+        $('#transferIcon').textContent = '!';
+        $('#transferTitle').textContent = `Interrupted at ${formatMB(state.verifiedBytes)} — safe to resume`;
+        $('#transferSubtitle').textContent = `Remote part retained · original charter-1.0.0.dmg is unchanged · reconnects from verified offset`;
+        $('#progressBar').style.width = `${pct}%`;
+        $('#progressCopy').textContent = `${formatMB(state.verifiedBytes)} verified · 64.0 MB remaining`;
+        actions.append(actionButton(`Resume from ${formatMB(state.verifiedBytes)}`, resumeTransfer, 'primary'));
+        actions.append(actionButton('Discard part', () => {
+          state.durable.partRetained = false;
+          state.progressBytes = 0;
+          state.verifiedBytes = 0;
+          state.phase = 'selected';
+          state.selected = ['charter-1.0.0.dmg'];
+          render();
+        }));
+      } else if (state.phase === 'complete' && state.durable.skippedDmg) {
+        $('#transferIcon').textContent = '✓';
+        $('#transferTitle').textContent = '1 file uploaded · 1 skipped';
+        $('#transferSubtitle').textContent = 'release-notes.md is on prod-api-01; the existing disk image was not changed';
+        actions.append(actionButton('Review skipped file', reviewSkipped, 'primary'));
+      } else {
+        $('#transferIcon').textContent = '✓';
+        $('#transferTitle').textContent = state.durable.dmgUploaded ? '2 uploads verified on prod-api-01' : 'Upload complete';
+        $('#transferSubtitle').textContent = state.durable.dmgUploaded ? 'Remote listing refreshed · charter-1.0.0.dmg is 98.2 MB · release-notes.md is 4.1 KB' : 'Remote listing refreshed';
+        $('#progressBar').style.width = '100%';
+        $('#progressCopy').textContent = '102.0 MB · verified · just now';
+        actions.append(actionButton(state.terminalOpened ? 'Terminal opened' : 'Open terminal here', openTerminal, 'success'));
+        actions.append(actionButton('Show checksum', () => showToast('SHA-256  4d5f…9ac2 · verified on server', '◈')));
+      }
+    }
+
+    function render() {
+      renderLocal();
+      renderRemote();
+      renderConnection();
+      renderRoute();
+      renderTransfer();
+      $('#conflictCard').classList.toggle('visible', state.phase === 'conflict');
+      $('#statusMessage').textContent = state.terminalOpened ? 'Terminal opened in /home/deploy/releases' : state.phase === 'interrupted' ? 'Transfer interrupted · resumable part retained' : state.phase === 'complete' ? 'Remote listing refreshed just now' : state.phase === 'running' ? '1 active transfer' : 'Ready';
+    }
+
+    $('#uploadButton').addEventListener('click', startUpload);
+    $('#connectionButton').addEventListener('click', toggleConnection);
+    $('#refreshButton').addEventListener('click', () => showToast('Local and remote listings refreshed', '↻'));
+    $('#newFolderButton').addEventListener('click', () => showToast('New folder field focused on prod-api-01', '＋'));
+    $$('[data-conflict]').forEach(button => button.addEventListener('click', () => resolveConflict(button.dataset.conflict)));
+    render();
+  </script>
+</body>
+</html>

@@ -30,6 +30,7 @@ import {
   type Logger,
   type ProductError,
 } from '@pi-ide/foundation';
+import type { UpdateStateDto } from '@pi-ide/ipc-contracts';
 import { createAppPaths, type AppPaths } from './app-paths.js';
 import { CSP, DEV_CSP } from './csp.js';
 import { installGlobalSecurityHandlers, openExternalChecked } from './security.js';
@@ -100,6 +101,7 @@ import { installTerminalControlIntegration } from './services/terminal-control-i
 import { ArtifactService } from './services/artifact-service.js';
 import { registerArtifactHandlers } from './ipc/artifact-handlers.js';
 import { TerminalDaemonClient } from './services/terminal-daemon-client.js';
+import { RELEASES_PAGE, UpdateService } from './services/update-service.js';
 
 const DEV_SERVER_URL = process.env.PI_IDE_DEV_SERVER_URL;
 const isDev = Boolean(DEV_SERVER_URL);
@@ -121,6 +123,7 @@ interface Bootstrap {
 
 let boot: Bootstrap | null = null;
 let mainWindow: BrowserWindow | null = null;
+let updateServiceRef: UpdateService | null = null;
 let m4Ref: M4Services | null = null;
 let m5Ref: M5Services | null = null;
 let agentHostRef: AgentHost | null = null;
@@ -216,6 +219,34 @@ function piSdkVersion(): string | null {
   } catch {
     return null;
   }
+}
+
+function packagedUpdateIsSigned(): boolean {
+  if (!app.isPackaged) return false;
+  try {
+    const pkg = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')) as {
+      charterUpdateMode?: unknown;
+    };
+    return pkg.charterUpdateMode === 'signed';
+  } catch {
+    return false;
+  }
+}
+
+function e2eUpdateFixture(): UpdateStateDto['phase'] | null {
+  if (!process.env.PI_IDE_E2E) return null;
+  const value = process.env.PI_IDE_E2E_UPDATE_STATE;
+  const phases: UpdateStateDto['phase'][] = [
+    'disabled',
+    'idle',
+    'checking',
+    'available',
+    'downloading',
+    'downloaded',
+    'up-to-date',
+    'error',
+  ];
+  return phases.find((phase) => phase === value) ?? null;
 }
 
 function getAppInfo() {
@@ -385,6 +416,19 @@ function registerCoreHandlers(bootstrap: Bootstrap): void {
         if (!isAbsolute(path) || !existsSync(path)) return { revealed: false };
         if (!process.env.PI_IDE_E2E) shell.showItemInFolder(path);
         return { revealed: true };
+      },
+      'updates.getState': async () => updateServiceRef!.state,
+      'updates.check': async () => updateServiceRef!.check(),
+      'updates.openDownload': async () => ({
+        opened: await openExternalChecked(
+          updateServiceRef?.state.releaseUrl ?? RELEASES_PAGE,
+          logger,
+        ),
+      }),
+      'updates.install': async ({ force }) => {
+        const blockers = [...quitBlockers.values()].flat();
+        if (blockers.length > 0 && !force) return { installing: false, blockers };
+        return { installing: await updateServiceRef!.install(), blockers: [] };
       },
       'app.reportClientError': async (payload, meta) => {
         logger.error(`renderer error: ${payload.message}`, { code: payload.code });
@@ -565,6 +609,25 @@ if (!gotLock) {
 
     boot = { paths, logs, logger, settings, state, workspaceHost, startupError };
 
+    updateServiceRef = new UpdateService({
+      currentVersion: app.getVersion(),
+      platform: process.platform,
+      isPackaged: app.isPackaged,
+      signed: packagedUpdateIsSigned(),
+      channel: settings?.effective.updates.channel ?? 'stable',
+      autoCheck: settings?.effective.updates.autoCheck ?? false,
+      logger: logger.child('updates'),
+      emit: (updateState) => broadcast('updates.changed', updateState),
+      fetchRelease: (url, init) => net.fetch(url, init),
+      beforeInstall: async (version) => {
+        if (!state) {
+          throw new Error('The local database is unavailable; update installation stopped.');
+        }
+        await state.backupForUpdate(version);
+      },
+      fixturePhase: e2eUpdateFixture(),
+    });
+
     // Theme (APP-006)
     if (settings) {
       nativeTheme.themeSource = settings.effective.general.theme;
@@ -574,6 +637,7 @@ if (!gotLock) {
           windowBackground(s.effective.general.skin, nativeTheme.shouldUseDarkColors),
         );
         broadcast('settings.changed', { issues: s.issues, overrideKeys: s.overrideKeys });
+        updateServiceRef?.syncSettings(s.effective.updates);
       });
     }
     nativeTheme.on('updated', () => {
@@ -1161,6 +1225,7 @@ if (!gotLock) {
       migrations: state?.appliedMigrations ?? [],
     });
     mainWindow = createMainWindow(boot);
+    void updateServiceRef?.start();
   });
 
   app.on('window-all-closed', () => {
@@ -1182,6 +1247,7 @@ if (!gotLock) {
     if (cleanupDone) return;
     event.preventDefault();
     skillStoreRef?.dispose();
+    updateServiceRef?.dispose();
     clipboardWatcherRef?.dispose();
     screenshotWatcherRef?.dispose();
     externalSessionsRef?.dispose(); // before terminals: sessions close into review while the DB is open

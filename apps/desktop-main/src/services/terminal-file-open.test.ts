@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { cwdRelativeToken, terminalOpenAction, verifyTokens } from './terminal-file-open.js';
+import {
+  classifyTerminalPathToken,
+  terminalOpenAction,
+  verifyTokens,
+} from './terminal-file-open.js';
 
 describe('terminalOpenAction (ADR-0033 browser/editor split)', () => {
   it('sends browser-native files to the OS default app', () => {
@@ -19,36 +23,62 @@ describe('terminalOpenAction (ADR-0033 browser/editor split)', () => {
   });
 });
 
-describe('cwdRelativeToken (terminal cwd containment)', () => {
+describe('classifyTerminalPathToken (terminal cwd containment)', () => {
   const cwd = '/Users/dev/playground';
 
   it('passes relative tokens through untouched', () => {
-    expect(cwdRelativeToken(cwd, 'rocket.html')).toBe('rocket.html');
-    expect(cwdRelativeToken(cwd, 'src/app.ts')).toBe('src/app.ts');
+    expect(classifyTerminalPathToken(cwd, 'rocket.html')).toEqual({
+      kind: 'relative',
+      path: 'rocket.html',
+    });
+    expect(classifyTerminalPathToken(cwd, 'src/app.ts')).toEqual({
+      kind: 'relative',
+      path: 'src/app.ts',
+    });
   });
 
   it('converts absolute tokens inside the cwd (OSC 8 links) to relative', () => {
-    expect(cwdRelativeToken(cwd, '/Users/dev/playground/rocket.html')).toBe('rocket.html');
-    expect(cwdRelativeToken(cwd, '/Users/dev/playground/a/b.ts')).toBe('a/b.ts');
+    expect(classifyTerminalPathToken(cwd, '/Users/dev/playground/rocket.html')).toEqual({
+      kind: 'relative',
+      path: 'rocket.html',
+    });
+    expect(classifyTerminalPathToken(cwd, '/Users/dev/playground/a/b.ts')).toEqual({
+      kind: 'relative',
+      path: 'a/b.ts',
+    });
+    expect(classifyTerminalPathToken(cwd, '/Users/dev/playground/..notes')).toEqual({
+      kind: 'relative',
+      path: '..notes',
+    });
   });
 
-  it('rejects absolute tokens outside the cwd and the cwd itself', () => {
-    expect(cwdRelativeToken(cwd, '/etc/passwd')).toBeNull();
-    expect(cwdRelativeToken(cwd, '/Users/dev/other/x.html')).toBeNull();
-    expect(cwdRelativeToken(cwd, cwd)).toBeNull();
+  it('marks explicit absolute tokens outside the cwd for read-only preview', () => {
+    expect(classifyTerminalPathToken(cwd, '/etc/passwd')).toEqual({
+      kind: 'absolute',
+      path: '/etc/passwd',
+    });
+    expect(classifyTerminalPathToken(cwd, '/Users/dev/other/x.html')).toEqual({
+      kind: 'absolute',
+      path: '/Users/dev/other/x.html',
+    });
+    expect(classifyTerminalPathToken(cwd, cwd)).toBeNull();
   });
 
   it('rejects blank tokens; ../ escapes are left to resolveInsideRoot', () => {
-    expect(cwdRelativeToken(cwd, '   ')).toBeNull();
+    expect(classifyTerminalPathToken(cwd, '   ')).toBeNull();
     // Documented split: lexical/symlink escape checks live in resolveInsideRoot.
-    expect(cwdRelativeToken(cwd, '../secrets.env')).toBe('../secrets.env');
+    expect(classifyTerminalPathToken(cwd, '../secrets.env')).toEqual({
+      kind: 'relative',
+      path: '../secrets.env',
+    });
   });
 });
 
 describe('verifyTokens (ADR-0033 am.1 boundary probe)', () => {
   const cwd = '/Users/dev/playground';
   const filesOnDisk = new Set(['素材/截图 2026.png', 'Screenshot 2026-07-20 at 10.05.32.png']);
-  const probe = async (_cwd: string, rel: string) => filesOnDisk.has(rel);
+  const probe = async (_cwd: string, candidate: { kind: 'relative' | 'absolute'; path: string }) =>
+    filesOnDisk.has(candidate.path);
 
   it('answers per token, preserving request order', async () => {
     await expect(
@@ -60,7 +90,7 @@ describe('verifyTokens (ADR-0033 am.1 boundary probe)', () => {
     ).resolves.toEqual([true, false, true]);
   });
 
-  it('containment rejections and probe errors both collapse to false', async () => {
+  it('blank candidates and probe errors both collapse to false', async () => {
     await expect(verifyTokens(cwd, ['/etc/passwd', '  '], probe)).resolves.toEqual([false, false]);
     const throwing = async () => {
       throw new Error('symlink escape');
@@ -72,5 +102,15 @@ describe('verifyTokens (ADR-0033 am.1 boundary probe)', () => {
     await expect(
       verifyTokens(cwd, ['/Users/dev/playground/素材/截图 2026.png'], probe),
     ).resolves.toEqual([true]);
+  });
+
+  it('allows explicit external absolute candidates to be probed', async () => {
+    const absoluteProbe = async (
+      _cwd: string,
+      candidate: { kind: 'relative' | 'absolute'; path: string },
+    ) => candidate.kind === 'absolute' && candidate.path === '/tmp/Screenshot 2026.png';
+    await expect(verifyTokens(cwd, ['/tmp/Screenshot 2026.png'], absoluteProbe)).resolves.toEqual([
+      true,
+    ]);
   });
 });

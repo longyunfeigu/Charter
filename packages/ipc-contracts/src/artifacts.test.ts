@@ -24,6 +24,21 @@ function feedback(overrides: Partial<ArtifactFeedbackRefDto> = {}): ArtifactFeed
 describe('Artifact feedback contracts', () => {
   it('accepts semantic anchors pinned to an immutable task/path/hash', () => {
     expect(ArtifactFeedbackRefSchema.parse(feedback()).anchor.type).toBe('table');
+    expect(
+      ArtifactFeedbackRefSchema.safeParse(
+        feedback({
+          artifactKind: 'html',
+          path: 'reports/revenue.html',
+          anchor: {
+            type: 'html',
+            selector: '#revenue',
+            viewport: { width: 1280, height: 720 },
+            mode: 'interactive',
+            element: { tagName: 'h1', text: 'Revenue pulse' },
+          },
+        }),
+      ).success,
+    ).toBe(true);
   });
 
   it('rejects path traversal, invalid hashes and reversed ranges', () => {

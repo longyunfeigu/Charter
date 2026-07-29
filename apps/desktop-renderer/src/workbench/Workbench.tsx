@@ -14,6 +14,7 @@ import { SkillsView } from '../views/SkillsView.js';
 import { ScreenshotQuickCard } from '../views/ScreenshotQuickCard.js';
 import { SshPromptHost } from '../views/SshPromptHost.js';
 import { TransferCenter } from '../views/TransferCenter.js';
+import { UpdateNotice } from '../views/UpdateNotice.js';
 import type { BottomTab, SideBarView } from '@pi-ide/ipc-contracts';
 import { useTaskStore } from '../store/taskStore.js';
 import { stepZoom, ZOOM_DEFAULT } from '../views/ui-zoom.js';
@@ -42,6 +43,12 @@ function useRegisterCoreCommands(): void {
         title: 'Open Diagnostics',
         category: 'Help',
         run: () => store.getState().setOverlay('diagnostics'),
+      },
+      {
+        id: 'app.openUpdates',
+        title: 'Check for Updates',
+        category: 'Help',
+        run: () => store.getState().openSettings('updates'),
       },
       {
         id: 'view.remotes',
@@ -538,6 +545,7 @@ export function Workbench(): React.JSX.Element {
       <TransferCenter />
 
       <div className={`toasts ${taskRoomTaskId ? 'with-task-room' : ''}`} aria-live="polite">
+        <UpdateNotice />
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.kind}`}>
             <span style={{ flex: 1 }}>{t.message}</span>

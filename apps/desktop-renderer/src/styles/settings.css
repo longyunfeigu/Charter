@@ -389,6 +389,108 @@
   line-height: 1.9;
 }
 
+/* Update delivery is deliberately status-first: users see whether this build
+ * can install in-app before they touch channel or scheduling preferences. */
+.st-update-card {
+  padding-bottom: 12px;
+}
+.st-update-heading {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.st-update-phase {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: var(--fg-muted);
+  background: var(--bg-chip);
+  font: 650 10px/1.2 var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.st-update-phase.available,
+.st-update-phase.error {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-card));
+}
+.st-update-phase.downloaded,
+.st-update-phase.up-to-date {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+  background: color-mix(in srgb, var(--success) 8%, var(--bg-card));
+}
+.st-update-body {
+  padding: 14px 2px 2px;
+}
+.st-update-body p {
+  margin: 7px 0 12px;
+  max-width: 620px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.st-update-version {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+.st-update-version b {
+  color: var(--fg);
+  font: 700 15px/1 var(--font-mono);
+}
+.st-update-version small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-faint);
+}
+.st-update-progress {
+  position: relative;
+  height: 7px;
+  margin: 8px 0 28px;
+  overflow: visible;
+  border-radius: 999px;
+  background: var(--bg-active);
+}
+.st-update-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+.st-update-progress small {
+  position: absolute;
+  top: 11px;
+  left: 0;
+  color: var(--fg-faint);
+  font: 10px/1.3 var(--font-mono);
+}
+.st-update-checked {
+  color: var(--fg-faint);
+  font: 10px/1.4 var(--font-mono);
+}
+.st-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+@media (max-width: 760px) {
+  .st-update-heading {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
 /* ---------- Skills manager (ADR-0015; mockup: skills-manager-mockup.html) ---------- */
 
 .st-card-head .st-sp {

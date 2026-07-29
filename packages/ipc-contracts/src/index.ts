@@ -18,3 +18,4 @@ export * from './archaeology.js';
 export * from './orchestration.js';
 export * from './artifacts.js';
 export * from './ssh.js';
+export * from './updates.js';

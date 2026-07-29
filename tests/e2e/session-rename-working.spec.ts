@@ -24,7 +24,7 @@ test.describe('Session identity and working presence', () => {
       await expect(row).toHaveAttribute('data-working', 'true', { timeout: 15_000 });
       await expect(row).toHaveClass(/is-working/);
       await expect(row.locator('.sr-provider')).toHaveClass(/is-working/);
-      await expect(row).toHaveAttribute('title', /Agent working/);
+      await expect(row).toHaveAttribute('aria-label', /Agent working/);
       expect(
         await row.locator('.sr-provider svg').evaluate((element) => {
           return getComputedStyle(element).animationName;
@@ -33,6 +33,26 @@ test.describe('Session identity and working presence', () => {
       expect(
         await row.evaluate((element) => getComputedStyle(element, '::before').animationName),
       ).toContain('srAgentWorkingSheen');
+
+      const railScroll = page.locator('.sr-scroll');
+      await expect(railScroll).toHaveCSS('overflow-x', 'hidden');
+      const horizontalOverflowSamples = await railScroll.evaluate(async (element) => {
+        const samples: number[] = [];
+        for (let index = 0; index < 8; index += 1) {
+          samples.push(element.scrollWidth - element.clientWidth);
+          await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+        return samples;
+      });
+      expect(horizontalOverflowSamples).toEqual(Array(8).fill(0));
+      await page.screenshot({ path: '/tmp/charter-working-rail-no-horizontal-scroll-desktop.png' });
+
+      await page.setViewportSize({ width: 1160, height: 760 });
+      await expect(row).toHaveAttribute('data-working', 'true');
+      await expect
+        .poll(() => railScroll.evaluate((element) => element.scrollWidth - element.clientWidth))
+        .toBe(0);
+      await page.screenshot({ path: '/tmp/charter-working-rail-no-horizontal-scroll-narrow.png' });
 
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await expect

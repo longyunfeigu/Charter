@@ -18,12 +18,26 @@
 Beta 2 was the first downloadable preview. Its 13 assets and corrected Prerelease metadata remain
 available at [v1.0.0-beta.2](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.2).
 
+## Update delivery in the current source
+
+- [x] Strict SemVer Stable/Beta selection and downgrade refusal.
+- [x] Packaged unsigned macOS/Windows and Linux check GitHub Releases but only offer the Release page.
+- [x] Signed macOS/Windows use `electron-updater` for background check/download and require an explicit restart/install action.
+- [x] Native delivery fails closed unless packaged metadata says `charterUpdateMode: signed`.
+- [x] Active-work quit blockers are shown before install and forcing past them requires confirmation.
+- [x] A consistent SQLite backup is created before `quitAndInstall`; backup failure stops replacement.
+- [x] Release collection/workflow includes updater YAML, and Beta packaging emits `beta-mac.yml` with package feed `channel: beta`.
+- [x] Unit, typed IPC and real Electron Updates-page E2E pass; real DMG install/restart smoke passes 2/2.
+
+These checks describe the source after Beta 3. They do not retroactively add update support to the
+already-published unsigned Beta 3 artifacts, and they do not qualify signed production delivery.
+
 ## Stable handoff (intentionally not claimed)
 
 - [ ] Obtain Apple Developer Program membership and Developer ID Application credentials.
 - [ ] Configure Apple notarization credentials and validate Gatekeeper acceptance.
 - [ ] Obtain a trusted Windows code-signing certificate and validate SmartScreen/install behavior.
-- [ ] Run Beta-to-Stable update/rollback coverage for the chosen updater service.
+- [ ] Qualify older-to-newer signed updates on clean macOS and Windows machines, including feed/signature validation, quit blockers, pre-install backup, retained Sessions and uninstall behavior.
 - [ ] Run the fixed 20-task real-provider evaluation with owner-approved credentials.
 - [ ] Obtain product-owner sign-off on the Stable test report.
 

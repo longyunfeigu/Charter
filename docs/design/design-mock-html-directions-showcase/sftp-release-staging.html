@@ -1,0 +1,761 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Charter — Release staging</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --chrome: #111419;
+      --panel: #151920;
+      --panel-2: #191e26;
+      --panel-3: #202631;
+      --line: #2a313d;
+      --line-bright: #3a4452;
+      --text: #edf1f5;
+      --muted: #929caa;
+      --dim: #66717f;
+      --blue: #6ca6ff;
+      --blue-strong: #4a8dff;
+      --blue-wash: rgba(79, 143, 255, .12);
+      --green: #60d39a;
+      --green-wash: rgba(69, 201, 140, .11);
+      --amber: #f5bb5b;
+      --amber-wash: rgba(245, 187, 91, .11);
+      --red: #ff7f79;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { background: #080a0d; color: var(--text); font-family: var(--sans); font-size: 13px; }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+    svg { display: block; }
+
+    .app {
+      width: 100vw;
+      height: 100vh;
+      min-width: 1040px;
+      min-height: 720px;
+      display: grid;
+      grid-template-rows: 39px 57px 1fr 27px;
+      background:
+        radial-gradient(circle at 45% -20%, rgba(78, 111, 157, .11), transparent 38%),
+        var(--bg);
+    }
+
+    .titlebar {
+      display: grid;
+      grid-template-columns: 190px 1fr 280px;
+      align-items: center;
+      border-bottom: 1px solid #20252d;
+      background: rgba(15, 18, 23, .96);
+      -webkit-app-region: drag;
+      user-select: none;
+    }
+    .traffic { display: flex; gap: 8px; padding-left: 15px; align-items: center; }
+    .traffic i { width: 11px; height: 11px; border-radius: 50%; background: #4b515b; }
+    .traffic i:first-child { background: #ff6258; }
+    .traffic i:nth-child(2) { background: #f3bd4f; }
+    .traffic i:nth-child(3) { background: #46c65b; }
+    .window-title { justify-self: center; display: flex; align-items: center; gap: 8px; color: #aab2bd; font-size: 12px; letter-spacing: .02em; }
+    .window-title b { color: #dfe4ea; font-weight: 570; }
+    .title-actions { justify-self: end; display: flex; align-items: center; height: 100%; }
+    .title-btn {
+      -webkit-app-region: no-drag;
+      border: 0; border-left: 1px solid #20252d; background: transparent; color: #8f99a7;
+      height: 100%; padding: 0 13px; display: flex; gap: 7px; align-items: center; cursor: pointer;
+    }
+    .title-btn:hover { background: #191d24; color: #eef2f6; }
+
+    .commandbar {
+      display: grid;
+      grid-template-columns: 54px 1fr auto;
+      border-bottom: 1px solid var(--line);
+      background: #11151a;
+    }
+    .brand {
+      display: grid; place-items: center; border-right: 1px solid var(--line); color: #fff;
+    }
+    .brand-mark { width: 25px; height: 25px; border: 1px solid #566171; transform: rotate(45deg); display: grid; place-items: center; background: #1b212a; }
+    .brand-mark span { transform: rotate(-45deg); font-weight: 780; font-size: 12px; letter-spacing: -.08em; }
+    .command-title { display: flex; align-items: center; gap: 16px; padding: 0 20px; min-width: 0; }
+    .kicker { color: var(--blue); font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; white-space: nowrap; }
+    .command-title h1 { margin: 0; font-size: 18px; font-weight: 590; letter-spacing: -.025em; white-space: nowrap; }
+    .hair { height: 20px; width: 1px; background: var(--line); }
+    .command-sub { min-width: 0; color: #8d97a5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .session-tools { display: flex; align-items: center; gap: 9px; padding: 0 14px; }
+    .session-id { font: 10px var(--mono); color: #778291; letter-spacing: .08em; }
+    .connection {
+      border: 1px solid #2d5846; background: #12221c; color: #b9f2d4; height: 32px; padding: 0 11px;
+      display: inline-flex; align-items: center; gap: 8px; border-radius: 4px; cursor: default;
+    }
+    .connection.actionable { cursor: pointer; }
+    .connection.actionable:hover { border-color: #4b8069; background: #173027; }
+    .connection.offline { border-color: #70433f; background: #2a1818; color: #ffc0ba; }
+    .signal { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(96,211,154,.12); }
+    .offline .signal { background: var(--red); box-shadow: 0 0 0 3px rgba(255,127,121,.12); }
+    .connection strong { font-family: var(--mono); font-size: 11px; font-weight: 600; }
+    .connection small { color: #79ae92; font-size: 10px; border-left: 1px solid #355544; padding-left: 8px; }
+    .connection.offline small { color: #db8c85; border-color: #663e3a; }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 54px minmax(272px, 308px) minmax(470px, 1fr) minmax(278px, 314px);
+      background: var(--bg);
+    }
+    .rail { border-right: 1px solid var(--line); background: #101318; display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 7px; }
+    .rail-btn { width: 34px; height: 34px; border: 0; background: transparent; color: #74808f; display: grid; place-items: center; border-radius: 4px; cursor: pointer; position: relative; }
+    .rail-btn:hover { background: #1b2028; color: #d7dde4; }
+    .rail-btn.active { background: #1e2733; color: #84b6ff; }
+    .rail-btn.active::before { content: ""; position: absolute; left: -10px; width: 2px; height: 20px; background: var(--blue); }
+    .rail-spacer { flex: 1; }
+
+    .source, .destination { min-width: 0; min-height: 0; background: #12161b; }
+    .source { border-right: 1px solid var(--line); }
+    .destination { border-left: 1px solid var(--line); }
+    .pane-head { height: 85px; padding: 15px 16px 13px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; justify-content: space-between; }
+    .pane-eyebrow { display: flex; align-items: center; justify-content: space-between; color: var(--dim); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .11em; }
+    .pane-eyebrow strong { color: #aab3bf; font-weight: 600; }
+    .path { display: flex; align-items: center; gap: 7px; min-width: 0; color: #d7dce2; }
+    .path svg { flex: 0 0 auto; color: #7f8a98; }
+    .path code { font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pane-actions { height: 40px; border-bottom: 1px solid var(--line); padding: 0 11px; display: flex; align-items: center; justify-content: space-between; }
+    .flat-btn { border: 0; background: transparent; color: #8e99a7; padding: 5px 6px; border-radius: 3px; cursor: pointer; font-size: 11px; }
+    .flat-btn:hover { color: #e6ebf0; background: #1c222a; }
+    .flat-btn:disabled { opacity: .35; cursor: default; }
+    .file-count { color: #66717e; font: 10px var(--mono); }
+
+    .file-list { padding: 7px 0; }
+    .file-row {
+      width: 100%; height: 49px; display: grid; grid-template-columns: 25px 27px minmax(0,1fr) auto; align-items: center;
+      border: 0; border-left: 2px solid transparent; background: transparent; padding: 0 13px 0 11px; text-align: left; cursor: pointer;
+    }
+    .file-row:hover { background: #181d24; }
+    .file-row.selected { background: rgba(79,143,255,.09); border-left-color: var(--blue); }
+    .file-row:disabled { cursor: default; }
+    .file-row:disabled:hover { background: transparent; }
+    .file-row.selected:disabled:hover { background: rgba(79,143,255,.09); }
+    .check { width: 15px; height: 15px; border: 1px solid #4b5664; border-radius: 2px; display: grid; place-items: center; color: #07111c; }
+    .selected .check { border-color: var(--blue); background: var(--blue); }
+    .file-ico { color: #8090a2; }
+    .file-text { min-width: 0; display: block; }
+    .file-name { display: block; color: #dbe1e7; font: 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-meta { display: block; margin-top: 4px; color: #65717e; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-size { color: #8d97a3; font: 10px var(--mono); padding-left: 8px; }
+    .source-note { margin: 9px 13px; padding: 10px 11px; border-left: 2px solid #3b4654; color: #7e8997; background: #151a20; font-size: 11px; line-height: 1.45; }
+
+    .stage { min-width: 0; min-height: 0; display: grid; grid-template-rows: 50px minmax(0, 1fr) 75px; background: #0d1014; }
+    .stepbar { border-bottom: 1px solid var(--line); display: grid; grid-template-columns: repeat(4, 1fr); padding: 0 24px; }
+    .step { position: relative; display: flex; align-items: center; gap: 8px; color: #596473; font-size: 10px; text-transform: uppercase; letter-spacing: .095em; }
+    .step::after { content: ""; position: absolute; right: 8px; left: 28px; bottom: 0; height: 1px; background: transparent; }
+    .step .n { width: 18px; height: 18px; border: 1px solid #3a4350; display: grid; place-items: center; border-radius: 50%; font: 9px var(--mono); }
+    .step.done { color: #75ae93; }
+    .step.done .n { border-color: #376d55; background: #163025; color: var(--green); }
+    .step.current { color: #cbd4de; }
+    .step.current .n { border-color: #5a92e7; background: #1a3151; color: #a9ccff; }
+    .step.current::after { background: var(--blue); }
+
+    .stage-scroll { min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #343d49 transparent; }
+    .stage-inner { width: min(760px, calc(100% - 48px)); margin: 0 auto; padding: 25px 0 20px; }
+    .section-kicker { color: var(--blue); font: 10px var(--mono); text-transform: uppercase; letter-spacing: .13em; margin-bottom: 8px; }
+    .hero-line { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+    .hero h2 { margin: 0; font-size: 26px; line-height: 1.12; font-weight: 560; letter-spacing: -.035em; }
+    .hero p { margin: 9px 0 0; color: #87919f; line-height: 1.48; max-width: 590px; }
+    .batch-count { flex: 0 0 auto; color: #6f7a88; font: 10px var(--mono); text-transform: uppercase; letter-spacing: .08em; padding-top: 6px; }
+    .batch-count b { display: block; color: #dce3ea; font-size: 23px; letter-spacing: -.06em; line-height: 1; margin-bottom: 4px; }
+
+    .manifest { margin-top: 24px; border-top: 1px solid var(--line-bright); }
+    .manifest-head, .manifest-row { display: grid; grid-template-columns: minmax(0,1.7fr) 80px minmax(150px,1fr) 24px; align-items: center; gap: 12px; }
+    .manifest-head { height: 31px; color: #66717e; font: 9px var(--mono); text-transform: uppercase; letter-spacing: .1em; border-bottom: 1px solid var(--line); }
+    .manifest-row { min-height: 55px; border-bottom: 1px solid #252b34; }
+    .m-name { min-width: 0; }
+    .m-name code { color: #dfe5eb; font: 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+    .m-name small { color: #65717e; font-size: 10px; display: block; margin-top: 4px; }
+    .m-size { color: #9aa4b0; font: 10px var(--mono); }
+    .m-target { color: #8995a3; font: 10px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status-dot { width: 9px; height: 9px; border-radius: 50%; background: #44505e; justify-self: center; }
+    .status-dot.warn { background: var(--amber); box-shadow: 0 0 0 3px var(--amber-wash); }
+    .status-dot.good { background: var(--green); box-shadow: 0 0 0 3px var(--green-wash); }
+    .status-dot.live { background: var(--blue); box-shadow: 0 0 0 3px var(--blue-wash); }
+    .empty-stage { margin-top: 24px; border: 1px dashed #303844; min-height: 170px; display: grid; place-items: center; text-align: center; padding: 24px; }
+    .empty-stage svg { margin: 0 auto 12px; color: #586474; }
+    .empty-stage strong { display: block; color: #b9c1cb; font-weight: 540; }
+    .empty-stage span { display: block; margin-top: 6px; color: #65717f; font-size: 11px; }
+
+    .gate { margin-top: 19px; border: 1px solid #6b512a; background: linear-gradient(90deg, var(--amber-wash), rgba(245,187,91,.035)); }
+    .gate-head { min-height: 46px; padding: 10px 13px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid rgba(245,187,91,.2); }
+    .gate-head svg { color: var(--amber); flex: 0 0 auto; }
+    .gate-head strong { font-size: 12px; font-weight: 590; }
+    .gate-head span { color: #a78e68; margin-left: auto; font: 10px var(--mono); }
+    .policies { display: grid; grid-template-columns: 1fr 1fr; }
+    .policy { min-height: 105px; border: 0; background: transparent; text-align: left; padding: 14px 14px 13px; cursor: pointer; position: relative; }
+    .policy + .policy { border-left: 1px solid rgba(245,187,91,.18); }
+    .policy:hover { background: rgba(245,187,91,.055); }
+    .policy.selected { background: rgba(245,187,91,.085); }
+    .radio { width: 14px; height: 14px; border: 1px solid #7a6647; border-radius: 50%; display: inline-grid; place-items: center; margin-right: 7px; vertical-align: -2px; }
+    .policy.selected .radio::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+    .policy strong { font-size: 11px; font-weight: 580; color: #e5d4b7; }
+    .policy p { margin: 8px 0 0 21px; color: #9a876a; font-size: 10.5px; line-height: 1.4; }
+    .recommended { font: 8px var(--mono); color: var(--amber); border: 1px solid #6a522d; padding: 2px 4px; margin-left: 5px; letter-spacing: .07em; text-transform: uppercase; }
+
+    .plan { margin-top: 17px; }
+    .plan-label { color: #6d7886; font: 9px var(--mono); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 8px; }
+    .plan-line { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; min-height: 31px; border-top: 1px solid #242a33; color: #8f9aa7; font-size: 10.5px; }
+    .plan-line:last-child { border-bottom: 1px solid #242a33; }
+    .plan-line b { color: #aeb7c2; font: 10px var(--mono); font-weight: 500; }
+    .plan-line em { color: #697583; font-style: normal; font: 9px var(--mono); }
+
+    .transfer-summary { margin-top: 22px; border: 1px solid #34404e; background: #131820; }
+    .ack { min-height: 42px; display: flex; align-items: center; gap: 9px; padding: 0 13px; border-bottom: 1px solid #2a323d; color: #aeb8c4; font-size: 11px; }
+    .ack svg { color: var(--green); }
+    .ack code { margin-left: auto; color: #718092; font: 9px var(--mono); }
+    .transfer-body { padding: 16px 15px 14px; }
+    .transfer-top { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; }
+    .transfer-top strong { font: 24px var(--mono); font-weight: 540; letter-spacing: -.05em; }
+    .transfer-top span { color: #788593; font: 10px var(--mono); }
+    .meter { height: 6px; background: #29313c; margin: 11px 0 15px; overflow: hidden; }
+    .meter i { display: block; height: 100%; width: var(--pct); background: linear-gradient(90deg, #4b86dd, #74afff); transition: width .3s ease; }
+    .transfer-files { display: grid; gap: 10px; }
+    .transfer-file { display: grid; grid-template-columns: 16px minmax(0,1fr) auto; align-items: center; gap: 8px; color: #aab4c0; font: 10px var(--mono); }
+    .transfer-file .done { color: var(--green); }
+    .transfer-file .run { color: var(--blue); }
+    .transfer-file small { color: #718090; }
+    .transfer-note { margin-top: 14px; display: flex; justify-content: space-between; align-items: center; gap: 12px; color: #6f7b89; font-size: 10px; }
+    .text-action { border: 0; background: transparent; color: #91a9c9; padding: 3px 0; cursor: pointer; display: inline-flex; align-items: center; }
+    .text-action:hover { color: #c9ddff; }
+
+    .interrupt { margin-top: 20px; border-left: 3px solid var(--red); background: #201516; padding: 15px 16px; }
+    .interrupt-top { display: flex; justify-content: space-between; gap: 20px; }
+    .interrupt h3 { margin: 0; color: #f3c3bf; font-size: 14px; font-weight: 590; }
+    .interrupt code { color: #af6864; font: 9px var(--mono); }
+    .interrupt p { color: #a9817f; font-size: 11px; line-height: 1.5; margin: 8px 0 0; }
+    .truth-box { margin-top: 13px; padding: 10px 12px; border: 1px solid #513433; color: #caa19e; font-size: 10.5px; line-height: 1.45; background: #251818; }
+    .truth-box strong { color: #ffd0cc; }
+
+    .receipt { margin-top: 21px; border: 1px solid #37654f; background: linear-gradient(140deg, rgba(46,112,78,.15), rgba(17,25,22,.54)); }
+    .receipt-head { min-height: 66px; padding: 13px 15px; display: flex; align-items: center; gap: 13px; border-bottom: 1px solid rgba(96,211,154,.2); }
+    .receipt-mark { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid #478364; color: var(--green); background: #142a20; border-radius: 50%; }
+    .receipt-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
+    .receipt-head p { margin: 4px 0 0; color: #789685; font-size: 10px; }
+    .receipt-id { margin-left: auto; align-self: flex-start; color: #648775; font: 9px var(--mono); }
+    .receipt-grid { display: grid; grid-template-columns: 1fr 1fr; }
+    .receipt-cell { padding: 11px 14px; min-height: 58px; border-bottom: 1px solid rgba(96,211,154,.13); }
+    .receipt-cell:nth-child(odd) { border-right: 1px solid rgba(96,211,154,.13); }
+    .receipt-cell span { display: block; color: #648071; font: 8px var(--mono); letter-spacing: .09em; text-transform: uppercase; }
+    .receipt-cell strong { display: block; margin-top: 5px; color: #cde5d7; font: 10px var(--mono); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .next-step { padding: 12px 14px; color: #8ca699; font-size: 10.5px; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+
+    .actionbar { border-top: 1px solid var(--line); background: #11151a; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; gap: 16px; }
+    .action-context { min-width: 0; color: #788392; font-size: 10.5px; }
+    .action-context strong { color: #a8b2be; font-weight: 530; }
+    .actions { display: flex; align-items: center; gap: 8px; }
+    .btn { height: 34px; border: 1px solid #37414e; background: #1b2129; color: #c3cbd4; border-radius: 3px; padding: 0 13px; cursor: pointer; font-size: 11px; }
+    .btn:hover { background: #232a34; border-color: #4b5664; }
+    .btn.primary { background: #3d7dd5; border-color: #5794e7; color: white; font-weight: 590; min-width: 150px; }
+    .btn.primary:hover { background: #4b89df; }
+    .btn.success { background: #286244; border-color: #3c805d; color: #e7fff1; }
+    .btn:disabled { opacity: .37; cursor: not-allowed; }
+
+    .remote-list { padding: 7px 0 0; }
+    .remote-row { min-height: 48px; display: grid; grid-template-columns: 24px minmax(0,1fr) auto; align-items: center; padding: 0 14px; border-left: 2px solid transparent; }
+    .remote-row.conflict { background: rgba(245,187,91,.07); border-left-color: var(--amber); }
+    .remote-row.just-written { background: rgba(96,211,154,.07); border-left-color: var(--green); }
+    .remote-row svg { color: #7c8998; }
+    .remote-name { min-width: 0; }
+    .remote-name code { color: #d3dae2; font: 10.5px var(--mono); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .remote-name small { color: #65717f; display: block; margin-top: 4px; font-size: 9.5px; }
+    .remote-tag { color: #a88858; font: 8px var(--mono); border: 1px solid #5b472c; padding: 3px 4px; text-transform: uppercase; letter-spacing: .06em; }
+    .just-written .remote-tag { color: #75c99c; border-color: #35664d; }
+    .target-proof { margin: 13px; border-top: 1px solid var(--line); padding-top: 13px; }
+    .proof-label { color: #65717e; font: 9px var(--mono); text-transform: uppercase; letter-spacing: .1em; }
+    .proof-line { margin-top: 9px; display: grid; grid-template-columns: 15px minmax(0,1fr); gap: 8px; color: #8b96a3; font-size: 10.5px; line-height: 1.35; }
+    .proof-line svg { color: #597365; margin-top: 1px; }
+    .target-fresh { margin: 13px; padding: 11px; background: #14231c; border: 1px solid #2c5d45; }
+    .target-fresh b { color: #a9dfbf; font-size: 10.5px; }
+    .target-fresh p { margin: 5px 0 0; color: #6f9980; font-size: 9.5px; line-height: 1.4; }
+
+    .statusbar { display: flex; align-items: center; border-top: 1px solid #252b33; background: #12161b; color: #687481; font: 10px var(--mono); }
+    .status-left { display: flex; align-items: center; gap: 13px; padding-left: 14px; }
+    .status-right { margin-left: auto; height: 100%; display: flex; align-items: center; gap: 13px; padding: 0 12px; border-left: 1px solid #252b33; }
+    .statusbar b { color: #8d98a5; font-weight: 500; }
+    .toast { position: fixed; left: 50%; bottom: 38px; transform: translateX(-50%) translateY(10px); background: #202731; color: #d8e0e8; border: 1px solid #46515f; box-shadow: 0 16px 38px rgba(0,0,0,.42); padding: 9px 13px; border-radius: 4px; font-size: 11px; opacity: 0; pointer-events: none; transition: .2s ease; z-index: 20; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 1180px) {
+      .workspace { grid-template-columns: 48px 255px minmax(450px,1fr) 265px; }
+      .rail-btn.active::before { left: -7px; }
+      .stage-inner { width: calc(100% - 34px); }
+      .manifest-head, .manifest-row { grid-template-columns: minmax(0,1.5fr) 66px minmax(120px,1fr) 20px; gap: 8px; }
+      .command-sub { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+  </style>
+</head>
+<body>
+  <main class="app" aria-label="Charter SFTP release staging mock">
+    <header class="titlebar">
+      <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="window-title"><b>Charter</b><span>—</span><span>prod-api-01</span></div>
+      <div class="title-actions">
+        <button class="title-btn" type="button" id="commandButton" aria-label="Open command palette">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          Command
+          <span style="font:9px var(--mono); color:#596473">⌘K</span>
+        </button>
+      </div>
+    </header>
+
+    <section class="commandbar">
+      <div class="brand"><div class="brand-mark"><span>C</span></div></div>
+      <div class="command-title">
+        <span class="kicker">SFTP</span><span class="hair"></span>
+        <h1>Release staging</h1>
+        <span class="command-sub">Prepare, commit, and verify a remote handoff</span>
+      </div>
+      <div class="session-tools">
+        <span class="session-id">RLS-240726-1432</span>
+        <button class="connection" id="connectionButton" type="button"></button>
+      </div>
+    </section>
+
+    <div class="workspace">
+      <nav class="rail" aria-label="Primary navigation">
+        <button class="rail-btn" type="button" aria-label="Connections" title="Connections"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 6h8M8 18h8M5 9v6m14-6v6M8 12h8"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/></svg></button>
+        <button class="rail-btn active" type="button" aria-label="SFTP files" title="SFTP files"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5h7l2 2h9v9.5H3z"/><path d="M3 7.5V5h7l2 2h7v2.5"/></svg></button>
+        <button class="rail-btn" type="button" aria-label="Terminal" title="Terminal"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m6 0h4"/></svg></button>
+        <button class="rail-btn" type="button" aria-label="Transfers" title="Transfers"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 3v14m0 0-4-4m4 4 4-4M17 21V7m0 0-4 4m4-4 4 4"/></svg></button>
+        <div class="rail-spacer"></div>
+        <button class="rail-btn" type="button" aria-label="Settings" title="Settings"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg></button>
+      </nav>
+
+      <aside class="source" aria-label="Local source files">
+        <div class="pane-head">
+          <div class="pane-eyebrow"><strong>This Mac</strong><span>Source</span></div>
+          <div class="path"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5h7l2 2h9v9.5H3z"/></svg><code>~/Projects/charter/dist</code></div>
+        </div>
+        <div class="pane-actions"><button class="flat-btn" id="selectPair" type="button">Stage release pair</button><span class="file-count" id="sourceCount"></span></div>
+        <div class="file-list" id="sourceList"></div>
+        <div class="source-note">Selections build a release manifest. Nothing leaves this Mac until the preflight decision is committed.</div>
+      </aside>
+
+      <section class="stage" aria-label="Release handoff workflow">
+        <div class="stepbar" id="stepbar"></div>
+        <div class="stage-scroll"><div class="stage-inner" id="stageContent"></div></div>
+        <div class="actionbar" id="actionbar"></div>
+      </section>
+
+      <aside class="destination" aria-label="Remote destination">
+        <div class="pane-head">
+          <div class="pane-eyebrow"><strong>prod-api-01</strong><span>Destination</span></div>
+          <div class="path"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="7" cy="7" r=".5" fill="currentColor"/><circle cx="7" cy="12" r=".5" fill="currentColor"/><circle cx="7" cy="17" r=".5" fill="currentColor"/></svg><code>/home/deploy/releases</code></div>
+        </div>
+        <div class="pane-actions"><span class="flat-btn" style="cursor:default">Remote contents</span><button class="flat-btn" id="refreshTarget" type="button">Refresh</button></div>
+        <div id="destinationContent"></div>
+      </aside>
+    </div>
+
+    <footer class="statusbar">
+      <div class="status-left"><span>SFTP · SSH-2</span><span><b>AES-256-GCM</b></span><span>latency 24 ms</span></div>
+      <div class="status-right"><span id="statusSelection">0 staged</span><span>root@10.0.3.46</span></div>
+    </footer>
+  </main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const MB = 1024 * 1024;
+    const KB = 1024;
+
+    // One canonical truth ledger. Every count, gate, transfer state, and receipt derives from this object.
+    const state = {
+      phase: 'select',
+      connection: 'connected',
+      policy: null,
+      items: [
+        { id: 'dmg', name: 'charter-1.0.0.dmg', size: 98.2 * MB, displaySize: '98.2 MB', modified: 'Today, 14:21', selected: false, conflict: true, remoteSize: '91.7 MB', completed: false },
+        { id: 'notes', name: 'release-notes.md', size: 4.1 * KB, displaySize: '4.1 KB', modified: 'Today, 14:18', selected: false, conflict: false, completed: false },
+        { id: 'latest', name: 'latest-mac.yml', size: 512, displaySize: '512 B', modified: 'Today, 14:21', selected: false, conflict: false, completed: false }
+      ],
+      expectedPair: ['dmg', 'notes'],
+      transfer: { done: 0, rate: 17.8 * MB, run: 0, restarted: false },
+      receipt: null,
+      lastReceipt: null,
+      toast: ''
+    };
+
+    let transferTimer = null;
+    let toastTimer = null;
+
+    const icons = {
+      file: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/></svg>',
+      check: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m5 12 4 4L19 6"/></svg>',
+      shield: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 5 6v5c0 4.5 2.7 8 7 10 4.3-2 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-5"/></svg>',
+      warning: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m12 3 10 18H2z"/><path d="M12 9v5m0 3h.01"/></svg>',
+      terminal: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m5 7 5 5-5 5m8 0h6"/></svg>'
+    };
+
+    function selectedItems() { return state.items.filter(item => item.selected); }
+    function selectedBytes() { return selectedItems().reduce((sum, item) => sum + item.size, 0); }
+    function hasConflict() { return selectedItems().some(item => item.conflict); }
+    function formatBytes(bytes) {
+      if (bytes >= MB) return `${(bytes / MB).toFixed(1)} MB`;
+      if (bytes >= KB) return `${(bytes / KB).toFixed(1)} KB`;
+      return `${Math.round(bytes)} B`;
+    }
+    function progressPercent() {
+      const total = selectedBytes();
+      return total ? Math.min(100, (state.transfer.done / total) * 100) : 0;
+    }
+    function outputName(item) {
+      if (item.id === 'dmg' && state.policy === 'keep') return 'charter-1.0.0-upload.dmg';
+      return item.name;
+    }
+    function currentStepIndex() {
+      return { select: 0, preflight: 1, transferring: 2, interrupted: 2, complete: 3 }[state.phase];
+    }
+    function setToast(message) {
+      state.toast = message;
+      const el = document.getElementById('toast');
+      el.textContent = message;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+    }
+
+    function renderSource() {
+      const locked = ['transferring', 'interrupted', 'complete'].includes(state.phase);
+      document.getElementById('sourceCount').textContent = `${selectedItems().length} / ${state.items.length}`;
+      const selectButton = document.getElementById('selectPair');
+      selectButton.disabled = locked;
+      selectButton.textContent = state.expectedPair.every(id => state.items.find(item => item.id === id).selected) ? 'Release pair staged' : 'Stage release pair';
+      document.getElementById('sourceList').innerHTML = state.items.map(item => `
+        <button class="file-row ${item.selected ? 'selected' : ''}" type="button" data-file="${item.id}" ${locked ? 'disabled' : ''} aria-pressed="${item.selected}">
+          <span class="check">${item.selected ? icons.check : ''}</span>
+          <span class="file-ico">${icons.file}</span>
+          <span class="file-text"><span class="file-name">${item.name}</span><span class="file-meta">${item.modified}</span></span>
+          <span class="file-size">${item.displaySize}</span>
+        </button>`).join('');
+      document.querySelectorAll('[data-file]').forEach(button => button.addEventListener('click', () => {
+        const item = state.items.find(entry => entry.id === button.dataset.file);
+        item.selected = !item.selected;
+        if (state.phase === 'preflight') { state.phase = 'select'; state.policy = null; }
+        render();
+      }));
+    }
+
+    function renderSteps() {
+      const labels = ['Select', 'Decide', 'Transfer', 'Receipt'];
+      const index = currentStepIndex();
+      document.getElementById('stepbar').innerHTML = labels.map((label, i) => `
+        <div class="step ${i < index ? 'done' : ''} ${i === index ? 'current' : ''}">
+          <span class="n">${i < index ? '✓' : i + 1}</span><span>${label}</span>
+        </div>`).join('');
+    }
+
+    function manifest(statusClass = '') {
+      const selected = selectedItems();
+      if (!selected.length) return `<div class="empty-stage">${icons.file}<div><strong>No files staged</strong><span>Select the release artifacts from the source rail.</span></div></div>`;
+      return `<div class="manifest">
+        <div class="manifest-head"><span>Artifact</span><span>Size</span><span>Remote name</span><span></span></div>
+        ${selected.map(item => {
+          const status = item.completed ? 'good' : statusClass || (item.conflict ? 'warn' : '');
+          const detail = item.completed ? 'Written and size-verified' : item.conflict ? `Existing remote file · ${item.remoteSize}` : 'New remote object';
+          return `<div class="manifest-row">
+            <div class="m-name"><code>${item.name}</code><small>${detail}</small></div>
+            <div class="m-size">${item.displaySize}</div>
+            <div class="m-target">${outputName(item)}</div>
+            <span class="status-dot ${status}"></span>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+
+    function renderSelect() {
+      const count = selectedItems().length;
+      return `<div class="hero">
+        <div class="section-kicker">Release batch / 01</div>
+        <div class="hero-line"><div><h2>Stage the handoff.</h2><p>Choose only the artifacts that belong in this release. Charter will lock the manifest before any remote write begins.</p></div><div class="batch-count"><b>${count}</b> staged</div></div>
+        ${manifest()}
+      </div>`;
+    }
+
+    function renderPreflight() {
+      return `<div class="hero">
+        <div class="section-kicker">Preflight / conflict gate</div>
+        <div class="hero-line"><div><h2>Decide what changes on prod-api-01.</h2><p>The destination is reachable and writable. One artifact has the same remote name; Charter will not infer your intent.</p></div><div class="batch-count"><b>${selectedItems().length}</b> files</div></div>
+        ${manifest()}
+        ${hasConflict() ? `<div class="gate">
+          <div class="gate-head">${icons.warning}<strong>charter-1.0.0.dmg already exists</strong><span>REMOTE 91.7 MB</span></div>
+          <div class="policies">
+            <button class="policy ${state.policy === 'replace' ? 'selected' : ''}" type="button" data-policy="replace"><span class="radio"></span><strong>Replace after verification</strong><span class="recommended">Recommended</span><p>Upload to a temporary name. Replace the 91.7 MB build only after the new 98.2 MB file is fully written.</p></button>
+            <button class="policy ${state.policy === 'keep' ? 'selected' : ''}" type="button" data-policy="keep"><span class="radio"></span><strong>Keep both builds</strong><p>Leave the existing file untouched and write the new artifact as charter-1.0.0-upload.dmg.</p></button>
+          </div>
+        </div>` : ''}
+        <div class="plan">
+          <div class="plan-label">Commit plan</div>
+          <div class="plan-line"><b>01</b><span>Write new files over the existing encrypted SFTP session</span><em>ROOT · 10.0.3.46</em></div>
+          <div class="plan-line"><b>02</b><span>${state.policy === 'keep' ? 'Preserve the old build and use a distinct remote name' : state.policy === 'replace' ? 'Verify 98.2 MB, then replace the old build' : 'Await an explicit same-name decision'}</span><em>${state.policy ? 'READY' : 'BLOCKED'}</em></div>
+          <div class="plan-line"><b>03</b><span>Refresh the destination and issue a durable handoff receipt</span><em>2 OBJECTS</em></div>
+        </div>
+      </div>`;
+    }
+
+    function transferFileRows() {
+      const notes = state.items.find(item => item.id === 'notes');
+      const dmg = state.items.find(item => item.id === 'dmg');
+      const dmgDone = Math.max(0, state.transfer.done - (notes.selected ? notes.size : 0));
+      return selectedItems().map(item => {
+        const isDone = item.completed;
+        const isNotes = item.id === 'notes';
+        const current = isNotes ? (isDone ? item.size : 0) : Math.min(item.size, dmgDone);
+        return `<div class="transfer-file"><span class="${isDone ? 'done' : 'run'}">${isDone ? '✓' : '↑'}</span><span>${item.name}</span><small>${isDone ? `${item.displaySize} · verified` : `${formatBytes(current)} / ${item.displaySize}`}</small></div>`;
+      }).join('');
+    }
+
+    function renderTransfer() {
+      const pct = progressPercent();
+      const total = selectedBytes();
+      return `<div class="hero">
+        <div class="section-kicker">Transfer session / active</div>
+        <div class="hero-line"><div><h2>Release handoff in progress.</h2><p>The plan is locked to this host and destination. Closing this view will not dismiss the session from Transfer Center.</p></div></div>
+        ${manifest('live')}
+        <div class="transfer-summary">
+          <div class="ack">${icons.shield}<span>Server acknowledged the staging plan</span><code>RLS-240726-1432</code></div>
+          <div class="transfer-body">
+            <div class="transfer-top"><strong>${Math.round(pct)}%</strong><span>${formatBytes(state.transfer.done)} / ${formatBytes(total)} · ${formatBytes(state.transfer.rate)}/s</span></div>
+            <div class="meter" style="--pct:${pct}%"><i></i></div>
+            <div class="transfer-files">${transferFileRows()}</div>
+            <div class="transfer-note"><span>${state.policy === 'replace' ? 'Existing build remains live until the verified swap.' : 'Existing build remains untouched.'}</span><button class="text-action" id="interruptLink" type="button">Disconnect session</button></div>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function renderInterrupted() {
+      const pct = progressPercent();
+      return `<div class="hero">
+        <div class="section-kicker">Transfer session / interrupted</div>
+        <div class="hero-line"><div><h2>The handoff stopped safely.</h2><p>Charter retained the completed release note and the locked manifest. No destination build was replaced.</p></div></div>
+        <div class="transfer-summary">
+          <div class="ack" style="color:#d1aaa6">${icons.warning}<span>Connection closed before the .dmg completed</span><code>${Math.round(pct)}% CAPTURED</code></div>
+          <div class="transfer-body">
+            <div class="transfer-top"><strong>${Math.round(pct)}%</strong><span>${formatBytes(state.transfer.done)} safely accounted for</span></div>
+            <div class="meter" style="--pct:${pct}%;"><i style="background:#a8605b"></i></div>
+            <div class="transfer-files">${transferFileRows()}</div>
+          </div>
+        </div>
+        <div class="interrupt">
+          <div class="interrupt-top"><h3>Resume means retrying one file.</h3><code>SFTP_DISCONNECTED</code></div>
+          <p>The server does not advertise partial-file resume for this session.</p>
+          <div class="truth-box"><strong>What Charter will do:</strong> remove the incomplete temporary .dmg, reconnect, and restart that 98.2 MB file from 0 B. <strong>release-notes.md will not upload again.</strong></div>
+        </div>
+      </div>`;
+    }
+
+    function renderComplete() {
+      const receipt = state.receipt;
+      return `<div class="hero">
+        <div class="section-kicker">Release handoff / complete</div>
+        <div class="hero-line"><div><h2>Remote handoff verified.</h2><p>The destination listing was refreshed after both writes completed. This receipt names the host, path, objects, and applied conflict decision.</p></div></div>
+        ${manifest()}
+        <div class="receipt">
+          <div class="receipt-head"><div class="receipt-mark">${icons.check}</div><div><h3>2 files landed on prod-api-01</h3><p>Authoritative after destination refresh · ${receipt.time}</p></div><span class="receipt-id">${receipt.id}</span></div>
+          <div class="receipt-grid">
+            <div class="receipt-cell"><span>Connection</span><strong>root@10.0.3.46 · SFTP</strong></div>
+            <div class="receipt-cell"><span>Destination</span><strong>/home/deploy/releases</strong></div>
+            <div class="receipt-cell"><span>Transferred</span><strong>98.2 MB + 4.1 KB</strong></div>
+            <div class="receipt-cell"><span>Same-name result</span><strong>${state.policy === 'replace' ? 'Old .dmg replaced after verification' : 'Existing .dmg preserved'}</strong></div>
+          </div>
+          <div class="next-step"><span>Next: inspect or publish the release from the remote directory.</span><button class="text-action" id="terminalAction" type="button">${icons.terminal} <span style="display:inline-block; margin-left:5px">Open terminal here</span></button></div>
+        </div>
+      </div>`;
+    }
+
+    function renderStage() {
+      const content = { select: renderSelect, preflight: renderPreflight, transferring: renderTransfer, interrupted: renderInterrupted, complete: renderComplete }[state.phase]();
+      document.getElementById('stageContent').innerHTML = content;
+      document.querySelectorAll('[data-policy]').forEach(button => button.addEventListener('click', () => { state.policy = button.dataset.policy; render(); }));
+      document.getElementById('interruptLink')?.addEventListener('click', interruptTransfer);
+      document.getElementById('terminalAction')?.addEventListener('click', () => setToast('Terminal opened at /home/deploy/releases'));
+    }
+
+    function renderActions() {
+      const count = selectedItems().length;
+      const total = formatBytes(selectedBytes());
+      let context = '';
+      let actions = '';
+      if (state.phase === 'select') {
+        const exactPair = state.expectedPair.every(id => state.items.find(item => item.id === id).selected) && count === 2;
+        context = count ? `<strong>${count} ${count === 1 ? 'file' : 'files'}</strong> · ${total} · no remote writes yet` : 'Select the two release artifacts to continue';
+        actions = `<button class="btn primary" id="reviewButton" type="button" ${!exactPair ? 'disabled' : ''}>Review upload →</button>`;
+      } else if (state.phase === 'preflight') {
+        context = state.policy ? `<strong>Ready to commit</strong> · ${total} to prod-api-01` : '<strong>Commit blocked</strong> · choose a same-name policy';
+        actions = `<button class="btn" id="backButton" type="button">← Change files</button><button class="btn primary" id="commitButton" type="button" ${!state.policy ? 'disabled' : ''}>Commit upload</button>`;
+      } else if (state.phase === 'transferring') {
+        context = `<strong>Transfer Center owns this session</strong> · destination protected until verification`;
+        actions = `<button class="btn" id="backgroundButton" type="button">Run in background</button>`;
+      } else if (state.phase === 'interrupted') {
+        context = '<strong>1 file complete · 1 file requires restart</strong>';
+        actions = `<button class="btn" id="cancelButton" type="button">Cancel handoff</button><button class="btn primary" id="resumeButton" type="button">Reconnect & retry .dmg</button>`;
+      } else {
+        context = `<strong>${state.receipt.id}</strong> · durable transfer receipt`;
+        actions = `<button class="btn" id="copyButton" type="button">Copy receipt</button><button class="btn success" id="newBatchButton" type="button">Stage another batch</button>`;
+      }
+      document.getElementById('actionbar').innerHTML = `<div class="action-context">${context}</div><div class="actions">${actions}</div>`;
+      document.getElementById('reviewButton')?.addEventListener('click', () => { state.phase = 'preflight'; render(); });
+      document.getElementById('backButton')?.addEventListener('click', () => { state.phase = 'select'; state.policy = null; render(); });
+      document.getElementById('commitButton')?.addEventListener('click', startTransfer);
+      document.getElementById('backgroundButton')?.addEventListener('click', () => setToast('Transfer continues in Charter Transfer Center'));
+      document.getElementById('cancelButton')?.addEventListener('click', cancelHandoff);
+      document.getElementById('resumeButton')?.addEventListener('click', resumeTransfer);
+      document.getElementById('copyButton')?.addEventListener('click', () => setToast(`${state.receipt.id} copied to clipboard`));
+      document.getElementById('newBatchButton')?.addEventListener('click', stageAnother);
+    }
+
+    function renderDestination() {
+      const dmg = state.items.find(item => item.id === 'dmg');
+      const notes = state.items.find(item => item.id === 'notes');
+      const completed = state.phase === 'complete';
+      const newName = state.policy === 'keep' && completed ? 'charter-1.0.0-upload.dmg' : 'charter-1.0.0.dmg';
+      const rows = [];
+      if (state.policy === 'keep' && completed) {
+        rows.push({ name: 'charter-1.0.0.dmg', detail: '91.7 MB · Jul 19, 09:42', tag: 'preserved', cls: '' });
+        rows.push({ name: newName, detail: '98.2 MB · Just now', tag: 'written', cls: 'just-written' });
+      } else {
+        rows.push({ name: 'charter-1.0.0.dmg', detail: completed ? '98.2 MB · Just now' : '91.7 MB · Jul 19, 09:42', tag: completed ? 'replaced' : 'same name', cls: completed ? 'just-written' : (dmg.selected ? 'conflict' : '') });
+      }
+      if (notes.completed) rows.push({ name: 'release-notes.md', detail: '4.1 KB · Just now', tag: 'written', cls: 'just-written' });
+      rows.push({ name: 'charter-0.9.8.dmg', detail: '88.4 MB · Jul 02, 16:11', tag: '', cls: '' });
+      rows.push({ name: 'checksums.txt', detail: '1.2 KB · Jul 19, 09:44', tag: '', cls: '' });
+      document.getElementById('destinationContent').innerHTML = `<div class="remote-list">${rows.map(row => `
+        <div class="remote-row ${row.cls}">${icons.file}<div class="remote-name"><code>${row.name}</code><small>${row.detail}</small></div>${row.tag ? `<span class="remote-tag">${row.tag}</span>` : '<span></span>'}</div>`).join('')}</div>
+        ${completed ? `<div class="target-fresh"><b>Destination refreshed</b><p>Listing reflects server state after receipt ${state.receipt.id}.</p></div>` : `<div class="target-proof"><div class="proof-label">Preflight evidence</div><div class="proof-line">${icons.shield}<span>SFTP session authenticated as <b>root</b>.</span></div><div class="proof-line">${icons.shield}<span>Directory is reachable and writable.</span></div><div class="proof-line">${icons.shield}<span>Existing build stays in place until commit.</span></div></div>`}`;
+    }
+
+    function renderConnection() {
+      const button = document.getElementById('connectionButton');
+      const offline = state.connection === 'disconnected';
+      button.className = `connection ${offline ? 'offline' : ''} ${state.phase === 'transferring' ? 'actionable' : ''}`;
+      button.innerHTML = `<span class="signal"></span><strong>${offline ? 'Disconnected' : 'root@10.0.3.46'}</strong><small>${offline ? 'Reconnect required' : state.phase === 'transferring' ? 'Disconnect' : 'SFTP live'}</small>`;
+      button.disabled = !['transferring'].includes(state.phase);
+      button.title = state.phase === 'transferring' ? 'Disconnect the active SFTP session' : 'Authenticated SFTP connection';
+    }
+
+    function render() {
+      renderSource();
+      renderSteps();
+      renderStage();
+      renderActions();
+      renderDestination();
+      renderConnection();
+      document.getElementById('statusSelection').textContent = `${selectedItems().length} staged`;
+    }
+
+    function startTransfer() {
+      if (!state.policy) return;
+      state.phase = 'transferring';
+      state.connection = 'connected';
+      state.transfer.done = 0;
+      state.transfer.run += 1;
+      state.items.forEach(item => item.completed = false);
+      const notes = state.items.find(item => item.id === 'notes');
+      if (notes.selected) { notes.completed = true; state.transfer.done = notes.size; }
+      setToast('Transfer session acknowledged by prod-api-01');
+      render();
+      runTransfer();
+    }
+
+    function runTransfer() {
+      clearInterval(transferTimer);
+      const run = state.transfer.run;
+      transferTimer = setInterval(() => {
+        if (state.phase !== 'transferring' || state.transfer.run !== run) { clearInterval(transferTimer); return; }
+        const total = selectedBytes();
+        state.transfer.done = Math.min(total, state.transfer.done + state.transfer.rate * .42);
+        const dmg = state.items.find(item => item.id === 'dmg');
+        if (state.transfer.done >= total) {
+          selectedItems().forEach(item => item.completed = true);
+          completeTransfer();
+        } else {
+          renderStage(); renderActions();
+        }
+      }, 420);
+    }
+
+    function interruptTransfer() {
+      if (state.phase !== 'transferring') return;
+      clearInterval(transferTimer);
+      state.phase = 'interrupted';
+      state.connection = 'disconnected';
+      state.transfer.run += 1;
+      setToast('Connection interrupted · destination build unchanged');
+      render();
+    }
+
+    function resumeTransfer() {
+      const notes = state.items.find(item => item.id === 'notes');
+      state.connection = 'connected';
+      state.phase = 'transferring';
+      state.transfer.run += 1;
+      state.transfer.restarted = true;
+      state.transfer.done = notes.selected && notes.completed ? notes.size : 0;
+      state.transfer.rate = 22.4 * MB;
+      setToast('Reconnected · restarting only charter-1.0.0.dmg');
+      render();
+      runTransfer();
+    }
+
+    function completeTransfer() {
+      clearInterval(transferTimer);
+      state.phase = 'complete';
+      state.connection = 'connected';
+      state.transfer.done = selectedBytes();
+      const receipt = { id: 'RCP-7F2A-91C4', time: '14:33:18' };
+      state.receipt = receipt;
+      state.lastReceipt = receipt;
+      setToast('Handoff complete · destination refreshed');
+      render();
+    }
+
+    function cancelHandoff() {
+      clearInterval(transferTimer);
+      state.phase = 'select';
+      state.connection = 'connected';
+      state.policy = null;
+      state.transfer.done = 0;
+      state.items.forEach(item => { item.selected = false; item.completed = false; });
+      setToast('Handoff canceled · incomplete temporary file removed');
+      render();
+    }
+
+    function stageAnother() {
+      state.phase = 'select';
+      state.policy = null;
+      state.receipt = null;
+      state.transfer.done = 0;
+      state.items.forEach(item => { item.selected = false; item.completed = false; });
+      setToast(`New batch ready · ${state.lastReceipt.id} retained in transfer history`);
+      render();
+    }
+
+    document.getElementById('selectPair').addEventListener('click', () => {
+      if (['transferring', 'interrupted', 'complete'].includes(state.phase)) return;
+      state.items.forEach(item => item.selected = state.expectedPair.includes(item.id));
+      state.phase = 'select';
+      state.policy = null;
+      render();
+    });
+    document.getElementById('connectionButton').addEventListener('click', interruptTransfer);
+    document.getElementById('refreshTarget').addEventListener('click', () => setToast(state.phase === 'complete' ? 'Destination is current with the server receipt' : 'Destination refreshed · conflict still present'));
+    document.getElementById('commandButton').addEventListener('click', () => setToast('Command palette · SFTP actions available'));
+
+    render();
+  </script>
+</body>
+</html>

@@ -14,6 +14,7 @@ const INSTALLABLE_SUFFIXES = [
   '.rpm',
   '.tar.gz',
   '.blockmap',
+  '.yml',
 ];
 
 export function readProductPackage(projectRoot = root) {

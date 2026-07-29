@@ -709,6 +709,139 @@ function PrivacyModal(props: {
   );
 }
 
+const UPDATE_PHASE_LABELS = {
+  disabled: 'Unavailable in development',
+  idle: 'Ready to check',
+  checking: 'Checking…',
+  available: 'Update available',
+  downloading: 'Downloading…',
+  downloaded: 'Ready to install',
+  'up-to-date': 'Up to date',
+  error: 'Check failed',
+} as const;
+
+function UpdateSettingsSection(props: {
+  channel: 'stable' | 'beta';
+  autoCheck: boolean;
+  set: (patch: Record<string, unknown>) => void;
+}): React.JSX.Element {
+  const update = useAppStore((s) => s.updateState);
+  const check = useAppStore((s) => s.checkForUpdates);
+  const openDownload = useAppStore((s) => s.openUpdateDownload);
+  const install = useAppStore((s) => s.installUpdate);
+  const checking = update?.phase === 'checking';
+  const progress = update?.progress;
+
+  return (
+    <>
+      <div className="st-card st-update-card" data-testid="updates-status">
+        <div className="st-card-head">
+          <Ic name="refresh" size={14} />
+          <div className="st-update-heading">
+            <div>
+              <div className="st-card-title">Charter {update?.currentVersion ?? '…'}</div>
+              <div className="st-card-sub">
+                {update?.delivery === 'automatic'
+                  ? 'Signed background updates for macOS and Windows'
+                  : 'Release notifications with verified manual installation'}
+              </div>
+            </div>
+            {update ? (
+              <span className={`st-update-phase ${update.phase}`} data-testid="updates-phase">
+                {UPDATE_PHASE_LABELS[update.phase]}
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="st-update-body" aria-live="polite">
+          {update?.availableVersion ? (
+            <div className="st-update-version">
+              <span>Available</span>
+              <b>{update.availableVersion}</b>
+              {update.releaseName && update.releaseName !== `Charter ${update.availableVersion}` ? (
+                <small>{update.releaseName}</small>
+              ) : null}
+            </div>
+          ) : null}
+          <p>{update?.message ?? 'Loading update status…'}</p>
+          {progress ? (
+            <div className="st-update-progress" data-testid="updates-progress">
+              <span style={{ width: `${progress.percent}%` }} />
+              <small>
+                {Math.round(progress.percent)}% · {formatBytes(progress.transferred)} of{' '}
+                {formatBytes(progress.total)} · {formatBytes(progress.bytesPerSecond)}/s
+              </small>
+            </div>
+          ) : null}
+          {update?.checkedAt ? (
+            <div className="st-update-checked">
+              Last checked {new Date(update.checkedAt).toLocaleString()}
+            </div>
+          ) : null}
+          <div className="st-update-actions">
+            <button
+              type="button"
+              className="btn"
+              data-testid="updates-check"
+              disabled={!update?.canCheck || checking || update?.phase === 'downloading'}
+              onClick={() => void check()}
+            >
+              {checking ? 'Checking…' : 'Check now'}
+            </button>
+            {update?.phase === 'available' && update.delivery === 'manual' ? (
+              <button
+                type="button"
+                className="btn primary"
+                data-testid="updates-open-download"
+                onClick={() => void openDownload()}
+              >
+                Open release page
+              </button>
+            ) : null}
+            {update?.canInstall ? (
+              <button
+                type="button"
+                className="btn primary"
+                data-testid="updates-install"
+                onClick={() => void install()}
+              >
+                Restart and install
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="st-card">
+        <Row label="Channel" hint="Beta receives stable releases and newer prereleases.">
+          <select
+            className="st-input"
+            value={props.channel}
+            data-testid="updates-channel"
+            disabled={
+              update?.phase === 'checking' ||
+              update?.phase === 'downloading' ||
+              update?.phase === 'downloaded'
+            }
+            onChange={(event) => props.set({ updates: { channel: event.target.value } })}
+          >
+            <option value="stable">Stable</option>
+            <option value="beta">Beta</option>
+          </select>
+        </Row>
+        <Row label="Check automatically" hint="At startup and every six hours while Charter runs.">
+          <Toggle
+            testid="updates-auto-check"
+            checked={props.autoCheck}
+            onChange={(autoCheck) => props.set({ updates: { autoCheck } })}
+          />
+        </Row>
+      </div>
+    </>
+  );
+}
+
 const APPEARANCE_SKINS: AppearanceSkin[] = ['studio', 'terminal', 'archive', 'index'];
 
 function SkinPicker(props: {
@@ -1327,24 +1460,11 @@ export function SettingsView(): React.JSX.Element {
         ) : null}
 
         {section === 'updates' ? (
-          <div className="st-card">
-            <Row label="Channel">
-              <select
-                className="st-input"
-                value={settings.updates.channel}
-                onChange={(e) => set({ updates: { channel: e.target.value } })}
-              >
-                <option value="stable">Stable</option>
-                <option value="beta">Beta</option>
-              </select>
-            </Row>
-            <Row label="Check automatically">
-              <Toggle
-                checked={settings.updates.autoCheck}
-                onChange={(v) => set({ updates: { autoCheck: v } })}
-              />
-            </Row>
-          </div>
+          <UpdateSettingsSection
+            channel={settings.updates.channel}
+            autoCheck={settings.updates.autoCheck}
+            set={set}
+          />
         ) : null}
 
         {section === 'about' && appInfo ? (

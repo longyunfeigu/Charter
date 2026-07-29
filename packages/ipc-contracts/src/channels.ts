@@ -69,6 +69,7 @@ import {
   SshHostInputSchema,
   SshSecretKindSchema,
 } from './ssh.js';
+import { UpdateStateSchema } from './updates.js';
 
 const SettingsStateSchema = z.object({
   effective: SettingsSchema,
@@ -103,6 +104,69 @@ export const TERMINAL_EXTERNAL_OPEN_EXTENSIONS = [
   '.svg',
   '.pdf',
 ] as const;
+
+const TerminalExternalPreviewSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.enum(['image', 'pdf']),
+      mime: z.string().min(1).max(100),
+      sizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      dataBase64: z.string().max(28_000_000),
+      text: z.null(),
+      truncated: z.boolean(),
+      reason: z.string().max(300).nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('text'),
+      mime: z.string().min(1).max(100),
+      sizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      dataBase64: z.null(),
+      text: z.string().max(1_048_576),
+      truncated: z.boolean(),
+      reason: z.string().max(300).nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('binary'),
+      mime: z.string().min(1).max(100),
+      sizeBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      dataBase64: z.null(),
+      text: z.null(),
+      truncated: z.literal(false),
+      reason: z.string().min(1).max(300),
+    })
+    .strict(),
+]);
+
+const TerminalOpenPathResponseSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      action: z.literal('editor'),
+      path: z.string().min(1).max(4096),
+      workspacePath: z.string().min(1).max(4096),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('external'),
+      path: z.string().min(1).max(4096),
+      workspacePath: z.null(),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('preview'),
+      path: z.string().min(1).max(4096),
+      workspacePath: z.null(),
+      projectName: z.string().min(1).max(500),
+      canCopy: z.boolean(),
+      preview: TerminalExternalPreviewSchema,
+    })
+    .strict(),
+]);
 
 /** ADR-0047: present when the session runs on a remote SSH host; pid is -1. */
 const TerminalRemoteInfoSchema = z.object({
@@ -180,6 +244,25 @@ export const CHANNELS = {
     1,
     z.object({ path: z.string().min(1).max(4000) }).strict(),
     z.object({ revealed: z.boolean() }),
+  ),
+  'updates.getState': ch('updates.getState', 1, z.object({}).strict(), UpdateStateSchema),
+  'updates.check': ch('updates.check', 1, z.object({}).strict(), UpdateStateSchema),
+  'updates.openDownload': ch(
+    'updates.openDownload',
+    1,
+    z.object({}).strict(),
+    z.object({ opened: z.boolean() }).strict(),
+  ),
+  'updates.install': ch(
+    'updates.install',
+    1,
+    z.object({ force: z.boolean().default(false) }).strict(),
+    z
+      .object({
+        installing: z.boolean(),
+        blockers: z.array(z.string().min(1).max(500)).max(50),
+      })
+      .strict(),
   ),
   'workspace.open': ch(
     'workspace.open',
@@ -860,27 +943,37 @@ export const CHANNELS = {
       .strict(),
     z.object({ recorded: z.boolean() }),
   ),
-  /** ADR-0033: ⌘+click on a file token inside a terminal (OSC 8 hyperlink or
-   * regex-detected path). The host resolves the token against THAT terminal's
-   * launch cwd under the same lexical+symlink containment rules as workspace
-   * paths; browser-native files open in the OS default app, everything else
-   * comes back for the renderer's editor. */
+  /** ADR-0033: modifier-click a terminal file token. Workspace files keep the
+   * editor/system split; explicit absolute paths outside the focused workspace
+   * return a bounded, read-only snapshot instead of entering the document model. */
   'terminal.openPath': ch(
     'terminal.openPath',
-    1,
+    2,
     z.object({ id: z.string(), path: z.string().min(1).max(4096) }).strict(),
-    z.object({
-      action: z.enum(['external', 'editor']),
-      /** Absolute resolved path (toasts/logging). */
-      path: z.string(),
-      /** Focused-workspace-relative path when the file lives inside it — the
-       * renderer can hand this straight to doc.open. */
-      workspacePath: z.string().nullable(),
-    }),
+    TerminalOpenPathResponseSchema,
+  ),
+  /** Explicit actions available from the external-file read-only preview. */
+  'terminal.externalFileAction': ch(
+    'terminal.externalFileAction',
+    1,
+    z
+      .object({
+        id: z.string().min(1),
+        path: z.string().min(1).max(4096),
+        action: z.enum(['system', 'copy']),
+      })
+      .strict(),
+    z
+      .object({
+        completed: z.boolean(),
+        path: z.string().min(1).max(4096),
+        workspacePath: z.string().min(1).max(4096).nullable(),
+      })
+      .strict(),
   ),
   /** ADR-0033 am.1: batch existence probe for space/CJK path-boundary
-   * candidates. Same cwd containment as terminal.openPath, but read-only and
-   * per-token non-throwing — a token outside the cwd is simply `false`. */
+   * candidates. Relative candidates stay cwd-contained; explicit absolute
+   * candidates may be probed so external paths with spaces can become links. */
   'terminal.statTokens': ch(
     'terminal.statTokens',
     1,

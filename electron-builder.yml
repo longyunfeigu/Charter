@@ -75,6 +75,13 @@ linux:
   category: Development
   artifactName: '${productName}-${version}-linux-preview.${ext}'
 
-# GitHub Actions owns draft/prerelease publication so a local package command
-# can never mutate Releases implicitly. Signing and publishing are independent.
-publish: null
+# `npm run package` still passes `--publish never`: GitHub Actions owns release
+# creation. Keeping the provider here makes electron-builder emit the channel
+# metadata consumed by signed macOS/Windows installations.
+publish:
+  provider: github
+  owner: longyunfeigu
+  repo: Charter
+  # GitHub providers do not auto-detect prerelease channels. The macro expands
+  # to beta/rc/etc. and falls back to `latest` for a stable SemVer.
+  channel: '${channel}'

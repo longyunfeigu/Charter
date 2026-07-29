@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>方案 3 - 漂亮输出 + 真实 TTY 输入</title>
+    <style>
+      :root { --ink:#201b15; --muted:#7c7367; --paper:#f4efe4; --card:#fffaf0; --line:#ded2c0; --orange:#f0a629; --hot:#ed5d32; --green:#246c52; --tty:#181713; }
+      * { box-sizing:border-box; }
+      body { margin:0; min-width:320px; height:100vh; overflow:hidden; color:var(--ink); background:var(--paper); font-family:"Avenir Next","PingFang SC",sans-serif; }
+      button,textarea { font:inherit; }
+      .app { height:100vh; display:grid; grid-template-rows:48px 1fr; background:
+          radial-gradient(circle at 72% 5%,rgba(240,166,41,.14),transparent 28rem),var(--paper); }
+      .top { display:flex; align-items:center; gap:11px; padding:0 15px; color:#f8f0df; background:#201d18; border-bottom:1px solid #3c372f; }
+      .logo { display:flex; align-items:center; gap:9px; font-weight:900; letter-spacing:.03em; }
+      .logo i { width:21px; height:21px; display:grid; place-items:center; border-radius:7px 2px 7px 2px; color:#201d18; background:var(--orange); font:900 11px/1 "SF Mono",monospace; font-style:normal; }
+      .badge { padding:5px 8px; color:#ffd68b; border:1px solid #5b4b2e; border-radius:999px; font:800 9px/1 "SF Mono",monospace; letter-spacing:.08em; }
+      .top .path { color:#8f887d; font:11px/1 "SF Mono",monospace; }
+      .demo { margin-left:auto; display:flex; gap:5px; }
+      .demo button { padding:6px 9px; color:#c8c1b5; background:#2b2823; border:1px solid #464039; border-radius:8px; cursor:pointer; font-size:10px; }
+      .demo button:hover { color:#fff; border-color:#766d61; }
+      .shell { min-height:0; display:grid; grid-template-columns:58px minmax(0,1fr); }
+      .rail { display:flex; flex-direction:column; align-items:center; gap:8px; padding:11px 0; background:#29251f; border-right:1px solid #3c372f; }
+      .rail button { width:38px; height:38px; color:#8f887c; background:transparent; border:0; border-radius:11px; cursor:pointer; font-size:16px; }
+      .rail button.active { color:#241f19; background:var(--orange); box-shadow:0 8px 20px rgba(240,166,41,.24); }
+      .room { min-width:0; min-height:0; display:grid; grid-template-rows:1fr auto; }
+      .upper { min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 252px; transition:opacity .2s; }
+      .conversation { min-width:0; overflow:auto; padding:24px clamp(22px,5vw,70px) 30px; }
+      .room-head { display:flex; align-items:flex-start; gap:12px; margin-bottom:22px; }
+      .room-head .avatar { width:41px; height:41px; display:grid; place-items:center; flex:none; color:white; background:var(--green); border-radius:13px; font:900 15px/1 "SF Mono",monospace; }
+      .room-head h1 { margin:0; font:700 clamp(20px,3vw,30px)/1.12 "Iowan Old Style","Songti SC",serif; letter-spacing:-.02em; }
+      .room-head p { margin:5px 0 0; color:var(--muted); font-size:11px; }
+      .truth { margin-left:auto; padding:7px 10px; color:var(--green); background:#e0eee7; border-radius:999px; font:800 9px/1 "SF Mono",monospace; white-space:nowrap; }
+      .timeline { max-width:820px; margin:0 auto; }
+      .user-msg { width:min(600px,84%); margin:0 0 18px auto; padding:13px 16px; color:#fffaf0; background:#2e2a24; border-radius:16px 16px 4px 16px; font-size:13px; line-height:1.6; box-shadow:0 10px 28px rgba(40,35,29,.13); }
+      .agent { padding:20px 21px; background:rgba(255,250,240,.88); border:1px solid var(--line); border-radius:18px; box-shadow:0 13px 38px rgba(72,57,38,.07); }
+      .agent-label { display:flex; align-items:center; gap:8px; margin-bottom:13px; color:var(--green); font:800 9px/1 "SF Mono",monospace; letter-spacing:.1em; }
+      .agent-label i { width:7px; height:7px; border-radius:50%; background:var(--green); }
+      .agent p { margin:0 0 12px; font-size:13px; line-height:1.78; }
+      .agent p:last-child { margin:0; }
+      .code { margin:14px 0; padding:13px 15px; color:#d9e8df; background:#1d2420; border-radius:11px; font:11px/1.65 "SF Mono",monospace; }
+      .tool-card { display:grid; grid-template-columns:34px 1fr auto; gap:10px; align-items:center; margin:11px 0; padding:10px 12px; background:#f2eadc; border:1px solid #dfd2bd; border-radius:11px; }
+      .tool-card .icon { width:32px; height:32px; display:grid; place-items:center; color:var(--green); background:#deeee6; border-radius:9px; font-weight:900; }
+      .tool-card b { display:block; font-size:11px; }.tool-card small { color:var(--muted); font-size:10px; }.tool-card em { color:var(--green); font:800 10px/1 "SF Mono",monospace; font-style:normal; }
+      .new-msg { animation:arrive .32s ease both; }
+      @keyframes arrive { from{opacity:0;transform:translateY(7px)} }
+      .artifacts { min-width:0; padding:18px 14px; background:rgba(237,230,215,.72); border-left:1px solid var(--line); }
+      .artifacts h2 { margin:0 0 13px; color:var(--muted); font:900 9px/1 "SF Mono",monospace; letter-spacing:.12em; }
+      .artifact { margin-bottom:9px; padding:12px; background:rgba(255,250,240,.7); border:1px solid var(--line); border-radius:12px; }
+      .artifact b { display:block; font-size:11px; }.artifact small { color:var(--muted); font-size:10px; }.delta { margin-top:7px; color:var(--green); font:800 10px/1 "SF Mono",monospace; }
+      .explain { margin-top:18px; padding:13px; color:#5f5548; background:#f6dca9; border-radius:12px; font-size:11px; line-height:1.62; }
+      .explain b { display:block; margin-bottom:4px; color:#8b4a1e; }
+      .tty { position:relative; color:#e9e6de; background:var(--tty); border-top:1px solid #34312b; box-shadow:0 -12px 40px rgba(38,31,21,.13); transition:height .26s ease; height:82px; overflow:hidden; }
+      .tty.expanded { height:min(330px,46vh); }
+      .tty-head { height:34px; display:flex; align-items:center; gap:8px; padding:0 13px; color:#8f8a80; border-bottom:1px solid #34312b; font:10px/1 "SF Mono",monospace; }
+      .tty-live { width:7px; height:7px; border-radius:50%; background:#8dde98; box-shadow:0 0 10px #8dde98; }
+      .tty-head strong { color:#d8d3ca; }.tty-head .direct { color:#e9b652; }.tty-head button { margin-left:auto; padding:4px 7px; color:#aaa399; background:transparent; border:1px solid #444038; border-radius:6px; cursor:pointer; font-size:9px; }
+      .tty-body { height:calc(100% - 34px); display:grid; grid-template-rows:1fr auto; }
+      .tty-screen { display:none; overflow:auto; padding:12px 18px; color:#c3c8c3; font:11.5px/1.55 "SF Mono","PingFang SC",monospace; }
+      .tty.expanded .tty-screen { display:block; }
+      .tty-line { margin:4px 0; }.tty-dim { color:#747b75; }.tty-accent { color:#f2bd5a; }
+      .tty-menu { display:none; width:min(580px,96%); margin:7px 0; padding:6px; background:#25231e; border:1px solid #514a3d; border-radius:9px; }
+      .tty[data-state="slash"] .tty-menu.slash-menu,.tty[data-state="permission"] .tty-menu.permission { display:block; }
+      .menu-row { display:grid; grid-template-columns:105px 1fr; gap:12px; padding:6px 8px; border-radius:5px; color:#99958c; }
+      .menu-row.active { color:#211d17; background:#f0b856; }
+      .permission { border-color:#7c6032; color:#d6c8a8; }.permission b { color:#ffd177; }
+      .tty-input { display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center; padding:7px 13px 10px; background:#171612; }
+      .tty-input .prompt { color:#f0b856; font:900 17px/1 "SF Mono",monospace; }
+      textarea { min-width:0; height:30px; resize:none; padding:6px 0; color:#f4f0e8; background:transparent; border:0; outline:0; font:12px/1.5 "SF Mono","PingFang SC",monospace; }
+      .send { padding:7px 12px; color:#211d17; background:var(--orange); border:0; border-radius:8px; cursor:pointer; font-weight:900; font-size:10px; }
+      @media(max-width:880px){ .upper{grid-template-columns:1fr}.artifacts{display:none}.conversation{padding:20px 18px}.top .path{display:none} }
+      @media(max-width:570px){ .shell{grid-template-columns:1fr}.rail{display:none}.demo button:nth-child(-n+2){display:none}.top{padding:0 9px}.badge{display:none}.conversation{padding:16px 11px}.truth{display:none}.agent{padding:16px}.tty.expanded{height:52vh} }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="top"><div class="logo"><i>C</i> CHARTER</div><span class="badge">方案 3 · 推荐</span><span class="path">payments / fix duplicate charge</span><div class="demo"><button data-demo="normal">普通消息</button><button data-demo="slash">模拟 /model</button><button data-demo="permission">模拟权限</button><button data-demo="full">完整终端</button></div></header>
+      <div class="shell">
+        <nav class="rail"><button>⌂</button><button class="active">✦</button><button>⌘</button><button>⇄</button><button>▤</button></nav>
+        <main class="room">
+          <div class="upper">
+            <section class="conversation" id="conversation">
+              <div class="room-head"><div class="avatar">CC</div><div><h1>修复支付重试的重复扣款</h1><p>Claude Code CLI · 外部会话 · 运行 12 分钟</p></div><span class="truth">TTY 是真实输入</span></div>
+              <div class="timeline" id="timeline">
+                <div class="user-msg">检查支付重试逻辑，修掉可能重复扣款的问题，并补测试。</div>
+                <article class="agent"><div class="agent-label"><i></i> CLAUDE CODE · 输出投影</div><p>我定位到了问题：每次 retry 都会重新创建 <code>idempotencyKey</code>，支付网关会把它识别成一笔新请求。</p><div class="tool-card"><span class="icon">↯</span><div><b>修改 payment-service.ts</b><small>把 key 提升到 Payment Attempt 生命周期</small></div><em>+12 -5</em></div><div class="code">const key = attempt.idempotencyKey<br>await gateway.charge({ ...request, key })</div><div class="tool-card"><span class="icon">✓</span><div><b>测试通过</b><small>并发重试、超时重试、正常支付</small></div><em>12 / 12</em></div><p>修复完成。重试现在会复用同一个 key，因此不会产生第二次扣款。</p></article>
+              </div>
+            </section>
+            <aside class="artifacts"><h2>LIVE ARTIFACTS</h2><div class="artifact"><b>payment-service.ts</b><small>Modified just now</small><div class="delta">+12 -5</div></div><div class="artifact"><b>payment.spec.ts</b><small>3 scenarios added</small><div class="delta">+38</div></div><div class="artifact"><b>Review snapshot</b><small>Ready to inspect</small></div><div class="explain"><b>抄什么</b>上方只负责“看得舒服”；下方黑色区域才是真正的 Claude/Codex 输入。正常时压成一条，CLI 菜单出现时自动展开。</div></aside>
+          </div>
+          <section class="tty" id="tty" data-state="idle">
+            <div class="tty-head"><i class="tty-live"></i><strong>CLI CONTROL · Claude Code</strong><span class="direct">键盘直达 PTY</span><button id="collapse">收起终端</button></div>
+            <div class="tty-body">
+              <div class="tty-screen" id="ttyScreen">
+                <div class="tty-line tty-dim">Claude Code v1.0 · ~/charter-payments</div><div class="tty-line">⏺ 修复完成，等待下一条输入。</div>
+                <div class="tty-menu slash-menu"><div class="menu-row active"><span>/model</span><span>切换当前模型</span></div><div class="menu-row"><span>/memory</span><span>查看项目记忆</span></div><div class="menu-row"><span>/skills</span><span>浏览可用 Skills</span></div><div class="menu-row"><span>/effort</span><span>调整推理强度</span></div></div>
+                <div class="tty-menu permission"><b>允许执行命令？</b><br>npm test -- payment.spec.ts<div class="tty-line tty-dim">› 1. 允许　2. 本会话总是允许　3. 拒绝　　↑↓ 选择 · Enter 确认</div></div>
+              </div>
+              <div class="tty-input"><span class="prompt">❯</span><textarea id="ttyInput" rows="1" spellcheck="false" placeholder="真实 CLI 输入：试试输入 /model"></textarea><button class="send" id="send">发送到 PTY</button></div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script>
+      const tty=document.querySelector('#tty'), input=document.querySelector('#ttyInput'), screen=document.querySelector('#ttyScreen'), timeline=document.querySelector('#timeline'), conversation=document.querySelector('#conversation');
+      function setState(state){ tty.dataset.state=state; tty.classList.toggle('expanded',state!=='idle'); setTimeout(()=>screen.scrollTop=screen.scrollHeight,50); }
+      function addNormal(){ const text=input.value.trim()||'再解释一下这个修复为什么安全'; if(!text)return; const user=document.createElement('div'); user.className='user-msg new-msg'; user.textContent=text; timeline.append(user); const agent=document.createElement('article'); agent.className='agent new-msg'; agent.innerHTML='<div class="agent-label"><i></i> CLAUDE CODE · 输出投影</div><p>收到。这条消息实际上送进了下方同一个 PTY；Charter 只把 Agent 的结果投影到这里。</p>'; timeline.append(agent); input.value=''; setState('idle'); conversation.scrollTop=conversation.scrollHeight; }
+      input.addEventListener('input',()=>{ const slash=input.value.startsWith('/'); setState(slash?'slash':'idle'); });
+      document.querySelector('#send').addEventListener('click',()=> input.value.startsWith('/')?setState('slash'):addNormal());
+      document.querySelector('#collapse').addEventListener('click',()=>setState('idle'));
+      document.querySelectorAll('[data-demo]').forEach(button=>button.addEventListener('click',()=>{ const demo=button.dataset.demo; if(demo==='normal'){input.value='继续，并给我一个简短总结';input.focus();setState('idle')} if(demo==='slash'){input.value='/model';setState('slash')} if(demo==='permission'){input.value='';setState('permission')} if(demo==='full'){input.value='';setState('full')} }));
+    </script>
+  </body>
+</html>

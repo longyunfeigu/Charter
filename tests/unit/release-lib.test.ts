@@ -41,14 +41,24 @@ describe('release policy and metadata helpers', () => {
     expect(publishLine).not.toMatch(/--latest(?:\s|$)/);
   });
 
+  it('emits updater metadata for the SemVer release channel', () => {
+    const config = readFileSync(new URL('../../electron-builder.yml', import.meta.url), 'utf8');
+    expect(config).toContain("channel: '${channel}'");
+    expect(config).toContain('provider: github');
+  });
+
   it('collects only distributable artifacts and hashes bytes', () => {
     const dir = mkdtempSync(join(tmpdir(), 'charter-release-lib-'));
     try {
       mkdirSync(join(dir, 'nested'));
       writeFileSync(join(dir, 'nested', 'Charter.dmg'), 'release-bytes');
+      writeFileSync(join(dir, 'nested', 'latest-mac.yml'), 'version: 1.0.0');
       writeFileSync(join(dir, 'nested', 'ignore.txt'), 'not-an-artifact');
       const artifacts = collectReleaseArtifacts(dir);
-      expect(artifacts).toEqual([join(dir, 'nested', 'Charter.dmg')]);
+      expect(artifacts).toEqual([
+        join(dir, 'nested', 'Charter.dmg'),
+        join(dir, 'nested', 'latest-mac.yml'),
+      ]);
       expect(sha256File(artifacts[0]!)).toMatch(/^[0-9a-f]{64}$/);
     } finally {
       rmSync(dir, { recursive: true, force: true });

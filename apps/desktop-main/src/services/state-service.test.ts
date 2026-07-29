@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLogger } from '@pi-ide/foundation';
@@ -110,5 +110,15 @@ describe('StateService.removeWorkspace (ADR-0034)', () => {
 
   it('reports a path it has never seen', () => {
     expect(state.removeWorkspace('/tmp/never-opened')).toEqual({ status: 'missing' });
+  });
+});
+
+describe('StateService update backup', () => {
+  it('creates a consistent SQLite snapshot before installing a new app version', async () => {
+    seedWorkspace('ws1', '/tmp/preserved');
+    const file = await state.backupForUpdate('1.1.0-beta.1');
+
+    expect(file).toContain('charter.before-1.1.0-beta.1');
+    expect(existsSync(file)).toBe(true);
   });
 });

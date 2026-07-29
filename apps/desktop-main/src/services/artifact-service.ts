@@ -282,9 +282,13 @@ function pickerScript(nonce: string): string {
     let hoveredOutline = '';
     let selected = null;
     let selectedOutline = '';
+    const hoverTag = document.createElement('div');
+    hoverTag.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;display:none;max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:4px;background:#3f7bd9;color:#fff;padding:2px 6px;font:700 10px/1.4 ui-monospace,Menlo,monospace;box-shadow:0 2px 8px rgba(0,0,0,.18)';
+    document.documentElement.appendChild(hoverTag);
     const clearHover = () => {
       if (hovered && hovered !== selected) hovered.style.outline = hoveredOutline;
       hovered = null; hoveredOutline = '';
+      hoverTag.style.display = 'none';
     };
     const clearSelection = () => {
       if (selected) selected.style.outline = selectedOutline;
@@ -312,6 +316,17 @@ function pickerScript(nonce: string): string {
       }
       return parts.join(' > ');
     };
+    const compact = (value, max) => String(value || '').replace(/[\\u0000-\\u001f\\u007f]+/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, max);
+    const elementSummary = (element) => {
+      const summary = { tagName: compact(element.tagName, 50).toLowerCase() };
+      const text = compact(element.textContent, 300);
+      const accessibleName = compact(element.getAttribute('aria-label') || element.getAttribute('alt') || element.getAttribute('title'), 300);
+      const role = compact(element.getAttribute('role'), 100);
+      if (text) summary.text = text;
+      if (accessibleName) summary.accessibleName = accessibleName;
+      if (role) summary.role = role;
+      return summary;
+    };
     addEventListener('message', (event) => {
       if (event.source !== parent || event.data?.type !== 'charter-artifact-pick') return;
       if (event.data.action === 'clear') {
@@ -326,18 +341,23 @@ function pickerScript(nonce: string): string {
     addEventListener('pointerover', (event) => {
       if (!active || !(event.target instanceof Element)) return;
       clearHover(); hovered = event.target; hoveredOutline = hovered.style.outline;
-      hovered.style.outline = '2px dashed #e06a3b';
+      hovered.style.outline = '2px dashed #3f7bd9';
+      const rect = hovered.getBoundingClientRect();
+      hoverTag.textContent = selector(hovered);
+      hoverTag.style.left = Math.max(0, rect.left) + 'px';
+      hoverTag.style.top = Math.max(0, rect.top - 20) + 'px';
+      hoverTag.style.display = 'block';
     }, true);
     addEventListener('click', (event) => {
       if (!active || !(event.target instanceof Element)) return;
       event.preventDefault(); event.stopImmediatePropagation();
       clearHover(); clearSelection(); selected = event.target; selectedOutline = selected.style.outline;
-      selected.style.outline = '2px solid #e06a3b';
+      selected.style.outline = '2px solid #3f7bd9';
       const rect = event.target.getBoundingClientRect();
       parent.postMessage({ type: 'charter-artifact-picked', selector: selector(event.target), rect: {
         x: rect.x / innerWidth, y: rect.y / innerHeight,
         width: rect.width / innerWidth, height: rect.height / innerHeight
-      }, viewport: { width: innerWidth, height: innerHeight } }, '*');
+      }, viewport: { width: innerWidth, height: innerHeight }, element: elementSummary(event.target) }, '*');
       setActive(false);
     }, true);
     parent.postMessage({ type: 'charter-artifact-picker-ready' }, '*');

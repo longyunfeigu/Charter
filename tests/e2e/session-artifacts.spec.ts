@@ -216,12 +216,10 @@ test.describe('Session artifact platform', () => {
       await expect(htmlFrame.getByRole('heading', { name: 'Revenue pulse' })).toBeVisible({
         timeout: 10_000,
       });
-      await page
-        .getByTestId('artifact-html-view')
-        .getByRole('button', { name: 'Enable interactions' })
-        .click();
+      await page.getByTestId('artifact-html-security').locator('summary').click();
+      await page.getByRole('button', { name: 'Enable interactions' }).click();
       await expect(
-        page.getByTestId('artifact-html-view').getByText('Page interactions on'),
+        page.getByRole('button', { name: 'Interactive HTML preview settings' }),
       ).toBeVisible();
       const pickElement = page.getByTestId('artifact-pick-element');
       await expect(pickElement).toBeEnabled({ timeout: 10_000 });
@@ -230,16 +228,16 @@ test.describe('Session artifact platform', () => {
         'data-picker-state',
         'picking',
       );
-      await expect(pickElement).toHaveText('Cancel inspect');
+      await expect(pickElement).toHaveText('Cancel selection');
       await expect(pickElement).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByTestId('artifact-html-view').getByRole('status')).toContainText(
-        'Click an element in the preview',
+        'Select an element in the preview',
       );
       await expect
         .poll(() => htmlFrame.locator('html').evaluate((element) => element.style.cursor))
         .toBe('crosshair');
       await pickElement.click();
-      await expect(pickElement).toHaveText('Inspect element');
+      await expect(pickElement).toHaveText('Select element');
       await expect(page.getByTestId('artifact-html-view')).toHaveAttribute(
         'data-picker-state',
         'idle',
@@ -252,11 +250,12 @@ test.describe('Session artifact platform', () => {
         'data-picker-state',
         'picking',
       );
-      await page.screenshot({ path: '/tmp/charter-artifact-inspector-active.png' });
+      await page.screenshot({ path: '/tmp/charter-artifact-selection-active.png' });
       await htmlFrame.getByRole('heading', { name: 'Revenue pulse' }).click();
-      await expect(pickElement).toHaveText('Inspect element');
+      await expect(pickElement).toHaveText('Select element');
       await expect(pickElement).toHaveAttribute('aria-pressed', 'false');
-      await expect(page.locator('.artifact-anchor-summary')).toContainText('DOM');
+      await expect(page.locator('.artifact-anchor-summary')).toContainText('h1 "Revenue pulse"');
+      await expect(page.locator('.artifact-anchor-summary')).toContainText('body > main > h1');
       await expect(page.getByTestId('artifact-selection-clear')).toBeVisible();
 
       await page

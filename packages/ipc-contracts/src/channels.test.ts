@@ -46,6 +46,94 @@ describe('IPC channel registry', () => {
     ).toBe(false);
   });
 
+  it('terminal.openPath v2 returns strict action-specific shapes', () => {
+    const channel = getChannel('terminal.openPath');
+    expect(channel.schemaVersion).toBe(2);
+    expect(
+      channel.response.safeParse({
+        action: 'editor',
+        path: '/project/src/app.ts',
+        workspacePath: 'src/app.ts',
+      }).success,
+    ).toBe(true);
+    expect(
+      channel.response.safeParse({
+        action: 'preview',
+        path: '/tmp/orbit.png',
+        workspacePath: null,
+        projectName: 'demo',
+        canCopy: true,
+        preview: {
+          kind: 'image',
+          mime: 'image/png',
+          sizeBytes: 8,
+          dataBase64: 'iVBORw0K',
+          text: null,
+          truncated: false,
+          reason: null,
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      channel.response.safeParse({
+        action: 'editor',
+        path: '/tmp/outside.ts',
+        workspacePath: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      channel.response.safeParse({
+        action: 'preview',
+        path: '/tmp/report.html',
+        workspacePath: null,
+        projectName: 'demo',
+        canCopy: true,
+        preview: {
+          kind: 'text',
+          mime: 'text/html',
+          sizeBytes: 8,
+          dataBase64: null,
+          text: '<script>',
+          truncated: false,
+          reason: null,
+          executable: true,
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('terminal.externalFileAction allows only explicit system/copy actions', () => {
+    expect(
+      validateChannelRequest('terminal.externalFileAction', {
+        id: 'term_1',
+        path: '/tmp/orbit.png',
+        action: 'system',
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateChannelRequest('terminal.externalFileAction', {
+        id: 'term_1',
+        path: '/tmp/orbit.png',
+        action: 'copy',
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateChannelRequest('terminal.externalFileAction', {
+        id: 'term_1',
+        path: '/tmp/orbit.png',
+        action: 'delete',
+      }).ok,
+    ).toBe(false);
+    expect(
+      validateChannelRequest('terminal.externalFileAction', {
+        id: 'term_1',
+        path: '/tmp/orbit.png',
+        action: 'copy',
+        overwrite: true,
+      }).ok,
+    ).toBe(false);
+  });
+
   it('terminal.statTokens bounds the candidate batch (ADR-0033 am.1)', () => {
     expect(
       validateChannelRequest('terminal.statTokens', { id: 'term_1', tokens: ['a b.png'] }).ok,

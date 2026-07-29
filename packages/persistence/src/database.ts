@@ -1,4 +1,4 @@
-import { DatabaseSync, type StatementSync } from 'node:sqlite';
+import { backup, DatabaseSync, type StatementSync } from 'node:sqlite';
 import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -16,6 +16,7 @@ export interface SqlDatabase {
   prepare(sql: string): StatementSync;
   transaction<T>(fn: () => T): T;
   checkpoint(): void;
+  backupTo(file: string): Promise<void>;
   close(): void;
 }
 
@@ -80,6 +81,12 @@ class Database implements SqlDatabase {
 
   checkpoint(): void {
     this.raw.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+  }
+
+  async backupTo(file: string): Promise<void> {
+    mkdirSync(dirname(file), { recursive: true });
+    this.checkpoint();
+    await backup(this.raw, file);
   }
 
   close(): void {

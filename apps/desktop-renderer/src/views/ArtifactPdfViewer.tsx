@@ -46,15 +46,19 @@ class BundledPdfBinaryDataFactory {
   }
 }
 
-interface PdfViewerProps {
-  url: string;
+type PdfRegionPicker = (props: {
+  region?: { x: number; y: number; width: number; height: number };
+  onRegion: (region: { x: number; y: number; width: number; height: number }) => void;
+}) => React.JSX.Element;
+
+type PdfViewerProps = {
   anchor: ArtifactAnchorDto;
   onAnchor: (anchor: ArtifactAnchorDto) => void;
-  renderRegionPicker: (props: {
-    region?: { x: number; y: number; width: number; height: number };
-    onRegion: (region: { x: number; y: number; width: number; height: number }) => void;
-  }) => React.JSX.Element;
-}
+} & ({ url: string; data?: never } | { data: Uint8Array; url?: never }) &
+  (
+    | { allowRegionMarking?: true; renderRegionPicker: PdfRegionPicker }
+    | { allowRegionMarking: false; renderRegionPicker?: never }
+  );
 
 export function ArtifactPdfViewer(props: PdfViewerProps): React.JSX.Element {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -73,6 +77,7 @@ export function ArtifactPdfViewer(props: PdfViewerProps): React.JSX.Element {
   const page = Math.min(Math.max(1, requestedPage), Math.max(1, pageCount));
   const region =
     props.anchor.type === 'pdf' && props.anchor.page === page ? props.anchor.region : undefined;
+  const allowRegionMarking = props.allowRegionMarking !== false;
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -93,11 +98,12 @@ export function ArtifactPdfViewer(props: PdfViewerProps): React.JSX.Element {
     setError(null);
     const load = async (): Promise<void> => {
       try {
+        if (!props.data && !props.url) throw new Error('No PDF source was provided.');
         const pdfjs = await import('pdfjs-dist');
         if (disposed) return;
         pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
         loadingTask = pdfjs.getDocument({
-          url: props.url,
+          ...(props.data ? { data: props.data } : { url: props.url }),
           useSystemFonts: true,
           cMapUrl: './pdfjs/cmaps/',
           cMapPacked: true,
@@ -123,7 +129,7 @@ export function ArtifactPdfViewer(props: PdfViewerProps): React.JSX.Element {
       renderTaskRef.current = null;
       if (loadingTask) void loadingTask.destroy();
     };
-  }, [props.url]);
+  }, [props.data, props.url]);
 
   useEffect(() => {
     if (!document || requestedPage === page) return;
@@ -223,13 +229,15 @@ export function ArtifactPdfViewer(props: PdfViewerProps): React.JSX.Element {
         <button type="button" aria-label="Zoom in" onClick={() => changeZoom(zoom + 0.15)}>
           +
         </button>
-        <button
-          type="button"
-          className={marking ? 'active' : ''}
-          onClick={() => setMarking((value) => !value)}
-        >
-          {marking ? 'Finish region' : 'Mark region'}
-        </button>
+        {allowRegionMarking ? (
+          <button
+            type="button"
+            className={marking ? 'active' : ''}
+            onClick={() => setMarking((value) => !value)}
+          >
+            {marking ? 'Finish region' : 'Mark region'}
+          </button>
+        ) : null}
       </div>
       <div ref={stageRef} className="artifact-pdf-stage">
         {loading ? <div className="artifact-pdf-status">Loading PDF...</div> : null}
@@ -240,7 +248,7 @@ export function ArtifactPdfViewer(props: PdfViewerProps): React.JSX.Element {
         ) : null}
         <div className="artifact-pdf-page" aria-busy={rendering}>
           <canvas ref={canvasRef} />
-          {marking && document
+          {allowRegionMarking && marking && document && props.renderRegionPicker
             ? props.renderRegionPicker({
                 region,
                 onRegion: (next) => props.onAnchor({ type: 'pdf', page, region: next }),

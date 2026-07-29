@@ -30,7 +30,7 @@ import { PREVIEW_SANDBOX, pickMessageOrigins } from './preview-security.js';
  * The task's live window (ADR-0022 am.2): the SAME preview surface serves the
  * Room's persistent right rail and the acceptance gate's Preview tab. The
  * task's own dev server renders in a sandboxed iframe; feedback is "point at
- * the thing, say a word" — element pick (S, injected picker with marquee
+ * the thing, say a word" — element select (S, injected picker with marquee
  * fallback) or region draw (R). In the rail, the selection lands in the Room
  * composer as an attachment chip (Lovable/Windsurf pattern — one input, one
  * conversation); in the gate, the existing note popover sends directly.
@@ -338,7 +338,7 @@ export function LivePreview({
     }
   };
 
-  // ── element pick (S): injected picker with marquee fallback ──────────────
+  // ── element select (S): injected picker with marquee fallback ────────────
   const armPick = useCallback(async (): Promise<void> => {
     if (!active) return;
     const res = await rpcResult('task.previewPick', {
@@ -347,7 +347,10 @@ export function LivePreview({
       action: 'start',
     });
     if (!res.ok || !res.data.injected) {
-      app.pushToast('info', 'Element pick is unavailable on this page — draw a region instead.');
+      app.pushToast(
+        'info',
+        'Element selection is unavailable on this page — draw a region instead.',
+      );
       setMode('draw');
       return;
     }
@@ -397,7 +400,7 @@ export function LivePreview({
     return () => window.removeEventListener('message', onMessage);
   }, [mode, active, variant, toComposer]);
 
-  // Leaving pick mode (any path) cleans the injected picker up.
+  // Leaving select mode (any path) cleans the injected picker up.
   const prevModeRef = useRef<FeedbackMode>('interact');
   useEffect(() => {
     if (prevModeRef.current === 'pick' && mode !== 'pick') disarmPick();
@@ -667,22 +670,33 @@ export function LivePreview({
             className={`pv-mode ${mode === 'interact' ? 'on' : ''}`}
             data-testid="preview-mode-interact"
             title="Use the page normally"
+            type="button"
+            role="radio"
+            aria-checked={mode === 'interact'}
             onClick={() => setMode('interact')}
           >
             Interact
           </button>
           <button
-            className={`pv-mode ${mode === 'pick' ? 'on' : ''}`}
+            className={`pv-mode feedback ${mode === 'pick' ? 'on' : ''}`}
             data-testid="preview-mode-pick"
-            title="Point at an element — it attaches to your reply (S)"
+            title="Select an element — it attaches to your reply (S)"
+            type="button"
+            role="radio"
+            aria-checked={mode === 'pick'}
+            aria-keyshortcuts="S"
             onClick={() => void armPick()}
           >
-            Pick <kbd>S</kbd>
+            Select <kbd>S</kbd>
           </button>
           <button
-            className={`pv-mode ${mode === 'draw' ? 'on' : ''}`}
+            className={`pv-mode feedback ${mode === 'draw' ? 'on' : ''}`}
             data-testid="preview-mode-draw"
             title="Drag a region — it attaches to your reply (R)"
+            type="button"
+            role="radio"
+            aria-checked={mode === 'draw'}
+            aria-keyshortcuts="R"
             onClick={() => setMode('draw')}
           >
             Draw <kbd>R</kbd>
@@ -739,7 +753,7 @@ export function LivePreview({
         </span>
         {mode === 'pick' ? (
           <div className="pv-pickhint" data-testid="preview-pick-hint">
-            Point at the element — click to attach, Esc cancels
+            Select an element — click to attach, Esc cancels
           </div>
         ) : null}
         {mode === 'draw' ? (

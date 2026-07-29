@@ -55,6 +55,7 @@ import {
   externalTerminalLifecycle,
   isExternalCli,
 } from './external-terminal-lifecycle.js';
+import { showExternalFilePreview } from './ExternalFilePreview.js';
 
 export type TerminalLaunch = 'shell' | 'claude' | 'codex';
 /** ADR-0047: identifies the remote SSH host a session runs on. */
@@ -747,12 +748,12 @@ async function openTerminalFileToken(terminalId: string, token: string): Promise
   const { path, line } = splitLineSuffix(token);
   const res = await rpcResult('terminal.openPath', { id: terminalId, path });
   if (!okOrToast(res)) return;
-  if (res.data.action !== 'editor') return;
-  const rel = res.data.workspacePath;
-  if (!rel) {
-    useAppStore.getState().pushToast('info', `${res.data.path} is outside the current workspace.`);
+  if (res.data.action === 'preview') {
+    showExternalFilePreview({ ...res.data, terminalId });
     return;
   }
+  if (res.data.action !== 'editor') return;
+  const rel = res.data.workspacePath;
   // Terminal sessions live outside the Editor surface — switch first (the
   // QuickOpen pattern); the PTY stays alive across the surface change.
   useAppStore.getState().setProjectTool('editor');
@@ -773,8 +774,8 @@ function activateWebUri(event: MouseEvent, uri: string): void {
 
 /** OSC 8 hyperlinks (Claude Code emits file:// links around file mentions)
  * plus a regex provider for bare tokens like `rocket.html` from CLIs that do
- * not hyperlink. Both funnel into terminal.openPath, which resolves against
- * THIS terminal's cwd and never leaves it. */
+ * not hyperlink. Both funnel into terminal.openPath; relative tokens stay in
+ * this terminal's cwd while explicit absolute paths get a read-only preview. */
 function wireFileLinks(item: TermInstance): void {
   item.term.options.linkHandler = {
     allowNonHttpProtocols: true,

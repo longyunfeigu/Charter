@@ -6,6 +6,7 @@ import {
 } from '@pi-ide/ipc-contracts';
 import { errorMessage, newId, type Logger, type ProductError } from '@pi-ide/foundation';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 const APP_SCOPE = '__app__';
 
@@ -16,7 +17,7 @@ export class StateService {
 
   constructor(
     dbFile: string,
-    backupDir: string,
+    private readonly backupDir: string,
     private readonly logger: Logger,
   ) {
     const result = openDatabase({ file: dbFile, backupDir, migrations: MIGRATIONS });
@@ -207,6 +208,15 @@ export class StateService {
       severity: r.severity,
       at: r.created_at,
     }));
+  }
+
+  async backupForUpdate(targetVersion: string): Promise<string> {
+    const safeVersion = targetVersion.replace(/[^0-9A-Za-z.-]/g, '-');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const file = join(this.backupDir, `charter.before-${safeVersion}.${stamp}.bak`);
+    await this.db.backupTo(file);
+    this.logger.info('pre-update database backup created', { targetVersion });
+    return file;
   }
 
   close(): void {

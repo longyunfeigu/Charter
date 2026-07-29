@@ -1580,6 +1580,126 @@ html.xp-resizing * {
   /* Keep transient feedback clear of the Session decision dock. */
   bottom: calc(var(--statusbar-height) + 164px);
 }
+.update-notice {
+  position: relative;
+  width: min(390px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--info);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--info) 8%, transparent), transparent 48%),
+    var(--bg-card);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.32);
+}
+.update-notice.ready {
+  border-left-color: var(--success);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--success) 9%, transparent), transparent 48%),
+    var(--bg-card);
+}
+.update-notice-main {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  padding: 13px 42px 8px 13px;
+  border: 0;
+  color: inherit;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.update-notice-main:hover {
+  background: color-mix(in srgb, var(--bg-hover) 68%, transparent);
+}
+.update-notice-main:focus-visible,
+.update-notice-action:focus-visible,
+.update-notice-close:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.update-notice-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--info) 38%, var(--border));
+  border-radius: 9px;
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 9%, var(--bg-card));
+}
+.update-notice.ready .update-notice-icon {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 38%, var(--border));
+  background: color-mix(in srgb, var(--success) 9%, var(--bg-card));
+}
+.update-notice-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.update-notice-kicker {
+  color: var(--fg-faint);
+  font: 650 9px/1.2 var(--font-mono);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.update-notice-copy strong {
+  color: var(--fg);
+  font: 700 13px/1.25 var(--font-ui);
+}
+.update-notice-copy small {
+  color: var(--fg-muted);
+  font: 11px/1.45 var(--font-ui);
+}
+.update-notice-close {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--fg-muted);
+  background: none;
+  cursor: pointer;
+}
+.update-notice-close:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+.update-notice-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  padding: 3px 12px 12px;
+}
+.update-notice-action {
+  min-height: 29px;
+  padding: 0 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  color: var(--fg-muted);
+  background: var(--bg-chip);
+  font: 650 10px/1 var(--font-ui);
+  cursor: pointer;
+}
+.update-notice-action:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+.update-notice-action.primary {
+  color: var(--accent-fg);
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
+  background: var(--accent);
+}
+.update-notice-action.primary:hover {
+  background: color-mix(in srgb, var(--accent) 86%, var(--bg-card));
+}
 .toast {
   padding: 10px 14px;
   border-radius: 6px;

@@ -25,7 +25,14 @@ console.log(
 
 execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: root, stdio: 'inherit' });
 
-const args = ['--config', 'electron-builder.yml', '--publish', 'never', ...requestedPlatforms];
+const args = [
+  '--config',
+  'electron-builder.yml',
+  `-c.extraMetadata.charterUpdateMode=${policy.signed ? 'signed' : 'unsigned'}`,
+  '--publish',
+  'never',
+  ...requestedPlatforms,
+];
 if (dirOnly) args.push('--dir');
 
 console.log(`[package] running electron-builder ${dirOnly ? '(--dir smoke)' : ''}…`);

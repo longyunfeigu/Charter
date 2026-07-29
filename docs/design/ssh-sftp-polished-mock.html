@@ -1,0 +1,2641 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Charter · SSH / SFTP 安全传输 Mock</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --canvas: #d7d4ce;
+        --shell: #f2f0eb;
+        --paper: #fbfaf6;
+        --paper-strong: #ffffff;
+        --ink: #1d1d1a;
+        --muted: #6e6b63;
+        --faint: #a19c91;
+        --line: #e3dfd6;
+        --line-strong: #cfc8bb;
+        --soft: #eeebe4;
+        --dark: #20211f;
+        --dark-2: #292a27;
+        --copper: #b65f38;
+        --copper-dark: #8f4225;
+        --copper-soft: #f4e4dc;
+        --green: #2c895d;
+        --green-soft: #e2f0e8;
+        --amber: #aa7017;
+        --amber-soft: #f7ecd3;
+        --red: #c34e46;
+        --red-soft: #f9e4e1;
+        --blue: #4c72b8;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+        --serif: Charter, "Iowan Old Style", Georgia, "Songti SC", serif;
+        --mono: Menlo, Monaco, "SF Mono", Consolas, monospace;
+        --shadow: 0 30px 80px rgba(35, 31, 25, 0.2), 0 2px 8px rgba(35, 31, 25, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        min-width: 320px;
+        min-height: 100%;
+        margin: 0;
+      }
+
+      body {
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at 14% 20%, rgba(255, 255, 255, 0.44), transparent 30%),
+          var(--canvas);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 13px;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      button:focus-visible,
+      input:focus-visible {
+        outline: 2px solid var(--copper);
+        outline-offset: 2px;
+      }
+
+      .demo-chrome {
+        height: 52px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 0 22px;
+        border-bottom: 1px solid rgba(66, 61, 53, 0.16);
+        background: rgba(241, 239, 234, 0.92);
+        backdrop-filter: blur(16px);
+      }
+
+      .demo-identity {
+        min-width: 0;
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+      }
+
+      .demo-identity strong {
+        font-family: var(--serif);
+        font-size: 16px;
+        font-weight: 650;
+      }
+
+      .demo-identity span {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .demo-steps {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-left: auto;
+      }
+
+      .demo-steps button,
+      .demo-reset {
+        height: 30px;
+        padding: 0 10px;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .demo-steps button:hover,
+      .demo-reset:hover {
+        background: var(--paper-strong);
+      }
+
+      .demo-steps button.active {
+        border-color: var(--line-strong);
+        background: var(--dark);
+        color: #fff;
+      }
+
+      .demo-reset {
+        border-color: var(--line-strong);
+        background: var(--paper-strong);
+      }
+
+      .stage {
+        min-height: calc(100vh - 52px);
+        display: grid;
+        place-items: center;
+        padding: 22px;
+      }
+
+      .app-window {
+        width: min(1392px, 100%);
+        height: min(836px, calc(100vh - 96px));
+        min-height: 650px;
+        display: grid;
+        grid-template-rows: 38px minmax(0, 1fr) 24px;
+        overflow: hidden;
+        border: 1px solid rgba(61, 56, 49, 0.22);
+        border-radius: 16px;
+        background: var(--paper);
+        box-shadow: var(--shadow);
+      }
+
+      .titlebar {
+        display: grid;
+        grid-template-columns: 128px 1fr 128px;
+        align-items: center;
+        padding: 0 14px;
+        border-bottom: 1px solid #343532;
+        background: var(--dark);
+        color: #f7f4ed;
+      }
+
+      .traffic-lights {
+        display: flex;
+        gap: 7px;
+      }
+
+      .traffic-lights i {
+        width: 10px;
+        height: 10px;
+        display: block;
+        border-radius: 50%;
+        background: #6c6d69;
+      }
+
+      .traffic-lights i:first-child {
+        background: #d9695f;
+      }
+
+      .traffic-lights i:nth-child(2) {
+        background: #d9a448;
+      }
+
+      .traffic-lights i:nth-child(3) {
+        background: #61a56f;
+      }
+
+      .titlebar strong {
+        justify-self: center;
+        font-size: 11px;
+        font-weight: 560;
+        letter-spacing: 0.015em;
+      }
+
+      .titlebar .secure {
+        justify-self: end;
+        color: #b9bbb5;
+        font: 9px var(--mono);
+        letter-spacing: 0.05em;
+      }
+
+      .workbench {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 48px 238px minmax(0, 1fr);
+      }
+
+      .activity-rail {
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        padding: 9px 6px;
+        border-right: 1px solid #3d3e3a;
+        background: var(--dark);
+        color: #94968f;
+      }
+
+      .rail-logo,
+      .rail-button {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+      }
+
+      .rail-logo {
+        margin-bottom: 8px;
+        background: #f2efe7;
+        color: var(--dark);
+        font-family: var(--serif);
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .rail-button {
+        position: relative;
+        color: #969891;
+        cursor: pointer;
+      }
+
+      .rail-button:hover,
+      .rail-button.active {
+        background: #343532;
+        color: #fff;
+      }
+
+      .rail-button.active::before {
+        content: "";
+        position: absolute;
+        left: -6px;
+        width: 2px;
+        height: 20px;
+        border-radius: 0 2px 2px 0;
+        background: #df8b62;
+      }
+
+      .rail-button svg {
+        width: 17px;
+        height: 17px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.6;
+      }
+
+      .rail-spacer {
+        flex: 1;
+      }
+
+      .remote-rail {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--line);
+        background: var(--shell);
+      }
+
+      .remote-rail-head {
+        padding: 16px 14px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .remote-rail-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+
+      .remote-rail-title span {
+        display: grid;
+        gap: 2px;
+      }
+
+      .remote-rail-title small,
+      .section-label {
+        color: var(--faint);
+        font: 600 9px var(--mono);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .remote-rail-title strong {
+        font-family: var(--serif);
+        font-size: 15px;
+      }
+
+      .mini-icon,
+      .icon-button {
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--line-strong);
+        background: var(--paper-strong);
+        cursor: pointer;
+      }
+
+      .mini-icon {
+        width: 27px;
+        height: 27px;
+        border-radius: 7px;
+        font-size: 17px;
+      }
+
+      .rail-search {
+        height: 31px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 9px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper-strong);
+        color: var(--faint);
+      }
+
+      .rail-search svg {
+        width: 13px;
+        height: 13px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+      }
+
+      .rail-search input {
+        min-width: 0;
+        flex: 1;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--ink);
+        font-size: 11px;
+      }
+
+      .remote-tree {
+        min-height: 0;
+        overflow: auto;
+        padding: 12px 8px;
+      }
+
+      .section-label {
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 8px 6px;
+      }
+
+      .host-item,
+      .session-item {
+        width: 100%;
+        display: grid;
+        align-items: center;
+        border: 1px solid transparent;
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .host-item {
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        gap: 7px;
+        min-height: 48px;
+        padding: 5px 7px;
+        border-radius: 9px;
+      }
+
+      .host-item:hover,
+      .session-item:hover {
+        background: #e8e5de;
+      }
+
+      .host-item.selected {
+        border-color: #d5c4b9;
+        background: #eee5df;
+      }
+
+      .host-mark {
+        position: relative;
+        width: 28px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+      }
+
+      .host-mark svg {
+        width: 19px;
+        height: 19px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.5;
+      }
+
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        display: inline-block;
+        flex: none;
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        background: var(--faint);
+      }
+
+      .host-mark .status-dot {
+        position: absolute;
+        right: 0;
+        bottom: 3px;
+        border: 2px solid var(--shell);
+      }
+
+      .status-dot.online {
+        border-color: var(--green);
+        background: var(--green);
+        box-shadow: 0 0 0 3px rgba(44, 137, 93, 0.1);
+      }
+
+      .host-copy {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .host-copy strong,
+      .host-copy small,
+      .session-item span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .host-copy strong {
+        font-size: 11.5px;
+      }
+
+      .host-copy small {
+        color: var(--faint);
+        font: 9px var(--mono);
+      }
+
+      .host-count {
+        padding: 1px 5px;
+        border-radius: 99px;
+        background: rgba(93, 87, 77, 0.09);
+        color: var(--faint);
+        font: 9px var(--mono);
+      }
+
+      .session-list {
+        margin: 0 0 5px 27px;
+        padding-left: 8px;
+        border-left: 1px solid var(--line-strong);
+      }
+
+      .session-item {
+        grid-template-columns: 12px minmax(0, 1fr);
+        gap: 6px;
+        min-height: 33px;
+        padding: 4px 6px;
+        border-radius: 7px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .session-item svg {
+        width: 12px;
+        height: 12px;
+        fill: none;
+        stroke: var(--copper);
+        stroke-width: 1.6;
+      }
+
+      .rail-bottom {
+        margin-top: auto;
+        padding: 10px 12px;
+        border-top: 1px solid var(--line);
+      }
+
+      .rail-bottom button {
+        width: 100%;
+        height: 32px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--paper-strong);
+        cursor: pointer;
+      }
+
+      .main-surface {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: var(--paper);
+      }
+
+      .context-head {
+        height: 44px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(251, 250, 246, 0.96);
+      }
+
+      .breadcrumb {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--faint);
+        font-size: 10.5px;
+      }
+
+      .breadcrumb strong {
+        color: var(--ink);
+        font-weight: 620;
+      }
+
+      .breadcrumb i {
+        width: 4px;
+        height: 4px;
+        border-top: 1px solid currentColor;
+        border-right: 1px solid currentColor;
+        transform: rotate(45deg);
+      }
+
+      .view-tabs {
+        align-self: stretch;
+        display: flex;
+        align-items: stretch;
+        gap: 4px;
+        margin-left: auto;
+      }
+
+      .view-tabs button {
+        position: relative;
+        padding: 0 10px;
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font-size: 10.5px;
+        cursor: pointer;
+      }
+
+      .view-tabs button.active {
+        color: var(--ink);
+        font-weight: 650;
+      }
+
+      .view-tabs button.active::after {
+        content: "";
+        position: absolute;
+        right: 8px;
+        bottom: 0;
+        left: 8px;
+        height: 2px;
+        border-radius: 2px 2px 0 0;
+        background: var(--copper);
+      }
+
+      .sftp-header {
+        min-height: 72px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 14px;
+        padding: 11px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .host-identity {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .server-glyph {
+        position: relative;
+        width: 42px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        border: 1px solid #d6c6bc;
+        border-radius: 11px;
+        background: var(--copper-soft);
+        color: var(--copper-dark);
+      }
+
+      .server-glyph svg {
+        width: 21px;
+        height: 21px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.5;
+      }
+
+      .server-glyph .status-dot {
+        position: absolute;
+        right: -1px;
+        bottom: -1px;
+        border: 2px solid var(--paper);
+      }
+
+      .host-title {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .host-title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .host-title h1 {
+        overflow: hidden;
+        margin: 0;
+        font-family: var(--serif);
+        font-size: 21px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .protocol-badge,
+      .verified-badge,
+      .writable-badge,
+      .conflict-badge,
+      .state-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+
+      .protocol-badge {
+        padding: 3px 6px;
+        background: var(--dark);
+        color: #fff;
+        font: 650 8px var(--mono);
+        letter-spacing: 0.08em;
+      }
+
+      .host-title p {
+        overflow: hidden;
+        margin: 0;
+        color: var(--muted);
+        font: 10px var(--mono);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .host-title p .verified {
+        color: var(--green);
+      }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .button,
+      .primary-button,
+      .quiet-button {
+        min-height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 0 11px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+
+      .button,
+      .quiet-button {
+        border: 1px solid var(--line-strong);
+        background: var(--paper-strong);
+      }
+
+      .button:hover,
+      .quiet-button:hover {
+        background: var(--soft);
+      }
+
+      .primary-button {
+        border: 1px solid var(--dark);
+        background: var(--dark);
+        color: #fff;
+        font-weight: 650;
+      }
+
+      .primary-button:hover {
+        background: #343531;
+      }
+
+      .primary-button.copper {
+        border-color: var(--copper-dark);
+        background: var(--copper);
+      }
+
+      .primary-button:disabled {
+        border-color: #c9c6bf;
+        background: #d8d5cf;
+        color: #8f8b84;
+        cursor: default;
+      }
+
+      .button svg,
+      .primary-button svg {
+        width: 13px;
+        height: 13px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.7;
+      }
+
+      .route-summary {
+        min-height: 58px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 16px;
+        padding: 9px 18px;
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(90deg, rgba(182, 95, 56, 0.06), transparent 42%),
+          #f7f4ef;
+      }
+
+      .route-copy {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 0.8fr) 70px minmax(0, 1.2fr);
+        align-items: center;
+        gap: 8px;
+      }
+
+      .route-end {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .route-end small {
+        color: var(--faint);
+        font: 650 8px var(--mono);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .route-end code {
+        overflow: hidden;
+        color: var(--ink);
+        font: 10.5px var(--mono);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .route-line {
+        position: relative;
+        height: 1px;
+        background: var(--copper);
+      }
+
+      .route-line::before,
+      .route-line::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        width: 7px;
+        height: 7px;
+        border: 2px solid var(--copper);
+        border-radius: 50%;
+        background: #f7f4ef;
+        transform: translateY(-50%);
+      }
+
+      .route-line::before {
+        left: 0;
+      }
+
+      .route-line::after {
+        right: 0;
+      }
+
+      .route-line span {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        padding: 2px 5px;
+        background: #f7f4ef;
+        color: var(--copper-dark);
+        font: 700 8px var(--mono);
+        letter-spacing: 0.08em;
+        transform: translate(-50%, -50%);
+      }
+
+      .selection-readout {
+        display: grid;
+        justify-items: end;
+        gap: 2px;
+      }
+
+      .selection-readout strong {
+        font-size: 12px;
+      }
+
+      .selection-readout span {
+        color: var(--muted);
+        font: 9px var(--mono);
+      }
+
+      .file-workspace {
+        min-height: 0;
+        flex: 1;
+        display: grid;
+        grid-template-columns: minmax(280px, 1fr) 164px minmax(280px, 1fr);
+        overflow: hidden;
+      }
+
+      .pane-tabs {
+        display: none;
+      }
+
+      .file-pane {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--paper);
+      }
+
+      .file-pane.local {
+        border-right: 1px solid var(--line);
+      }
+
+      .file-pane.remote {
+        border-left: 1px solid var(--line);
+      }
+
+      .pane-head {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 13px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .endpoint-chip {
+        width: 33px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+        background: var(--soft);
+        color: var(--muted);
+        font: 700 8px var(--mono);
+        letter-spacing: 0.06em;
+      }
+
+      .file-pane.remote .endpoint-chip {
+        border-color: #d8c1b4;
+        background: var(--copper-soft);
+        color: var(--copper-dark);
+      }
+
+      .pane-title {
+        min-width: 0;
+        display: grid;
+        gap: 1px;
+      }
+
+      .pane-title strong,
+      .pane-title small {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .pane-title strong {
+        font-size: 11.5px;
+      }
+
+      .pane-title small {
+        color: var(--faint);
+        font-size: 9.5px;
+      }
+
+      .writable-badge {
+        margin-left: auto;
+        padding: 3px 7px;
+        border: 1px solid #c6ddcf;
+        background: var(--green-soft);
+        color: var(--green);
+        font-size: 8.5px;
+        font-weight: 650;
+      }
+
+      .writable-badge::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .pathbar {
+        min-height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 1px;
+        padding: 4px 10px;
+        border-bottom: 1px solid var(--line);
+        background: #f8f6f2;
+      }
+
+      .pathbar button {
+        max-width: 120px;
+        overflow: hidden;
+        padding: 3px 5px;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--muted);
+        font: 9.5px var(--mono);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+
+      .pathbar button:hover {
+        background: var(--soft);
+        color: var(--ink);
+      }
+
+      .pathbar button.current {
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .pathbar .sep {
+        color: var(--faint);
+        font: 9px var(--mono);
+      }
+
+      .pathbar .path-action {
+        width: 23px;
+        height: 23px;
+        display: grid;
+        place-items: center;
+        margin-left: auto;
+        padding: 0;
+        border: 1px solid var(--line);
+        background: var(--paper-strong);
+        font-size: 12px;
+      }
+
+      .list-head,
+      .file-row {
+        display: grid;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .list-head {
+        grid-template-columns: 55px minmax(0, 1fr) 66px 52px;
+        min-height: 25px;
+        padding: 0 11px;
+        border-bottom: 1px solid var(--line);
+        color: var(--faint);
+        font: 650 8px var(--mono);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .list-head span:nth-child(3),
+      .list-head span:nth-child(4) {
+        text-align: right;
+      }
+
+      .file-list {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+      }
+
+      .file-row {
+        grid-template-columns: 16px 24px minmax(0, 1fr) 66px 52px;
+        min-height: 43px;
+        padding: 4px 11px;
+        border-bottom: 1px solid var(--line);
+        user-select: none;
+      }
+
+      .file-row:hover {
+        background: #f2f0eb;
+      }
+
+      .file-row.selected {
+        background: #f3e8e1;
+        box-shadow: inset 2px 0 0 var(--copper);
+      }
+
+      .file-row.conflict {
+        background-image: linear-gradient(90deg, transparent, rgba(170, 112, 23, 0.045));
+      }
+
+      .row-selector {
+        width: 16px;
+        height: 16px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 1px solid var(--line-strong);
+        border-radius: 4px;
+        background: var(--paper-strong);
+        color: transparent;
+        cursor: pointer;
+      }
+
+      .file-row.selected .row-selector {
+        border-color: var(--copper-dark);
+        background: var(--copper);
+        color: #fff;
+      }
+
+      .row-selector:disabled {
+        opacity: 0;
+        cursor: default;
+      }
+
+      .file-type {
+        width: 24px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+        background: var(--paper-strong);
+        color: var(--muted);
+        font: 700 7px var(--mono);
+        letter-spacing: -0.02em;
+      }
+
+      .file-type.folder {
+        border-color: #c7d4e4;
+        background: #e8eff7;
+        color: #4b6f9a;
+      }
+
+      .file-copy {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .file-copy strong,
+      .file-copy small {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .file-copy strong {
+        font-size: 10.5px;
+        font-weight: 590;
+      }
+
+      .file-copy small {
+        color: var(--faint);
+        font-size: 8.5px;
+      }
+
+      .file-size,
+      .file-time {
+        color: var(--muted);
+        font: 8.5px var(--mono);
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .conflict-badge {
+        justify-self: end;
+        padding: 3px 6px;
+        border: 1px solid #e8d3a2;
+        background: var(--amber-soft);
+        color: var(--amber);
+        font: 700 7px var(--mono);
+        letter-spacing: 0.05em;
+      }
+
+      .pane-foot {
+        min-height: 29px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 0 12px;
+        border-top: 1px solid var(--line);
+        background: #f8f6f2;
+        color: var(--faint);
+        font: 8.5px var(--mono);
+      }
+
+      .pane-foot strong {
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      .transfer-spine {
+        position: relative;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 17px 12px 12px;
+        background: #f1eee8;
+      }
+
+      .transfer-spine::before {
+        content: "";
+        position: absolute;
+        top: 17px;
+        bottom: 18px;
+        left: 50%;
+        width: 1px;
+        background: #d9c1b4;
+        transform: translateX(-50%);
+      }
+
+      .spine-kicker,
+      .spine-end,
+      .manifest,
+      .review-button,
+      .spine-note {
+        position: relative;
+        z-index: 1;
+      }
+
+      .spine-kicker {
+        padding: 3px 7px;
+        border-radius: 999px;
+        background: #f1eee8;
+        color: var(--copper-dark);
+        font: 700 8px var(--mono);
+        letter-spacing: 0.09em;
+      }
+
+      .spine-end {
+        width: 100%;
+        display: grid;
+        justify-items: center;
+        gap: 3px;
+        margin-top: 15px;
+      }
+
+      .spine-node {
+        width: 11px;
+        height: 11px;
+        border: 3px solid var(--copper);
+        border-radius: 50%;
+        background: #f1eee8;
+      }
+
+      .spine-end small {
+        padding: 2px 4px;
+        background: #f1eee8;
+        color: var(--muted);
+        font: 8px var(--mono);
+      }
+
+      .manifest {
+        width: 100%;
+        margin-top: 13px;
+        padding: 9px;
+        border: 1px solid #decbbf;
+        border-radius: 10px;
+        background: #fffaf6;
+        box-shadow: 0 5px 14px rgba(82, 56, 41, 0.07);
+      }
+
+      .manifest-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        margin-bottom: 7px;
+      }
+
+      .manifest-head strong {
+        font-size: 9.5px;
+      }
+
+      .manifest-head span {
+        color: var(--copper-dark);
+        font: 700 8px var(--mono);
+      }
+
+      .manifest-list {
+        display: grid;
+        gap: 5px;
+      }
+
+      .manifest-item {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 6px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 5px;
+        color: var(--muted);
+        font-size: 8.5px;
+      }
+
+      .manifest-item::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--copper);
+      }
+
+      .manifest-item span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .manifest-item b {
+        color: var(--faint);
+        font: 7.5px var(--mono);
+      }
+
+      .manifest-empty {
+        color: var(--faint);
+        font-size: 8.5px;
+        line-height: 1.45;
+        text-align: center;
+      }
+
+      .review-button {
+        width: 100%;
+        min-height: 36px;
+        margin-top: 9px;
+        padding: 6px 8px;
+        border: 1px solid var(--copper-dark);
+        border-radius: 8px;
+        background: var(--copper);
+        color: #fff;
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 1.25;
+        cursor: pointer;
+      }
+
+      .review-button:hover {
+        background: var(--copper-dark);
+      }
+
+      .review-button:disabled {
+        border-color: #c8c4bc;
+        background: #d4d1ca;
+        color: #8a867e;
+        cursor: default;
+      }
+
+      .spine-arrow {
+        position: relative;
+        z-index: 1;
+        width: 27px;
+        height: 27px;
+        display: grid;
+        place-items: center;
+        margin-top: auto;
+        border: 1px solid #d8c1b4;
+        border-radius: 50%;
+        background: #fffaf6;
+        color: var(--copper-dark);
+        font-size: 15px;
+      }
+
+      .spine-note {
+        margin-top: 6px;
+        padding: 2px 4px;
+        background: #f1eee8;
+        color: var(--faint);
+        font: 7.5px var(--mono);
+        text-align: center;
+      }
+
+      .transfer-ledger {
+        min-height: 118px;
+        display: grid;
+        grid-template-columns: 176px minmax(0, 1fr) auto;
+        align-items: stretch;
+        border-top: 1px solid var(--line-strong);
+        background: #f4f1eb;
+      }
+
+      .ledger-title {
+        display: grid;
+        align-content: center;
+        gap: 5px;
+        padding: 14px 16px;
+        border-right: 1px solid var(--line);
+      }
+
+      .ledger-title span {
+        color: var(--faint);
+        font: 650 8px var(--mono);
+        letter-spacing: 0.1em;
+      }
+
+      .ledger-title strong {
+        font-family: var(--serif);
+        font-size: 15px;
+      }
+
+      .ledger-title small {
+        color: var(--muted);
+        font: 8.5px var(--mono);
+      }
+
+      .ledger-content {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        padding: 12px 14px;
+      }
+
+      .ledger-idle {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 35px minmax(0, 1fr);
+        align-items: center;
+        gap: 10px;
+      }
+
+      .idle-mark {
+        width: 35px;
+        height: 35px;
+        display: grid;
+        place-items: center;
+        border: 1px dashed var(--line-strong);
+        border-radius: 50%;
+        color: var(--faint);
+        font-size: 15px;
+      }
+
+      .ledger-idle strong,
+      .ledger-idle p {
+        overflow: hidden;
+        margin: 0;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .ledger-idle strong {
+        display: block;
+        margin-bottom: 3px;
+        font-size: 10.5px;
+      }
+
+      .ledger-idle p {
+        color: var(--muted);
+        font-size: 9px;
+      }
+
+      .ledger-run {
+        min-width: 0;
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .transfer-item {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 8px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 10px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: var(--paper-strong);
+      }
+
+      .transfer-item > i {
+        width: 7px;
+        height: 7px;
+        border: 2px solid var(--copper);
+        border-radius: 50%;
+      }
+
+      .transfer-item.complete > i {
+        border-color: var(--green);
+        background: var(--green);
+      }
+
+      .transfer-item.failed > i {
+        border-color: var(--red);
+        background: var(--red);
+      }
+
+      .transfer-copy {
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+      }
+
+      .transfer-copy strong,
+      .transfer-copy small {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .transfer-copy strong {
+        font-size: 9.5px;
+      }
+
+      .transfer-copy small {
+        color: var(--faint);
+        font: 8px var(--mono);
+      }
+
+      .progress {
+        height: 3px;
+        overflow: hidden;
+        border-radius: 99px;
+        background: var(--soft);
+      }
+
+      .progress span {
+        width: var(--progress, 0%);
+        height: 100%;
+        display: block;
+        border-radius: inherit;
+        background: var(--copper);
+        transition: width 250ms ease;
+      }
+
+      .transfer-item.complete .progress span {
+        background: var(--green);
+      }
+
+      .transfer-item.failed .progress span {
+        background: var(--red);
+      }
+
+      .transfer-state-copy {
+        color: var(--muted);
+        font: 8px var(--mono);
+        white-space: nowrap;
+      }
+
+      .transfer-state-copy.success {
+        color: var(--green);
+        font-weight: 700;
+      }
+
+      .transfer-state-copy.error {
+        color: var(--red);
+        font-weight: 700;
+      }
+
+      .retry-button {
+        min-height: 28px;
+        padding: 0 8px;
+        border: 1px solid #e1b1ab;
+        border-radius: 7px;
+        background: var(--red-soft);
+        color: var(--red);
+        font-size: 8px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .receipt {
+        display: grid;
+        align-content: center;
+        gap: 4px;
+        min-width: 150px;
+        padding: 12px 15px;
+        border-left: 1px solid var(--line);
+      }
+
+      .receipt span {
+        color: var(--faint);
+        font: 650 8px var(--mono);
+        letter-spacing: 0.09em;
+      }
+
+      .receipt strong {
+        font-size: 10.5px;
+      }
+
+      .receipt code {
+        color: var(--muted);
+        font: 8px var(--mono);
+      }
+
+      .state-badge {
+        width: max-content;
+        padding: 3px 7px;
+        border: 1px solid var(--line-strong);
+        background: var(--paper-strong);
+        color: var(--muted);
+        font-size: 8px;
+        font-weight: 650;
+      }
+
+      .state-badge.running {
+        border-color: #d9b8a5;
+        background: var(--copper-soft);
+        color: var(--copper-dark);
+      }
+
+      .state-badge.failed {
+        border-color: #e3b7b2;
+        background: var(--red-soft);
+        color: var(--red);
+      }
+
+      .state-badge.complete {
+        border-color: #bbd8c6;
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .statusbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 10px;
+        border-top: 1px solid var(--line);
+        background: var(--shell);
+        color: var(--faint);
+        font: 8.5px var(--mono);
+      }
+
+      .statusbar .connected-copy {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--green);
+      }
+
+      .statusbar .spacer {
+        flex: 1;
+      }
+
+      .sheet-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: grid;
+        justify-items: end;
+        background: rgba(26, 25, 22, 0.34);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 170ms ease;
+      }
+
+      .sheet-backdrop.open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .review-sheet {
+        width: min(474px, 92vw);
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        border-left: 1px solid rgba(61, 55, 46, 0.18);
+        background: var(--paper);
+        box-shadow: -24px 0 64px rgba(25, 22, 18, 0.16);
+        transform: translateX(22px);
+        transition: transform 190ms ease;
+      }
+
+      .sheet-backdrop.open .review-sheet {
+        transform: translateX(0);
+      }
+
+      .sheet-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 22px 22px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .sheet-head-copy {
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+      }
+
+      .sheet-head-copy span {
+        color: var(--copper-dark);
+        font: 700 9px var(--mono);
+        letter-spacing: 0.1em;
+      }
+
+      .sheet-head-copy h2 {
+        margin: 0;
+        font-family: var(--serif);
+        font-size: 24px;
+        line-height: 1.15;
+      }
+
+      .sheet-head-copy p {
+        margin: 3px 0 0;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .sheet-close {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        margin-left: auto;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: var(--paper-strong);
+        font-size: 16px;
+        cursor: pointer;
+      }
+
+      .sheet-body {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+        padding: 20px 22px;
+      }
+
+      .review-route {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        padding: 13px;
+        border: 1px solid #decbbf;
+        border-radius: 11px;
+        background: #fff8f3;
+      }
+
+      .review-route .end {
+        min-width: 0;
+        display: grid;
+        gap: 4px;
+      }
+
+      .review-route small {
+        color: var(--faint);
+        font: 700 8px var(--mono);
+        letter-spacing: 0.08em;
+      }
+
+      .review-route code {
+        overflow: hidden;
+        color: var(--ink);
+        font: 9px var(--mono);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .review-route .arrow {
+        height: 1px;
+        position: relative;
+        background: var(--copper);
+      }
+
+      .review-route .arrow::after {
+        content: "";
+        position: absolute;
+        top: -3px;
+        right: 0;
+        width: 6px;
+        height: 6px;
+        border-top: 1px solid var(--copper);
+        border-right: 1px solid var(--copper);
+        transform: rotate(45deg);
+      }
+
+      .review-block {
+        margin-top: 20px;
+      }
+
+      .review-block > label {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--faint);
+        font: 700 9px var(--mono);
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .write-list {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--paper-strong);
+      }
+
+      .write-row {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 9px;
+        padding: 10px 11px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .write-row:last-child {
+        border-bottom: 0;
+      }
+
+      .write-row .file-copy strong {
+        font-size: 10.5px;
+      }
+
+      .write-row .file-copy small {
+        font: 8.5px var(--mono);
+      }
+
+      .conflict-card {
+        margin-top: 12px;
+        padding: 13px;
+        border: 1px solid #e4cf9b;
+        border-radius: 10px;
+        background: var(--amber-soft);
+      }
+
+      .conflict-card-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .conflict-card-head strong {
+        font-size: 11px;
+      }
+
+      .conflict-card p {
+        margin: 6px 0 12px;
+        color: #74561f;
+        font-size: 9.5px;
+        line-height: 1.55;
+      }
+
+      .policy-list {
+        display: grid;
+        gap: 6px;
+      }
+
+      .policy-option {
+        display: grid;
+        grid-template-columns: 16px minmax(0, 1fr);
+        gap: 8px;
+        padding: 9px;
+        border: 1px solid rgba(125, 87, 17, 0.18);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.52);
+        cursor: pointer;
+      }
+
+      .policy-option:has(input:checked) {
+        border-color: var(--amber);
+        background: #fffaf0;
+        box-shadow: 0 0 0 1px rgba(170, 112, 23, 0.09);
+      }
+
+      .policy-option input {
+        margin: 2px 0 0;
+        accent-color: var(--amber);
+      }
+
+      .policy-copy {
+        display: grid;
+        gap: 2px;
+      }
+
+      .policy-copy strong {
+        font-size: 9.5px;
+      }
+
+      .policy-copy small {
+        color: #82652d;
+        font-size: 8.5px;
+        line-height: 1.4;
+      }
+
+      .trust-note {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        gap: 9px;
+        margin-top: 16px;
+        padding: 10px 11px;
+        border: 1px solid #c8ded1;
+        border-radius: 9px;
+        background: var(--green-soft);
+        color: #286746;
+      }
+
+      .trust-note .shield {
+        width: 26px;
+        height: 26px;
+        display: grid;
+        place-items: center;
+        border: 1px solid #a9cbb8;
+        border-radius: 7px;
+        font-size: 13px;
+      }
+
+      .trust-note strong {
+        display: block;
+        margin-bottom: 2px;
+        font-size: 9.5px;
+      }
+
+      .trust-note small {
+        font: 8px var(--mono);
+      }
+
+      .sheet-foot {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 22px;
+        border-top: 1px solid var(--line);
+        background: var(--shell);
+      }
+
+      .sheet-foot .estimate {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .sheet-foot .estimate strong {
+        font-size: 9.5px;
+      }
+
+      .sheet-foot .estimate small {
+        color: var(--muted);
+        font: 8px var(--mono);
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      @media (max-width: 1060px) {
+        .remote-rail {
+          display: none;
+        }
+
+        .workbench {
+          grid-template-columns: 48px minmax(0, 1fr);
+        }
+
+        .file-workspace {
+          grid-template-columns: minmax(260px, 1fr) 150px minmax(260px, 1fr);
+        }
+      }
+
+      @media (max-width: 780px) {
+        .demo-chrome {
+          height: auto;
+          min-height: 58px;
+          align-items: flex-start;
+          flex-wrap: wrap;
+          gap: 7px 12px;
+          padding: 9px 12px;
+        }
+
+        .demo-identity {
+          width: 100%;
+        }
+
+        .demo-identity span,
+        .demo-reset {
+          display: none;
+        }
+
+        .demo-steps {
+          width: 100%;
+          margin-left: 0;
+          overflow: auto;
+        }
+
+        .demo-steps button {
+          flex: 1 0 max-content;
+        }
+
+        .stage {
+          min-height: calc(100vh - 86px);
+          display: block;
+          padding: 0;
+        }
+
+        .app-window {
+          width: 100%;
+          height: calc(100vh - 86px);
+          min-height: 690px;
+          border: 0;
+          border-radius: 0;
+          box-shadow: none;
+        }
+
+        .titlebar {
+          display: none;
+        }
+
+        .app-window {
+          grid-template-rows: minmax(0, 1fr) 24px;
+        }
+
+        .workbench {
+          grid-template-columns: 42px minmax(0, 1fr);
+        }
+
+        .activity-rail {
+          padding-right: 4px;
+          padding-left: 4px;
+        }
+
+        .rail-logo,
+        .rail-button {
+          width: 32px;
+        }
+
+        .context-head {
+          height: 40px;
+          padding: 0 11px;
+        }
+
+        .view-tabs {
+          display: none;
+        }
+
+        .sftp-header {
+          min-height: 61px;
+          grid-template-columns: minmax(0, 1fr) auto;
+          padding: 8px 11px;
+        }
+
+        .server-glyph {
+          width: 36px;
+          height: 36px;
+        }
+
+        .host-title h1 {
+          font-size: 17px;
+        }
+
+        .host-title p .mobile-hide,
+        .header-actions .button,
+        .route-summary .selection-readout {
+          display: none;
+        }
+
+        .header-actions .primary-button {
+          min-height: 36px;
+          padding: 0 10px;
+        }
+
+        .route-summary {
+          min-height: 53px;
+          grid-template-columns: minmax(0, 1fr);
+          padding: 8px 11px;
+        }
+
+        .route-copy {
+          grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr);
+        }
+
+        .route-end code {
+          font-size: 8.5px;
+        }
+
+        .file-workspace {
+          position: relative;
+          display: block;
+          padding-top: 41px;
+          overflow: hidden;
+        }
+
+        .pane-tabs {
+          position: absolute;
+          inset: 0 0 auto 0;
+          height: 41px;
+          z-index: 4;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 4px;
+          padding: 6px 10px;
+          border-bottom: 1px solid var(--line);
+          background: var(--shell);
+        }
+
+        .pane-tabs button {
+          border: 1px solid transparent;
+          border-radius: 7px;
+          background: transparent;
+          color: var(--muted);
+          font-size: 10px;
+          cursor: pointer;
+        }
+
+        .pane-tabs button.active {
+          border-color: var(--line-strong);
+          background: var(--paper-strong);
+          color: var(--ink);
+          font-weight: 650;
+        }
+
+        .file-pane,
+        .file-pane.local,
+        .file-pane.remote {
+          height: 100%;
+          border: 0;
+        }
+
+        .file-workspace[data-pane="local"] .file-pane.remote,
+        .file-workspace[data-pane="remote"] .file-pane.local,
+        .transfer-spine {
+          display: none;
+        }
+
+        .transfer-ledger {
+          min-height: 108px;
+          grid-template-columns: 118px minmax(0, 1fr);
+        }
+
+        .ledger-title {
+          padding: 11px;
+        }
+
+        .ledger-title strong {
+          font-size: 13px;
+        }
+
+        .ledger-title small {
+          display: none;
+        }
+
+        .ledger-content {
+          padding: 9px;
+        }
+
+        .ledger-run {
+          display: flex;
+          gap: 7px;
+          overflow-x: auto;
+        }
+
+        .transfer-item {
+          min-width: 220px;
+        }
+
+        .receipt {
+          display: none;
+        }
+
+        .statusbar {
+          gap: 8px;
+        }
+
+        .statusbar .mobile-hide {
+          display: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="demo-chrome" data-demo-chrome>
+      <div class="demo-identity">
+        <strong>SSH / SFTP 安全传输</strong>
+        <span>交互 Mock · 可直接点选、预检、重试</span>
+      </div>
+      <nav class="demo-steps" aria-label="演示状态">
+        <button class="active" type="button" data-demo-step="browse">1 浏览与选择</button>
+        <button type="button" data-demo-step="review">2 冲突预检</button>
+        <button type="button" data-demo-step="failed">3 传输中断</button>
+        <button type="button" data-demo-step="complete">4 恢复完成</button>
+      </nav>
+      <button class="demo-reset" id="reset-demo" type="button">重置</button>
+    </header>
+
+    <main class="stage">
+      <section class="app-window" aria-label="Charter SSH 与 SFTP 文件传输界面">
+        <header class="titlebar">
+          <span class="traffic-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <strong>Charter — Pi_Agentic_IDE_Spec_Package_v1.0</strong>
+          <span class="secure">LOCAL-FIRST · SECURE</span>
+        </header>
+
+        <div class="workbench">
+          <aside class="activity-rail" aria-label="主导航">
+            <div class="rail-logo">C</div>
+            <button class="rail-button" aria-label="工作区" type="button">
+              <svg viewBox="0 0 24 24"><path d="M4 5h7v6H4zM13 5h7v10h-7zM4 13h7v6H4zM13 17h7v2h-7z" /></svg>
+            </button>
+            <button class="rail-button" aria-label="搜索" type="button">
+              <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="5.5" /><path d="m15 15 5 5" /></svg>
+            </button>
+            <button class="rail-button active" aria-label="SSH 远程" type="button">
+              <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="7" rx="2" /><rect x="4" y="14" width="16" height="7" rx="2" /><path d="M8 7h.01M8 18h.01M12 7h4M12 18h4" /></svg>
+            </button>
+            <button class="rail-button" aria-label="任务" type="button">
+              <svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5" /></svg>
+            </button>
+            <button class="rail-button" aria-label="Git" type="button">
+              <svg viewBox="0 0 24 24"><circle cx="7" cy="5" r="2" /><circle cx="17" cy="7" r="2" /><circle cx="7" cy="19" r="2" /><path d="M7 7v10M9 11c5 0 8-1 8-2" /></svg>
+            </button>
+            <div class="rail-spacer"></div>
+            <button class="rail-button" aria-label="设置" type="button">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.3 1A8 8 0 0 0 15 6l-.3-2.5h-4L10.4 6a8 8 0 0 0-1.6 1l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 2.1l-2 1.5 2 3.4 2.3-1a8 8 0 0 0 1.6 1l.3 2.5h4L15 18a8 8 0 0 0 1.6-1l2.3 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z" /></svg>
+            </button>
+          </aside>
+
+          <aside class="remote-rail" aria-label="SSH 主机与会话">
+            <div class="remote-rail-head">
+              <div class="remote-rail-title">
+                <span><small>Remote explorer</small><strong>SSH 主机</strong></span>
+                <button class="mini-icon" type="button" aria-label="添加主机">+</button>
+              </div>
+              <label class="rail-search">
+                <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="5.5" /><path d="m15 15 5 5" /></svg>
+                <input aria-label="搜索主机" placeholder="搜索主机或会话" />
+              </label>
+            </div>
+            <div class="remote-tree">
+              <div class="section-label"><span>已连接</span><span>1</span></div>
+              <button class="host-item selected" type="button">
+                <span class="host-mark">
+                  <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="7" rx="2" /><rect x="4" y="14" width="16" height="7" rx="2" /><path d="M8 7h.01M8 18h.01M12 7h4M12 18h4" /></svg>
+                  <i class="status-dot online"></i>
+                </span>
+                <span class="host-copy"><strong>prod-api-01</strong><small>root@10.0.3.46</small></span>
+                <span class="host-count">2</span>
+              </button>
+              <div class="session-list">
+                <button class="session-item" type="button">
+                  <svg viewBox="0 0 24 24"><path d="m5 7 4 4-4 4M11 16h7" /></svg>
+                  <span>deploy · ~/releases</span>
+                </button>
+                <button class="session-item" type="button">
+                  <svg viewBox="0 0 24 24"><path d="m5 7 4 4-4 4M11 16h7" /></svg>
+                  <span>logs · /var/log/api</span>
+                </button>
+              </div>
+
+              <div class="section-label"><span>其他主机</span><span>2</span></div>
+              <button class="host-item" type="button">
+                <span class="host-mark">
+                  <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="7" rx="2" /><rect x="4" y="14" width="16" height="7" rx="2" /><path d="M8 7h.01M8 18h.01M12 7h4M12 18h4" /></svg>
+                  <i class="status-dot"></i>
+                </span>
+                <span class="host-copy"><strong>staging-api</strong><small>deploy@10.0.2.18</small></span>
+              </button>
+              <button class="host-item" type="button">
+                <span class="host-mark">
+                  <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="7" rx="2" /><rect x="4" y="14" width="16" height="7" rx="2" /><path d="M8 7h.01M8 18h.01M12 7h4M12 18h4" /></svg>
+                  <i class="status-dot"></i>
+                </span>
+                <span class="host-copy"><strong>design-nas</strong><small>edy@192.168.1.22</small></span>
+              </button>
+            </div>
+            <div class="rail-bottom"><button type="button">导入 ~/.ssh/config</button></div>
+          </aside>
+
+          <section class="main-surface">
+            <header class="context-head">
+              <div class="breadcrumb"><span>Remote</span><i></i><strong>prod-api-01</strong><i></i><span>Files</span></div>
+              <nav class="view-tabs" aria-label="主机视图">
+                <button type="button">Overview</button>
+                <button class="active" type="button">Files</button>
+                <button type="button">Forwards · 1</button>
+              </nav>
+            </header>
+
+            <header class="sftp-header">
+              <div class="host-identity">
+                <span class="server-glyph">
+                  <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="7" rx="2" /><rect x="4" y="14" width="16" height="7" rx="2" /><path d="M8 7h.01M8 18h.01M12 7h4M12 18h4" /></svg>
+                  <i class="status-dot online"></i>
+                </span>
+                <span class="host-title">
+                  <span class="host-title-row"><h1>prod-api-01</h1><span class="protocol-badge">SFTP</span></span>
+                  <p>root@10.0.3.46:22 · 38 ms <span class="mobile-hide">·</span> <span class="verified mobile-hide">✓ ED25519 主机密钥已验证</span></p>
+                </span>
+              </div>
+              <div class="header-actions">
+                <button class="button" type="button">
+                  <svg viewBox="0 0 24 24"><path d="m5 7 4 4-4 4M11 16h7" /></svg>打开 Shell
+                </button>
+                <button class="primary-button" id="header-review" type="button">预检上传</button>
+              </div>
+            </header>
+
+            <section class="route-summary" aria-label="当前传输路线">
+              <div class="route-copy">
+                <span class="route-end"><small>Local source</small><code>~/Projects/charter/dist</code></span>
+                <span class="route-line" aria-hidden="true"><span>SFTP</span></span>
+                <span class="route-end"><small>Verified destination</small><code>prod-api-01:/home/deploy/releases</code></span>
+              </div>
+              <div class="selection-readout"><strong id="selection-summary">已选 2 项 · 98.2 MB</strong><span>远程可写 · 18.4 GB 可用</span></div>
+            </section>
+
+            <section class="file-workspace" id="file-workspace" data-pane="local">
+              <nav class="pane-tabs" aria-label="本机与远程文件切换">
+                <button class="active" type="button" data-pane-tab="local">本机 · 2 已选</button>
+                <button type="button" data-pane-tab="remote">远程 · releases</button>
+              </nav>
+
+              <article class="file-pane local" aria-label="本机文件">
+                <header class="pane-head">
+                  <span class="endpoint-chip">MAC</span>
+                  <span class="pane-title"><strong>本机 · This Mac</strong><small>上传来源</small></span>
+                  <span class="writable-badge">可读写</span>
+                </header>
+                <nav class="pathbar" aria-label="本机路径">
+                  <button type="button">~</button><span class="sep">/</span><button type="button">Projects</button><span class="sep">/</span><button type="button">charter</button><span class="sep">/</span><button class="current" type="button">dist</button><button class="path-action" type="button" aria-label="编辑本机路径">⌘</button>
+                </nav>
+                <div class="list-head"><span></span><span>名称</span><span>大小</span><span>修改</span></div>
+                <div class="file-list" id="local-file-list">
+                  <div class="file-row" data-file="dist" data-kind="folder">
+                    <button class="row-selector" type="button" disabled>✓</button><span class="file-type folder">DIR</span><span class="file-copy"><strong>archive</strong><small>6 项 · 上个版本</small></span><span class="file-size">—</span><span class="file-time">周一</span>
+                  </div>
+                  <div class="file-row selected" data-file="charter-1.0.0.dmg" data-size="98.2" data-label="98.2 MB" data-conflict="true">
+                    <button class="row-selector" type="button" aria-label="选择 charter-1.0.0.dmg">✓</button><span class="file-type">DMG</span><span class="file-copy"><strong>charter-1.0.0.dmg</strong><small>macOS arm64 安装包</small></span><span class="file-size">98.2 MB</span><span class="file-time">10:42</span>
+                  </div>
+                  <div class="file-row selected" data-file="release-notes.md" data-size="0.004" data-label="4.1 KB">
+                    <button class="row-selector" type="button" aria-label="选择 release-notes.md">✓</button><span class="file-type">MD</span><span class="file-copy"><strong>release-notes.md</strong><small>发布说明</small></span><span class="file-size">4.1 KB</span><span class="file-time">10:39</span>
+                  </div>
+                  <div class="file-row" data-file="assets-bundle.tar.gz" data-size="42.8" data-label="42.8 MB">
+                    <button class="row-selector" type="button" aria-label="选择 assets-bundle.tar.gz">✓</button><span class="file-type">TGZ</span><span class="file-copy"><strong>assets-bundle.tar.gz</strong><small>静态资源包</small></span><span class="file-size">42.8 MB</span><span class="file-time">10:36</span>
+                  </div>
+                  <div class="file-row" data-file="manifest.json" data-size="0.001" data-label="1.1 KB">
+                    <button class="row-selector" type="button" aria-label="选择 manifest.json">✓</button><span class="file-type">JSN</span><span class="file-copy"><strong>manifest.json</strong><small>构建清单</small></span><span class="file-size">1.1 KB</span><span class="file-time">10:35</span>
+                  </div>
+                  <div class="file-row" data-file="checksums.txt" data-size="0.002" data-label="2.2 KB">
+                    <button class="row-selector" type="button" aria-label="选择 checksums.txt">✓</button><span class="file-type">TXT</span><span class="file-copy"><strong>checksums.txt</strong><small>SHA-256 校验</small></span><span class="file-size">2.2 KB</span><span class="file-time">10:35</span>
+                  </div>
+                </div>
+                <footer class="pane-foot"><span id="local-foot">2 项已选择 · 98.2 MB</span><strong>6 项</strong></footer>
+              </article>
+
+              <aside class="transfer-spine" aria-label="上传路线与待传清单">
+                <span class="spine-kicker">UPLOAD ROUTE</span>
+                <span class="spine-end"><i class="spine-node"></i><small>THIS MAC</small></span>
+                <section class="manifest">
+                  <div class="manifest-head"><strong>待传清单</strong><span id="manifest-count">2 FILES</span></div>
+                  <div class="manifest-list" id="manifest-list"></div>
+                </section>
+                <button class="review-button" id="review-upload" type="button">预检并上传到<br />releases</button>
+                <span class="spine-arrow" aria-hidden="true">↓</span>
+                <span class="spine-note">VERIFIED · WRITABLE</span>
+              </aside>
+
+              <article class="file-pane remote" aria-label="远程文件">
+                <header class="pane-head">
+                  <span class="endpoint-chip">SSH</span>
+                  <span class="pane-title"><strong>root@prod-api-01</strong><small>上传目标</small></span>
+                  <span class="writable-badge">可写</span>
+                </header>
+                <nav class="pathbar" aria-label="远程路径">
+                  <button type="button">/</button><button type="button">home</button><span class="sep">/</span><button type="button">deploy</button><span class="sep">/</span><button class="current" type="button">releases</button><button class="path-action" type="button" aria-label="刷新远程路径">↻</button>
+                </nav>
+                <div class="list-head"><span></span><span>名称</span><span>大小</span><span>修改</span></div>
+                <div class="file-list" id="remote-file-list">
+                  <div class="file-row"><button class="row-selector" type="button" disabled>✓</button><span class="file-type folder">DIR</span><span class="file-copy"><strong>v0.9.3</strong><small>归档版本</small></span><span class="file-size">—</span><span class="file-time">7月18</span></div>
+                  <div class="file-row"><button class="row-selector" type="button" disabled>✓</button><span class="file-type folder">DIR</span><span class="file-copy"><strong>current</strong><small>当前线上版本</small></span><span class="file-size">—</span><span class="file-time">10:02</span></div>
+                  <div class="file-row conflict" id="remote-conflict-row"><button class="row-selector" type="button" disabled>✓</button><span class="file-type">DMG</span><span class="file-copy"><strong>charter-1.0.0.dmg</strong><small>已存在 · 旧构建</small></span><span class="file-size">91.7 MB</span><span class="conflict-badge">冲突</span></div>
+                  <div class="file-row"><button class="row-selector" type="button" disabled>✓</button><span class="file-type">JSN</span><span class="file-copy"><strong>manifest.json</strong><small>构建清单</small></span><span class="file-size">1.1 KB</span><span class="file-time">09:21</span></div>
+                  <div class="file-row"><button class="row-selector" type="button" disabled>✓</button><span class="file-type">LOG</span><span class="file-copy"><strong>deploy.log</strong><small>部署记录</small></span><span class="file-size">44 KB</span><span class="file-time">10:02</span></div>
+                </div>
+                <footer class="pane-foot"><span>目标路径已验证</span><strong>18.4 GB 可用</strong></footer>
+              </article>
+            </section>
+
+            <section class="transfer-ledger" aria-label="传输活动">
+              <header class="ledger-title"><span>TRANSFER ACTIVITY</span><strong>传输活动</strong><small id="ledger-subtitle">当前主机 · 持续可见</small></header>
+              <div class="ledger-content">
+                <div class="ledger-idle" id="ledger-idle">
+                  <span class="idle-mark">↗</span>
+                  <div><strong>尚未写入远程</strong><p>选择文件后预检目标和同名冲突，再开始传输。</p></div>
+                </div>
+                <div class="ledger-run" id="ledger-run" hidden></div>
+              </div>
+              <aside class="receipt" id="receipt">
+                <span>BATCH STATUS</span><strong>等待预检</strong><code>尚未生成批次</code><em class="state-badge">DRAFT</em>
+              </aside>
+            </section>
+          </section>
+        </div>
+
+        <footer class="statusbar">
+          <span class="connected-copy"><i class="status-dot online"></i> SSH: prod-api-01</span>
+          <span class="mobile-hide">SFTP channel 1</span>
+          <span class="mobile-hide">↑ 0 B/s · ↓ 0 B/s</span>
+          <span class="spacer"></span>
+          <span>UTF-8</span><span class="mobile-hide">LF</span><span>Ln 1, Col 1</span>
+        </footer>
+      </section>
+    </main>
+
+    <div class="sheet-backdrop" id="review-backdrop" aria-hidden="true">
+      <section class="review-sheet" role="dialog" aria-modal="true" aria-labelledby="review-title">
+        <header class="sheet-head">
+          <div class="sheet-head-copy"><span>SFTP WRITE PREFLIGHT</span><h2 id="review-title">确认远程写入</h2><p id="review-intro">2 个文件将写入 prod-api-01，发现 1 个同名冲突。</p></div>
+          <button class="sheet-close" id="close-review" type="button" aria-label="关闭预检">×</button>
+        </header>
+        <div class="sheet-body">
+          <div class="review-route">
+            <span class="end"><small>LOCAL SOURCE</small><code>~/Projects/charter/dist</code></span>
+            <span class="arrow" aria-hidden="true"></span>
+            <span class="end"><small>REMOTE DESTINATION</small><code>/home/deploy/releases</code></span>
+          </div>
+
+          <section class="review-block">
+            <label>这次会写入什么</label>
+            <div class="write-list" id="write-list"></div>
+          </section>
+
+          <section class="conflict-card" id="conflict-card">
+            <div class="conflict-card-head"><span class="conflict-badge">同名文件</span><strong>charter-1.0.0.dmg 已存在</strong></div>
+            <p>本机文件为 98.2 MB，远程文件为 91.7 MB。默认保留两者，不会覆盖线上已有文件。</p>
+            <div class="policy-list" role="radiogroup" aria-label="同名文件处理策略">
+              <label class="policy-option"><input type="radio" name="policy" value="keep" checked /><span class="policy-copy"><strong>保留两者（推荐）</strong><small>新文件写为 charter-1.0.0 (1).dmg；旧文件保持不变。</small></span></label>
+              <label class="policy-option"><input type="radio" name="policy" value="replace" /><span class="policy-copy"><strong>替换远程文件</strong><small>先写入临时文件，校验完成后再原子替换。</small></span></label>
+              <label class="policy-option"><input type="radio" name="policy" value="skip" /><span class="policy-copy"><strong>跳过冲突项</strong><small>仅上传其他已选择的文件。</small></span></label>
+            </div>
+          </section>
+
+          <div class="trust-note"><span class="shield">✓</span><span><strong>目标主机身份已验证</strong><small>ED25519 · SHA256:2YjQ…sK81 · 首次信任于 2026-07-18</small></span></div>
+        </div>
+        <footer class="sheet-foot">
+          <span class="estimate"><strong id="estimate-size">98.2 MB · 预计 14 秒</strong><small>可在传输活动中取消或重试</small></span>
+          <button class="quiet-button" id="cancel-review" type="button">取消</button>
+          <button class="primary-button copper" id="start-upload" type="button">开始安全上传</button>
+        </footer>
+      </section>
+    </div>
+
+    <script>
+      (() => {
+        const initialFiles = ["charter-1.0.0.dmg", "release-notes.md"];
+        const state = {
+          selected: new Set(initialFiles),
+          phase: "browse",
+          policy: "keep",
+          lastFocus: null,
+          timer: null,
+        };
+
+        const $ = (selector, root = document) => root.querySelector(selector);
+        const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+        const rows = () => $$("#local-file-list .file-row[data-size]");
+
+        const fileData = () =>
+          rows()
+            .filter((row) => state.selected.has(row.dataset.file))
+            .map((row) => ({
+              name: row.dataset.file,
+              size: Number(row.dataset.size),
+              label: row.dataset.label,
+              conflict: row.dataset.conflict === "true",
+            }));
+
+        function formatTotal(files) {
+          const total = files.reduce((sum, file) => sum + file.size, 0);
+          if (total >= 1) return `${total.toFixed(total >= 10 ? 1 : 2)} MB`;
+          return `${Math.max(1, Math.round(total * 1024))} KB`;
+        }
+
+        function setActiveDemo(phase) {
+          const name = phase === "running" ? "failed" : phase;
+          $$('[data-demo-step]').forEach((button) => {
+            button.classList.toggle("active", button.dataset.demoStep === name);
+          });
+        }
+
+        function renderSelection() {
+          const files = fileData();
+          const total = formatTotal(files);
+          const conflicts = files.filter((file) => file.conflict).length;
+
+          rows().forEach((row) => row.classList.toggle("selected", state.selected.has(row.dataset.file)));
+          $("#selection-summary").textContent = files.length ? `已选 ${files.length} 项 · ${total}` : "未选择文件";
+          $("#local-foot").textContent = files.length ? `${files.length} 项已选择 · ${total}` : "选择文件以创建上传清单";
+          $("#manifest-count").textContent = `${files.length} FILE${files.length === 1 ? "" : "S"}`;
+          $("[data-pane-tab='local']").textContent = `本机 · ${files.length} 已选`;
+
+          const list = $("#manifest-list");
+          list.innerHTML = files.length
+            ? files.map((file) => `<div class="manifest-item"><span>${file.name}</span><b>${file.label}</b></div>`).join("")
+            : '<div class="manifest-empty">在左侧选择文件，传输清单会在这里形成。</div>';
+
+          $("#review-upload").disabled = files.length === 0;
+          $("#header-review").disabled = files.length === 0;
+          $("#review-upload").innerHTML = files.length ? `预检并上传到<br />releases` : "请选择文件";
+          $("#remote-conflict-row").style.opacity = conflicts ? "1" : ".58";
+        }
+
+        function renderReview() {
+          const files = fileData();
+          const conflicts = files.filter((file) => file.conflict).length;
+          $("#review-intro").textContent = `${files.length} 个文件将写入 prod-api-01${conflicts ? `，发现 ${conflicts} 个同名冲突。` : "，未发现同名冲突。"}`;
+          $("#estimate-size").textContent = `${formatTotal(files)} · 预计 ${Math.max(2, Math.ceil(files.reduce((sum, f) => sum + f.size, 0) / 7))} 秒`;
+          $("#conflict-card").hidden = conflicts === 0;
+          $("#write-list").innerHTML = files
+            .map((file) => `<div class="write-row"><span class="file-type">${file.name.split(".").pop().slice(0, 3).toUpperCase()}</span><span class="file-copy"><strong>${file.name}</strong><small>${file.conflict ? "同名项待处理" : "新建远程文件"}</small></span><span class="${file.conflict ? "conflict-badge" : "file-size"}">${file.conflict ? "冲突" : file.label}</span></div>`)
+            .join("");
+        }
+
+        function openReview() {
+          if (!state.selected.size) return;
+          state.lastFocus = document.activeElement;
+          state.phase = "review";
+          renderReview();
+          const backdrop = $("#review-backdrop");
+          backdrop.classList.add("open");
+          backdrop.setAttribute("aria-hidden", "false");
+          setActiveDemo("review");
+          requestAnimationFrame(() => $("#close-review").focus());
+        }
+
+        function closeReview(restore = true) {
+          const backdrop = $("#review-backdrop");
+          backdrop.classList.remove("open");
+          backdrop.setAttribute("aria-hidden", "true");
+          if (state.phase === "review") state.phase = "browse";
+          setActiveDemo(state.phase);
+          if (restore && state.lastFocus instanceof HTMLElement) state.lastFocus.focus();
+        }
+
+        function receiptMarkup(phase) {
+          const receipt = $("#receipt");
+          const count = fileData().length;
+          if (phase === "browse" || phase === "review") {
+            receipt.innerHTML = '<span>BATCH STATUS</span><strong>等待预检</strong><code>尚未生成批次</code><em class="state-badge">DRAFT</em>';
+          } else if (phase === "running") {
+            receipt.innerHTML = '<span>BATCH TX_01KSSH</span><strong>正在传输</strong><code>1 / ' + count + ' 完成</code><em class="state-badge running">RUNNING</em>';
+          } else if (phase === "failed") {
+            receipt.innerHTML = '<span>BATCH TX_01KSSH</span><strong>部分中断</strong><code>已完成文件不会重传</code><em class="state-badge failed">NEEDS ACTION</em>';
+          } else {
+            receipt.innerHTML = '<span>BATCH TX_01KSSH</span><strong>' + count + ' / ' + count + ' 已写入</strong><code>校验完成 · 10:47:18</code><em class="state-badge complete">LOCKED RECEIPT</em>';
+          }
+        }
+
+        function transferItem(file, phase, index) {
+          const isComplete = phase === "complete" || (phase !== "browse" && index === 0);
+          const isFailed = phase === "failed" && index === 1;
+          const isRunning = phase === "running" && index === 1;
+          const progress = isComplete ? 100 : isFailed ? 42 : isRunning ? 64 : 8;
+          const className = isComplete ? "complete" : isFailed ? "failed" : "";
+          const status = isComplete ? "已校验" : isFailed ? "连接中断" : isRunning ? "6.8 MB/s" : "排队";
+          const statusClass = isComplete ? "success" : isFailed ? "error" : "";
+          const resultName = file.conflict && state.policy === "keep" ? "charter-1.0.0 (1).dmg" : file.name;
+          return `<article class="transfer-item ${className}"><i></i><div class="transfer-copy"><strong>${resultName}</strong><small>${file.label} · ${file.conflict ? (state.policy === "replace" ? "替换远程" : state.policy === "skip" ? "已跳过" : "保留两者") : "新建"}</small><div class="progress" style="--progress:${progress}%"><span></span></div></div>${isFailed ? '<button class="retry-button" type="button" id="retry-upload">从断点重试</button>' : `<b class="transfer-state-copy ${statusClass}">${status}</b>`}</article>`;
+        }
+
+        function renderLedger() {
+          const idle = $("#ledger-idle");
+          const run = $("#ledger-run");
+          const active = ["running", "failed", "complete"].includes(state.phase);
+          idle.hidden = active;
+          run.hidden = !active;
+          if (active) run.innerHTML = fileData().map((file, index) => transferItem(file, state.phase, index)).join("");
+          receiptMarkup(state.phase);
+          $("#ledger-subtitle").textContent = state.phase === "complete" ? "完成凭据 · 已锁定" : state.phase === "failed" ? "保留进度 · 可恢复" : "当前主机 · 持续可见";
+          const retry = $("#retry-upload");
+          if (retry) retry.addEventListener("click", completeUpload);
+        }
+
+        function startUpload() {
+          state.policy = $('input[name="policy"]:checked')?.value || "keep";
+          closeReview(false);
+          state.phase = "running";
+          setActiveDemo("failed");
+          renderLedger();
+          clearTimeout(state.timer);
+          state.timer = setTimeout(() => {
+            state.phase = "failed";
+            renderLedger();
+            setActiveDemo("failed");
+          }, 1500);
+        }
+
+        function completeUpload() {
+          clearTimeout(state.timer);
+          state.phase = "complete";
+          renderLedger();
+          setActiveDemo("complete");
+        }
+
+        function showFailed() {
+          closeReview(false);
+          clearTimeout(state.timer);
+          state.phase = "failed";
+          renderLedger();
+          setActiveDemo("failed");
+        }
+
+        function reset() {
+          clearTimeout(state.timer);
+          state.selected = new Set(initialFiles);
+          state.phase = "browse";
+          state.policy = "keep";
+          $('input[name="policy"][value="keep"]').checked = true;
+          closeReview(false);
+          renderSelection();
+          renderLedger();
+          setActiveDemo("browse");
+          $("#file-workspace").dataset.pane = "local";
+          $$('[data-pane-tab]').forEach((button) => button.classList.toggle("active", button.dataset.paneTab === "local"));
+        }
+
+        rows().forEach((row) => {
+          const selector = $(".row-selector", row);
+          if (!selector || selector.disabled) return;
+          selector.addEventListener("click", () => {
+            const name = row.dataset.file;
+            if (state.selected.has(name)) state.selected.delete(name);
+            else state.selected.add(name);
+            state.phase = "browse";
+            renderSelection();
+            renderLedger();
+            setActiveDemo("browse");
+          });
+        });
+
+        [$("#review-upload"), $("#header-review")].forEach((button) => button.addEventListener("click", openReview));
+        [$("#close-review"), $("#cancel-review")].forEach((button) => button.addEventListener("click", () => closeReview()));
+        $("#start-upload").addEventListener("click", startUpload);
+        $("#reset-demo").addEventListener("click", reset);
+        $("#review-backdrop").addEventListener("mousedown", (event) => {
+          if (event.target === event.currentTarget) closeReview();
+        });
+
+        $$('[data-demo-step]').forEach((button) => {
+          button.addEventListener("click", () => {
+            const step = button.dataset.demoStep;
+            if (step === "browse") reset();
+            else if (step === "review") openReview();
+            else if (step === "failed") showFailed();
+            else completeUpload();
+          });
+        });
+
+        $$('[data-pane-tab]').forEach((button) => {
+          button.addEventListener("click", () => {
+            $("#file-workspace").dataset.pane = button.dataset.paneTab;
+            $$('[data-pane-tab]').forEach((item) => item.classList.toggle("active", item === button));
+          });
+        });
+
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && $("#review-backdrop").classList.contains("open")) closeReview();
+          if (event.key === "Tab" && $("#review-backdrop").classList.contains("open")) {
+            const focusable = $$("button:not([disabled]), input:not([disabled])", $("#review-backdrop"));
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          }
+        });
+
+        renderSelection();
+        renderLedger();
+      })();
+    </script>
+  </body>
+</html>

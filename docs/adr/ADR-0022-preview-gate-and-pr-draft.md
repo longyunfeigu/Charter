@@ -155,8 +155,8 @@ note is `docs/design/room-live-preview-directions.html` (approved 1:1).
   Preview tab (`variant="gate"`) — same port detection, same iframe sandbox,
   same boundary. The rail and the in-room peek share the side slot (mutually
   exclusive). Width persists in localStorage.
-- **Point-and-say feedback.** Two modes over the frame: **Pick (S)** and
-  **Draw (R)**. Pick injects a self-cleaning element picker into the loopback
+- **Point-and-say feedback.** Two modes over the frame: **Select (S)** and
+  **Draw (R)**. Select injects a self-cleaning element picker into the loopback
   frame via `webFrameMain.executeJavaScript` — gated to frames whose URL is
   loopback + the task's detected port; on any failure it falls back to the
   zero-injection marquee (Draw). The picker posts `{selector, rect, text}` to

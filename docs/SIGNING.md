@@ -18,6 +18,36 @@ tag or assets. At 2026-07-22 23:27 CST, the public metadata was reverified as `p
 - Windows has no Authenticode signature. Linux has no additional platform signing layer.
 - The intended GitHub prerelease attaches SHA-256 checksums and a manifest. These verify bytes, not
   publisher identity.
+- `scripts/package.mjs` writes `charterUpdateMode: unsigned` into the packaged metadata. The current
+  source may check GitHub Releases and notify the user, but it cannot activate the native downloader
+  or replace the application. Published Beta 3 predates this notification UI and remains manual.
+
+## Update activation and feeds
+
+`charterUpdateMode` is a build provenance input, not a user preference. Runtime delivery is
+automatic only when all of these are true:
+
+1. Electron reports a packaged application.
+2. The platform is macOS or Windows.
+3. The packaged `package.json` contains `charterUpdateMode: signed`, injected only by
+   `CHARTER_SIGNING_MODE=signed npm run package -- --mac|--win`.
+
+Every other combination fails closed to GitHub Release notification and manual installation. Linux
+`.tar.gz` delivery is always manual. Settings can choose Stable/Beta and scheduling, but cannot
+promote an unsigned package to native delivery.
+
+Electron Builder must keep the GitHub provider in `electron-builder.yml` even though package commands
+use `--publish never`. This emits the metadata uploaded by the tag workflow:
+
+| Channel | macOS metadata | Windows metadata | Runtime channel |
+| --- | --- | --- | --- |
+| Stable | `latest-mac.yml` | `latest.yml` | `latest` |
+| Beta | `beta-mac.yml` | `beta.yml` | `beta` |
+
+The YAML files and the matching ZIP/DMG/NSIS artifacts must belong to the same immutable Release.
+Do not hand-edit a feed or reuse one across differently signed bytes. The app disables downgrades,
+downloads only on the signed macOS/Windows path, and always waits for **Restart and install**. Before
+replacement, Main checks active-work blockers and creates a consistent SQLite backup.
 
 ## Future macOS signed build
 
@@ -60,6 +90,11 @@ xcrun stapler validate Charter.app
 The output must name the intended Developer ID team, pass Gatekeeper assessment, and validate a
 stapled notarization ticket. A local ad-hoc signature is not sufficient.
 
+Update qualification additionally requires installing an older signed/notarized build on a clean
+machine, publishing a newer signed candidate with matching `latest-mac.yml`, observing background
+download, exercising the quit-blocker prompt, confirming the pre-update database backup, choosing
+**Restart and install**, and verifying the new version starts with existing Sessions readable.
+
 ## Future Windows signed build
 
 Acquire a publicly trusted Authenticode certificate or approved hardware/cloud signing service. Put
@@ -70,6 +105,10 @@ Before Stable, verify both the application executable and installer with Windows
 or `signtool verify /pa /all /v`, install on a clean SmartScreen-enabled machine, then uninstall and
 confirm the installed executable is removed. Self-signed certificates do not satisfy the public
 trust gate.
+
+Repeat the signed older-to-newer update qualification on Windows with the matching `latest.yml` and
+NSIS/blockmap assets. Verify the explicit restart flow, retained local state and uninstall behavior;
+do not infer Windows qualification from the macOS result.
 
 ## Secret rotation and failure policy
 

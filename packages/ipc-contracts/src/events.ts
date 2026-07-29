@@ -5,6 +5,7 @@ import { TaskDtoSchema, TaskStateSchema, TimelineEventDtoSchema } from './agent-
 import { ScreenshotCaptureSchema } from './screenshots.js';
 import { OrchestrationSnapshotSchema } from './orchestration.js';
 import { SftpTransferStateSchema, SshConnectionStateSchema, SshForwardStateSchema } from './ssh.js';
+import { UpdateStateSchema } from './updates.js';
 
 export interface EventChannelDef<S extends z.ZodType = z.ZodType> {
   name: string;
@@ -28,6 +29,7 @@ export const EVENT_CHANNELS = {
     1,
     z.object({ theme: z.enum(['light', 'dark', 'system']), effective: z.enum(['light', 'dark']) }),
   ),
+  'updates.changed': ev('updates.changed', 1, UpdateStateSchema),
   'settings.changed': ev(
     'settings.changed',
     1,
