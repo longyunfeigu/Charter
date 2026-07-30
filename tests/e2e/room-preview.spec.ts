@@ -108,12 +108,14 @@ test.describe('Room live preview (ADR-0022 am.2)', () => {
         .first();
       await expect(followUp).toBeVisible({ timeout: 20000 });
       await expect(followUp.locator('details pre')).toContainText('Visible text: "Coupon expired"');
-      // The timeline can retain an older, windowed-off thumbnail. Bind the
-      // assertion to this follow-up bubble rather than its global first match.
-      await expect(followUp.getByTestId('tl-preview-feedback')).toBeVisible({ timeout: 15000 });
+      // The timeline can window the bubble offscreen after the agent reply.
+      // Verify the durable attachment contract without coupling it to scroll position.
+      const feedbackImage = followUp.getByTestId('tl-preview-feedback');
+      await expect(feedbackImage).toHaveCount(1);
+      await expect(feedbackImage).toHaveAttribute('src', /^data:image\/png;base64,/);
       await expect(
-        page.getByTestId('tl-agent').filter({ hasText: 'received 1 image attachment' }).first(),
-      ).toBeVisible({ timeout: 20000 });
+        page.getByTestId('tl-agent').filter({ hasText: 'received 1 image attachment' }),
+      ).toHaveCount(1, { timeout: 20000 });
     } finally {
       server?.kill();
       await app.close();

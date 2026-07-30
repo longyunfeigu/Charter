@@ -511,6 +511,36 @@ export function terminalAppearance(): TerminalAppearance {
  * re-mount — dock tab switch, side panel, room, surface round-trip — must move
  * the live element itself (ADR-0017 rev.2 substrate fix).
  */
+function requestRestoredTerminalRepaint(
+  item: Pick<TermInstance, 'id' | 'term' | 'restoreRepaintPending'>,
+): void {
+  if (!item.restoreRepaintPending) return;
+  item.restoreRepaintPending = false;
+  const pulse = (): void => {
+    // A bounded PTY tail can start between full-screen TUI paints. Nudge
+    // the backend size and restore it so the agent redraws one clean frame.
+    const cols = item.term.cols;
+    const rows = item.term.rows;
+    const nudgeCols = cols > 2 ? cols - 1 : cols + 1;
+    void rpcResult('terminal.resize', { id: item.id, cols: nudgeCols, rows }).then(() => {
+      // Leave enough time for the foreground TUI to observe the changed size;
+      // daemon IPC is asynchronous and tighter SIGWINCH pairs can be coalesced.
+      setTimeout(() => {
+        void rpcResult('terminal.resize', {
+          id: item.id,
+          cols: item.term.cols,
+          rows: item.term.rows,
+        });
+      }, 150);
+    });
+  };
+  pulse();
+  // Renderer adoption can overlap a daemon reconnect. Retry the harmless
+  // repaint pulse so a request dropped during that transport gap is recovered.
+  setTimeout(pulse, 500);
+  setTimeout(pulse, 1_250);
+}
+
 export function mountTerminal(
   host: HTMLElement,
   item: Pick<
@@ -549,6 +579,9 @@ export function mountTerminal(
     // fit/refresh races during teardown are harmless
   }
   item.term.focus();
+  // Start the backend repaint from the first settled fit. Waiting for replay
+  // completion can lose the request if React adopts the terminal between frames.
+  requestRestoredTerminalRepaint(item);
   // Reparenting and the right-rail layout update can settle in different
   // frames. Fit once more after layout so a terminal that came from the wider
   // side slot cannot keep drawing underneath the dock session list.
@@ -560,20 +593,7 @@ export function mountTerminal(
       item.pendingReplay = null;
       const finishRestore = (): void => {
         item.term.refresh(0, item.term.rows - 1);
-        if (!item.restoreRepaintPending) return;
-        item.restoreRepaintPending = false;
-        // A bounded PTY tail can start between full-screen TUI paints. Nudge
-        // the backend size and restore it so the agent redraws one clean frame.
-        const cols = item.term.cols;
-        const rows = item.term.rows;
-        const nudgeCols = cols > 2 ? cols - 1 : cols + 1;
-        void rpcResult('terminal.resize', { id: item.id, cols: nudgeCols, rows }).then(() => {
-          // Give the foreground TUI one event-loop turn at the changed size;
-          // back-to-back SIGWINCH signals may otherwise be coalesced by the OS.
-          setTimeout(() => {
-            void rpcResult('terminal.resize', { id: item.id, cols, rows });
-          }, 32);
-        });
+        requestRestoredTerminalRepaint(item);
       };
       if (replay) item.term.write(item.outputColorizer.write(replay), finishRestore);
       else finishRestore();
@@ -1058,13 +1078,16 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       if (!item || sequence <= item.replaySequence) return;
       item.replaySequence = sequence;
       item.pendingReplay = null;
-      item.restoreRepaintPending = false;
+      item.restoreRepaintPending = true;
       item.blocks.reset();
       item.term.reset();
       item.outputColorizer.reset();
-      item.term.write(item.outputColorizer.write(replay), () =>
-        item.term.refresh(0, item.term.rows - 1),
-      );
+      item.term.write(item.outputColorizer.write(replay), () => {
+        item.term.refresh(0, item.term.rows - 1);
+        // A resync can race terminal adoption, so do not depend on DOM state.
+        // A later fit will restore the viewport if the terminal is still hidden.
+        requestRestoredTerminalRepaint(item);
+      });
     });
     onEvent('terminal.exit', ({ id, exitCode }) => {
       const item = get().items.find((t) => t.id === id);

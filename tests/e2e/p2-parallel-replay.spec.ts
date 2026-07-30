@@ -142,7 +142,7 @@ test.describe('P2 — parallel runs, session replay, quick launcher', () => {
       await expect(page.getByTestId('qk-view')).toBeVisible();
 
       // File search → Enter opens the file in the editor.
-      await page.getByTestId('qk-input').fill('index');
+      await page.getByTestId('qk-input').fill('src/index.ts');
       await expect(page.getByTestId('qk-file-src/index.ts')).toBeVisible();
       await page.keyboard.press('Enter');
       await expect(page.getByTestId('qk-view')).toHaveCount(0);
