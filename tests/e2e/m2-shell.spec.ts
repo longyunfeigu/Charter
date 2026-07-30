@@ -68,7 +68,7 @@ test.describe('M2 shell, settings and persistence', () => {
     await second.app.close();
   });
 
-  test('settings switches all four coordinated skins live', async () => {
+  test('settings switches all five coordinated skins live', async () => {
     const { app, page } = await launchApp();
     try {
       await page.getByTestId('home-settings').click();
@@ -87,9 +87,10 @@ test.describe('M2 shell, settings and persistence', () => {
         terminal: '#52ff78',
         archive: '#ef7b57',
         index: '#ff304f',
+        atelier: '#d46a4b',
       } as const;
 
-      for (const skin of ['studio', 'terminal', 'archive', 'index'] as const) {
+      for (const skin of ['studio', 'terminal', 'archive', 'index', 'atelier'] as const) {
         await page.getByTestId(`settings-skin-${skin}`).click();
         await expect
           .poll(async () =>

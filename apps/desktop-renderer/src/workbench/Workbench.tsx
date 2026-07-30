@@ -175,6 +175,12 @@ function useRegisterCoreCommands(): void {
         run: () => void store.getState().updateSettings('global', { general: { skin: 'index' } }),
       },
       {
+        id: 'skin.atelier',
+        title: 'Skin: Atelier',
+        category: 'Preferences',
+        run: () => void store.getState().updateSettings('global', { general: { skin: 'atelier' } }),
+      },
+      {
         id: 'view.zoomIn',
         title: 'Zoom In',
         category: 'View',

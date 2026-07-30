@@ -9,6 +9,7 @@ import { TaskRoomView } from './TaskRoomView.js';
 import { SessionTerminalView } from './SessionTerminalView.js';
 import { ProjectToolView } from './ProjectToolView.js';
 import { ArchaeologyView } from './ArchaeologyView.js';
+import { ProjectCenterView } from './ProjectCenterView.js';
 import { RemotesView } from './RemotesView.js';
 import { RemoteInspector } from './RemoteInspector.js';
 import { useTerminalStore } from './TerminalPanel.js';
@@ -20,6 +21,7 @@ import '../styles/room.css';
 import '../styles/context-refs.css';
 import '../styles/session-workbench.css';
 import '../styles/session-canvas.css';
+import '../styles/project-center.css';
 
 /**
  * Persistent Session shell: the rail is the app's skeleton and never unmounts.
@@ -30,6 +32,7 @@ export function HomeShell(): React.JSX.Element {
   const taskRoomTaskId = useAppStore((s) => s.taskRoomTaskId);
   const sessionTerminalId = useAppStore((s) => s.sessionTerminalId);
   const projectTool = useAppStore((s) => s.projectTool);
+  const projectCenter = useAppStore((s) => s.projectCenter);
   const archaeology = useAppStore((s) => s.archaeology);
   const remotesOpen = useAppStore((s) => s.remotesOpen);
   const lens = useAppStore((s) => s.lens);
@@ -99,6 +102,8 @@ export function HomeShell(): React.JSX.Element {
           <SessionTerminalView key={sessionTerminalId} terminalId={sessionTerminalId} />
         ) : taskRoomTaskId ? (
           <TaskRoomView key={taskRoomTaskId} />
+        ) : projectCenter ? (
+          <ProjectCenterView key={projectCenter.path} />
         ) : archaeology ? (
           <ArchaeologyView />
         ) : projectTool ? (

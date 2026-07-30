@@ -2,7 +2,7 @@ import React from 'react';
 import type { RailView } from '../store/appStore.js';
 import { useAppStore } from '../store/appStore.js';
 import { useTaskStore } from '../store/taskStore.js';
-import { needsAttention } from './labels.js';
+import { visibleAttentionTasks } from '../store/attentionDismissals.js';
 import { Ic } from './home-icons.js';
 
 export type ActivityDestination = RailView | 'remotes';
@@ -25,7 +25,7 @@ export function ActivityBar({
 }: ActivityBarProps): React.JSX.Element {
   const app = useAppStore();
   const inboxCount = useTaskStore(
-    (state) => state.tasks.filter((task) => !task.archived && needsAttention(task)).length,
+    (state) => visibleAttentionTasks(state.tasks, state.attentionDismissals).length,
   );
   const sessionsActive = active === 'sessions' || active === 'files';
 

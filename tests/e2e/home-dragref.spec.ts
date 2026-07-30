@@ -55,6 +55,7 @@ test.describe('Projects — project actions without a duplicate file tree', () =
       await page.getByTestId('surface-home').click();
       await page.getByTestId('rail-context').click();
       await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
+      await page.locator('[data-testid^="project-menu-"]').first().click();
       await page.locator('[data-testid^="project-spawn-pi-"]').first().click();
       await expect(page.getByTestId('home-view')).toBeVisible();
       await expect(page.getByTestId('home-intent')).toBeFocused();
@@ -66,7 +67,7 @@ test.describe('Projects — project actions without a duplicate file tree', () =
     }
   });
 
-  test('clicking a project opens the one canonical Files context', async () => {
+  test('clicking a project opens its Center and files require explicit editor intent', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
@@ -74,13 +75,16 @@ test.describe('Projects — project actions without a duplicate file tree', () =
     try {
       await page.getByTestId('surface-home').click();
       await page.getByTestId('rail-context').click();
-      await page.locator('[data-testid^="home-recent-"].active').click();
+      await page.locator('[data-testid^="home-recent-"]').first().click();
+      await expect(page.getByTestId('project-center')).toBeVisible();
+      await page.getByTestId('project-center-tab-files').click();
+      await page.getByTestId('project-file-src').click();
+      await page.getByTestId('project-file-src/index.ts').click();
+      await page.getByRole('button', { name: 'Open in editor' }).click();
       await expect(page.getByTestId('project-tool-view')).toBeVisible();
       await expect(page.getByTestId('explorer')).toBeVisible();
       await expect(page.getByRole('tree', { name: 'Files' })).toHaveCount(1);
       await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
-      await page.getByTestId('tree-item-src').click();
-      await page.getByTestId('tree-item-src/index.ts').click();
       await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
     } finally {
       await app.close();

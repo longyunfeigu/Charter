@@ -265,6 +265,7 @@ export function SkillsView(): React.JSX.Element {
   const usageLoaded = useSkillsStore((state) => state.usageLoaded);
   const loaded = useSkillsStore((state) => state.loaded);
   const init = useSkillsStore((state) => state.init);
+  const refreshUsage = useSkillsStore((state) => state.refreshUsage);
   const rescan = useSkillsStore((state) => state.rescan);
   const status = useSkillsViewStore((state) => state.status);
   const agent = useSkillsViewStore((state) => state.agent);
@@ -276,9 +277,18 @@ export function SkillsView(): React.JSX.Element {
   const setSort = useSkillsViewStore((state) => state.setSort);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  useEffect(() => init(), [init]);
+  useEffect(() => {
+    init();
+    // Usage is mutable evidence, not catalog state. The global store is
+    // initialized at app startup, so entering this page must explicitly pull
+    // a fresh snapshot or a skill run moments ago still reads as unused.
+    void refreshUsage();
+  }, [init, refreshUsage]);
 
-  const groups = useMemo(() => groupSkills(skills, usage), [skills, usage]);
+  const groups = useMemo(
+    () => groupSkills(skills, usage, usageLoaded),
+    [skills, usage, usageLoaded],
+  );
   const selected = selectedKey ? (groups.find((group) => group.key === selectedKey) ?? null) : null;
   const counts = useMemo(() => skillGroupCounts(groups), [groups]);
   const visible = useMemo(
@@ -286,8 +296,6 @@ export function SkillsView(): React.JSX.Element {
     [agent, groups, query, sort, status],
   );
   const now = Date.now();
-  const disabledCopies = skills.filter((copy) => !isAgentEnabled(copy)).length;
-
   return (
     <main className="skills-main" data-testid="skills-main-page">
       <div className="skills-main-inner">
@@ -295,65 +303,15 @@ export function SkillsView(): React.JSX.Element {
           <div>
             <h1>Skills</h1>
             <p>
-              See which capabilities are actually used, where every copy is installed, and keep or
-              remove them per Agent.
+              See what is installed, what has observable usage, and what needs a decision per Agent.
             </p>
           </div>
           <div className="skills-page-actions">
             <button className="btn" data-testid="skills-rescan" onClick={() => void rescan()}>
               <Ic name="refresh" size={13} /> Rescan
             </button>
-            <button
-              className="btn primary"
-              data-testid="skills-run"
-              onClick={() => {
-                useAppStore.getState().setRailView('sessions');
-                useAppStore.getState().focusComposer();
-              }}
-            >
-              <Ic name="play" size={12} /> Run a Skill
-            </button>
           </div>
         </header>
-
-        <section className="skills-stats" aria-label="Skill summary">
-          <button onClick={() => setStatus('all')}>
-            <strong>{counts.all}</strong>
-            <span>Logical Skills</span>
-            <small>{skills.length} installed copies</small>
-          </button>
-          <button onClick={() => setStatus('active')}>
-            <strong>{counts.active}</strong>
-            <span>Used in {usageWindowDays} days</span>
-            <small>all Agent evidence</small>
-          </button>
-          <button onClick={() => setStatus('review')}>
-            <strong>{counts.review}</strong>
-            <span>Review candidates</span>
-            <small>unused or incompatible</small>
-          </button>
-          <button onClick={() => setStatus('disabled')}>
-            <strong>{disabledCopies}</strong>
-            <span>Disabled copies</span>
-            <small>scoped per Agent</small>
-          </button>
-        </section>
-
-        <section className="skills-evidence" aria-label="Usage evidence coverage">
-          <span>
-            <Ic name="info" size={13} /> Evidence
-          </span>
-          <b>
-            <i className="agent-pi" /> Charter exact
-          </b>
-          <b>
-            <i className="agent-claude" /> Claude transcripts
-          </b>
-          <b>
-            <i className="agent-codex" /> Codex activation
-          </b>
-          <small>{usageLoaded ? `${usageWindowDays}-day window` : 'loading usage…'}</small>
-        </section>
 
         <div className="skills-controls">
           <div className="skills-status-tabs" role="group" aria-label="Skill status">
@@ -361,10 +319,10 @@ export function SkillsView(): React.JSX.Element {
               All {counts.all}
             </button>
             <button className={status === 'active' ? 'on' : ''} onClick={() => setStatus('active')}>
-              In use {counts.active}
+              Observed {usageLoaded ? counts.active : '—'}
             </button>
             <button className={status === 'review' ? 'on' : ''} onClick={() => setStatus('review')}>
-              Review {counts.review}
+              Review {usageLoaded ? counts.review : '—'}
             </button>
             <button
               className={status === 'disabled' ? 'on' : ''}
@@ -421,7 +379,7 @@ export function SkillsView(): React.JSX.Element {
                 <th>Skill</th>
                 <th>Installed in</th>
                 <th>
-                  Usage by Agent<span>Charter · Claude · Codex</span>
+                  Observed usage<span>{usageWindowDays}-day window · Codex not tracked</span>
                 </th>
                 <th className="numeric">Last used</th>
                 <th aria-label="Manage" />
@@ -441,6 +399,10 @@ export function SkillsView(): React.JSX.Element {
                             <span className="explicit">explicit</span>
                           ) : null}
                           {group.protectedOnly ? <span className="system">system</span> : null}
+                          {group.needsTechnicalReview ? <span className="issue">issue</span> : null}
+                          {group.noObservedUse ? (
+                            <span className="unobserved">no observed use</span>
+                          ) : null}
                         </div>
                         <small title={group.description}>
                           {group.description || 'No description in SKILL.md.'}
@@ -471,17 +433,29 @@ export function SkillsView(): React.JSX.Element {
                     <td>
                       <div className="skills-usage-rollup">
                         {SKILL_AGENTS.map((item) => (
-                          <span key={item.id} className={item.id} title={`${item.label} usage`}>
+                          <span
+                            key={item.id}
+                            className={item.id}
+                            title={
+                              item.id === 'codex'
+                                ? 'Codex skill usage is not tracked yet'
+                                : `${item.label} observed usage`
+                            }
+                          >
                             <i />
-                            <b>{group.usesByAgent[item.id]}</b>
-                            <small>×</small>
+                            <b>
+                              {!usageLoaded || item.id === 'codex'
+                                ? '—'
+                                : group.usesByAgent[item.id]}
+                            </b>
+                            {usageLoaded && item.id !== 'codex' ? <small>×</small> : null}
                           </span>
                         ))}
                       </div>
                     </td>
                     <td className={`skills-metric ${last ? '' : 'never'}`}>
-                      <strong>{last ?? 'never'}</strong>
-                      <small>{group.uses} total</small>
+                      <strong>{usageLoaded ? (last ?? 'never') : '—'}</strong>
+                      <small>{usageLoaded ? `${group.uses} observed` : 'loading…'}</small>
                     </td>
                     <td>
                       <div className="skills-decision">

@@ -94,12 +94,39 @@ test('skills: manager (toggle/audit) + "/" picker + /skill: task through the moc
     // ---- Skills main page: grouped catalog + per-Agent management ----
     await page.getByTestId('rail-view-skills').click();
     await expect(page.getByTestId('skills-main-page')).toBeVisible();
+    await expect(page.getByTestId('skills-run')).toHaveCount(0);
+    await expect(page.locator('.skills-stats')).toHaveCount(0);
+    await expect(page.getByTestId('skills-rail-panel')).toContainText('Observed use');
+    await expect(
+      page.getByTestId('skills-rail-panel').getByText('not tracked', { exact: true }),
+    ).toBeVisible();
+    await expect(page.locator('thead')).toContainText('Codex not tracked');
     await expect(page.getByText('Future adapters', { exact: true })).toHaveCount(0);
     await expect(page.getByText('Sources & trust', { exact: true })).toHaveCount(0);
     const row = page.locator('tbody tr', { hasText: 'pdf-fill' });
     await expect(row).toBeVisible();
     await expect(row).toContainText('Fill and extract fields');
-    await expect(page.locator('tbody tr', { hasText: 'deploy-staging' })).toContainText('explicit');
+    await expect(row.locator('.skills-usage-rollup .pi b')).toHaveText('1');
+    await expect(row).not.toContainText('no observed use');
+    await expect(page.getByTestId('skills-rail-active').locator('b')).toHaveText('1');
+    const explicitRow = page.locator('tbody tr', { hasText: 'deploy-staging' });
+    await expect(explicitRow).toContainText('explicit');
+    await expect(explicitRow).toContainText('no observed use');
+    await expect(page.getByTestId('skills-rail-review').locator('b')).toHaveText('1');
+    await expect(row.locator('.skills-usage-rollup .codex')).toHaveAttribute(
+      'title',
+      'Codex skill usage is not tracked yet',
+    );
+    // The inventory remains usable at a narrower desktop viewport: controls
+    // wrap while the table keeps its horizontal scroll surface.
+    await page.setViewportSize({ width: 900, height: 720 });
+    await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
+    await expect(page.getByTestId('skills-rescan')).toBeVisible();
+    await expect(page.getByTestId('skills-rescan')).toBeInViewport();
+    await expect(page.getByLabel('Search Skills')).toBeInViewport();
+    await expect(row).toBeVisible();
+    await expect(page.locator('.skills-table-frame')).toBeVisible();
+    await page.setViewportSize({ width: 1280, height: 800 });
 
     // Disable only the selected Charter copy: the grouped row dims…
     await page.getByTestId('skills-manage-pdf-fill').click();

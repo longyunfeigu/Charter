@@ -34,6 +34,7 @@ export type SessionRoomView = 'conversation' | 'fleet';
  * ADR-0029: 'editor' is the plain editor (no context column) — the one
  * project tree lives in the rail's Files pane. */
 export type ProjectTool = 'editor' | 'search' | 'changes';
+export type ProjectCenterTab = 'overview' | 'sessions' | 'files' | 'changes' | 'setup';
 export type RemoteSubview = 'overview' | 'files' | 'forwards';
 /** The rail's contextual views inside the single navigation surface.
  * 'files' is the persistent context-feeding tree (ADR-0024, ADR-0029). */
@@ -45,6 +46,7 @@ export type MainSurface =
   | { kind: 'home' }
   | { kind: 'room'; taskId: string }
   | { kind: 'terminal'; terminalId: string }
+  | { kind: 'project-center'; path: string; tab: ProjectCenterTab }
   | { kind: 'project-tool'; tool: ProjectTool }
   | { kind: 'archaeology'; scope: string | null }
   | { kind: 'remotes' };
@@ -64,10 +66,13 @@ export function mainSurfaceOf(
   s: Pick<
     AppStore,
     'taskRoomTaskId' | 'sessionTerminalId' | 'archaeology' | 'projectTool' | 'remotesOpen'
-  >,
+  > & { projectCenter?: { path: string; tab: ProjectCenterTab } | null },
 ): MainSurface {
   if (s.sessionTerminalId) return { kind: 'terminal', terminalId: s.sessionTerminalId };
   if (s.taskRoomTaskId) return { kind: 'room', taskId: s.taskRoomTaskId };
+  if (s.projectCenter) {
+    return { kind: 'project-center', path: s.projectCenter.path, tab: s.projectCenter.tab };
+  }
   if (s.archaeology) return { kind: 'archaeology', scope: s.archaeology.scope };
   if (s.remotesOpen) return { kind: 'remotes' };
   if (s.projectTool) return { kind: 'project-tool', tool: s.projectTool };
@@ -187,6 +192,12 @@ interface AppStore {
   sessionSplit: Record<string, number>;
   sessionSplitDragging: boolean;
   projectTool: ProjectTool | null;
+  /** Project selection is browsing state, deliberately independent from the
+   * active workspace/working context. */
+  projectCenter: { path: string; tab: ProjectCenterTab } | null;
+  openProjectCenter(path: string, tab?: ProjectCenterTab): void;
+  setProjectCenterTab(tab: ProjectCenterTab): void;
+  closeProjectCenter(): void;
   /** Contextual lower panel for project diagnostics. It belongs to Project
    * Tools and does not resurrect the retired global workspace shell. */
   projectBottomTab: BottomTab | null;
@@ -423,6 +434,9 @@ export const useAppStore = create<AppStore>((set, get) => {
       case 'archaeology':
         get().openArchaeology(surface.scope);
         return;
+      case 'project-center':
+        get().openProjectCenter(surface.path, surface.tab);
+        return;
       case 'remotes':
         get().openRemotes();
         return;
@@ -433,6 +447,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         set({
           taskRoomTaskId: null,
           sessionTerminalId: null,
+          projectCenter: null,
           archaeology: null,
           remotesOpen: false,
           projectTool: null,
@@ -477,6 +492,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     sessionSplit: {},
     sessionSplitDragging: false,
     projectTool: null,
+    projectCenter: null,
     projectBottomTab: null,
     archaeology: null,
     remotesOpen: false,
@@ -493,6 +509,27 @@ export const useAppStore = create<AppStore>((set, get) => {
     openArchaeology(scope) {
       set({
         archaeology: { scope },
+        projectCenter: null,
+        taskRoomTaskId: null,
+        sessionTerminalId: null,
+        remotesOpen: false,
+        projectTool: null,
+        projectBottomTab: null,
+        surface: 'home',
+        ...crossRailPatch('sessions'),
+      });
+    },
+    closeArchaeology() {
+      set({ archaeology: null });
+    },
+    openProjectCenter(path, tab) {
+      const current = get().projectCenter;
+      set({
+        projectCenter: {
+          path,
+          tab: tab ?? (current?.path === path ? current.tab : 'overview'),
+        },
+        archaeology: null,
         taskRoomTaskId: null,
         sessionTerminalId: null,
         remotesOpen: false,
@@ -502,13 +539,18 @@ export const useAppStore = create<AppStore>((set, get) => {
         ...crossRailPatch('projects'),
       });
     },
-    closeArchaeology() {
-      set({ archaeology: null });
+    setProjectCenterTab(tab) {
+      const current = get().projectCenter;
+      if (current) set({ projectCenter: { ...current, tab } });
+    },
+    closeProjectCenter() {
+      set({ projectCenter: null });
     },
 
     openRemotes(hostId) {
       set({
         remotesOpen: true,
+        projectCenter: null,
         remoteSelectedHostId: hostId ?? get().remoteSelectedHostId,
         remoteSubview: 'overview',
         taskRoomTaskId: null,
@@ -531,6 +573,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         sessionTerminalId: null,
         taskRoomTaskId: null,
         archaeology: null,
+        projectCenter: null,
         projectTool: null,
         projectBottomTab: null,
         surface: 'home',
@@ -586,6 +629,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         remotesOpen: false,
         ...(get().remotesOpen ? { sessionTerminalId: null } : {}),
         projectTool: surface === 'workspace' ? (get().projectTool ?? 'editor') : null,
+        ...(surface === 'workspace' ? { projectCenter: null } : {}),
         ...(surface === 'workspace' ? crossRailPatch('files') : {}),
       });
     },
@@ -684,6 +728,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     setProjectTool(projectTool) {
       set({
         projectTool,
+        projectCenter: projectTool ? null : get().projectCenter,
         surface: projectTool ? 'workspace' : 'home',
         ...(projectTool
           ? {
@@ -736,6 +781,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         sessionToolsOpen: false,
         sessionToolExpanded: false,
         projectTool: null,
+        projectCenter: null,
         projectBottomTab: null,
         archaeology: null,
         remotesOpen: false,
@@ -776,6 +822,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         sessionToolsOpen: false,
         sessionToolExpanded: false,
         projectTool: null,
+        projectCenter: null,
         projectBottomTab: null,
         archaeology: null,
         remotesOpen: false,
@@ -796,6 +843,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         sessionToolsOpen: false,
         sessionToolExpanded: false,
         projectTool: null,
+        projectCenter: null,
         projectBottomTab: null,
         archaeology: null,
         remotesOpen: false,
@@ -816,6 +864,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         sessionToolsOpen: false,
         sessionToolExpanded: false,
         projectTool: null,
+        projectCenter: null,
         projectBottomTab: null,
         archaeology: null,
         remotesOpen: true,

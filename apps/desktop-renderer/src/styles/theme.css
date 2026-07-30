@@ -1,4 +1,4 @@
-/* Four coordinated visual languages. A skin owns color, typography, icon
+/* Five coordinated visual languages. A skin owns color, typography, icon
  * geometry and syntax highlighting; data-theme supplies its light/dark variant.
  * Studio/light is repeated on :root so the first paint is stable before the
  * persisted setting arrives from Main.
@@ -225,6 +225,108 @@
   --radius-chip: 6px;
 }
 
+/* Atelier translates the skin-adaptation proof into the product token set:
+ * warm paper, dark ink, restrained letterpress depth and almost-square joins.
+ * Its dark companion keeps that material language instead of becoming a
+ * generic charcoal theme when the operating system changes appearance. */
+[data-skin='atelier'][data-theme='light'] {
+  color-scheme: light;
+  --font-ui: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, 'Songti SC', serif;
+  --font-display: 'Charter', 'Iowan Old Style', Georgia, 'Songti SC', serif;
+  --font-mono:
+    Menlo, Monaco, 'SF Mono', 'SFMono-Regular', Consolas, 'PingFang SC', 'Microsoft YaHei UI',
+    monospace;
+  --icon-stroke-width: 1.65;
+  --letter-ui: 0.004em;
+  --bg-app: #f6f2e8;
+  --bg-titlebar: #f5f0e4;
+  --bg-sidebar: #f2ecdf;
+  --bg-editor: #fbf8f0;
+  --bg-panel: #efe9da;
+  --bg-statusbar: #e8dfce;
+  --bg-input: #fdfaf2;
+  --bg-card: #fbf8f0;
+  --bg-chip: #efe9da;
+  --bg-hover: #eae2d2;
+  --bg-active: #ded3bf;
+  --bg-selected: #ead6ca;
+  --bg-overlay: rgba(33, 29, 22, 0.48);
+  --border: #d8cfba;
+  --border-soft: #e8e0d0;
+  --border-strong: #b5a98c;
+  --fg: #211d16;
+  --fg-muted: #57503f;
+  --fg-faint: #99907a;
+  --fg-inverse: #fbf8f0;
+  --accent: #a8442e;
+  --accent-fg: #fbf8f0;
+  --danger: #a8442e;
+  --danger-bg: #f3ddd6;
+  --warning: #a2731c;
+  --warning-bg: #f1e4c4;
+  --success: #4d6b4a;
+  --success-bg: #dde8d7;
+  --info: #486776;
+  --info-bg: #dde7e8;
+  --diff-add-bg: rgba(77, 107, 74, 0.17);
+  --diff-del-bg: rgba(168, 68, 46, 0.15);
+  --focus-ring: #a8442e;
+  --scrollbar: rgba(87, 80, 63, 0.32);
+  --shadow-card: 0 1px 0 rgba(120, 100, 60, 0.18), 0 10px 26px rgba(62, 40, 25, 0.06);
+  --shadow-menu: 4px 5px 0 rgba(87, 70, 43, 0.2), 0 24px 68px rgba(62, 40, 25, 0.18);
+  --radius-card: 4px;
+  --radius-chip: 2px;
+}
+
+[data-skin='atelier'][data-theme='dark'] {
+  color-scheme: dark;
+  --font-ui: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, 'Songti SC', serif;
+  --font-display: 'Charter', 'Iowan Old Style', Georgia, 'Songti SC', serif;
+  --font-mono:
+    Menlo, Monaco, 'SF Mono', 'SFMono-Regular', Consolas, 'PingFang SC', 'Microsoft YaHei UI',
+    monospace;
+  --icon-stroke-width: 1.65;
+  --letter-ui: 0.004em;
+  --bg-app: #18150f;
+  --bg-titlebar: #211d15;
+  --bg-sidebar: #201c14;
+  --bg-editor: #292319;
+  --bg-panel: #241f16;
+  --bg-statusbar: #1d1912;
+  --bg-input: #30291d;
+  --bg-card: #2c261b;
+  --bg-chip: #373023;
+  --bg-hover: #352e21;
+  --bg-active: #463b2a;
+  --bg-selected: #4a2b22;
+  --bg-overlay: rgba(0, 0, 0, 0.7);
+  --border: #443a2b;
+  --border-soft: #352e22;
+  --border-strong: #756247;
+  --fg: #efe4ce;
+  --fg-muted: #b8aa8e;
+  --fg-faint: #7e725e;
+  --fg-inverse: #1b1510;
+  --accent: #d46a4b;
+  --accent-fg: #1b120d;
+  --danger: #e06d55;
+  --danger-bg: #49231c;
+  --warning: #d5a43b;
+  --warning-bg: #413316;
+  --success: #7f9c72;
+  --success-bg: #293526;
+  --info: #86a9b3;
+  --info-bg: #26363a;
+  --diff-add-bg: rgba(127, 156, 114, 0.18);
+  --diff-del-bg: rgba(224, 109, 85, 0.16);
+  --focus-ring: #d46a4b;
+  --scrollbar: rgba(184, 170, 142, 0.28);
+  --shadow-card: 0 1px 0 rgba(239, 228, 206, 0.08), 0 12px 28px rgba(0, 0, 0, 0.28);
+  --shadow-menu: 4px 5px 0 rgba(212, 106, 75, 0.16), 0 26px 72px rgba(0, 0, 0, 0.58);
+  --radius-card: 4px;
+  --radius-chip: 2px;
+}
+
 [data-skin='terminal'][data-theme='light'] {
   color-scheme: light;
   --font-ui: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Microsoft YaHei UI', monospace;
@@ -444,6 +546,18 @@
 [data-skin='archive'][data-theme='dark'] {
   --syntax-comment: #927962;
 }
+[data-skin='atelier'] {
+  --syntax-comment: #8f8069;
+  --syntax-keyword: var(--accent);
+  --syntax-string: var(--success);
+  --syntax-number: var(--warning);
+  --syntax-function: var(--info);
+  --radius-control: 2px;
+  --radius-surface: 4px;
+}
+[data-skin='atelier'][data-theme='dark'] {
+  --syntax-comment: #8d7e67;
+}
 [data-skin='index'] {
   --syntax-comment: var(--fg-faint);
   --syntax-keyword: var(--accent);
@@ -473,6 +587,26 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Fine crossed fibres make Atelier read as a material skin across otherwise
+ * opaque Electron surfaces. The alpha is deliberately tiny so Monaco, xterm
+ * and dense session output keep their contrast and cell clarity. */
+html[data-skin='atelier'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(2deg, rgba(120, 100, 60, 0.016) 0 2px, transparent 2px 5px),
+    repeating-linear-gradient(92deg, rgba(120, 100, 60, 0.012) 0 3px, transparent 3px 7px);
+  mix-blend-mode: multiply;
+}
+html[data-skin='atelier'][data-theme='dark'] body::after {
+  opacity: 0.45;
+  filter: invert(1);
+  mix-blend-mode: screen;
+}
+
 /* Icon geometry is part of the skin, not a component-by-component accident. */
 .app-icon {
   stroke-width: var(--icon-stroke-width);
@@ -491,6 +625,14 @@ body {
 [data-skin='archive'] :is(.hm-brand b, .tr-title, .st-card-title, .es-title) {
   font-family: var(--font-display);
   letter-spacing: -0.012em;
+}
+[data-skin='atelier'] :is(.hm-brand b, .tr-title, .st-card-title, .es-title, .pc-project-title) {
+  font-family: var(--font-display);
+  letter-spacing: -0.008em;
+}
+[data-skin='atelier'] :is(.primary, .btn.primary, button[type='submit']) {
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--accent) 62%, var(--fg));
+  font-weight: 650;
 }
 [data-skin='terminal'] :is(.hm-sec, .section-title, .panel-title, .st-skill-cap),
 [data-skin='index'] :is(.hm-sec, .section-title, .panel-title, .st-skill-cap) {

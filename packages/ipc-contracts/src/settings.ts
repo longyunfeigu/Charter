@@ -5,11 +5,16 @@ import { SshHostRecordSchema } from './ssh.js';
 export const SETTINGS_SCHEMA_VERSION = 1;
 
 export const ThemeSchema = z.enum(['light', 'dark', 'system']);
-export const SkinSchema = z.enum(['studio', 'terminal', 'archive', 'index']);
+export const SkinSchema = z.enum(['studio', 'terminal', 'archive', 'index', 'atelier']);
 export const DEFAULT_EDITOR_FONT_FAMILY =
   "Menlo, Monaco, 'SF Mono', Consolas, 'Courier New', monospace";
 export const DEFAULT_TERMINAL_FONT_FAMILY =
-  "'SF Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace";
+  "'SF Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', monospace";
+export const DEFAULT_TERMINAL_FONT_SIZE = 15;
+export const DEFAULT_TERMINAL_FONT_WEIGHT = 500;
+export const DEFAULT_TERMINAL_LINE_HEIGHT = 1.2;
+export const DEFAULT_TERMINAL_PADDING_X = 12;
+export const DEFAULT_TERMINAL_PADDING_Y = 10;
 
 export const SettingsSchema = z.object({
   schemaVersion: z.number().int().default(SETTINGS_SCHEMA_VERSION),
@@ -41,12 +46,12 @@ export const SettingsSchema = z.object({
     .prefault({}),
   terminal: z
     .object({
-      fontSize: z.number().min(8).max(32).default(14),
+      fontSize: z.number().min(8).max(32).default(DEFAULT_TERMINAL_FONT_SIZE),
       fontFamily: z.string().min(1).default(DEFAULT_TERMINAL_FONT_FAMILY),
-      fontWeight: z.number().int().min(100).max(900).default(500),
-      lineHeight: z.number().min(1).max(2).default(1),
-      paddingX: z.number().int().min(0).max(32).default(4),
-      paddingY: z.number().int().min(0).max(32).default(4),
+      fontWeight: z.number().int().min(100).max(900).default(DEFAULT_TERMINAL_FONT_WEIGHT),
+      lineHeight: z.number().min(1).max(2).default(DEFAULT_TERMINAL_LINE_HEIGHT),
+      paddingX: z.number().int().min(0).max(32).default(DEFAULT_TERMINAL_PADDING_X),
+      paddingY: z.number().int().min(0).max(32).default(DEFAULT_TERMINAL_PADDING_Y),
       /** Orca uses WCAG-corrected Tango Light/Ghostty Dark palettes. Skin
        * retains Charter's coordinated legacy terminal palettes. */
       colorTheme: z.enum(['orca', 'skin']).default('orca'),

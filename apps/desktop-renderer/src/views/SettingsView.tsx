@@ -847,7 +847,7 @@ function UpdateSettingsSection(props: {
   );
 }
 
-const APPEARANCE_SKINS: AppearanceSkin[] = ['studio', 'terminal', 'archive', 'index'];
+const APPEARANCE_SKINS: AppearanceSkin[] = ['studio', 'terminal', 'archive', 'index', 'atelier'];
 
 function SkinPicker(props: {
   value: AppearanceSkin;
@@ -1123,7 +1123,10 @@ export function SettingsView(): React.JSX.Element {
                 onChange={(e) => set({ terminal: { fontSize: Number(e.target.value) } })}
               />
             </Row>
-            <Row label="Font family" hint="A CSS font-family list; SF Mono is the default">
+            <Row
+              label="Font family"
+              hint="SF Mono by default, with system CJK fallbacks for Chinese output"
+            >
               <input
                 className="st-input wide mono"
                 data-testid="settings-terminal-font-family"

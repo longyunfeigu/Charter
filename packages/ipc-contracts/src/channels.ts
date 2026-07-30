@@ -282,6 +282,83 @@ export const CHANNELS = {
     z.object({}).strict(),
     z.object({ items: z.array(RecentWorkspaceSchema) }),
   ),
+  /** Read-only Project Center data. Unlike workspace.open, inspecting a saved
+   * project never changes the working context or the active editor. */
+  'project.inspect': ch(
+    'project.inspect',
+    1,
+    z.object({ path: z.string().min(1).max(4096) }).strict(),
+    z.object({
+      path: z.string(),
+      displayName: z.string(),
+      lastOpenedAt: z.string(),
+      kind: z.string().nullable(),
+      exists: z.boolean(),
+      trustState: z.enum(['untrusted', 'trusted']),
+      hasPiProjectResources: z.boolean(),
+      setup: z.object({
+        agentsMd: z.boolean(),
+        claudeMd: z.boolean(),
+        agentsDir: z.boolean(),
+        piDir: z.boolean(),
+      }),
+      git: z.object({
+        gitAvailable: z.boolean(),
+        isRepo: z.boolean(),
+        branch: z.string().nullable(),
+        upstream: z.string().nullable(),
+        ahead: z.number().int(),
+        behind: z.number().int(),
+        detached: z.boolean(),
+        head: z.string().nullable(),
+        entries: z.array(
+          z.object({
+            path: z.string(),
+            origPath: z.string().nullable(),
+            group: z.enum(['staged', 'changes', 'untracked', 'conflict']),
+            indexState: z.string(),
+            workState: z.string(),
+          }),
+        ),
+        stats: z.array(
+          z.object({
+            path: z.string(),
+            insertions: z.number().int().min(0),
+            deletions: z.number().int().min(0),
+          }),
+        ),
+      }),
+    }),
+  ),
+  'project.listDir': ch(
+    'project.listDir',
+    1,
+    z
+      .object({
+        path: z.string().min(1).max(4096),
+        dir: z.string().max(4096),
+        showIgnored: z.boolean().default(false),
+      })
+      .strict(),
+    z.object({ entries: z.array(DirEntrySchema) }),
+  ),
+  'project.readFile': ch(
+    'project.readFile',
+    1,
+    z.object({ path: z.string().min(1).max(4096), file: z.string().min(1).max(4096) }).strict(),
+    z.object({
+      content: z.string().max(262_144),
+      binary: z.boolean(),
+      truncated: z.boolean(),
+      size: z.number().int().min(0),
+    }),
+  ),
+  'project.setTrust': ch(
+    'project.setTrust',
+    1,
+    z.object({ path: z.string().min(1).max(4096), trusted: z.boolean() }).strict(),
+    z.object({ trustState: z.enum(['untrusted', 'trusted']) }),
+  ),
   // ADR-0034: forget a project — removes the workspace row and every recorded
   // Session (tasks, events, snapshots metadata) for it. Files on disk are
   // NEVER touched. Refused while the project still has a running Session.

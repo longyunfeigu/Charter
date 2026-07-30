@@ -45,77 +45,6 @@
   padding-top: 2px;
 }
 
-.skills-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-bottom: 14px;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-}
-.skills-stats button {
-  min-width: 0;
-  padding: 13px 16px 12px;
-  border: 0;
-  border-right: 1px solid var(--border-soft);
-  background: color-mix(in srgb, var(--bg-card) 34%, transparent);
-  color: var(--fg);
-  text-align: left;
-  cursor: pointer;
-}
-.skills-stats button:last-child {
-  border-right: 0;
-}
-.skills-stats button:hover {
-  background: color-mix(in srgb, var(--bg-card) 72%, transparent);
-}
-.skills-stats strong {
-  display: block;
-  font-family: var(--font-display);
-  font-size: 19px;
-  font-weight: 650;
-  line-height: 1.1;
-}
-.skills-stats span {
-  display: block;
-  margin-top: 4px;
-  color: var(--fg-muted);
-  font-size: 10.5px;
-}
-.skills-stats small {
-  color: var(--fg-faint);
-  font-size: 9.5px;
-}
-
-.skills-evidence {
-  min-height: 42px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 8px 12px;
-  margin-bottom: 17px;
-  border: 1px solid var(--border-soft);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--bg-card) 64%, transparent);
-}
-.skills-evidence > span,
-.skills-evidence b {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--fg-muted);
-  font-size: 10px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.skills-evidence > span {
-  font-size: 10.5px;
-}
-.skills-evidence small {
-  margin-left: auto;
-  color: var(--fg-faint);
-  font-size: 9.5px;
-}
-.skills-evidence i,
 .skills-rail-coverage i {
   width: 7px;
   height: 7px;
@@ -123,15 +52,12 @@
   border-radius: 50%;
   background: var(--fg-faint);
 }
-.skills-evidence .agent-pi,
 .skills-rail-coverage .agent-pi {
   background: #6ca1e8;
 }
-.skills-evidence .agent-claude,
 .skills-rail-coverage .agent-claude {
   background: #e0876a;
 }
-.skills-evidence .agent-codex,
 .skills-rail-coverage .agent-codex {
   background: #46b477;
 }
@@ -314,6 +240,14 @@
 .skills-name-cell .system {
   border: 1px solid color-mix(in srgb, #46b477 28%, var(--border));
   color: #287650;
+}
+.skills-name-cell .issue {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.skills-name-cell .unobserved {
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 .skills-install-pills,
 .skills-usage-rollup {
@@ -765,18 +699,6 @@
   }
   .skills-controls {
     flex-wrap: wrap;
-  }
-  .skills-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .skills-stats button:nth-child(2) {
-    border-right: 0;
-  }
-  .skills-stats button:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--border-soft);
-  }
-  .skills-evidence b {
-    display: none;
   }
   .skills-table-frame {
     overflow-x: auto;

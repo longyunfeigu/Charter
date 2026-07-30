@@ -77,15 +77,19 @@ test.describe('Shell v4 — global tasks on a multi-mount engine (ADR-0009)', ()
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('plan-card')).toBeVisible({ timeout: 20000 });
 
-      // Back home, focus project B — the pending task must NOT be cancelled.
-      // Its Files context replaces the former duplicate tree in Projects.
+      // Back home, browse project B — the pending task must NOT be cancelled.
+      // Browsing alone does not change context; the explicit action below does.
       await page.getByTestId('task-room-back').click();
       await page.getByTestId('rail-context').click();
       await page.getByTestId(`home-recent-${projectB}`).click();
-      await expect(page.getByTestId('project-tool-view')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByTestId('project-center')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
-      await expect(page.locator('.project-tool-title')).toContainText(
-        projectB.split('/').pop() ?? 'fixture',
+      await expect(page.getByTestId(`home-recent-${projectA}`).locator('..')).toHaveClass(
+        /current/,
+      );
+      await page.getByTestId('project-set-current').click();
+      await expect(page.getByTestId(`home-recent-${projectB}`).locator('..')).toHaveClass(
+        /current/,
         { timeout: 15000 },
       );
 

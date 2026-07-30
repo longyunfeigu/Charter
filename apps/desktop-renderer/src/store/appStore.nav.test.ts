@@ -25,6 +25,7 @@ function reset(): void {
     remoteSelectedHostId: null,
     remoteSubview: 'overview',
     projectTool: null,
+    projectCenter: null,
     projectBottomTab: null,
     surface: 'home',
     peek: null,
@@ -101,13 +102,33 @@ describe('setRailView across groups (the stale-main bug class)', () => {
     expect(useAppStore.getState().taskRoomTaskId).toBe('t-skills');
   });
 
-  it('leaving Projects for Sessions clears the archaeology page and restores it on return', () => {
-    useAppStore.getState().setRailView('projects');
+  it('keeps Session Archive inside the workbench and restores it after visiting Projects', () => {
     useAppStore.getState().openArchaeology('/p');
-    useAppStore.getState().setRailView('sessions');
-    expect(useAppStore.getState().archaeology).toBeNull();
-    useAppStore.getState().setRailView('projects');
+    useAppStore.getState().setRailView('inbox');
     expect(useAppStore.getState().archaeology).toEqual({ scope: '/p' });
+    useAppStore.getState().setRailView('projects');
+    expect(useAppStore.getState().archaeology).toBeNull();
+    useAppStore.getState().setRailView('sessions');
+    expect(useAppStore.getState().archaeology).toEqual({ scope: '/p' });
+  });
+
+  it('keeps Project Center selection and tab inside the Projects navigation group', () => {
+    useAppStore.getState().openProjectCenter('/saved/project');
+    useAppStore.getState().setProjectCenterTab('changes');
+    expect(useAppStore.getState().railView).toBe('projects');
+    expect(mainSurfaceOf(useAppStore.getState())).toEqual({
+      kind: 'project-center',
+      path: '/saved/project',
+      tab: 'changes',
+    });
+
+    useAppStore.getState().setRailView('sessions');
+    expect(useAppStore.getState().projectCenter).toBeNull();
+    useAppStore.getState().setRailView('projects');
+    expect(useAppStore.getState().projectCenter).toEqual({
+      path: '/saved/project',
+      tab: 'changes',
+    });
   });
 
   it('switches inside the workbench group never touch the main surface', () => {
@@ -132,17 +153,21 @@ describe('surface openers keep the rail in step (reverse direction)', () => {
     expect(useAppStore.getState().sessionRoomView).toBe('conversation');
   });
 
-  it('opening a room from the Projects page flips the rail to Sessions and remembers the page', () => {
-    useAppStore.getState().setRailView('projects');
+  it('opening Session Archive from Project Center flips to Sessions and remembers the project', () => {
+    useAppStore.getState().openProjectCenter('/saved/project', 'sessions');
     useAppStore.getState().openArchaeology(null);
     useAppStore.getState().openTaskRoom('t2'); // e.g. Open on a tracked row
     const s = useAppStore.getState();
     expect(s.railView).toBe('sessions');
     expect(s.taskRoomTaskId).toBe('t2');
     expect(s.archaeology).toBeNull();
-    // The projects group remembers its page for the way back.
+    // The Projects group remembers its own center for the way back.
     useAppStore.getState().setRailView('projects');
-    expect(useAppStore.getState().archaeology).toEqual({ scope: null });
+    expect(useAppStore.getState().projectCenter).toEqual({
+      path: '/saved/project',
+      tab: 'sessions',
+    });
+    expect(useAppStore.getState().archaeology).toBeNull();
     expect(useAppStore.getState().taskRoomTaskId).toBeNull();
   });
 
@@ -207,14 +232,15 @@ describe('surface openers keep the rail in step (reverse direction)', () => {
     expect(useAppStore.getState().railView).toBe('sessions');
   });
 
-  it('opening archaeology from the workbench flips the rail to Projects and remembers the room', () => {
+  it('opening Session Archive stays in Sessions and replaces the room', () => {
     useAppStore.getState().openTaskRoom('t3');
     useAppStore.getState().openArchaeology('/x');
     const s = useAppStore.getState();
-    expect(s.railView).toBe('projects');
+    expect(s.railView).toBe('sessions');
     expect(s.taskRoomTaskId).toBeNull();
-    useAppStore.getState().setRailView('sessions');
-    expect(useAppStore.getState().taskRoomTaskId).toBe('t3');
+    expect(s.archaeology).toEqual({ scope: '/x' });
+    useAppStore.getState().setRailView('files');
+    expect(useAppStore.getState().archaeology).toEqual({ scope: '/x' });
   });
 
   it('opening a room from inside the workbench never yanks the Inbox panel away', () => {

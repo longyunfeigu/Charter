@@ -21,7 +21,7 @@ import { SessionFilesPane } from './SessionFilesPane.js';
 import { SkillsRailPanel } from './SkillsRailPanel.js';
 import { useGlowTasks } from './useGlow.js';
 import { sessionDisplayTitle } from '../store/sessionAttention.js';
-import { unknownDirectories, useArchaeologyStore } from '../store/archaeologyStore.js';
+import { useArchaeologyStore } from '../store/archaeologyStore.js';
 import { permissionForWorker, useOrchestrationStore } from '../store/orchestrationStore.js';
 import {
   ACTIVE_SESSION_GROUP_LIMIT,
@@ -39,6 +39,7 @@ import {
 } from './rail-groups.js';
 import { ActivityBar } from './ActivityBar.js';
 import { SessionRenameDialog } from './SessionRenameDialog.js';
+import { visibleAttentionTasks } from '../store/attentionDismissals.js';
 import {
   externalAgentLifecycle,
   externalSessionTitle,
@@ -49,8 +50,34 @@ import {
 export { isHistoryEntry, type SessionEntry } from './rail-groups.js';
 
 const COLLAPSED_KEY = 'charter.rail.collapsed.v2';
+const RAIL_WIDTH_KEY = 'charter.rail.width.v1';
+const RAIL_WIDTH_DEFAULT = 280;
+const RAIL_WIDTH_MIN = 240;
+const RAIL_WIDTH_MAX = 520;
 const SESSION_TOOLTIP_DELAY_MS = 180;
 const ACTION_TOOLTIP_DELAY_MS = 80;
+
+function clampRailWidth(width: number): number {
+  return Math.min(RAIL_WIDTH_MAX, Math.max(RAIL_WIDTH_MIN, Math.round(width)));
+}
+
+function loadRailWidth(): number {
+  try {
+    const saved = Number(window.localStorage.getItem(RAIL_WIDTH_KEY));
+    if (Number.isFinite(saved) && saved > 0) return clampRailWidth(saved);
+  } catch {
+    // best-effort UI state
+  }
+  return RAIL_WIDTH_DEFAULT;
+}
+
+function saveRailWidth(width: number): void {
+  try {
+    window.localStorage.setItem(RAIL_WIDTH_KEY, String(clampRailWidth(width)));
+  } catch {
+    // best-effort UI state
+  }
+}
 
 function historyPeriodGroupKey(key: HistoryPeriodKey): string {
   return `history:${key}`;
@@ -546,11 +573,13 @@ export function SessionRail(): React.JSX.Element {
   // Subscribe to the task list only — the rail must not re-render on every
   // streaming delta of whichever session is active.
   const tasks = useTaskStore((s) => s.tasks);
+  const attentionDismissals = useTaskStore((s) => s.attentionDismissals);
+  const clearAttention = useTaskStore((s) => s.clearAttention);
   const terminalStore = useTerminalStore();
   const taskByTerminal = useExternalStore((state) => state.taskByTerminal);
   const orchestration = useOrchestrationStore((state) => state.snapshot);
   const orchestrationPermissions = useOrchestrationStore((state) => state.permissions);
-  const inbox = tasks.filter((task) => !task.archived && needsAttention(task));
+  const inbox = visibleAttentionTasks(tasks, attentionDismissals);
   const [recent, setRecent] = useState<RecentWorkspaceDto[]>([]);
   // ADR-0029: the rail view lives in the app store so commands (⌘⇧E) and
   // "open project files" flows can reveal the Files tree.
@@ -566,21 +595,18 @@ export function SessionRail(): React.JSX.Element {
   const [needsOnly, setNeedsOnly] = useState(false);
   const [projectQuery, setProjectQuery] = useState('');
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [projectMenuPath, setProjectMenuPath] = useState<string | null>(null);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const railRef = useRef<HTMLElement | null>(null);
+  const railWidthRef = useRef(loadRailWidth());
+  const railResizingRef = useRef(false);
+  const [railWidth, setRailWidth] = useState(railWidthRef.current);
+  const [railResizing, setRailResizing] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   // ADR-0038: discovered external conversations (read-only ~/.claude/~/.codex
-  // sweep) — the Projects panel shows per-project counts and unknown dirs.
+  // sweep). The global archive belongs to Sessions; Projects only consumes
+  // project-attributed counts.
   const discovered = useArchaeologyStore((s) => s.sessions);
-  const discoveryEnabled = useArchaeologyStore((s) => s.enabled);
-  const discoveredByProject = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const session of discovered) {
-      if (session.trackedTaskId !== null || !session.projectPath) continue;
-      counts.set(session.projectPath, (counts.get(session.projectPath) ?? 0) + 1);
-    }
-    return counts;
-  }, [discovered]);
-  const unknownDirs = useMemo(() => unknownDirectories(discovered), [discovered]);
   const setView = (next: RailView): void => {
     app.setRailView(next);
     if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(true);
@@ -594,9 +620,6 @@ export function SessionRail(): React.JSX.Element {
   const showProjects = (): void => {
     setView('projects');
     setProjectsPanelOpen(true);
-    // ADR-0038: the Projects panel is discovery's ambient entry point — keep
-    // the "N outside" counts fresh without the user ever asking for a scan.
-    void useArchaeologyStore.getState().scan();
   };
 
   useEffect(() => {
@@ -605,16 +628,50 @@ export function SessionRail(): React.JSX.Element {
     terminalStore.init();
     useExternalStore.getState().init();
     useOrchestrationStore.getState().init();
+    void useArchaeologyStore.getState().scan();
     void rpcResult('workspace.recent', {}).then((result) => {
       if (result.ok) setRecent(result.data.items);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceStore.workspace?.path]);
 
+  // Selecting Projects establishes a browsed project without changing the
+  // working context. Prefer the current workspace, then the newest available
+  // saved project. Subsequent row clicks own the selection explicitly.
+  useEffect(() => {
+    if (view !== 'projects' || app.projectCenter || recent.length === 0) return;
+    const preferred =
+      recent.find((project) => project.path === workspaceStore.workspace?.path) ??
+      recent.find((project) => project.exists) ??
+      recent[0];
+    if (preferred) app.openProjectCenter(preferred.path);
+  }, [app, recent, view, workspaceStore.workspace?.path]);
+
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!railResizing) return;
+    document.documentElement.classList.add('sr-resizing');
+    return () => document.documentElement.classList.remove('sr-resizing');
+  }, [railResizing]);
+
+  const railWidthLimit = (): number =>
+    Math.max(RAIL_WIDTH_MIN, Math.min(RAIL_WIDTH_MAX, window.innerWidth - 560));
+
+  const updateRailWidth = (width: number, persist = false): void => {
+    const next = Math.min(railWidthLimit(), clampRailWidth(width));
+    railWidthRef.current = next;
+    setRailWidth(next);
+    if (persist) saveRailWidth(next);
+  };
+
+  const resizeRailFromPointer = (clientX: number): void => {
+    const left = railRef.current?.getBoundingClientRect().left ?? 0;
+    updateRailWidth(clientX - left);
+  };
 
   useEffect(() => {
     if (app.taskRoomTaskId && window.matchMedia('(max-width: 1120px)').matches) {
@@ -639,6 +696,24 @@ export function SessionRail(): React.JSX.Element {
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [addMenuOpen]);
+
+  useEffect(() => {
+    if (!projectMenuPath) return;
+    const close = (event: MouseEvent): void => {
+      if (!(event.target as Element | null)?.closest('.sr-project-menu-wrap')) {
+        setProjectMenuPath(null);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setProjectMenuPath(null);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [projectMenuPath]);
 
   const allEntries = useMemo<SessionEntry[]>(() => {
     const workerTerminalIds = new Set(orchestration.workers.map((worker) => worker.terminalId));
@@ -1075,6 +1150,26 @@ export function SessionRail(): React.JSX.Element {
             <Ic name="filter" size={13} />
           </button>
         </div>
+        <button
+          className={`sr-session-archive ${app.archaeology ? 'active' : ''}`}
+          data-testid="rail-session-archive"
+          onClick={() => {
+            app.openArchaeology(null);
+            if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(false);
+          }}
+        >
+          <Ic name="clock" size={14} />
+          <span>
+            <strong>Session Archive</strong>
+            <small>
+              {tasks.length} tracked
+              {discovered.some((session) => !session.trackedTaskId)
+                ? ` · ${discovered.filter((session) => !session.trackedTaskId).length} external`
+                : ' · Claude & Codex discovery'}
+            </small>
+          </span>
+          <Ic name="chevron" size={11} className="sr-session-archive-chevron" />
+        </button>
         <div className="sr-new-wrap">
           <button
             className="sr-new"
@@ -1260,7 +1355,19 @@ export function SessionRail(): React.JSX.Element {
       <header className="sr-head sr-head-plain">
         <div className="sr-heading-row">
           <strong>Needs attention</strong>
-          <small>{inbox.length} waiting</small>
+          <div className="sr-inbox-heading-actions">
+            <small>{inbox.length} waiting</small>
+            {inbox.length > 0 ? (
+              <button
+                className="sr-inbox-clear"
+                data-testid="rail-inbox-clear"
+                title="Clear current reminders without deleting sessions"
+                onClick={clearAttention}
+              >
+                Clear all
+              </button>
+            ) : null}
+          </div>
         </div>
       </header>
       <div className="sr-scroll" data-testid="rail-inbox-panel">
@@ -1409,30 +1516,31 @@ export function SessionRail(): React.JSX.Element {
           <div className="sr-empty">No projects match this search.</div>
         ) : null}
         {filteredRecent.map((project) => {
-          const active = workspaceStore.workspace?.path === project.path;
-          const activeCount =
-            groups.find((group) => group.path === project.path)?.entries.length ?? 0;
-          const outsideCount = discoveredByProject.get(project.path) ?? 0;
+          const current = workspaceStore.workspace?.path === project.path;
+          const selected = app.projectCenter?.path === project.path;
+          const projectTasks = tasks.filter(
+            (task) => task.projectPath === project.path && !task.archived,
+          );
+          const liveCount = projectTasks.filter(
+            (task) => task.external?.status === 'active' || RUNNING_TASK_STATES.has(task.state),
+          ).length;
+          const attentionCount = projectTasks.filter(needsAttention).length;
           const recordedCount = recordedByProject.get(project.path) ?? 0;
           return (
-            <div className={`sr-project-wrap ${active ? 'active' : ''}`} key={project.path}>
+            <div
+              className={`sr-project-wrap ${selected ? 'selected' : ''} ${current ? 'current' : ''} ${!project.exists ? 'unavailable' : ''}`}
+              key={project.path}
+            >
               <button
-                className={`sr-project ${active ? 'active' : ''}`}
+                className={`sr-project ${selected ? 'selected' : ''}`}
                 data-testid={`home-recent-${project.path}`}
-                title={`${project.path} — open project files`}
+                title={`${project.path} — view Project Center`}
                 onClick={() => {
-                  // ADR-0029: "open project files" = the Editor surface plus
-                  // the rail's Files tree (the one project tree). ADR-0042:
-                  // setProjectTool pairs the rail's Files view itself.
-                  setProjectsPanelOpen(false);
-                  if (active) {
-                    app.setProjectTool('editor');
-                    return;
+                  setProjectMenuPath(null);
+                  app.openProjectCenter(project.path);
+                  if (window.matchMedia('(max-width: 1120px)').matches) {
+                    setCompactPanelOpen(false);
                   }
-                  app.setHomePick(true);
-                  void workspaceStore
-                    .openPath(project.path)
-                    .then(() => useAppStore.getState().setProjectTool('editor'));
                 }}
               >
                 <Ic name="folder" size={14} />
@@ -1440,87 +1548,113 @@ export function SessionRail(): React.JSX.Element {
                   <strong>{project.displayName}</strong>
                   <small
                     data-testid={`project-discovered-${project.path}`}
-                    title={
-                      `${activeCount} active session${activeCount === 1 ? '' : 's'} — settled History and archived sessions are not counted` +
-                      (outsideCount > 0
-                        ? `\n${outsideCount} conversation${outsideCount === 1 ? '' : 's'} ran outside Charter — the clock button lists everything`
-                        : '')
-                    }
+                    title={`${liveCount} live session${liveCount === 1 ? '' : 's'} · ${attentionCount} need attention`}
                   >
-                    {activeCount} active
-                    {outsideCount > 0 ? ` · ${outsideCount} outside` : ''}
+                    {!project.exists
+                      ? 'Unavailable'
+                      : liveCount > 0 || attentionCount > 0
+                        ? `${liveCount} live${attentionCount > 0 ? ` · ${attentionCount} need you` : ''}`
+                        : 'No live sessions'}
                   </small>
                 </span>
-                {active ? (
+                {current ? (
                   <span className="sr-project-current" title="Current project">
                     <Ic name="check" size={12} />
                   </span>
                 ) : null}
               </button>
-              <button
-                className="sr-project-use"
-                data-testid={`project-history-${project.path}`}
-                title={`Session history of ${project.displayName} — Charter and outside`}
-                aria-label={`Session history of ${project.displayName}`}
-                onClick={() => {
-                  setProjectsPanelOpen(false);
-                  app.openArchaeology(project.path);
-                }}
-              >
-                <Ic name="clock" size={13} />
-              </button>
-              <button
-                className="sr-project-use"
-                data-testid={`project-spawn-pi-${project.path}`}
-                title={`New session in ${project.displayName}`}
-                aria-label={`New session in ${project.displayName}`}
-                onClick={() => startSession(project.path)}
-              >
-                <Ic name="plus" size={13} />
-              </button>
-              <ArmedIconButton
-                icon="trash"
-                className="sr-project-remove"
-                testid={`project-remove-${project.path}`}
-                title={`Remove ${project.displayName} from Charter`}
-                armedTitle="Click again to remove this project"
-                onConfirm={() => void removeProject(project.path, recordedCount)}
-              />
+              <div className="sr-project-menu-wrap">
+                <button
+                  className="sr-project-use"
+                  data-testid={`project-menu-${project.path}`}
+                  title={`Project actions for ${project.displayName}`}
+                  aria-label={`Project actions for ${project.displayName}`}
+                  aria-haspopup="menu"
+                  aria-expanded={projectMenuPath === project.path}
+                  onClick={() =>
+                    setProjectMenuPath((value) => (value === project.path ? null : project.path))
+                  }
+                >
+                  <Ic name="more" size={14} />
+                </button>
+                {projectMenuPath === project.path ? (
+                  <div className="sr-project-menu" role="menu">
+                    {!current && project.exists ? (
+                      <button
+                        role="menuitem"
+                        data-testid={`project-set-current-${project.path}`}
+                        onClick={() => {
+                          setProjectMenuPath(null);
+                          app.setHomePick(true);
+                          void workspaceStore.openPath(project.path);
+                        }}
+                      >
+                        <Ic name="check" size={12} /> Set as current
+                      </button>
+                    ) : null}
+                    <button
+                      role="menuitem"
+                      data-testid={`project-history-${project.path}`}
+                      onClick={() => {
+                        setProjectMenuPath(null);
+                        app.openProjectCenter(project.path, 'sessions');
+                      }}
+                    >
+                      <Ic name="clock" size={12} /> View sessions
+                    </button>
+                    {project.exists ? (
+                      <button
+                        role="menuitem"
+                        data-testid={`project-spawn-pi-${project.path}`}
+                        onClick={() => {
+                          setProjectMenuPath(null);
+                          startSession(project.path);
+                        }}
+                      >
+                        <Ic name="plus" size={12} /> New Session
+                      </button>
+                    ) : null}
+                    {project.exists ? (
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setProjectMenuPath(null);
+                          void rpcResult('app.revealPath', { path: project.path });
+                        }}
+                      >
+                        <Ic name="folder-open" size={12} /> Reveal in Finder
+                      </button>
+                    ) : null}
+                    <button
+                      className="danger"
+                      role="menuitem"
+                      data-testid={`project-remove-${project.path}`}
+                      onClick={() => {
+                        setProjectMenuPath(null);
+                        void removeProject(project.path, recordedCount);
+                      }}
+                    >
+                      <Ic name="trash" size={12} /> Remove from Charter
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
           );
         })}
-        {discoveryEnabled && (unknownDirs.length > 0 || discovered.length > 0) ? (
-          <button
-            className="sr-agent-activity"
-            data-testid="rail-agent-activity"
-            onClick={() => {
-              setProjectsPanelOpen(false);
-              app.openArchaeology(null);
-            }}
-          >
-            <Ic name="clock" size={14} />
-            <span className="sr-project-copy">
-              <strong>Agent activity</strong>
-              <small>
-                {unknownDirs.length > 0
-                  ? `${unknownDirs.length} director${unknownDirs.length === 1 ? 'y' : 'ies'} never opened here`
-                  : 'everything discovered on this machine'}
-              </small>
-            </span>
-            <Ic name="chevron" size={12} className="sr-agent-activity-chevron" />
-          </button>
-        ) : null}
       </div>
     </>
   );
 
   return (
     <aside
+      ref={railRef}
       className={`sr-rail view-${view} ${projectsPanelOpen ? 'projects-panel-open' : ''} ${
         compactPanelOpen ? 'compact-open' : ''
-      }`}
+      } ${railResizing ? 'is-resizing' : ''}`}
       data-testid="home-sidebar"
       aria-label={view === 'skills' ? 'Skills' : 'Sessions'}
+      style={{ '--rail-width': `${railWidth}px` } as React.CSSProperties}
     >
       <ActivityBar
         active={view}
@@ -1566,6 +1700,58 @@ export function SessionRail(): React.JSX.Element {
           sessionsPanel
         )}
       </section>
+      <div
+        className="sr-rail-resize"
+        data-testid="rail-resize-handle"
+        role="separator"
+        aria-label="Resize Sessions sidebar"
+        aria-orientation="vertical"
+        aria-valuemin={RAIL_WIDTH_MIN}
+        aria-valuemax={railWidthLimit()}
+        aria-valuenow={railWidth}
+        tabIndex={0}
+        title="Drag to resize · double-click to reset"
+        onDoubleClick={() => updateRailWidth(RAIL_WIDTH_DEFAULT, true)}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            event.preventDefault();
+            updateRailWidth(railWidth + (event.key === 'ArrowRight' ? 10 : -10), true);
+          } else if (event.key === 'Home') {
+            event.preventDefault();
+            updateRailWidth(RAIL_WIDTH_DEFAULT, true);
+          }
+        }}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          railResizingRef.current = true;
+          setRailResizing(true);
+          resizeRailFromPointer(event.clientX);
+        }}
+        onPointerMove={(event) => {
+          if (!railResizingRef.current || !event.currentTarget.hasPointerCapture(event.pointerId)) {
+            return;
+          }
+          resizeRailFromPointer(event.clientX);
+        }}
+        onPointerUp={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+          saveRailWidth(railWidthRef.current);
+          railResizingRef.current = false;
+          setRailResizing(false);
+        }}
+        onPointerCancel={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+          saveRailWidth(railWidthRef.current);
+          railResizingRef.current = false;
+          setRailResizing(false);
+        }}
+      />
     </aside>
   );
 }

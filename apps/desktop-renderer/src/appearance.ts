@@ -20,6 +20,10 @@ export const SKIN_LABELS: Record<AppearanceSkin, { name: string; description: st
     name: 'Index',
     description: 'Black · white · signal red',
   },
+  atelier: {
+    name: 'Atelier',
+    description: 'Paper · letterpress · warm ink',
+  },
 };
 
 const EDITOR_FONTS: Record<AppearanceSkin, string> = {
@@ -32,6 +36,8 @@ const EDITOR_FONTS: Record<AppearanceSkin, string> = {
   archive:
     "Menlo, Monaco, 'SF Mono', 'SFMono-Regular', Consolas, 'PingFang SC', 'Microsoft YaHei UI', monospace",
   index: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace",
+  atelier:
+    "Menlo, Monaco, 'SF Mono', 'SFMono-Regular', Consolas, 'PingFang SC', 'Microsoft YaHei UI', monospace",
 };
 
 export function resolveEffectiveTheme(settings: Settings | null): EffectiveTheme {
@@ -53,7 +59,9 @@ export function applyAppearance(settings: Settings | null): void {
 
 export function currentSkin(): AppearanceSkin {
   const skin = document.documentElement.dataset.skin;
-  return skin === 'terminal' || skin === 'archive' || skin === 'index' ? skin : 'studio';
+  return skin === 'terminal' || skin === 'archive' || skin === 'index' || skin === 'atelier'
+    ? skin
+    : 'studio';
 }
 
 /** A user-entered editor font wins; the historical default follows the selected skin. */

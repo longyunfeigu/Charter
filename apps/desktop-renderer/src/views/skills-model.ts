@@ -26,6 +26,8 @@ export interface SkillGroup {
   usesByAgent: Record<SkillAgent, number>;
   lastUsedAt: string | null;
   preambleTokens: number;
+  needsTechnicalReview: boolean;
+  noObservedUse: boolean;
   review: boolean;
   disabledAnywhere: boolean;
   protectedOnly: boolean;
@@ -53,7 +55,11 @@ function maxDate(a: string | null, b: string | null): string | null {
   return Date.parse(a) >= Date.parse(b) ? a : b;
 }
 
-export function groupSkills(skills: SkillDto[], usage: SkillUsageDto[]): SkillGroup[] {
+export function groupSkills(
+  skills: SkillDto[],
+  usage: SkillUsageDto[],
+  usageLoaded = true,
+): SkillGroup[] {
   const usageByName = new Map(usage.map((row) => [row.name, row]));
   const grouped = new Map<string, SkillDto[]>();
   for (const skill of skills) {
@@ -84,7 +90,14 @@ export function groupSkills(skills: SkillDto[], usage: SkillUsageDto[]): SkillGr
       const needsTechnicalReview = copies.some(
         (copy) => copy.status === 'invalid' || copy.compatibility === 'needs-review',
       );
-      const paysContext = copies.some((copy) => copy.enabled && !copy.explicitOnly);
+      // Codex rollout files do not currently expose a verified implicit-skill
+      // event. Only nominate an unused skill when at least one enabled copy is
+      // installed in a consumer whose usage we can actually observe.
+      const hasObservedConsumerCopy = copies.some(
+        (copy) => skillAgent(copy) !== 'codex' && isAgentEnabled(copy),
+      );
+      const noObservedUse =
+        usageLoaded && hasObservedConsumerCopy && usesByAgent.pi + usesByAgent.claude === 0;
       return {
         key,
         displayName: copies[0]?.displayName ?? key,
@@ -95,7 +108,9 @@ export function groupSkills(skills: SkillDto[], usage: SkillUsageDto[]): SkillGr
         usesByAgent,
         lastUsedAt,
         preambleTokens,
-        review: needsTechnicalReview || (uses === 0 && paysContext),
+        needsTechnicalReview,
+        noObservedUse,
+        review: needsTechnicalReview || noObservedUse,
         disabledAnywhere,
         protectedOnly: copies.every((copy) => copy.protected === true),
       };

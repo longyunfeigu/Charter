@@ -16,6 +16,12 @@ import type {
 import { onEvent, rpcResult } from '../bridge.js';
 import { okOrToast, useAppStore } from './appStore.js';
 import { STREAM_BUFFER_CAP } from '../views/timeline-window.js';
+import {
+  dismissCurrentAttention,
+  loadAttentionDismissals,
+  saveAttentionDismissals,
+  type AttentionDismissals,
+} from './attentionDismissals.js';
 
 /**
  * Append a streaming delta, keeping only the last STREAM_BUFFER_CAP characters
@@ -52,10 +58,12 @@ interface TaskStore {
   newTaskOpen: boolean;
   loadingTimeline: boolean;
   initialized: boolean;
+  attentionDismissals: AttentionDismissals;
 
   init(): void;
   refreshTasks(): Promise<void>;
   refreshModels(): Promise<void>;
+  clearAttention(): void;
   openTask(taskId: string): Promise<void>;
   renameTask(taskId: string, title: string): Promise<boolean>;
   /** Archive (hide) a finished task; answered tasks are closed out (accepted) first. */
@@ -201,6 +209,13 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   newTaskOpen: false,
   loadingTimeline: false,
   initialized: false,
+  attentionDismissals: loadAttentionDismissals(),
+
+  clearAttention() {
+    const attentionDismissals = dismissCurrentAttention(get().tasks, get().attentionDismissals);
+    saveAttentionDismissals(attentionDismissals);
+    set({ attentionDismissals });
+  },
 
   init() {
     if (get().initialized) return;

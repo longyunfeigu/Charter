@@ -10,12 +10,13 @@ describe('settings resolution (SET-002 / WS-014)', () => {
     expect(effective.editor.fontSize).toBeGreaterThan(0);
     expect(effective.editor.autoSave).toBe('off');
     expect(effective.general.uiScale).toBe(1);
-    expect(effective.terminal.fontSize).toBe(14);
+    expect(effective.terminal.fontSize).toBe(15);
     expect(effective.terminal.fontFamily).toContain('SF Mono');
+    expect(effective.terminal.fontFamily).toContain('PingFang SC');
     expect(effective.terminal.fontWeight).toBe(500);
-    expect(effective.terminal.lineHeight).toBe(1);
-    expect(effective.terminal.paddingX).toBe(4);
-    expect(effective.terminal.paddingY).toBe(4);
+    expect(effective.terminal.lineHeight).toBe(1.2);
+    expect(effective.terminal.paddingX).toBe(12);
+    expect(effective.terminal.paddingY).toBe(10);
     expect(effective.terminal.colorTheme).toBe('orca');
     expect(effective.terminal.renderer).toBe('auto');
     expect(effective.terminal.unicodeVersion).toBe('11');
@@ -86,8 +87,8 @@ describe('settings resolution (SET-002 / WS-014)', () => {
     });
   });
 
-  it('accepts the four coordinated application skins and rejects unknown ones', () => {
-    for (const skin of ['studio', 'terminal', 'archive', 'index'] as const) {
+  it('accepts the five coordinated application skins and rejects unknown ones', () => {
+    for (const skin of ['studio', 'terminal', 'archive', 'index', 'atelier'] as const) {
       const { effective, issues } = resolveSettings({ general: { skin } }, undefined);
       expect(effective.general.skin).toBe(skin);
       expect(issues).toHaveLength(0);

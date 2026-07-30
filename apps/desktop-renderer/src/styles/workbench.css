@@ -573,7 +573,7 @@ html.xp-resizing * {
 .terminal-host {
   flex: 1;
   min-height: 0;
-  padding: 4px;
+  padding: 10px 12px;
   overflow: hidden;
   background: var(--bg-card);
 }

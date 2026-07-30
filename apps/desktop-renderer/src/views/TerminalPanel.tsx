@@ -2,6 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import {
   DEFAULT_TERMINAL_FONT_FAMILY,
+  DEFAULT_TERMINAL_FONT_SIZE,
+  DEFAULT_TERMINAL_FONT_WEIGHT,
+  DEFAULT_TERMINAL_LINE_HEIGHT,
+  DEFAULT_TERMINAL_PADDING_X,
+  DEFAULT_TERMINAL_PADDING_Y,
   type RecentWorkspaceDto,
   type Settings,
   type SshHostDto,
@@ -397,6 +402,61 @@ export function terminalAppearance(): TerminalAppearance {
           },
     };
   }
+  if (skin === 'atelier') {
+    return {
+      // The UI is serif and tactile; terminal cells deliberately remain truly
+      // monospaced while borrowing Atelier's paper, ink and stamp colors.
+      fontFamily:
+        "Menlo, Monaco, 'SF Mono', 'SFMono-Regular', Consolas, 'PingFang SC', 'Microsoft YaHei UI', monospace",
+      theme: dark
+        ? {
+            background: '#292319',
+            foreground: '#efe4ce',
+            cursor: '#d46a4b',
+            cursorAccent: '#292319',
+            selectionBackground: '#654334',
+            black: '#18150f',
+            red: '#e06d55',
+            green: '#7f9c72',
+            yellow: '#d5a43b',
+            blue: '#86a9b3',
+            magenta: '#c88ca8',
+            cyan: '#78aaa2',
+            white: '#d9cdb7',
+            brightBlack: '#8d7e67',
+            brightRed: '#ef927d',
+            brightGreen: '#a2ba95',
+            brightYellow: '#e4c16b',
+            brightBlue: '#aac4ca',
+            brightMagenta: '#dfabc1',
+            brightCyan: '#9bc8c1',
+            brightWhite: '#fff6e5',
+          }
+        : {
+            background: '#fbf8f0',
+            foreground: '#211d16',
+            cursor: '#a8442e',
+            cursorAccent: '#fbf8f0',
+            selectionBackground: '#e7c8b8',
+            black: '#211d16',
+            red: '#a8442e',
+            green: '#4d6b4a',
+            yellow: '#916819',
+            blue: '#486776',
+            magenta: '#82556d',
+            cyan: '#48736d',
+            white: '#e4dccb',
+            brightBlack: '#8f8069',
+            brightRed: '#bd5c43',
+            brightGreen: '#647f5e',
+            brightYellow: '#aa7b25',
+            brightBlue: '#607e8b',
+            brightMagenta: '#9a6e83',
+            brightCyan: '#608982',
+            brightWhite: '#fffdf7',
+          },
+    };
+  }
   if (skin === 'index') {
     return {
       fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace",
@@ -647,12 +707,14 @@ export function applyTerminalAppearance(
 ): void {
   const appearance = mode === 'quick' ? QUICK_TERMINAL_APPEARANCE : terminalAppearance();
   const settings = useAppStore.getState().settings?.terminal;
-  const fontSize = item.fontSizeOverride ?? settings?.fontSize ?? 14;
+  const fontSize = item.fontSizeOverride ?? settings?.fontSize ?? DEFAULT_TERMINAL_FONT_SIZE;
   const fontFamily = settings?.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY;
-  const lineHeight = settings?.lineHeight ?? 1;
-  const paddingX = settings?.paddingX ?? 4;
-  const paddingY = settings?.paddingY ?? 4;
-  const { fontWeight, fontWeightBold } = resolveTerminalFontWeights(settings?.fontWeight ?? 500);
+  const lineHeight = settings?.lineHeight ?? DEFAULT_TERMINAL_LINE_HEIGHT;
+  const paddingX = settings?.paddingX ?? DEFAULT_TERMINAL_PADDING_X;
+  const paddingY = settings?.paddingY ?? DEFAULT_TERMINAL_PADDING_Y;
+  const { fontWeight, fontWeightBold } = resolveTerminalFontWeights(
+    settings?.fontWeight ?? DEFAULT_TERMINAL_FONT_WEIGHT,
+  );
   const appDark = document.documentElement.dataset.theme === 'dark';
   const minimumContrastRatio = resolveTerminalMinimumContrastRatio(appearance.theme, appDark);
 
@@ -884,14 +946,16 @@ function wireFileLinks(item: TermInstance): void {
 
 function makeTerm(settings: Settings['terminal'] | undefined): { term: Terminal; fit: FitAddon } {
   const appearance = terminalAppearance();
-  const { fontWeight, fontWeightBold } = resolveTerminalFontWeights(settings?.fontWeight ?? 500);
+  const { fontWeight, fontWeightBold } = resolveTerminalFontWeights(
+    settings?.fontWeight ?? DEFAULT_TERMINAL_FONT_WEIGHT,
+  );
   const appDark = document.documentElement.dataset.theme === 'dark';
   const term = new Terminal({
-    fontSize: settings?.fontSize ?? 14,
+    fontSize: settings?.fontSize ?? DEFAULT_TERMINAL_FONT_SIZE,
     fontFamily: settings?.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY,
     fontWeight,
     fontWeightBold,
-    lineHeight: settings?.lineHeight ?? 1,
+    lineHeight: settings?.lineHeight ?? DEFAULT_TERMINAL_LINE_HEIGHT,
     minimumContrastRatio: resolveTerminalMinimumContrastRatio(appearance.theme, appDark),
     scrollback: settings?.scrollback ?? 5000,
     cursorBlink: true,
@@ -1432,7 +1496,8 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     );
     if (!item) return false;
 
-    const baseSize = useAppStore.getState().settings?.terminal.fontSize ?? 14;
+    const baseSize =
+      useAppStore.getState().settings?.terminal.fontSize ?? DEFAULT_TERMINAL_FONT_SIZE;
     const currentSize = item.fontSizeOverride ?? baseSize;
     const next = nextTerminalFontSize(currentSize, baseSize, direction);
     item.fontSizeOverride = next.override;

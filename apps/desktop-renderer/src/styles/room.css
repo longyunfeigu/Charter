@@ -325,7 +325,7 @@
 }
 
 /* The request stays distinct without competing with the answer's reading
-   surface. This hierarchy is shared by all four skins. */
+   surface. This hierarchy is shared by every skin. */
 .rt-bubble {
   display: flex;
   flex-direction: column;

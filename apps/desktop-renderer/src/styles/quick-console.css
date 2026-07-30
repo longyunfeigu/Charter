@@ -3,7 +3,7 @@
   inset: 0;
   z-index: 160;
   pointer-events: none;
-  /* The terminal canvas deliberately stays stable across the four product
+  /* The terminal canvas deliberately stays stable across all product
    * skins. Only the surrounding chrome borrows the host skin's visual
    * language, so ANSI output remains predictable without feeling pasted in. */
   --qc-bg: #24231f;
@@ -43,6 +43,15 @@
   --qc-shadow:
     0 38px 88px rgba(55, 36, 23, 0.46),
     0 0 0 1px color-mix(in srgb, var(--qc-accent) 16%, transparent);
+}
+
+[data-skin='atelier'] .quick-console-layer {
+  --qc-accent: #d5795e;
+  --qc-accent-strong: #a8442e;
+  --qc-accent-fg: #fbf8f0;
+  --qc-shell-radius: 4px;
+  --qc-control-radius: 2px;
+  --qc-shadow: 4px 5px 0 rgba(87, 70, 43, 0.24), 0 34px 82px rgba(55, 39, 24, 0.42);
 }
 
 [data-skin='terminal'] .quick-console-layer {

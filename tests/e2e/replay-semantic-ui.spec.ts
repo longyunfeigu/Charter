@@ -7,12 +7,12 @@ import { createGitFixture, createTsSmallFixture } from './helpers/fixtures';
 import { waitForTerminalOutput } from './helpers/terminal';
 
 const SHOTS = '/tmp/charter-replay-semantic';
-const SKINS = ['studio', 'terminal', 'archive', 'index'] as const;
+const SKINS = ['studio', 'terminal', 'archive', 'index', 'atelier'] as const;
 
 test.beforeAll(() => mkdirSync(SHOTS, { recursive: true }));
 
 test.describe('Semantic Replay UI — real Electron surface', () => {
-  test('managed session follows all four shell backgrounds and the complete playback path works', async () => {
+  test('managed session follows all five shell backgrounds and the complete playback path works', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
@@ -65,7 +65,7 @@ test.describe('Semantic Replay UI — real Electron surface', () => {
       expect(await page.locator('.rp-story-event').count()).toBeGreaterThanOrEqual(collapsedCount);
       await expect(page.locator('.rp-story-event.active')).toHaveCount(1);
 
-      // The four appearance languages must resolve Replay surfaces from the
+      // The five appearance languages must resolve Replay surfaces from the
       // same root tokens used by the main shell, not from a replay-only white.
       for (const skin of SKINS) {
         await page.evaluate((nextSkin) => {

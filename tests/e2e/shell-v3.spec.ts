@@ -125,22 +125,23 @@ test.describe('Shell v3 — layered live supervision (PIVOT-025)', () => {
 });
 
 test.describe('Shell v3 — Home refinements (PIVOT-027, PIVOT-012 title)', () => {
-  test('the active project row opens the canonical Files context and Editor', async () => {
+  test('the project row opens Project Center before an explicit editor action', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
     });
     try {
       await page.getByTestId('surface-home').click();
-      // Projects are global navigation only; the contextual Explorer is the
-      // one file tree and lives next to the Editor.
+      // Browsing and working context are separate; opening a file is explicit.
       await page.getByTestId('rail-context').click();
-      await page.locator('[data-testid^="home-recent-"].active').click();
+      await page.locator('[data-testid^="home-recent-"]').first().click();
+      await expect(page.getByTestId('project-center')).toBeVisible();
+      await page.getByTestId('project-center-tab-files').click();
+      await page.getByTestId('project-file-src').click();
+      await page.getByTestId('project-file-src/index.ts').click();
+      await page.getByRole('button', { name: 'Open in editor' }).click();
       await expect(page.getByTestId('project-tool-view')).toBeVisible();
       await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
-      await page.getByTestId('tree-item-src').click();
-      await expect(page.getByTestId('tree-item-src/index.ts')).toBeVisible();
-      await page.getByTestId('tree-item-src/index.ts').click();
       await expect(page.getByTestId('home-view')).toHaveCount(0);
       await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
       await expect(page.getByTestId('agent-panel-main')).toHaveCount(0);

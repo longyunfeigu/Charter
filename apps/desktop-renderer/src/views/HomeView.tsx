@@ -13,6 +13,7 @@ import { readDragRef } from './dragRefs.js';
 import { contextFilesBlock, splitCharterRefs } from './charterRefs.js';
 import { useSkillSlash } from './SkillSlashPicker.js';
 import { useTerminalStore } from './TerminalPanel.js';
+import { selectableRecentWorkspaces } from './recent-workspaces.js';
 
 const MAX_CONVERSATION_REFS = 3;
 
@@ -504,7 +505,7 @@ export function HomeView(): React.JSX.Element {
 
             {projectMenuOpen ? (
               <div className="hm-menu" data-testid="home-project-menu">
-                {recent.map((r) => (
+                {selectableRecentWorkspaces(recent).map((r) => (
                   <button
                     key={r.path}
                     className="hm-row"

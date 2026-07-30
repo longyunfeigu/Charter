@@ -1,26 +1,27 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { DiscoveredSessionDto } from '@pi-ide/ipc-contracts';
+import type { TaskDto } from '@pi-ide/ipc-contracts';
+import { rpcResult } from '../bridge.js';
 import { useAppStore } from '../store/appStore.js';
 import {
   type ArchaeologyFilter,
-  bucketSessionsByDay,
-  filterSessions,
-  sessionsInScope,
   unknownDirectories,
   useArchaeologyStore,
 } from '../store/archaeologyStore.js';
-import { Ic, ProviderMark } from './home-icons.js';
+import { useTaskStore } from '../store/taskStore.js';
+import { Ic, ProviderMark, type ProviderMarkKind } from './home-icons.js';
+import { presentedMeta } from './labels.js';
 import { timeAgo } from './SessionRail.js';
+import {
+  bucketSessionHistory,
+  sessionHistoryItems,
+  sessionHistoryMatches,
+  type SessionHistoryItem,
+} from './session-history.js';
 
 /**
- * ADR-0038 — the session-archaeology page: every agent conversation that ever
- * ran in this scope (a project path, a discovered directory, or the whole
- * machine), Charter-tracked and discovered alike. Discovered rows adopt with
- * one click; tracked rows open their existing Session.
- *
- * ADR-0041 — the list is organized time-first (Today / Yesterday / …) because
- * that is how users recall a session; tracked-vs-external is a per-row badge
- * and a filter chip, never a grouping.
+ * Session Archive is the user-facing form of ADR-0038 archaeology. It merges
+ * Charter's complete task catalog with read-only Claude/Codex transcript
+ * discovery, then deduplicates linked sessions into one time-first history.
  */
 
 const FILTER_CHIPS: Array<{ key: ArchaeologyFilter; label: string }> = [
@@ -39,90 +40,285 @@ function compactHome(path: string): string {
   return home ? `~${path.slice(home.length)}` : path;
 }
 
-function SessionRow({ session, scope }: { session: DiscoveredSessionDto; scope: string | null }) {
-  const adoptingId = useArchaeologyStore((s) => s.adoptingId);
-  const adopt = useArchaeologyStore((s) => s.adopt);
-  const tracked = session.trackedTaskId !== null;
-  const adopting = adoptingId === session.sessionId;
-  const showCwd = scope === null || session.cwd !== scope;
-  const meta: string[] = [];
-  if (showCwd) meta.push(compactHome(session.cwd));
-  meta.push(tracked ? 'tracked by Charter' : 'ran outside Charter');
-  if (session.filesTouched.length > 0) {
-    meta.push(`${session.filesTouched.length} file${session.filesTouched.length === 1 ? '' : 's'}`);
-  } else {
-    meta.push('no file changes');
+function providerForItem(item: SessionHistoryItem): ProviderMarkKind {
+  if (item.kind === 'discovered') return item.session.cli;
+  if (item.task.external?.cli === 'claude') return 'claude';
+  if (item.task.external?.cli === 'codex') return 'codex';
+  if (item.task.external) return 'shell';
+  return 'pi';
+}
+
+function providerLabel(item: SessionHistoryItem): string {
+  const provider = providerForItem(item);
+  if (provider === 'pi') return 'Charter';
+  if (provider === 'claude') return 'Claude Code';
+  if (provider === 'codex') return 'Codex';
+  return 'Terminal';
+}
+
+function itemTitle(item: SessionHistoryItem): string {
+  return item.kind === 'task' ? item.task.title || 'Untitled session' : item.session.title;
+}
+
+function itemPath(item: SessionHistoryItem): string {
+  return item.kind === 'task'
+    ? item.task.projectPath
+    : (item.session.projectPath ?? item.session.cwd);
+}
+
+function formatDate(value: string | null): string {
+  if (!value) return 'Not recorded';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return 'Not recorded';
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+async function openTask(task: TaskDto): Promise<void> {
+  await useTaskStore.getState().openTask(task.id);
+  useAppStore.getState().openTaskRoom(task.id);
+}
+
+function ItemAction({ item, compact = false }: { item: SessionHistoryItem; compact?: boolean }) {
+  const adoptingId = useArchaeologyStore((state) => state.adoptingId);
+  if (item.kind === 'task') {
+    return (
+      <button
+        className={`arch-btn ${compact ? 'compact' : 'primary'}`}
+        data-testid="arch-open"
+        onClick={(event) => {
+          event.stopPropagation();
+          void openTask(item.task);
+        }}
+      >
+        Open
+      </button>
+    );
   }
-  if (session.skills.length > 0) meta.push(`skill: ${session.skills.join(', ')}`);
+  const adopting = adoptingId === item.session.sessionId;
   return (
-    <div className={`arch-row ${tracked ? 'tracked' : ''}`} data-testid="arch-row">
-      <ProviderMark provider={session.cli} size={15} />
+    <button
+      className={`arch-btn primary ${compact ? 'compact' : ''}`}
+      data-testid="arch-resume"
+      disabled={adopting}
+      onClick={(event) => {
+        event.stopPropagation();
+        void useArchaeologyStore.getState().adopt(item.session);
+      }}
+    >
+      <Ic name="play" size={10} /> {adopting ? 'Resuming…' : 'Resume'}
+    </button>
+  );
+}
+
+function HistoryRow(props: {
+  item: SessionHistoryItem;
+  selected: boolean;
+  onSelect(): void;
+}): React.JSX.Element {
+  const { item } = props;
+  const meta =
+    item.kind === 'task'
+      ? [
+          providerLabel(item),
+          presentedMeta(item.task).label,
+          `${item.task.changedFiles ?? 0} changed`,
+        ]
+      : [
+          providerLabel(item),
+          'ran outside Charter',
+          `${item.session.turnCount} turn${item.session.turnCount === 1 ? '' : 's'}`,
+        ];
+  return (
+    <article
+      className={`arch-row ${props.selected ? 'selected' : ''}`}
+      data-testid="arch-row"
+      tabIndex={0}
+      onClick={props.onSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') props.onSelect();
+      }}
+    >
+      <ProviderMark provider={providerForItem(item)} size={15} />
       <span className="arch-copy">
         <span className="arch-title">
-          <b title={session.title}>{session.title}</b>
-          <span className={`sr-state ${tracked ? 'neutral' : 'found'}`}>
-            {tracked ? 'Tracked' : 'External'}
+          <b title={itemTitle(item)}>{itemTitle(item)}</b>
+          <span className={`sr-state ${item.kind === 'task' ? 'neutral' : 'found'}`}>
+            {item.kind === 'task' ? 'Tracked' : 'External'}
           </span>
         </span>
         <span className="arch-meta">
-          <span title={session.filesTouched.join('\n')}>{meta.join(' · ')}</span>
-          {session.endedAt ? (
-            <time dateTime={session.endedAt}>{timeAgo(session.endedAt, Date.now())}</time>
-          ) : null}
+          <span title={itemPath(item)}>
+            {compactHome(itemPath(item))} · {meta.join(' · ')}
+          </span>
+          {item.at ? <time dateTime={item.at}>{timeAgo(item.at, Date.now())}</time> : null}
         </span>
       </span>
       <span className="arch-acts">
-        <button
-          className={`arch-btn ${tracked ? '' : 'primary'}`}
-          data-testid={tracked ? 'arch-open' : 'arch-resume'}
-          disabled={adopting}
-          onClick={() => void adopt(session)}
-        >
-          {tracked ? 'Open' : adopting ? 'Resuming…' : '⏵ Resume'}
-        </button>
+        <ItemAction item={item} compact />
       </span>
-    </div>
+    </article>
+  );
+}
+
+function SessionInspector({ item }: { item: SessionHistoryItem | null }): React.JSX.Element {
+  if (!item) {
+    return (
+      <section className="arch-card arch-inspector-empty">
+        <Ic name="clock" size={20} />
+        <strong>Select a conversation</strong>
+        <span>Inspect its origin and recorded footprint before opening or resuming it.</span>
+      </section>
+    );
+  }
+  const task = item.kind === 'task' ? item.task : null;
+  const session = item.kind === 'discovered' ? item.session : null;
+  return (
+    <section className="arch-card arch-inspector" data-testid="arch-inspector">
+      <header>
+        <ProviderMark provider={providerForItem(item)} size={18} />
+        <div>
+          <strong>{itemTitle(item)}</strong>
+          <span>
+            {providerLabel(item)} ·{' '}
+            {item.kind === 'task' ? 'Tracked by Charter' : 'External transcript'}
+          </span>
+        </div>
+      </header>
+      <dl>
+        <div>
+          <dt>Location</dt>
+          <dd title={itemPath(item)}>{compactHome(itemPath(item))}</dd>
+        </div>
+        <div>
+          <dt>Last activity</dt>
+          <dd>{formatDate(item.at)}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>{task ? presentedMeta(task).label : 'Available to resume'}</dd>
+        </div>
+        <div>
+          <dt>Recorded work</dt>
+          <dd>
+            {session
+              ? `${session.turnCount} turn${session.turnCount === 1 ? '' : 's'} · ${session.filesTouched.length} file${session.filesTouched.length === 1 ? '' : 's'}`
+              : `${task?.changedFiles ?? 0} changed file${task?.changedFiles === 1 ? '' : 's'}`}
+          </dd>
+        </div>
+      </dl>
+      {session && session.filesTouched.length > 0 ? (
+        <div className="arch-footprint">
+          <strong>Files touched</strong>
+          <ul>
+            {session.filesTouched.slice(0, 8).map((file) => (
+              <li key={file} title={file}>
+                {file}
+              </li>
+            ))}
+          </ul>
+          {session.filesTouched.length > 8 ? (
+            <small>+{session.filesTouched.length - 8} more</small>
+          ) : null}
+        </div>
+      ) : null}
+      {session && session.skills.length > 0 ? (
+        <div className="arch-footprint">
+          <strong>Skills observed</strong>
+          <div className="arch-skill-list">
+            {session.skills.map((skill) => (
+              <span key={skill}>{skill}</span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <footer>
+        <ItemAction item={item} />
+      </footer>
+    </section>
   );
 }
 
 export function ArchaeologyView(): React.JSX.Element {
-  const scope = useAppStore((s) => s.archaeology?.scope ?? null);
-  const closeArchaeology = useAppStore((s) => s.closeArchaeology);
-  const openArchaeology = useAppStore((s) => s.openArchaeology);
+  const archaeology = useAppStore((state) => state.archaeology);
+  const scope = archaeology?.scope ?? null;
+  const closeArchaeology = useAppStore((state) => state.closeArchaeology);
+  const openArchaeology = useAppStore((state) => state.openArchaeology);
   const store = useArchaeologyStore();
+  const liveTasks = useTaskStore((state) => state.tasks);
+  const [catalogTasks, setCatalogTasks] = useState<TaskDto[]>([]);
   const [filter, setFilter] = useState<ArchaeologyFilter>('all');
+  const [query, setQuery] = useState('');
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   useEffect(() => {
     void store.scan();
+    void rpcResult('task.list', { filter: 'all', includeArchived: true, scope: 'all' }).then(
+      (result) => {
+        if (result.ok) setCatalogTasks(result.data.tasks);
+      },
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const scoped = useMemo(() => sessionsInScope(store.sessions, scope), [store.sessions, scope]);
-  const externalCount = scoped.filter((item) => item.trackedTaskId === null).length;
-  const counts: Record<ArchaeologyFilter, number> = {
-    all: scoped.length,
-    external: externalCount,
-    tracked: scoped.length - externalCount,
-  };
-  const filtered = useMemo(() => filterSessions(scoped, filter), [scoped, filter]);
-  const buckets = useMemo(() => bucketSessionsByDay(filtered), [filtered]);
+  const tasks = useMemo(() => {
+    const merged = new Map(catalogTasks.map((task) => [task.id, task]));
+    for (const task of liveTasks) merged.set(task.id, task);
+    return [...merged.values()];
+  }, [catalogTasks, liveTasks]);
+  const items = useMemo(
+    () => sessionHistoryItems(tasks, store.sessions, scope),
+    [scope, store.sessions, tasks],
+  );
+  const externalCount = items.filter((item) => item.kind === 'discovered').length;
+  const trackedCount = items.length - externalCount;
   const directories = useMemo(
     () => (scope === null ? unknownDirectories(store.sessions) : []),
-    [store.sessions, scope],
+    [scope, store.sessions],
   );
+  const visible = useMemo(
+    () =>
+      items.filter((item) => {
+        if (filter === 'external' && item.kind !== 'discovered') return false;
+        if (filter === 'tracked' && item.kind !== 'task') return false;
+        return sessionHistoryMatches(item, query);
+      }),
+    [filter, items, query],
+  );
+  const buckets = useMemo(() => bucketSessionHistory(visible), [visible]);
+  const selected = visible.find((item) => item.key === selectedKey) ?? visible[0] ?? null;
+
+  const addProject = async (cwd: string): Promise<void> => {
+    const app = useAppStore.getState();
+    app.setHomePick(true);
+    const result = await rpcResult('workspace.open', { path: cwd });
+    if (!result.ok) {
+      app.setHomePick(false);
+      app.pushToast('error', result.error.userMessage);
+      return;
+    }
+    app.pushToast('success', `${pathTail(cwd)} was added as a project.`);
+    app.openProjectCenter(cwd);
+  };
 
   return (
     <main className="arch-root" data-testid="archaeology-view">
       <header className="arch-head">
-        <button className="arch-back" data-testid="arch-back" onClick={() => closeArchaeology()}>
-          <Ic name="chevron" size={12} /> Sessions
+        <button
+          className="arch-back"
+          data-testid="arch-back"
+          onClick={() => (scope ? openArchaeology(null) : closeArchaeology())}
+        >
+          <Ic name="chevron" size={12} /> {scope ? 'Session Archive' : 'Sessions'}
         </button>
         <div className="arch-heading">
-          <strong>{scope ? pathTail(scope) : 'Agent activity'}</strong>
+          <strong>{scope ? pathTail(scope) : 'Session Archive'}</strong>
           <span title={scope ?? undefined}>
             {scope
               ? compactHome(scope)
-              : 'Every agent conversation discovered on this machine · last 30 days for Codex'}
+              : 'Find and resume work from Charter, Claude Code and Codex'}
           </span>
         </div>
         <button
@@ -131,92 +327,154 @@ export function ArchaeologyView(): React.JSX.Element {
           disabled={store.loading}
           onClick={() => void store.scan(true)}
         >
-          {store.loading ? 'Scanning…' : '↻ Rescan'}
+          <Ic name="refresh" size={11} /> {store.loading ? 'Scanning…' : 'Rescan'}
         </button>
       </header>
 
       <div className="arch-scroll">
-        <div className="arch-col">
+        <div className="arch-shell">
+          <section className="arch-metrics" aria-label="Archive coverage">
+            <div>
+              <span>Conversations</span>
+              <strong>{items.length}</strong>
+            </div>
+            <div>
+              <span>Tracked</span>
+              <strong>{trackedCount}</strong>
+            </div>
+            <div>
+              <span>External</span>
+              <strong>{externalCount}</strong>
+            </div>
+            <div>
+              <span>{scope ? 'Turns discovered' : 'Unregistered folders'}</span>
+              <strong>
+                {scope
+                  ? items.reduce(
+                      (total, item) =>
+                        total + (item.kind === 'discovered' ? item.session.turnCount : 0),
+                      0,
+                    )
+                  : directories.length}
+              </strong>
+            </div>
+          </section>
+
+          <div className="arch-toolbar">
+            <label className="arch-search">
+              <Ic name="search" size={13} />
+              <input
+                value={query}
+                aria-label="Search session archive"
+                placeholder="Search title, goal, project, file or skill…"
+                onChange={(event) => setQuery(event.currentTarget.value)}
+              />
+            </label>
+            <div className="arch-filters">
+              {FILTER_CHIPS.map((chip) => {
+                const count =
+                  chip.key === 'all'
+                    ? items.length
+                    : chip.key === 'external'
+                      ? externalCount
+                      : trackedCount;
+                return (
+                  <button
+                    key={chip.key}
+                    className={`arch-chip ${filter === chip.key ? 'active' : ''}`}
+                    data-testid={`arch-filter-${chip.key}`}
+                    onClick={() => setFilter(chip.key)}
+                  >
+                    {chip.label} · {count}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {!store.enabled ? (
             <div className="arch-empty" data-testid="arch-disabled">
-              Discovery is disabled in this run.
+              External transcript discovery is disabled in this run. Tracked Charter sessions remain
+              available.
             </div>
-          ) : store.loading && store.sessions.length === 0 ? (
-            <div className="arch-empty">Scanning ~/.claude and ~/.codex (read-only)…</div>
-          ) : scoped.length === 0 && directories.length === 0 ? (
-            <div className="arch-empty" data-testid="arch-empty">
-              No agent conversations discovered{scope ? ' in this project' : ''} yet.
-            </div>
+          ) : store.loading && items.length === 0 ? (
+            <div className="arch-empty">Scanning Claude Code and Codex history read-only…</div>
           ) : null}
 
-          {scoped.length > 0 ? (
-            <div className="arch-filters">
-              {FILTER_CHIPS.map((chip) => (
-                <button
-                  key={chip.key}
-                  className={`arch-chip ${filter === chip.key ? 'active' : ''}`}
-                  data-testid={`arch-filter-${chip.key}`}
-                  onClick={() => setFilter(chip.key)}
-                >
-                  {chip.label} · {counts[chip.key]}
-                </button>
+          <div className="arch-layout">
+            <section className="arch-timeline" aria-label="Session history">
+              {buckets.map((bucket) => (
+                <React.Fragment key={bucket.key}>
+                  <div className="arch-sec">
+                    {bucket.label} · {bucket.items.length}
+                  </div>
+                  {bucket.items.map((item) => (
+                    <HistoryRow
+                      key={item.key}
+                      item={item}
+                      selected={selected?.key === item.key}
+                      onSelect={() => setSelectedKey(item.key)}
+                    />
+                  ))}
+                </React.Fragment>
               ))}
-            </div>
-          ) : null}
+              {visible.length === 0 ? (
+                <div className="arch-empty" data-testid="arch-filter-empty">
+                  No conversations match this search and filter.
+                </div>
+              ) : null}
+            </section>
 
-          {buckets.map((bucket) => (
-            <React.Fragment key={bucket.key}>
-              <div className="arch-sec">
-                {bucket.label} · {bucket.sessions.length}
-              </div>
-              {bucket.sessions.map((session) => (
-                <SessionRow
-                  key={`${session.cli}:${session.sessionId}`}
-                  session={session}
-                  scope={scope}
-                />
-              ))}
-            </React.Fragment>
-          ))}
-
-          {scoped.length > 0 && filtered.length === 0 ? (
-            <div className="arch-empty" data-testid="arch-filter-empty">
-              No {filter === 'tracked' ? 'tracked' : 'external'} conversations
-              {scope ? ' in this project' : ''}.
-            </div>
-          ) : null}
-
-          {scope === null && directories.length > 0 ? (
-            <>
-              <div className="arch-sec">Directories never opened in Charter</div>
-              {directories.map((dir) => (
-                <button
-                  key={dir.cwd}
-                  className="arch-row arch-dir"
-                  data-testid="arch-dir"
-                  onClick={() => openArchaeology(dir.cwd)}
-                >
-                  <Ic name="folder" size={14} />
-                  <span className="arch-copy">
-                    <span className="arch-title">
-                      <b>{compactHome(dir.cwd)}</b>
-                    </span>
-                    <span className="arch-meta">
-                      <span>
-                        {dir.clis.join(' + ')} · {dir.count} session{dir.count === 1 ? '' : 's'}
-                      </span>
-                      {dir.lastAt ? (
-                        <time dateTime={dir.lastAt}>{timeAgo(dir.lastAt, Date.now())}</time>
-                      ) : null}
-                    </span>
-                  </span>
-                  <span className="arch-acts">
-                    <Ic name="chevron" size={12} className="arch-dir-chevron" />
-                  </span>
-                </button>
-              ))}
-            </>
-          ) : null}
+            <aside className="arch-side">
+              <SessionInspector item={selected} />
+              {scope === null && directories.length > 0 ? (
+                <section className="arch-card arch-directories">
+                  <header>
+                    <div>
+                      <strong>Unregistered folders</strong>
+                      <span>Agent work found outside saved Charter projects</span>
+                    </div>
+                    <b>{directories.length}</b>
+                  </header>
+                  <div className="arch-directory-list">
+                    {directories.map((dir) => (
+                      <article className="arch-directory" key={dir.cwd} data-testid="arch-dir">
+                        <button
+                          className="arch-directory-main"
+                          onClick={() => openArchaeology(dir.cwd)}
+                        >
+                          <Ic name="folder" size={13} />
+                          <span>
+                            <strong title={dir.cwd}>{compactHome(dir.cwd)}</strong>
+                            <small>
+                              {dir.clis.join(' + ')} · {dir.count} session
+                              {dir.count === 1 ? '' : 's'}
+                            </small>
+                          </span>
+                        </button>
+                        <div className="arch-directory-actions">
+                          <button
+                            title="Reveal in Finder"
+                            aria-label={`Reveal ${dir.cwd} in Finder`}
+                            onClick={() => void rpcResult('app.revealPath', { path: dir.cwd })}
+                          >
+                            <Ic name="folder-open" size={11} />
+                          </button>
+                          <button
+                            data-testid="arch-add-project"
+                            onClick={() => void addProject(dir.cwd)}
+                          >
+                            Add project
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                  <footer>Codex discovery covers the last 30 days. Scanning is read-only.</footer>
+                </section>
+              ) : null}
+            </aside>
+          </div>
         </div>
       </div>
     </main>

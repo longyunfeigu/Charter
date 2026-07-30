@@ -7,6 +7,12 @@ import { registerHandlers } from './router.js';
 import { createProject } from '../services/project-create.js';
 import { toDto, type WorkspaceHost } from '../services/workspace-host.js';
 import type { StateService } from '../services/state-service.js';
+import {
+  inspectRegisteredProject,
+  listRegisteredProjectDirectory,
+  readRegisteredProjectFile,
+  setRegisteredProjectTrust,
+} from '../services/project-inspection.js';
 
 export function registerWorkspaceHandlers(
   host: WorkspaceHost,
@@ -61,6 +67,17 @@ export function registerWorkspaceHandlers(
       },
       'workspace.current': async () => ({ workspace: host.dto() }),
       'workspace.setTrust': async ({ trusted }) => ({ workspace: host.setTrust(trusted) }),
+      'project.inspect': async ({ path }) => inspectRegisteredProject(state, path),
+      'project.listDir': async ({ path, dir, showIgnored }) => ({
+        entries: await listRegisteredProjectDirectory(state, path, dir, showIgnored),
+      }),
+      'project.readFile': async ({ path, file }) => readRegisteredProjectFile(state, path, file),
+      'project.setTrust': async ({ path, trusted }) => {
+        if (host.current?.canonicalPath === path) {
+          return { trustState: host.setTrust(trusted).trustState };
+        }
+        return { trustState: setRegisteredProjectTrust(state, path, trusted) };
+      },
 
       'fs.listDir': async ({ dir, showIgnored }) => ({
         entries: await host.listDir(dir, showIgnored),

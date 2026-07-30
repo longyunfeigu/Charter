@@ -143,7 +143,7 @@ test.describe('Session rail and conversation role polish', () => {
     }
   });
 
-  test('switches project context into the one canonical Files tool', async () => {
+  test('browses projects independently and switches context only on explicit action', async () => {
     const projectA = realpathSync(createGitFixture());
     const projectB = realpathSync(createGitFixture());
     const first = await launchApp({
@@ -164,10 +164,19 @@ test.describe('Session rail and conversation role polish', () => {
       await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
 
       await page.getByTestId(`home-recent-${projectA}`).click();
-      await expect(page.getByTestId('project-tool-view')).toBeVisible({ timeout: 15_000 });
-      // ADR-0029: "open project files" reveals the rail's Files tree beside
-      // the plain editor — the one project tree.
-      await expect(page.getByTestId('rail-tab-files')).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByTestId('project-center')).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId(`home-recent-${projectB}`).locator('..')).toHaveClass(
+        /current/,
+      );
+      await page.getByTestId('project-set-current').click();
+      await expect(page.getByTestId(`home-recent-${projectA}`).locator('..')).toHaveClass(
+        /current/,
+      );
+      await page.getByTestId('project-center-tab-files').click();
+      await page.getByTestId('project-file-src').click();
+      await page.getByTestId('project-file-src/index.ts').click();
+      await page.getByRole('button', { name: 'Open in editor' }).click();
+      await expect(page.getByTestId('project-tool-view')).toBeVisible();
       await expect(page.getByTestId('explorer')).toBeVisible();
       await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
       await page.screenshot({

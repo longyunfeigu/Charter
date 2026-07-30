@@ -47,22 +47,36 @@ test.describe('terminal renderer and character widths', () => {
       await expect(page.locator('.tsb-context').first()).toContainText('context cwd');
       await expect(first).toHaveAttribute('data-terminal-unicode', '11');
       await expect(first).toHaveAttribute('data-terminal-renderer', /^(webgl|software)$/);
-      await expect(first).toHaveAttribute('data-terminal-font-size', '14');
+      await expect(first).toHaveAttribute('data-terminal-font-size', '15');
       await expect(first).toHaveAttribute('data-terminal-font-weight', '500');
       await expect(first).toHaveAttribute('data-terminal-font-weight-bold', '700');
-      await expect(first).toHaveAttribute('data-terminal-line-height', '1');
+      await expect(first).toHaveAttribute('data-terminal-line-height', '1.2');
       await expect(first).toHaveAttribute('data-terminal-min-contrast', '4.5');
       await expect(page.getByTestId('terminal-host')).toHaveAttribute(
         'data-terminal-padding',
-        '4x4',
+        '12x10',
       );
       expect(
         await page.getByTestId('terminal-host').evaluate((host) => {
           const style = getComputedStyle(host);
           return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft];
         }),
-      ).toEqual(['4px', '4px', '4px', '4px']);
+      ).toEqual(['10px', '12px', '10px', '12px']);
       const originalTerminalId = (await terminalPtySnapshot(page)).items[0]!.id;
+
+      // Default typography should stay readable for the mixed Chinese, Latin,
+      // links and emphasis that dominate Claude Code / Codex transcripts.
+      await first.click();
+      await page.keyboard.type(
+        "printf '\\033[1mTerminal typography\\033[0m\\n中文排版与 English output\\npackages/app-domain/src/settings.ts:42\\n'",
+      );
+      await page.keyboard.press('Enter');
+      await waitForTerminalOutput(page, '中文排版与 English output', {
+        terminalId: originalTerminalId,
+      });
+      if (process.env.PI_IDE_QA_SCREENSHOT) {
+        await page.screenshot({ path: '/tmp/terminal-typography-default-1440x900.png' });
+      }
 
       await page.getByTestId('home-settings').click();
       await page.getByTestId('settings-section-terminal').click();
@@ -156,10 +170,6 @@ test.describe('terminal renderer and character widths', () => {
       });
       expect(readFileSync(probePath, 'utf8')).toBe(`${expectedLines.join('\n')}\n`);
 
-      if (process.env.PI_IDE_QA_SCREENSHOT) {
-        await page.screenshot({ path: '/tmp/terminal-rendering-orca-1440x900.png' });
-      }
-
       await app.evaluate(({ BrowserWindow }) => {
         BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 900, height: 900 });
       });
@@ -171,7 +181,7 @@ test.describe('terminal renderer and character widths', () => {
       expect(pageErrors).toEqual([]);
 
       if (process.env.PI_IDE_QA_SCREENSHOT) {
-        await page.screenshot({ path: '/tmp/terminal-rendering-orca-900x900.png' });
+        await page.screenshot({ path: '/tmp/terminal-typography-custom-900x900.png' });
       }
     } finally {
       await app.close();

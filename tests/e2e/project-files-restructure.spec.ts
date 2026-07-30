@@ -33,18 +33,20 @@ test.describe('Project Files — one canonical tree in the rail', () => {
       await expect(page.getByTestId('project-tool-context')).toHaveAttribute('aria-hidden', 'true');
       await expect(page.locator('.project-tool-body')).toHaveClass(/context-collapsed/);
 
-      // Projects contains projects and actions only; selecting one reveals the
-      // canonical tree in the rail's Files pane beside the plain editor.
+      // Selecting a project opens its stable Center without entering the
+      // editor. Files can be inspected there, then opened explicitly.
       await page.getByTestId('rail-view-projects').click();
       await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
       await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
-      await page.locator('[data-testid^="home-recent-"].active').click();
+      await page.locator('[data-testid^="home-recent-"]').first().click();
+      await expect(page.getByTestId('project-center')).toBeVisible();
+      await page.getByTestId('project-center-tab-files').click();
+      await page.getByTestId('project-file-src').click();
+      await page.getByTestId('project-file-src/index.ts').click();
+      await page.getByRole('button', { name: 'Open in editor' }).click();
       await expect(page.getByTestId('rail-tab-files')).toHaveAttribute('aria-selected', 'true');
       await expect(page.getByTestId('explorer')).toBeVisible();
       await expect(page.getByRole('tree', { name: 'Files' })).toHaveCount(1);
-
-      await page.getByTestId('tree-item-src').click();
-      await page.getByTestId('tree-item-src/index.ts').click();
       await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
 
       // The tree carries the management surface (merged from the old Files
@@ -86,13 +88,11 @@ test.describe('Project Files — one canonical tree in the rail', () => {
       await page.getByTestId('rail-view-projects').click();
       await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '1');
       await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
-      await page.locator('[data-testid^="home-recent-"].active').click();
+      await page.locator('[data-testid^="home-recent-"]').first().click();
       await expect(page.locator('.sr-rail')).toHaveCSS('width', '40px');
-      await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '1');
-      await expect(page.getByTestId('explorer')).toBeVisible();
-      await page.screenshot({ path: '/tmp/charter-project-files-drawer-900.png' });
-      await page.getByTestId('rail-compact-close').click();
       await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
+      await expect(page.getByTestId('project-center')).toBeVisible();
+      await page.screenshot({ path: '/tmp/charter-project-files-drawer-900.png' });
 
       const narrowOverflow = await page.evaluate(
         () => document.documentElement.scrollWidth - window.innerWidth,

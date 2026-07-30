@@ -120,11 +120,22 @@ test.describe('Session Rail Workbench', () => {
         .click();
       await expect(page.getByTestId('task-room')).toBeVisible();
 
-      // Collapse hides the rows but the global badge remains; expand restores them.
+      // Clearing is reminder-only: it empties the Inbox and badge while the
+      // Session remains under its project group.
+      await page.getByTestId('task-room-back').click();
+      await page.getByTestId('rail-needs-you').click();
+      await expect(page.getByTestId('rail-inbox-clear')).toBeVisible();
+      await page.getByTestId('rail-inbox-clear').click();
+      await expect(page.getByTestId('rail-inbox-panel')).toContainText(
+        'Nothing needs you right now.',
+      );
+      await expect(page.getByTestId('rail-needs-you').locator('.sr-mini-badge')).toHaveCount(0);
+
+      // Collapse still only affects project rows; the cleared Inbox badge stays empty.
       await page.getByTestId('rail-view-sessions').click();
       await group.click();
       await expect(page.locator('[data-testid^="home-task-"]')).toHaveCount(0);
-      await expect(page.getByTestId('rail-needs-you')).toContainText('1');
+      await expect(page.getByTestId('rail-needs-you').locator('.sr-mini-badge')).toHaveCount(0);
       await group.click();
       await expect(page.locator('[data-testid^="home-task-"]').first()).toBeVisible();
 
@@ -132,7 +143,7 @@ test.describe('Session Rail Workbench', () => {
       await expect(page.getByTestId('rail-context')).toContainText(name);
       await page.getByTestId('rail-context').click();
       await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
-      await expect(page.locator('[data-testid^="home-recent-"].active')).toBeVisible();
+      await expect(page.locator('.sr-project-wrap.current')).toBeVisible();
     } finally {
       await app.close();
     }
@@ -216,6 +227,7 @@ test.describe('Session Rail Workbench', () => {
       // One explicit Use action binds the project to the shared Composer.
       const row = page.getByTestId(`home-recent-${fixture}`);
       await expect(row).toBeVisible();
+      await page.getByTestId(`project-menu-${fixture}`).click();
       await page.getByTestId(`project-spawn-pi-${fixture}`).click();
       await expect(page.getByTestId('home-intent')).toBeFocused();
 
@@ -247,6 +259,13 @@ test.describe('Session Rail Workbench', () => {
         .getAttribute('data-terminal-id');
       expect(externalTerminalId).not.toBeNull();
       await waitForTerminalOutput(page, 'claude ready', { terminalId: externalTerminalId! });
+      const externalXterm = page.getByTestId('external-terminal-host').locator('.xterm');
+      await expect(externalXterm).toHaveAttribute('data-terminal-font-size', '15');
+      await expect(externalXterm).toHaveAttribute('data-terminal-line-height', '1.2');
+      await expect(page.getByTestId('external-terminal-host')).toHaveAttribute(
+        'data-terminal-padding',
+        '12x10',
+      );
 
       await expect(page.getByTestId('session-tools-open')).toBeVisible();
       await page.getByTestId('session-tools-open').click();
@@ -261,7 +280,14 @@ test.describe('Session Rail Workbench', () => {
       const shellTerminalId = await shell.getAttribute('data-terminal-id');
       expect(shellTerminalId).not.toBe(externalTerminalId);
       await expect(page.getByTestId('external-terminal-host').locator('.xterm')).toHaveCount(1);
-      await expect(shell.locator('.session-terminal-host .xterm')).toHaveCount(1);
+      const shellXterm = shell.locator('.session-terminal-host .xterm');
+      await expect(shellXterm).toHaveCount(1);
+      await expect(shellXterm).toHaveAttribute('data-terminal-font-size', '15');
+      await expect(shellXterm).toHaveAttribute('data-terminal-line-height', '1.2');
+      await expect(shell.locator('.session-terminal-host')).toHaveAttribute(
+        'data-terminal-padding',
+        '12x10',
+      );
       await waitForTerminalOutput(page, 'claude ready', { terminalId: externalTerminalId! });
 
       await shell.locator('.session-terminal-host .xterm').click();

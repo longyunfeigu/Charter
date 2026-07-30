@@ -6,31 +6,31 @@ import { groupSkills, skillGroupCounts, type SkillStatusFilter } from './skills-
 
 const NAV: ReadonlyArray<{ id: SkillStatusFilter; label: string; icon: string }> = [
   { id: 'all', label: 'All skills', icon: 'puzzle' },
-  { id: 'active', label: 'In use', icon: 'checkCircle' },
-  { id: 'review', label: 'Review queue', icon: 'alert' },
+  { id: 'active', label: 'Observed use', icon: 'checkCircle' },
+  { id: 'review', label: 'Needs review', icon: 'alert' },
   { id: 'disabled', label: 'Disabled anywhere', icon: 'ban' },
 ];
 
 export function SkillsRailPanel(): React.JSX.Element {
   const skills = useSkillsStore((state) => state.skills);
-  const sources = useSkillsStore((state) => state.sources);
   const usage = useSkillsStore((state) => state.usage);
+  const usageLoaded = useSkillsStore((state) => state.usageLoaded);
   const init = useSkillsStore((state) => state.init);
   const status = useSkillsViewStore((state) => state.status);
   const setStatus = useSkillsViewStore((state) => state.setStatus);
-  const groups = useMemo(() => groupSkills(skills, usage), [skills, usage]);
+  const groups = useMemo(
+    () => groupSkills(skills, usage, usageLoaded),
+    [skills, usage, usageLoaded],
+  );
   const counts = useMemo(() => skillGroupCounts(groups), [groups]);
 
   useEffect(() => init(), [init]);
-
-  const sourceAvailable = (id: string): boolean =>
-    sources.some((source) => source.id === id && source.available);
 
   return (
     <div className="skills-rail-panel" data-testid="skills-rail-panel">
       <header className="skills-rail-head">
         <strong>Skills</strong>
-        <small>Usage and installed copies across every Agent.</small>
+        <small>Installed copies and observed usage across Agents.</small>
       </header>
 
       <nav className="skills-rail-nav" aria-label="Skill views">
@@ -43,27 +43,31 @@ export function SkillsRailPanel(): React.JSX.Element {
           >
             <Ic name={item.icon} size={13} />
             <span>{item.label}</span>
-            <b>{counts[item.id]}</b>
+            <b>
+              {!usageLoaded && (item.id === 'active' || item.id === 'review')
+                ? '—'
+                : counts[item.id]}
+            </b>
           </button>
         ))}
       </nav>
 
-      <div className="skills-rail-section">Evidence coverage</div>
+      <div className="skills-rail-section">Usage evidence</div>
       <div className="skills-rail-coverage">
         <div>
           <i className="agent-pi" />
           <span>Charter Agent</span>
-          <small>exact</small>
+          <small>exact ledger</small>
         </div>
         <div>
           <i className="agent-claude" />
           <span>Claude Code</span>
-          <small>{sourceAvailable('claude') ? 'transcripts' : 'not found'}</small>
+          <small>transcript-derived</small>
         </div>
         <div>
           <i className="agent-codex" />
           <span>Codex</span>
-          <small>{sourceAvailable('codex') ? 'activation' : 'not found'}</small>
+          <small>not tracked</small>
         </div>
       </div>
     </div>
