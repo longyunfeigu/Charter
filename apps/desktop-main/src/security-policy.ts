@@ -11,9 +11,12 @@ export function allowedNavigation(devServerUrl: string | undefined, url: string)
   return url.startsWith(devServerUrl) || url.startsWith('app://');
 }
 
-/** External links open in the system browser and must be plain https. */
-const EXTERNAL_URL_ALLOWLIST = [/^https:\/\//i];
-
 export function isAllowedExternalUrl(url: string): boolean {
-  return EXTERNAL_URL_ALLOWLIST.some((re) => re.test(url));
+  if (url.trim() !== url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
 }

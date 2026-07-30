@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 
@@ -14,6 +15,23 @@ import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
  */
 
 const NAME_RE = /^[^/\\:*?"<>|]+$/;
+
+/** Node path resolution does not implement shell expansion. Treat only `~`
+ * and `~/...` as the current user's home; `~other` remains a literal path. */
+export function resolveProjectDirectory(
+  input: string,
+  home = homedir(),
+  cwd = process.cwd(),
+): string {
+  const trimmed = input.trim();
+  const expanded =
+    trimmed === '~'
+      ? home
+      : trimmed.startsWith('~/') || trimmed.startsWith('~\\')
+        ? resolve(home, trimmed.slice(2))
+        : trimmed;
+  return resolve(cwd, expanded);
+}
 
 function runGit(
   args: string[],
@@ -58,7 +76,7 @@ export interface CreateProjectInput {
 }
 
 export async function createProject(input: CreateProjectInput, logger: Logger): Promise<string> {
-  const target = resolve(input.dir.trim());
+  const target = resolveProjectDirectory(input.dir);
   const name = basename(target);
   // The last path segment becomes the project name — it must be a real folder
   // name (guards against roots like "/" and stray control characters).

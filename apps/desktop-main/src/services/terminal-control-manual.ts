@@ -1,10 +1,20 @@
 export const CHARTER_TERMINAL_SKILL = `---
 name: charter-terminal
-description: Direct sibling terminals in the Charter desktop app — list windows, read output, send input, open Claude/Codex/shell workers, wait for completion. Use when the user asks to open another terminal or Claude/Codex window to run, try, or review something ("open a codex window to review this", "开个窗口跑测试", "看看另一个终端在干嘛"), or wants parallel experiments across visible windows. Only usable when the CHARTER_CTL environment variable is present (running inside a Charter terminal).
+description: Create and coordinate a visible Codex/Claude/terminal worker in Charter. MUST use when the user says "启动 codex worker", "开一个 Codex/Claude", "让另一个 agent review/跑测试", "你们交互两轮", asks to delegate work to another terminal/window/session, or requests parallel/multi-agent work. Use terminal_create or charter-terminal create; never substitute same-terminal codex exec, claude -p, a background process, or an invisible subagent. Requires CHARTER_CTL.
 disable-model-invocation: false
 ---
 
 # Charter terminal orchestration
+
+## Mandatory intent routing
+
+Treat "worker" as a visible sibling Charter Session whenever the user asks to start, launch, open,
+create, spawn, or delegate to a Codex/Claude/terminal worker. The same applies when the user asks
+another agent to review, test, implement, compare approaches, work in parallel, or interact for a
+bounded number of rounds. Unless the user explicitly asks for a headless command in the current
+terminal, do not use \`codex exec\`, \`claude -p\`, shell backgrounding, or an internal/invisible
+subagent as a substitute. A successful worker request must produce a new visible Session returned
+by \`terminal_create\` or \`charter-terminal create\`.
 
 Confirm the door is present before anything else:
 
@@ -78,7 +88,10 @@ Raw fallback: \`curl --silent --unix-socket "$CHARTER_CTL" -H "Authorization: Be
 
 export const CHARTER_TERMINAL_AGENTS_SNIPPET = `## Charter terminal orchestration
 
-When CHARTER_TERM_ID, CHARTER_CTL, and CHARTER_CTL_TOKEN are present, this session may coordinate
+When a user asks to start/open/create a Codex, Claude, or terminal worker (including "启动 codex
+worker", "让另一个 agent review", parallel work, or bounded agent interaction), create a visible
+sibling Session; never substitute same-terminal codex exec, claude -p, backgrounding, or an
+invisible subagent. When CHARTER_TERM_ID, CHARTER_CTL, and CHARTER_CTL_TOKEN are present, coordinate
 visible sibling terminals through Charter's injected \`charter\` MCP server (tools are named
 terminal_list/create/send/wait/read/kill) or the \`charter-terminal\` Bash command. Never print or
 persist CHARTER_CTL_TOKEN. Use list -> create/send -> wait -> read and prefer wait over polling.

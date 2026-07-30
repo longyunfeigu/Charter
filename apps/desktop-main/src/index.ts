@@ -1019,6 +1019,17 @@ if (!gotLock) {
         },
       );
       registerExternalHandlers(externalSessionsRef, logger.child('ipc'), artifactService);
+      // Daemon-backed PTYs outlive Electron, while worker relationships are a
+      // main-process projection. Run after external-session polling has been
+      // queued so both the rail hierarchy and its activity signal restore.
+      queueMicrotask(() => {
+        const control = terminalControlRef;
+        if (!control) return;
+        const restored = control.restoreFleetRelations(
+          taskService.liveOrchestrationWorkers(m4!.terminals.list().map((terminal) => terminal.id)),
+        );
+        if (restored > 0) logger.info('orchestration fleet restored', { workers: restored });
+      });
       ctlServerRef = new CtlServer({
         socketPath: ctlSocketPath,
         identities: terminalIdentitiesRef,

@@ -20,6 +20,7 @@ class FakeTerminals {
   writes: Array<{ id: string; data: string; source: TerminalInputSource }> = [];
   agents = new Map<string, string | null>();
   children = new Set<string>();
+  screens = new Map<string, string>();
   private sequence = 0;
   private dataListeners = new Set<(event: { id: string; data: string }) => void>();
   private inputListeners = new Set<
@@ -56,6 +57,17 @@ class FakeTerminals {
   }
   hasRunningChildren(id: string): boolean {
     return this.children.has(id);
+  }
+  async screenText(
+    id: string,
+    maxBytes: number,
+  ): Promise<{ content: string; totalBytes: number } | null> {
+    const content = this.screens.get(id);
+    if (content === undefined) return null;
+    return {
+      content: Buffer.from(content, 'utf8').subarray(-maxBytes).toString('utf8'),
+      totalBytes: Buffer.byteLength(content, 'utf8'),
+    };
   }
   write(id: string, data: string, source: TerminalInputSource = 'host'): void {
     this.writes.push({ id, data, source });
@@ -153,9 +165,9 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
         },
       ],
     });
-    expect(
+    await expect(
       namedService.read({ taskId: 'commander' }, { id: 'api reviewer', maxBytes: 1024 }),
-    ).toMatchObject({ terminalId: target.id, content: 'ready\n', busy: true });
+    ).resolves.toMatchObject({ terminalId: target.id, content: 'ready\n', busy: true });
     await expect(
       namedService.send(
         { taskId: 'commander' },
@@ -210,13 +222,9 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
 
     const duplicate = terminals.create({ cwd: '/repo' });
     names.set(duplicate.id, 'PRIMARY AGENT');
-    let failure: unknown;
-    try {
-      namedService.read({ taskId: 'commander' }, { id: 'Primary Agent', maxBytes: 1024 });
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toMatchObject({ error: { code: 'TERMINAL_NAME_AMBIGUOUS' } });
+    await expect(
+      namedService.read({ taskId: 'commander' }, { id: 'Primary Agent', maxBytes: 1024 }),
+    ).rejects.toMatchObject({ error: { code: 'TERMINAL_NAME_AMBIGUOUS' } });
     namedService.dispose();
   });
 
@@ -225,13 +233,29 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
     terminals.emitData(terminal.id, '\u001b[31mred\u001b[0m\n');
     terminals.emitData(terminal.id, 'x'.repeat(TERMINAL_BUFFER_BYTES + 100));
     expect(service.bufferBytes(terminal.id)).toBeLessThanOrEqual(TERMINAL_BUFFER_BYTES);
-    const read = service.read({ taskId: 'task_1' }, { id: terminal.id, maxBytes: 1024 }) as {
+    const read = (await service.read(
+      { taskId: 'task_1' },
+      { id: terminal.id, maxBytes: 1024 },
+    )) as {
       content: string;
       bytes: number;
     };
     expect(read.content).not.toContain('\u001b');
     expect(read.bytes).toBeLessThanOrEqual(1024);
     expect(stripTerminalAnsi('\u001b]133;D;0\u0007ok')).toBe('ok');
+  });
+
+  it('prefers the emulated VT screen over the lossy ANSI-stripped stream', async () => {
+    const terminal = terminals.create({ cwd: '/tmp', launch: 'codex' });
+    terminals.emitData(terminal.id, 'qqqq Working Working');
+    terminals.screens.set(terminal.id, '┌────┐\n完成：中文 review');
+
+    await expect(
+      service.read({ taskId: 'task_1' }, { id: terminal.id, maxBytes: 1024 }),
+    ).resolves.toMatchObject({
+      content: '┌────┐\n完成：中文 review',
+      truncated: false,
+    });
   });
 
   it('queues paused/taken-over sends and releases them in order on hand-back', async () => {
@@ -405,7 +429,7 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
         expect.objectContaining({
           terminalId: 'term_2',
           commanderTaskId: 'commander_new',
-          taskId: null,
+          taskId: 'worker_resumed',
         }),
       ]),
     );
@@ -413,6 +437,60 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
       expect.objectContaining({ taskId: 'commander_new', type: 'orchestration.fleetResumed' }),
     );
     restoreService.dispose();
+  });
+
+  it('restores only surviving daemon workers without writing duplicate ledger events', () => {
+    const events: Array<{ taskId: string; type: string; payload: Record<string, unknown> }> = [];
+    const restoredService = new TerminalControlService(
+      terminals as unknown as TerminalManager,
+      logger,
+      {
+        enabled: () => true,
+        recordEvent: (taskId, type, payload) => events.push({ taskId, type, payload }),
+        settleMs: 0,
+      },
+    );
+    const live = terminals.create({ cwd: '/repo', launch: 'codex' });
+    terminals.agents.set(live.id, 'codex');
+
+    expect(
+      restoredService.restoreFleetRelations([
+        {
+          commanderTaskId: 'commander_task',
+          commanderTerminalId: 'commander_terminal',
+          terminalId: live.id,
+          workerTaskId: 'worker_task',
+          launch: 'codex',
+          root: '/repo',
+          projectPath: '/repo',
+          title: 'Codex review worker',
+          turnPending: true,
+        },
+        {
+          commanderTaskId: 'commander_task',
+          commanderTerminalId: 'commander_terminal',
+          terminalId: 'missing_terminal',
+          workerTaskId: 'missing_task',
+          launch: 'claude',
+          root: '/repo',
+          projectPath: '/repo',
+          title: 'gone worker',
+          turnPending: false,
+        },
+      ]),
+    ).toBe(1);
+
+    expect(restoredService.snapshot().workers).toEqual([
+      expect.objectContaining({
+        terminalId: live.id,
+        commanderTaskId: 'commander_task',
+        commanderTerminalId: 'commander_terminal',
+        taskId: 'worker_task',
+        status: 'streaming',
+      }),
+    ]);
+    expect(events).toEqual([]);
+    restoredService.dispose();
   });
 
   it('keeps the historical worker retryable when its resume fails', async () => {

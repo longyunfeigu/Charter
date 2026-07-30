@@ -29,8 +29,13 @@ describe('terminal control manual worker lifecycle', () => {
   it('carries the trigger conditions a hand-launched CLI needs (ADR-0045)', () => {
     // The frontmatter description is all a skill-scanning CLI sees up front:
     // it must name the trigger scenarios and the availability gate.
-    expect(CHARTER_TERMINAL_SKILL).toContain('CHARTER_CTL environment variable is present');
-    expect(CHARTER_TERMINAL_SKILL).toContain('开个窗口');
+    expect(CHARTER_TERMINAL_SKILL).toContain('Requires CHARTER_CTL');
+    expect(CHARTER_TERMINAL_SKILL).toContain('启动 codex worker');
+    expect(CHARTER_TERMINAL_SKILL).toContain('让另一个 agent review');
+    expect(CHARTER_TERMINAL_SKILL).toContain('你们交互两轮');
+    expect(CHARTER_TERMINAL_SKILL).toContain('never substitute same-terminal codex exec');
+    expect(CHARTER_TERMINAL_AGENTS_SNIPPET).toContain('create a visible');
+    expect(CHARTER_TERMINAL_AGENTS_SNIPPET).toContain('same-terminal codex exec');
     // The body opens with a door self-check and a non-MCP fallback path.
     expect(CHARTER_TERMINAL_SKILL).toContain('[ -n "$CHARTER_CTL" ]');
     expect(CHARTER_TERMINAL_SKILL).toContain('same door, same host-enforced rules');

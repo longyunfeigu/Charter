@@ -12,13 +12,14 @@ const fusePlan = createRequire(import.meta.url)('../../../scripts/fuse-plan.cjs'
 };
 
 describe('external URL policy (§16.4 malicious links)', () => {
-  it('allows plain https only', () => {
+  it('allows plain http and https web URLs', () => {
     expect(isAllowedExternalUrl('https://example.com/docs')).toBe(true);
     expect(isAllowedExternalUrl('HTTPS://EXAMPLE.COM')).toBe(true);
+    expect(isAllowedExternalUrl('http://example.com/docs')).toBe(true);
+    expect(isAllowedExternalUrl('http://localhost:5173/')).toBe(true);
   });
 
   it.each([
-    'http://example.com', // downgrade
     'file:///etc/passwd',
     'javascript:alert(1)',
     'data:text/html,<script>1</script>',

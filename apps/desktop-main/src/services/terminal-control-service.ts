@@ -121,6 +121,13 @@ export interface OrchestrationFleetRestoreMember {
   title: string;
 }
 
+/** A live worker relationship reconstructed from the durable task ledger. */
+export interface OrchestrationFleetRelationRestore extends OrchestrationFleetRestoreMember {
+  commanderTaskId: string;
+  commanderTerminalId: string | null;
+  turnPending: boolean;
+}
+
 export interface OrchestrationFleetResumeResult {
   requested: number;
   resumed: number;
@@ -132,6 +139,8 @@ interface WorkerRelation {
   terminalId: string;
   commanderTaskId: string;
   commanderTerminalId: string | null;
+  /** Durable external-task identity, present before the live detector catches up after restart. */
+  taskId: string | null;
   createdAt: string;
   launch: 'shell' | 'claude' | 'codex';
   title: string;
@@ -327,16 +336,21 @@ export class TerminalControlService implements TerminalControlPort {
     };
   }
 
-  read(_caller: TerminalToolCaller, input: { id: string; maxBytes: number }): unknown {
+  async read(
+    _caller: TerminalToolCaller,
+    input: { id: string; maxBytes: number },
+  ): Promise<unknown> {
     this.assertEnabled();
     const terminalId = this.resolveTargetId(input.id);
     const state = this.stateFor(terminalId);
-    const content = byteTail(state.buffer, input.maxBytes);
+    const screen = await this.terminals.screenText?.(terminalId, input.maxBytes);
+    const content = screen?.content ?? byteTail(state.buffer, input.maxBytes);
+    const totalBytes = screen?.totalBytes ?? Buffer.byteLength(state.buffer, 'utf8');
     return {
       terminalId,
       content,
       bytes: Buffer.byteLength(content, 'utf8'),
-      truncated: Buffer.byteLength(state.buffer, 'utf8') > input.maxBytes,
+      truncated: totalBytes > input.maxBytes,
       busy: this.isBusy(terminalId),
       exited: state.exited,
     };
@@ -453,6 +467,7 @@ export class TerminalControlService implements TerminalControlPort {
       terminalId: info.id,
       commanderTaskId: caller.taskId,
       commanderTerminalId: caller.terminalId ?? null,
+      taskId: null,
       createdAt: new Date(this.now()).toISOString(),
       launch: input.launch,
       title: info.title,
@@ -503,6 +518,16 @@ export class TerminalControlService implements TerminalControlPort {
       title: info.title,
       commanderTerminalId: caller.terminalId ?? null,
     });
+    if (directAgent && initialPrompt) {
+      // The first prompt was submitted through argv before the external-session
+      // detector can bind its task. Persist the start edge now so a daemon
+      // reattach can restore the working indicator without a fresh repaint.
+      this.record(caller.taskId, 'orchestration.workerTurnStarted', {
+        terminalId: info.id,
+        workerTaskId: null,
+        source: 'launch',
+      });
+    }
     this.changed();
     return { terminal: info, worker: this.workerSnapshot(relation) };
   }
@@ -679,11 +704,52 @@ export class TerminalControlService implements TerminalControlPort {
   bindWorkerTask(terminalId: string, workerTaskId: string): void {
     const worker = this.workers.get(terminalId);
     if (!worker) return;
+    worker.taskId = workerTaskId;
     this.record(worker.commanderTaskId, 'orchestration.workerBound', {
       terminalId,
       workerTaskId,
     });
     this.changed();
+  }
+
+  /**
+   * Reattach workers whose daemon-backed PTYs survived an Electron restart.
+   * This is a pure in-memory projection: the ledger already owns the history,
+   * so startup must never append duplicate worker-created/bound events.
+   */
+  restoreFleetRelations(relations: readonly OrchestrationFleetRelationRestore[]): number {
+    const terminals = new Map(this.terminals.list().map((terminal) => [terminal.id, terminal]));
+    let restored = 0;
+    for (const relation of relations) {
+      const terminal = terminals.get(relation.terminalId);
+      if (!terminal) continue;
+
+      const previous = this.workers.get(relation.terminalId);
+      if (previous?.startupTimer) clearTimeout(previous.startupTimer);
+      this.workers.set(relation.terminalId, {
+        terminalId: relation.terminalId,
+        commanderTaskId: relation.commanderTaskId,
+        commanderTerminalId: relation.commanderTerminalId,
+        taskId: relation.workerTaskId,
+        createdAt: previous?.createdAt ?? new Date(this.now()).toISOString(),
+        launch: relation.launch,
+        title: relation.title,
+        projectName: terminal.projectName,
+        closeRequested: false,
+        starting: false,
+        startupTimer: null,
+        paused: false,
+        takeover: false,
+        queued: previous?.queued ?? [],
+      });
+      // Daemon replay contains screen contents but not a reliable post-restart
+      // output edge. The persisted turn boundary therefore owns the initial
+      // activity state until the reattached CLI reports completion.
+      this.stateFor(relation.terminalId).turnPending = relation.turnPending;
+      restored += 1;
+    }
+    if (restored > 0) this.changed();
+    return restored;
   }
 
   /** Restore a commander's durable fleet without allowing worker resumes to recurse. */
@@ -890,6 +956,7 @@ export class TerminalControlService implements TerminalControlPort {
         terminalId: terminal.id,
         commanderTaskId: input.targetTaskId,
         commanderTerminalId: input.commanderTerminalId,
+        taskId: member.workerTaskId,
         createdAt: new Date(this.now()).toISOString(),
         launch: member.launch,
         title: member.title,
@@ -905,6 +972,7 @@ export class TerminalControlService implements TerminalControlPort {
     } else {
       relation.commanderTaskId = input.targetTaskId;
       relation.commanderTerminalId = input.commanderTerminalId;
+      relation.taskId = member.workerTaskId;
       relation.paused = false;
       relation.takeover = false;
     }
@@ -1142,7 +1210,7 @@ export class TerminalControlService implements TerminalControlPort {
   private workerSnapshot(worker: WorkerRelation): OrchestrationWorkerSnapshot {
     const terminal = this.terminals.list().find((item) => item.id === worker.terminalId);
     const state = this.stateFor(worker.terminalId);
-    const taskId = this.options.taskForTerminal?.(worker.terminalId) ?? null;
+    const taskId = this.options.taskForTerminal?.(worker.terminalId) ?? worker.taskId;
     const busy = terminal ? this.isBusy(worker.terminalId) : false;
     const exitCode = state.processExitCode ?? state.lastExitCode;
     const hasSettledTurn = state.lastTurnStatus !== null && !state.turnPending;

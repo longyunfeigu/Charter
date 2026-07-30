@@ -1593,6 +1593,10 @@
   background: var(--bg-hover);
   color: var(--fg);
 }
+.stv-header > button:disabled {
+  color: var(--fg-faint);
+  cursor: wait;
+}
 .stv-body {
   flex: 1;
   min-height: 0;

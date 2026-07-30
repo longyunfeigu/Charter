@@ -157,6 +157,8 @@ interface AppStore {
    * migrates this selection to the matching Task Room without moving the PTY.
    */
   sessionTerminalId: string | null;
+  /** A Session row opens one PTY; the global manager is an explicit destination. */
+  sessionTerminalScope: 'single' | 'all';
   /** True while the Home project menu is opening a workspace — suppresses the auto-switch. */
   homePick: boolean;
   /** File refs queued for the next Home charter (e.g. "attach annotated image"). */
@@ -230,6 +232,7 @@ interface AppStore {
   openTaskRoom(taskId: string): void;
   setSessionRoomView(view: SessionRoomView): void;
   openTerminalSession(terminalId: string): void;
+  openAllTerminals(terminalId: string): void;
   openRemoteTerminalSession(terminalId: string, hostId: string): void;
   closeTaskRoom(): void;
   setHomePick(inProgress: boolean): void;
@@ -460,6 +463,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     taskRoomTaskId: null,
     sessionRoomView: 'conversation',
     sessionTerminalId: null,
+    sessionTerminalScope: 'single',
     homePick: false,
     pendingRefs: [],
     newProjectOpen: false,
@@ -762,6 +766,27 @@ export const useAppStore = create<AppStore>((set, get) => {
     openTerminalSession(terminalId) {
       set({
         sessionTerminalId: terminalId,
+        sessionTerminalScope: 'single',
+        taskRoomTaskId: null,
+        sessionRoomView: 'conversation',
+        surface: 'home',
+        peek: null,
+        previewRailTaskId: null,
+        sessionTool: 'terminal',
+        sessionToolsOpen: false,
+        sessionToolExpanded: false,
+        projectTool: null,
+        projectBottomTab: null,
+        archaeology: null,
+        remotesOpen: false,
+        ...crossRailPatch('sessions'),
+      });
+    },
+
+    openAllTerminals(terminalId) {
+      set({
+        sessionTerminalId: terminalId,
+        sessionTerminalScope: 'all',
         taskRoomTaskId: null,
         sessionRoomView: 'conversation',
         surface: 'home',
@@ -781,6 +806,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     openRemoteTerminalSession(terminalId, remoteSelectedHostId) {
       set({
         sessionTerminalId: terminalId,
+        sessionTerminalScope: 'single',
         taskRoomTaskId: null,
         sessionRoomView: 'conversation',
         surface: 'home',
@@ -804,6 +830,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         taskRoomTaskId: null,
         sessionRoomView: 'conversation',
         sessionTerminalId: null,
+        sessionTerminalScope: 'single',
         peek: null,
         previewRailTaskId: null,
         sessionTool: 'summary',

@@ -17,7 +17,10 @@ export interface TerminalControlPort {
   ): void;
   targetKind(id: string): 'shell' | 'tui' | 'missing';
   list(caller: TerminalToolCaller): unknown;
-  read(caller: TerminalToolCaller, input: { id: string; maxBytes: number }): unknown;
+  read(
+    caller: TerminalToolCaller,
+    input: { id: string; maxBytes: number },
+  ): unknown | Promise<unknown>;
   send(
     caller: TerminalToolCaller,
     input: { id: string; text: string; submit: boolean },
@@ -162,7 +165,7 @@ export function registerTerminalTools(gateway: ToolGateway, services: TerminalTo
       ruleKey: `terminal.read:${input.id}`,
     }),
     async execute(input, _signal, call) {
-      const data = services.control.read(caller(call, services), input);
+      const data = await services.control.read(caller(call, services), input);
       return { code: 'OK', summary: `Read terminal ${input.id} output metadata.`, data };
     },
   });
@@ -208,7 +211,7 @@ export function registerTerminalTools(gateway: ToolGateway, services: TerminalTo
     description:
       'Create one visible worker terminal in this workspace. Optionally launch Claude/Codex or inject initial shell/TUI text after the terminal settles.',
     promptGuidance:
-      'When the user asks to open another terminal, window, or Claude/Codex session to run, try, or review something (e.g. "开另一个 claude terminal 去审核", "open a codex window to try plan B"), call this tool to create that worker — do not do the work yourself in this session — then direct it with terminal.send and terminal.wait.',
+      'MUST call this tool when the user asks to start/open/create/spawn a Codex, Claude, terminal, or agent worker; delegate review/test/implementation to another agent/window/session; run parallel work; or have agents interact for bounded rounds (e.g. "启动 codex worker", "让另一个 agent review", "你们交互两轮"). Create a visible worker — never substitute same-terminal codex exec, claude -p, backgrounding, or an invisible subagent — then direct it with terminal.send and terminal.wait.',
     inputSchema: z
       .object({
         launch: z.enum(['shell', 'claude', 'codex']).default('shell'),

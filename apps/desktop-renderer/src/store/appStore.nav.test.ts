@@ -19,6 +19,7 @@ function reset(): void {
     taskRoomTaskId: null,
     sessionRoomView: 'conversation',
     sessionTerminalId: null,
+    sessionTerminalScope: 'single',
     archaeology: null,
     remotesOpen: false,
     remoteSelectedHostId: null,
@@ -150,6 +151,17 @@ describe('surface openers keep the rail in step (reverse direction)', () => {
     useAppStore.getState().openTerminalSession('term1');
     expect(useAppStore.getState().railView).toBe('sessions');
     expect(useAppStore.getState().sessionTerminalId).toBe('term1');
+    expect(useAppStore.getState().sessionTerminalScope).toBe('single');
+  });
+
+  it('opens the global terminal manager only through explicit intent', () => {
+    useAppStore.getState().openAllTerminals('term1');
+    expect(useAppStore.getState().sessionTerminalId).toBe('term1');
+    expect(useAppStore.getState().sessionTerminalScope).toBe('all');
+
+    useAppStore.getState().openTerminalSession('term2');
+    expect(useAppStore.getState().sessionTerminalId).toBe('term2');
+    expect(useAppStore.getState().sessionTerminalScope).toBe('single');
   });
 
   it('keeps a remote terminal inside its host context', () => {
@@ -159,6 +171,7 @@ describe('surface openers keep the rail in step (reverse direction)', () => {
     expect(state.remotesOpen).toBe(true);
     expect(state.remoteSelectedHostId).toBe('host-1');
     expect(state.sessionTerminalId).toBe('term-remote');
+    expect(state.sessionTerminalScope).toBe('single');
     expect(mainSurfaceOf(state)).toEqual({ kind: 'terminal', terminalId: 'term-remote' });
   });
 

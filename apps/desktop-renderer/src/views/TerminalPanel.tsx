@@ -782,12 +782,12 @@ async function openTerminalFileToken(terminalId: string, token: string): Promise
 }
 
 /** WebLinksAddon activation (regex-detected http/https URLs). The sandboxed
- * renderer cannot window.open — route through the https-only allowlist. */
+ * renderer cannot window.open, so route through the host Web URL allowlist. */
 function activateWebUri(event: MouseEvent, uri: string): void {
   if (!openModifierHeld(event)) return;
   void rpcResult('app.openExternal', { url: uri }).then((res) => {
     if (res.ok && !res.data.opened) {
-      useAppStore.getState().pushToast('warning', 'Only https links can be opened.');
+      useAppStore.getState().pushToast('warning', 'Only http and https links can be opened.');
     }
   });
 }
@@ -2119,7 +2119,21 @@ function NewTerminalDialog({
   );
 }
 
-export function TerminalPanel(): React.JSX.Element {
+type TerminalPanelScope =
+  | { kind: 'all' }
+  | { kind: 'single'; terminalId: string }
+  | {
+      kind: 'remote-host';
+      terminalId: string;
+      hostId: string;
+      hostLabel: string;
+    };
+
+interface TerminalPanelProps {
+  scope?: TerminalPanelScope;
+}
+
+export function TerminalPanel({ scope = { kind: 'all' } }: TerminalPanelProps): React.JSX.Element {
   const store = useTerminalStore();
   const workspace = useWorkspaceStore((s) => s.workspace);
   const tasks = useTaskStore((s) => s.tasks);
@@ -2134,8 +2148,23 @@ export function TerminalPanel(): React.JSX.Element {
   // not in the dock — its xterm belongs to the panel until 归位.
   const promoted = useExternalStore((s) => s.promoted);
   const quickConsoleOpen = useQuickConsoleStore((s) => s.open);
-  const dockItems = store.items.filter((t) => !t.hidden && t.id !== promoted?.terminalId);
-  const activeDock = dockItems.find((t) => t.id === store.active) ?? null;
+  const visibleItems = store.items.filter(
+    (terminal) =>
+      !terminal.hidden &&
+      (scope.kind === 'all' ||
+        (scope.kind === 'single'
+          ? terminal.id === scope.terminalId
+          : terminal.remote?.hostId === scope.hostId)),
+  );
+  const dockItems = visibleItems.filter((terminal) => terminal.id !== promoted?.terminalId);
+  const scopedTerminalId = scope.kind === 'all' ? null : scope.terminalId;
+  const activeDock =
+    dockItems.find((terminal) => terminal.id === store.active) ??
+    (scopedTerminalId
+      ? (dockItems.find((terminal) => terminal.id === scopedTerminalId) ?? null)
+      : null);
+  const showSessionList =
+    scope.kind === 'all' || (scope.kind === 'remote-host' && visibleItems.length > 1);
 
   useEffect(() => {
     store.init();
@@ -2146,10 +2175,17 @@ export function TerminalPanel(): React.JSX.Element {
   // A promoted terminal cannot stay dock-active; hand the slot to a neighbour.
   useEffect(() => {
     if (!promoted || store.active !== promoted.terminalId) return;
-    const next = store.items.filter((t) => !t.hidden && t.id !== promoted.terminalId).at(-1);
+    const next = visibleItems.filter((terminal) => terminal.id !== promoted.terminalId).at(-1);
     useTerminalStore.setState({ active: next?.id ?? null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [promoted?.terminalId, store.active]);
+  }, [promoted?.terminalId, scope.kind, store.active]);
+
+  // Entering a scoped Session from a restored route can leave the global active
+  // id pointing at another PTY. Align it without flashing that terminal first.
+  useEffect(() => {
+    if (scope.kind === 'all' || !activeDock || store.active === activeDock.id) return;
+    useTerminalStore.setState({ active: activeDock.id });
+  }, [activeDock, scope.kind, store.active]);
 
   // This component is only mounted while the Terminal Session tool is visible;
   // the room and promoted side slot own their instances at other times.
@@ -2187,33 +2223,46 @@ export function TerminalPanel(): React.JSX.Element {
           </div>
         ) : null}
       </div>
-      <aside className="terminal-list" aria-label="Terminal sessions">
-        <div className="terminal-new-row">
-          <button
-            className="terminal-new-button"
-            data-testid="terminal-new"
-            disabled={!workspace}
-            title={
-              workspace ? `Create a shell in ${workspace.displayName}` : 'Open a project first'
-            }
-            onClick={() => void store.create({ context: { kind: 'focused' }, launch: 'shell' })}
-          >
-            <Ic name="plus" size={14} /> New Terminal
-          </button>
-          <button
-            className="terminal-new-menu"
-            data-testid="terminal-new-menu"
-            title="Choose terminal type and working context"
-            aria-label="Choose terminal type and working context"
-            onClick={() => setNewTerminalOpen(true)}
-          >
-            <Ic name="chevron" size={14} />
-          </button>
-        </div>
-        <div className="terminal-list-scroll">
-          {store.items
-            .filter((terminal) => !terminal.hidden)
-            .map((terminal) => {
+      {showSessionList ? (
+        <aside
+          className={`terminal-list ${scope.kind === 'remote-host' ? 'remote-scoped' : ''}`}
+          aria-label={
+            scope.kind === 'remote-host' ? `${scope.hostLabel} SSH sessions` : 'Terminal sessions'
+          }
+          data-testid={scope.kind === 'remote-host' ? 'ssh-session-switcher' : undefined}
+        >
+          {scope.kind === 'remote-host' ? (
+            <div className="terminal-scope-row" data-testid="ssh-session-switcher-heading">
+              <Ic name="server" size={13} />
+              <span>{scope.hostLabel} sessions</span>
+              <b>{visibleItems.length}</b>
+            </div>
+          ) : (
+            <div className="terminal-new-row">
+              <button
+                className="terminal-new-button"
+                data-testid="terminal-new"
+                disabled={!workspace}
+                title={
+                  workspace ? `Create a shell in ${workspace.displayName}` : 'Open a project first'
+                }
+                onClick={() => void store.create({ context: { kind: 'focused' }, launch: 'shell' })}
+              >
+                <Ic name="plus" size={14} /> New Terminal
+              </button>
+              <button
+                className="terminal-new-menu"
+                data-testid="terminal-new-menu"
+                title="Choose terminal type and working context"
+                aria-label="Choose terminal type and working context"
+                onClick={() => setNewTerminalOpen(true)}
+              >
+                <Ic name="chevron" size={14} />
+              </button>
+            </div>
+          )}
+          <div className="terminal-list-scroll">
+            {visibleItems.map((terminal) => {
               const fallbackTask = tasks
                 .filter((entry) => entry.external?.terminalId === terminal.id)
                 .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
@@ -2262,6 +2311,11 @@ export function TerminalPanel(): React.JSX.Element {
               const selected = inSide || (!promoted && dockActive);
               const taskLabel = task?.title ?? terminal.contextLabel;
               const activate = (): void => {
+                if (scope.kind === 'remote-host') {
+                  store.setActive(terminal.id);
+                  useAppStore.getState().openRemoteTerminalSession(terminal.id, scope.hostId);
+                  return;
+                }
                 // When the focus slot is already in use, the session list is a
                 // real switcher: clicking another live Agent atomically swaps
                 // the two existing PTYs. No tiny secondary action is required.
@@ -2410,8 +2464,9 @@ export function TerminalPanel(): React.JSX.Element {
                 </div>
               );
             })}
-        </div>
-      </aside>
+          </div>
+        </aside>
+      ) : null}
 
       <NewTerminalDialog open={newTerminalOpen} onClose={() => setNewTerminalOpen(false)} />
 

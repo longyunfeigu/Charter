@@ -45,6 +45,6 @@ export async function openExternalChecked(url: string, logger: Logger): Promise<
     logger.warn('external url rejected', { url });
     return false;
   }
-  await shell.openExternal(url);
+  if (!process.env.PI_IDE_E2E) await shell.openExternal(url);
   return true;
 }

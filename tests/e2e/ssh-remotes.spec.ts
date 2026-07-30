@@ -92,6 +92,16 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       await expect(page.getByTestId('ssh-disconnect')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId('remote-explorer-rail')).toBeVisible();
       await expect(page.getByTestId('rm-host-e2e-host')).toBeVisible();
+      await expect(page.getByTestId('session-terminal-view')).toHaveAttribute(
+        'data-terminal-scope',
+        'remote-host',
+      );
+      await expect(page.getByTestId('ssh-new-session')).toHaveText('New SSH Session');
+      await expect(page.getByTestId('ssh-all-terminals')).toBeVisible();
+      // One host session needs no second switcher, and the local New Terminal
+      // action must never masquerade as an SSH-scoped command.
+      await expect(page.getByTestId('ssh-session-switcher')).toHaveCount(0);
+      await expect(page.getByTestId('terminal-new')).toHaveCount(0);
 
       // Dropping the transport deletes the ended Session and returns directly
       // to its host instead of retaining a dead terminal row.
@@ -117,16 +127,22 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       await page.getByTestId('rm-connect-e2e-host').click();
       await acceptPrompts(page);
       await expect(page.getByTestId('session-terminal-view')).toBeVisible({ timeout: 15000 });
-
-      // Back on the host: connected, one session listed, New Session offered.
-      await page.getByTestId('remote-host-e2e-host').click();
-      await expect(page.getByTestId('rm-sessions-e2e-host')).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('ssh-session-switcher')).toHaveCount(0);
       await expect(page.locator('[data-testid^="rm-session-term_"]')).toHaveCount(1);
 
-      // Second session on the same transport (no new TOFU/auth prompts).
-      await page.getByTestId('rm-new-session-e2e-host').click();
+      // The SSH-scoped header creates a second shell on the same transport.
+      // Only then does a compact, host-filtered session switcher appear.
+      await page.getByTestId('ssh-new-session').click();
       await expect(page.getByTestId('session-terminal-view')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId('remote-explorer-rail')).toBeVisible();
+      await expect(page.getByTestId('ssh-session-switcher')).toBeVisible();
+      await expect(page.getByTestId('ssh-session-switcher-heading')).toContainText(
+        'e2e-host sessions',
+      );
+      await expect(
+        page.getByTestId('ssh-session-switcher').locator('[data-testid^="terminal-tab-"]'),
+      ).toHaveCount(2);
+      await expect(page.getByTestId('terminal-new')).toHaveCount(0);
 
       // End the currently selected shell. Its row is deleted immediately and
       // the remaining live PTY becomes both the route and TerminalPanel active.
@@ -143,6 +159,34 @@ test.describe('SSH Remotes (ADR-0047)', () => {
         );
       const liveTerminalId = terminalIds.find((id) => id !== endedTerminalId);
       expect(liveTerminalId).toBeTruthy();
+
+      // Global terminals remain available, but only after an explicit scope
+      // change. The ordinary local creation control belongs there.
+      await page.getByTestId('ssh-all-terminals').click();
+      await expect(page.getByTestId('session-terminal-view')).toHaveAttribute(
+        'data-terminal-scope',
+        'all',
+      );
+      await expect(page.getByTestId('terminal-new')).toBeVisible();
+      await expect(page.getByTestId('remote-explorer-rail')).toHaveCount(0);
+      // Selecting a concrete row in Sessions returns to one terminal and does
+      // not keep the global terminal list attached to that Session page.
+      await page.getByTestId(`session-terminal-${endedTerminalId}`).click();
+      await expect(page.getByTestId('session-terminal-view')).toHaveAttribute(
+        'data-terminal-scope',
+        'single',
+      );
+      await expect(page.getByTestId('terminal-new')).toHaveCount(0);
+      await expect(page.getByTestId('session-all-terminals')).toBeVisible();
+
+      await page.getByTestId('rail-view-remotes').click();
+      await expect(page.getByTestId('remote-explorer-rail')).toBeVisible();
+      await page.getByTestId(`rm-session-${endedTerminalId}`).click();
+      await expect(page.getByTestId('session-terminal-view')).toHaveAttribute(
+        'data-terminal-scope',
+        'remote-host',
+      );
+
       sshd.closeLatestShell();
       await expect(page.locator('[data-testid^="rm-session-term_"]')).toHaveCount(1);
       await expect(page.getByTestId('session-terminal-view')).toHaveAttribute(

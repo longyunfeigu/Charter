@@ -236,8 +236,13 @@ test.describe('External Session identity and presence', () => {
         await page.screenshot({ path: `/tmp/charter-${provider}-ended-shell-1440.png` });
 
         await restarted.app.evaluate(({ BrowserWindow }) => {
-          BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 980, height: 760 });
+          const window = BrowserWindow.getAllWindows()[0];
+          window?.unmaximize();
+          window?.setBounds({ x: 0, y: 0, width: 1024, height: 760 });
         });
+        await expect
+          .poll(() => page.evaluate(() => window.innerWidth), { timeout: 15_000 })
+          .toBeLessThanOrEqual(1024);
         await expect(page.getByTestId('external-terminal-lifecycle')).toHaveText('Shell available');
         await expect(page.getByTestId('session-tool-close')).toBeVisible();
         await page.getByTestId('session-tool-close').click();

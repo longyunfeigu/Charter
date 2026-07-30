@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { ProductFailure, type Logger } from '@pi-ide/foundation';
-import { createProject } from './project-create.js';
+import { createProject, resolveProjectDirectory } from './project-create.js';
 
 const logger: Logger = {
   debug: () => undefined,
@@ -17,6 +17,18 @@ function tmp(): string {
 }
 
 describe('createProject (Home → New project)', () => {
+  it('expands a home-relative project path before resolving it against cwd', () => {
+    const home = join(tmpdir(), 'project-home');
+    const cwd = join(tmpdir(), 'project-cwd');
+    expect(resolveProjectDirectory('~/git/charter-test', home, cwd)).toBe(
+      resolve(home, 'git/charter-test'),
+    );
+    expect(resolveProjectDirectory('  ~  ', home, cwd)).toBe(resolve(home));
+    expect(resolveProjectDirectory('~someone/project', home, cwd)).toBe(
+      resolve(cwd, '~someone/project'),
+    );
+  });
+
   it('creates an empty folder without git', async () => {
     const dir = join(tmp(), 'demo');
     const path = await createProject({ mode: 'empty', dir, gitInit: false }, logger);

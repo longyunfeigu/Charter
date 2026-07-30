@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { newId } from '@pi-ide/foundation';
+import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import type { IPty } from 'node-pty';
 import * as nodePty from 'node-pty';
 import { shellIntegrationSpawn, type ShellIntegrationConfig } from './shell-integration.js';
@@ -78,6 +79,9 @@ export interface AdoptBackendOptions {
   pid?: number;
   /** Exact VT snapshot used to seed a newly mounted renderer. */
   initialReplay?: string;
+  cols?: number;
+  rows?: number;
+  scrollback?: number;
   title: string;
   shell?: string;
   cwd: string;
@@ -142,11 +146,50 @@ interface Session {
   pty?: IPty;
   tracker: AgentStateTracker;
   recentData: TerminalReplayBuffer;
+  screen: HeadlessTerminal;
   knownAgent: 'claude' | 'codex' | null;
 }
 
 const TERMINAL_REPLAY_LIMIT = 64 * 1024;
 const TERMINAL_REPLAY_HARD_LIMIT = 96 * 1024;
+
+function newScreen(cols: number, rows: number, scrollback: number): HeadlessTerminal {
+  return new HeadlessTerminal({
+    cols: Math.max(2, cols),
+    rows: Math.max(1, rows),
+    scrollback: Math.max(100, Math.min(100_000, scrollback)),
+    allowProposedApi: true,
+  });
+}
+
+function utf8Tail(value: string, maxBytes: number): string {
+  const bytes = Buffer.from(value, 'utf8');
+  if (bytes.byteLength <= maxBytes) return value;
+  let tail = bytes.subarray(bytes.byteLength - maxBytes).toString('utf8');
+  if (tail.charCodeAt(0) === 0xfffd) tail = tail.slice(1);
+  return tail;
+}
+
+function screenText(
+  screen: HeadlessTerminal,
+  maxBytes: number,
+): { content: string; totalBytes: number } {
+  const buffer = screen.buffer.active;
+  const lines: string[] = [];
+  for (let index = 0; index < buffer.length; index += 1) {
+    const line = buffer.getLine(index);
+    const text = line?.translateToString(true) ?? '';
+    if (line?.isWrapped && lines.length > 0) lines[lines.length - 1] += text;
+    else lines.push(text);
+  }
+  while (lines[0] === '') lines.shift();
+  while (lines.at(-1) === '') lines.pop();
+  const value = lines.join('\n');
+  return {
+    content: utf8Tail(value, maxBytes),
+    totalBytes: Buffer.byteLength(value, 'utf8'),
+  };
+}
 
 interface VtCharsetState {
   g0: string;
@@ -790,7 +833,10 @@ export class TerminalManager {
 
   private emitData(id: string, data: string, sequence?: number): void {
     const session = this.sessions.get(id);
-    if (session) session.recentData.append(data);
+    if (session) {
+      session.recentData.append(data);
+      session.screen.write(data);
+    }
     this.onData(id, data, sequence);
     for (const listener of this.dataListeners) listener({ id, data });
   }
@@ -803,6 +849,18 @@ export class TerminalManager {
   /** Small in-memory lead-in so session detection cannot miss fast JSON init events. */
   recentData(id: string): string {
     return this.sessions.get(id)?.recentData.replay() ?? '';
+  }
+
+  /** Plain text from the live VT model. Unlike ANSI stripping, this applies
+   * cursor movement, erasure, alternate-screen and DEC line-drawing state. */
+  async screenText(
+    id: string,
+    maxBytes: number,
+  ): Promise<{ content: string; totalBytes: number } | null> {
+    const session = this.sessions.get(id);
+    if (!session) return null;
+    await new Promise<void>((resolve) => session.screen.write('', resolve));
+    return screenText(session.screen, maxBytes);
   }
 
   /** One detection sample across all sessions (interval-driven; public for tests). */
@@ -874,6 +932,7 @@ export class TerminalManager {
       persistence: this.createLocalBackend ? 'daemon' : 'process',
     };
     if (this.createLocalBackend) {
+      const scrollback = options.scrollback ?? 5000;
       const created = this.createLocalBackend({
         info,
         executable,
@@ -882,10 +941,19 @@ export class TerminalManager {
         env,
         cols,
         rows,
-        scrollback: options.scrollback ?? 5000,
+        scrollback,
       });
       info.pid = created.pid;
-      return this.registerSession(id, info, created.backend, options.knownAgent ?? null);
+      return this.registerSession(
+        id,
+        info,
+        created.backend,
+        options.knownAgent ?? null,
+        undefined,
+        cols,
+        rows,
+        scrollback,
+      );
     }
     const pty = nodePty.spawn(executable, plan.args, {
       name: 'xterm-256color',
@@ -896,7 +964,16 @@ export class TerminalManager {
     });
     info.pid = pty.pid;
     // The pty is retained on the Session for the readTitle DI seam.
-    return this.registerSession(id, info, new PtyBackend(pty), options.knownAgent ?? null, pty);
+    return this.registerSession(
+      id,
+      info,
+      new PtyBackend(pty),
+      options.knownAgent ?? null,
+      pty,
+      cols,
+      rows,
+      options.scrollback ?? 5000,
+    );
   }
 
   /**
@@ -921,8 +998,21 @@ export class TerminalManager {
       persistence: backend.persistent ? 'daemon' : options.remote ? 'remote' : 'process',
       remote: options.remote,
     };
-    const registered = this.registerSession(id, info, backend, options.knownAgent ?? null);
-    if (options.initialReplay) this.sessions.get(id)?.recentData.append(options.initialReplay);
+    const registered = this.registerSession(
+      id,
+      info,
+      backend,
+      options.knownAgent ?? null,
+      undefined,
+      options.cols ?? 80,
+      options.rows ?? 24,
+      options.scrollback ?? 5000,
+    );
+    if (options.initialReplay) {
+      const session = this.sessions.get(id);
+      session?.recentData.append(options.initialReplay);
+      session?.screen.write(options.initialReplay);
+    }
     return registered;
   }
 
@@ -937,6 +1027,9 @@ export class TerminalManager {
     backend: TerminalBackend,
     knownAgent: 'claude' | 'codex' | null,
     pty?: IPty,
+    cols = 80,
+    rows = 24,
+    scrollback = 5000,
   ): TerminalInfo {
     const tracker = new AgentStateTracker();
     if (knownAgent) tracker.update(knownAgent);
@@ -946,6 +1039,7 @@ export class TerminalManager {
       pty,
       tracker,
       recentData: new TerminalReplayBuffer(),
+      screen: newScreen(cols, rows, scrollback),
       knownAgent,
     };
     backend.onData((data, sequence) => this.emitData(id, data, sequence));
@@ -953,11 +1047,20 @@ export class TerminalManager {
       const liveSession = this.sessions.get(id);
       if (!liveSession) return;
       liveSession.recentData.replace(replay);
+      const replacement = newScreen(
+        liveSession.screen.cols,
+        liveSession.screen.rows,
+        liveSession.screen.options.scrollback ?? scrollback,
+      );
+      replacement.write(replay);
+      liveSession.screen.dispose();
+      liveSession.screen = replacement;
       this.onResync?.(id, replay, sequence);
     });
     backend.onExit((exitCode) => {
       const liveSession = this.sessions.get(id);
       this.sessions.delete(id);
+      liveSession?.screen.dispose();
       this.fireAgentExitIfActive(id, liveSession);
       this.onExit(id, exitCode);
       for (const listener of this.exitListeners) listener({ id, exitCode });
@@ -1005,7 +1108,9 @@ export class TerminalManager {
 
   resize(id: string, cols: number, rows: number): void {
     if (cols < 2 || rows < 1 || cols > 1000 || rows > 500) return;
-    this.sessions.get(id)?.backend.resize(cols, rows);
+    const session = this.sessions.get(id);
+    session?.backend.resize(cols, rows);
+    session?.screen.resize(cols, rows);
   }
 
   list(): TerminalInfo[] {
@@ -1039,14 +1144,16 @@ export class TerminalManager {
     const session = this.sessions.get(id);
     if (!session) return;
     this.fireAgentExitIfActive(id, session);
-    session.backend.kill();
     this.sessions.delete(id);
+    session.screen.dispose();
+    session.backend.kill();
   }
 
   disposeAll(): void {
     for (const [id, session] of [...this.sessions]) {
       if (session.backend.persistent) {
         session.backend.detach?.();
+        session.screen.dispose();
         this.sessions.delete(id);
       } else {
         this.kill(id);

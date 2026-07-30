@@ -158,6 +158,8 @@ class HostedTerminal {
       hasChildren: this.hasChildren,
       sequence: this.sequence,
       replay: this.serializer.serialize({ scrollback: this.emulator.options.scrollback }),
+      cols: this.emulator.cols,
+      rows: this.emulator.rows,
     };
   }
 

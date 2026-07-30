@@ -115,6 +115,8 @@ export class M4Services {
         id: info.id,
         pid: snapshot.pid,
         initialReplay: snapshot.replay,
+        ...(snapshot.cols === undefined ? {} : { cols: snapshot.cols }),
+        ...(snapshot.rows === undefined ? {} : { rows: snapshot.rows }),
         title: info.title,
         shell: info.shell,
         cwd: info.cwd,

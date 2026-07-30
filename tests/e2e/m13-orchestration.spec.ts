@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { createTsSmallFixture } from './helpers/fixtures';
 import { launchApp } from './helpers/launch';
 
@@ -130,7 +130,11 @@ function createDirectCodexWorker(): { bin: string; probe: string } {
   return { bin, probe };
 }
 
-function createFleetResumeDriver(): {
+function createFleetResumeDriver(options?: {
+  workerLifetimeMs?: number;
+  commanderLifetimeMs?: number;
+  workerHeartbeat?: boolean;
+}): {
   bin: string;
   codexHome: string;
   commanderSessionId: string;
@@ -144,6 +148,9 @@ function createFleetResumeDriver(): {
   const commanderArgvProbe = join(bin, 'commander-argv.ndjson');
   const fleetProbe = join(bin, 'fleet.json');
   const workerArgvProbe = join(bin, 'worker-argv.ndjson');
+  const workerLifetimeMs = options?.workerLifetimeMs ?? 2_200;
+  const commanderLifetimeMs = options?.commanderLifetimeMs ?? 4_000;
+  const workerHeartbeat = options?.workerHeartbeat ?? false;
   writeFileSync(
     join(bin, '.zshenv'),
     `export PATH=${JSON.stringify(`${bin}:${process.env.PATH ?? ''}`)}\nexport CODEX_HOME=${JSON.stringify(codexHome)}\n`,
@@ -158,7 +165,10 @@ function createFleetResumeDriver(): {
       "fs.appendFileSync(probe, JSON.stringify(args) + '\\n');",
       "const resumed = args.includes('--resume') || args.includes('--continue');",
       "console.log(resumed ? 'fleet-worker-resumed' : 'fleet-worker-started');",
-      'setTimeout(() => process.exit(0), resumed ? 15000 : 2200);',
+      workerHeartbeat
+        ? "setInterval(() => process.stdout.write('fleet-worker-working\\r'), 250);"
+        : '',
+      `setTimeout(() => process.exit(0), resumed ? 15000 : ${workerLifetimeMs});`,
       '',
     ].join('\n'),
   );
@@ -225,7 +235,7 @@ function createFleetResumeDriver(): {
       '  if (!created.ok) throw new Error(JSON.stringify(created));',
       '  fs.writeFileSync(probe, JSON.stringify({ workerId: created.data.terminal.id }));',
       "  console.log('fleet-commander-created-worker');",
-      '  await pause(4000);',
+      `  await pause(${commanderLifetimeMs});`,
       '  mcp.kill();',
       '}',
       'main().then(() => process.exit(0)).catch((error) => { console.error(error); process.exit(1); });',
@@ -242,6 +252,25 @@ function createFleetResumeDriver(): {
     fleetProbe,
     workerArgvProbe,
   };
+}
+
+async function quitFromAppMenu(app: ElectronApplication): Promise<void> {
+  const closed = app.waitForEvent('close');
+  await app.evaluate(({ app: electronApp }) => {
+    setTimeout(() => electronApp.quit(), 0);
+  });
+  await closed;
+}
+
+async function killAllTerminals(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const listed = (await window.product.rpc['terminal.list']!({})) as
+      { ok: true; data: { items: Array<{ id: string }> } } | { ok: false };
+    if (!listed.ok) return;
+    for (const terminal of listed.data.items) {
+      await window.product.rpc['terminal.kill']!({ id: terminal.id, force: true });
+    }
+  });
 }
 
 test.describe('M13 session orchestration', () => {
@@ -707,6 +736,113 @@ test.describe('M13 session orchestration', () => {
       expect(commanderWorkers[0]?.taskId).toBeTruthy();
     } finally {
       await app.close();
+    }
+  });
+
+  test('keeps a live daemon worker nested and working after Electron restarts', async () => {
+    test.setTimeout(120_000);
+    const fixture = createTsSmallFixture();
+    const driver = createFleetResumeDriver({
+      workerLifetimeMs: 40_000,
+      commanderLifetimeMs: 40_000,
+      workerHeartbeat: true,
+    });
+    const environment = {
+      PI_IDE_OPEN_WORKSPACE: fixture,
+      PI_IDE_EXTERNAL_CLIS: 'claude,codex',
+      PI_IDE_TERMINAL_PERSIST: '1',
+      CODEX_HOME: driver.codexHome,
+      PATH: `${driver.bin}:${process.env.PATH ?? ''}`,
+      ZDOTDIR: driver.bin,
+    };
+    let firstApp: ElectronApplication | null = null;
+    let secondApp: ElectronApplication | null = null;
+    try {
+      const first = await launchApp({ env: environment });
+      firstApp = first.app;
+      await first.page.keyboard.press('Control+`');
+      const terminal = first.page.locator('.xterm').first();
+      await expect(terminal).toBeVisible();
+      await terminal.click();
+      await first.page.keyboard.type('codex');
+      await first.page.keyboard.press('Enter');
+      await expect(first.page.getByTestId('terminal-session-bar')).toContainText('Codex', {
+        timeout: 20_000,
+      });
+      await first.page.getByTestId('session-bar-room').click();
+      const commanderTaskId = await first.page
+        .getByTestId('task-room')
+        .getAttribute('data-task-id');
+      expect(commanderTaskId).toBeTruthy();
+      await expect.poll(() => existsSync(driver.fleetProbe), { timeout: 20_000 }).toBe(true);
+      const workerId = (JSON.parse(readFileSync(driver.fleetProbe, 'utf8')) as { workerId: string })
+        .workerId;
+
+      await expect
+        .poll(async () => {
+          const state = await first.page.evaluate(async () => {
+            return window.product.rpc['orchestration.getState']!({});
+          });
+          return (
+            state.data as { workers: Array<{ terminalId: string; commanderTaskId: string }> }
+          ).workers.find((worker) => worker.terminalId === workerId)?.commanderTaskId;
+        })
+        .toBe(commanderTaskId);
+
+      await quitFromAppMenu(first.app);
+      firstApp = null;
+
+      const second = await launchApp({ userDataDir: first.userDataDir, env: environment });
+      secondApp = second.app;
+      await expect
+        .poll(async () => {
+          const state = await second.page.evaluate(async () => {
+            return window.product.rpc['orchestration.getState']!({});
+          });
+          return (
+            state.data as {
+              workers: Array<{
+                terminalId: string;
+                commanderTaskId: string;
+                taskId: string | null;
+                status: string;
+              }>;
+            }
+          ).workers.find((worker) => worker.terminalId === workerId);
+        })
+        .toMatchObject({ commanderTaskId, status: 'streaming' });
+      const state = await second.page.evaluate(async () => {
+        return window.product.rpc['orchestration.getState']!({});
+      });
+      const restored = (
+        state.data as {
+          workers: Array<{
+            terminalId: string;
+            commanderTaskId: string;
+            taskId: string | null;
+            status: string;
+          }>;
+        }
+      ).workers.find((worker) => worker.terminalId === workerId);
+      expect(restored).toMatchObject({ commanderTaskId, status: 'streaming' });
+      if (!restored?.taskId)
+        throw new Error('The restored worker did not retain its Session task.');
+
+      const workerRow = second.page.getByTestId(`home-task-${restored.taskId}`);
+      await expect(workerRow).toBeVisible();
+      await expect(workerRow.locator('xpath=..')).toHaveClass(/sr-orch-worker/);
+      await expect(workerRow).toHaveAttribute('data-working', 'true');
+    } finally {
+      if (firstApp) {
+        const page = firstApp.windows()[0];
+        if (page) await killAllTerminals(page).catch(() => undefined);
+        await firstApp.close().catch(() => undefined);
+      }
+      if (secondApp) {
+        const page = secondApp.windows()[0];
+        if (page) await killAllTerminals(page).catch(() => undefined);
+        await secondApp.close().catch(() => undefined);
+      }
     }
   });
 });

@@ -60,6 +60,20 @@ test.describe('terminal file links', () => {
       await expect(page.locator('.toast', { hasText: 'No file named' })).toHaveCount(0);
       await expect(page.locator('.toast', { hasText: 'outside' })).toHaveCount(0);
 
+      // Local development URLs are web links too. E2E suppresses the real OS
+      // browser launch, but exercises xterm hit-testing and the host allowlist.
+      await page.locator('.xterm').click();
+      await page.keyboard.type('echo http://localhost:5173/');
+      await page.keyboard.press('Enter');
+      const httpRow = page
+        .locator('.xterm-rows > div')
+        .filter({ hasText: 'http://localhost:5173/' })
+        .filter({ hasNotText: 'echo' })
+        .first();
+      await expect(httpRow).toBeVisible({ timeout: 15000 });
+      await httpRow.click({ position: { x: 100, y: 8 }, modifiers: [mod], force: true });
+      await expect(page.locator('.toast', { hasText: 'Only http and https' })).toHaveCount(0);
+
       // Code token with :line → opens in the editor.
       await page.locator('.xterm').click();
       await page.keyboard.type('echo src/util.ts:2');

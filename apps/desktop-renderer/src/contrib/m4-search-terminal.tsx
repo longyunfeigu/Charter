@@ -136,14 +136,14 @@ export function registerM4(): void {
         const visible = terminals.items.filter((item) => !item.hidden);
         if (visible.length === 0) {
           void terminals.create().then((id) => {
-            if (id) useAppStore.getState().openTerminalSession(id);
+            if (id) useAppStore.getState().openAllTerminals(id);
           });
           return;
         }
         const terminalId = terminals.active ?? visible.at(-1)?.id;
         if (!terminalId) return;
         terminals.setActive(terminalId);
-        useAppStore.getState().openTerminalSession(terminalId);
+        useAppStore.getState().openAllTerminals(terminalId);
       },
     },
     {

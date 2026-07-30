@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   completionDisposition,
   projectHistoricalOrchestrationFleet,
+  TaskService,
   unresolvedFailedWriteCount,
 } from './task-service.js';
 
@@ -173,5 +174,118 @@ describe('projectHistoricalOrchestrationFleet', () => {
       root: '/repo',
       projectPath: '/repo',
     });
+  });
+});
+
+describe('TaskService.liveOrchestrationWorkers', () => {
+  it('keeps the most recently assigned live parent-child edge after restart', () => {
+    const taskRows = [
+      {
+        task: {
+          id: 'commander_old',
+          projectPath: '/repo',
+          external: {
+            cli: 'claude',
+            terminalId: 'commander_terminal_old',
+            cwd: '/repo',
+            snapshotRef: null,
+            status: 'ended',
+          },
+        },
+      },
+      {
+        task: {
+          id: 'commander_new',
+          projectPath: '/repo',
+          external: {
+            cli: 'claude',
+            terminalId: 'commander_terminal_new',
+            cwd: '/repo',
+            snapshotRef: null,
+            status: 'active',
+          },
+        },
+      },
+      {
+        task: {
+          id: 'worker_latest',
+          title: 'Latest Codex review',
+          projectPath: '/repo',
+          external: {
+            cli: 'codex',
+            terminalId: 'term_after_resume',
+            cwd: '/repo/packages/api',
+            snapshotRef: null,
+            status: 'active',
+          },
+        },
+      },
+    ];
+    const eventRows = [
+      {
+        rowid: 1,
+        task_id: 'commander_old',
+        type: 'orchestration.workerCreated',
+        payload_json: JSON.stringify({
+          terminalId: 'term_worker',
+          launch: 'codex',
+          root: '/repo/packages/api',
+          commanderTerminalId: 'commander_terminal_old',
+        }),
+      },
+      {
+        rowid: 2,
+        task_id: 'commander_old',
+        type: 'orchestration.workerBound',
+        payload_json: JSON.stringify({ terminalId: 'term_worker', workerTaskId: 'worker_old' }),
+      },
+      {
+        rowid: 3,
+        task_id: 'commander_new',
+        type: 'orchestration.workerCreated',
+        payload_json: JSON.stringify({
+          terminalId: 'term_worker',
+          workerTaskId: 'worker_latest',
+          launch: 'codex',
+          root: '/repo/packages/api',
+          title: 'Codex review worker',
+          commanderTerminalId: 'commander_terminal_new',
+        }),
+      },
+      {
+        rowid: 4,
+        task_id: 'commander_new',
+        type: 'orchestration.workerTurnStarted',
+        payload_json: JSON.stringify({ terminalId: 'term_worker', workerTaskId: 'worker_latest' }),
+      },
+      {
+        rowid: 5,
+        task_id: 'commander_old',
+        type: 'orchestration.workerKilled',
+        payload_json: JSON.stringify({ terminalId: 'term_worker' }),
+      },
+    ];
+    const service = {
+      db: {
+        prepare: (query: string) => ({
+          all: () => (query.includes('task_events') ? eventRows : taskRows),
+        }),
+      },
+      rowToDto: (row: (typeof taskRows)[number]) => row.task,
+    } as unknown as TaskService;
+
+    expect(TaskService.prototype.liveOrchestrationWorkers.call(service, ['term_worker'])).toEqual([
+      {
+        commanderTaskId: 'commander_new',
+        commanderTerminalId: 'commander_terminal_new',
+        terminalId: 'term_worker',
+        workerTaskId: 'worker_latest',
+        launch: 'codex',
+        root: '/repo/packages/api',
+        projectPath: '/repo',
+        title: 'Codex review worker',
+        turnPending: true,
+      },
+    ]);
   });
 });

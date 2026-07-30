@@ -53,7 +53,8 @@ describe('terminal.* gateway tools (ADR-0044)', () => {
     const create = catalog.find((entry) => entry.name === 'terminal.create');
     // The model must be able to map "open another claude/codex terminal to do
     // X" onto terminal.create instead of doing the work in its own session.
-    expect(create?.promptGuidance).toMatch(/open another terminal/i);
+    expect(create?.promptGuidance).toContain('启动 codex worker');
+    expect(create?.promptGuidance).toContain('never substitute same-terminal codex exec');
     expect(create?.promptGuidance).toContain('terminal.send');
     const listGuidance = catalog.find((entry) => entry.name === 'terminal.list')?.promptGuidance;
     expect(listGuidance).toMatch(/reuse a suitable worker/i);

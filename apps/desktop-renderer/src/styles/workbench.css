@@ -603,6 +603,33 @@ html.xp-resizing * {
   align-items: center;
   border-bottom: 1px solid var(--border);
 }
+.terminal-scope-row {
+  height: 35px;
+  flex: 0 0 35px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 10.5px;
+}
+.terminal-scope-row > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.terminal-scope-row > b {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--bg-chip);
+  color: var(--fg-faint);
+  font: 650 9px var(--font-mono);
+  text-align: center;
+}
 .terminal-new-button {
   height: 35px;
   flex: 1;
@@ -1009,6 +1036,14 @@ html.xp-resizing * {
   }
   .terminal-new-menu {
     width: 22px;
+  }
+  .terminal-scope-row {
+    justify-content: center;
+    padding: 0;
+  }
+  .terminal-scope-row > span,
+  .terminal-scope-row > b {
+    display: none;
   }
   .terminal-list-row {
     grid-template-columns: 1fr;

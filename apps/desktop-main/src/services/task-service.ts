@@ -200,6 +200,14 @@ export interface HistoricalOrchestrationWorker {
   title: string;
 }
 
+/** One still-live terminal relationship projected from the durable event ledger. */
+export interface HistoricalLiveOrchestrationWorker extends HistoricalOrchestrationWorker {
+  commanderTaskId: string;
+  commanderTerminalId: string | null;
+  /** The latest durable turn edge lets a recovered rail resume its activity signal. */
+  turnPending: boolean;
+}
+
 interface HistoricalOrchestrationEvent {
   type: string;
   payload: Record<string, unknown>;
@@ -2522,6 +2530,129 @@ export class TaskService {
       ];
     });
     return projectHistoricalOrchestrationFleet(events, externalTasks, commander.projectPath);
+  }
+
+  /**
+   * Rebuild the current parent-child edge for daemon-backed PTYs after main
+   * process restart. Event sequences are task-local, so insertion order is
+   * used to resolve a worker that was later moved to another commander.
+   */
+  liveOrchestrationWorkers(liveTerminalIds: Iterable<string>): HistoricalLiveOrchestrationWorker[] {
+    const liveIds = new Set(liveTerminalIds);
+    if (liveIds.size === 0) return [];
+
+    const taskRows = this.db.prepare(TASK_SELECT).all() as unknown as TaskRow[];
+    const tasks = taskRows.map((row) => this.rowToDto(row));
+    const projectPathByTask = new Map(tasks.map((task) => [task.id, task.projectPath]));
+    const externalTasks = tasks.flatMap((task): HistoricalExternalTask[] => {
+      if (!task.external) return [];
+      return [
+        {
+          taskId: task.id,
+          title: task.title,
+          projectPath: task.projectPath,
+          external: task.external,
+        },
+      ];
+    });
+    const externalByTaskId = new Map(externalTasks.map((task) => [task.taskId, task]));
+    const externalByTerminal = new Map<string, HistoricalExternalTask>();
+    for (const task of externalTasks) {
+      if (!externalByTerminal.has(task.external.terminalId)) {
+        externalByTerminal.set(task.external.terminalId, task);
+      }
+    }
+
+    const rows = this.db
+      .prepare(
+        "SELECT rowid, task_id, type, payload_json FROM task_events WHERE type IN ('orchestration.workerCreated','orchestration.workerBound','orchestration.workerKilled','orchestration.workerTurnStarted','orchestration.workerTurnSettled','orchestration.workerExited') ORDER BY created_at, rowid",
+      )
+      .all() as Array<{ rowid: number; task_id: string; type: string; payload_json: string }>;
+    const workers = new Map<
+      string,
+      {
+        commanderTaskId: string;
+        commanderTerminalId: string | null;
+        workerTaskId: string | null;
+        terminalId: string;
+        launch: 'shell' | 'claude' | 'codex';
+        root: string | null;
+        title: string | null;
+        turnPending: boolean;
+      }
+    >();
+    for (const row of rows) {
+      let payload: Record<string, unknown> | null = null;
+      try {
+        const parsed = JSON.parse(row.payload_json) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          payload = parsed as Record<string, unknown>;
+        }
+      } catch {
+        // Malformed historical events must not block the remaining fleet.
+      }
+      const terminalId = typeof payload?.terminalId === 'string' ? payload.terminalId : null;
+      if (!terminalId) continue;
+      if (row.type === 'orchestration.workerCreated') {
+        const launch = payload?.launch;
+        if (launch !== 'shell' && launch !== 'claude' && launch !== 'codex') continue;
+        workers.set(terminalId, {
+          commanderTaskId: row.task_id,
+          commanderTerminalId:
+            typeof payload?.commanderTerminalId === 'string' ? payload.commanderTerminalId : null,
+          workerTaskId: typeof payload?.workerTaskId === 'string' ? payload.workerTaskId : null,
+          terminalId,
+          launch,
+          root: typeof payload?.root === 'string' ? payload.root : null,
+          title: typeof payload?.title === 'string' ? payload.title : null,
+          turnPending: false,
+        });
+      } else if (row.type === 'orchestration.workerBound') {
+        const worker = workers.get(terminalId);
+        if (
+          worker &&
+          worker.commanderTaskId === row.task_id &&
+          typeof payload?.workerTaskId === 'string'
+        ) {
+          worker.workerTaskId = payload.workerTaskId;
+        }
+      } else if (row.type === 'orchestration.workerKilled') {
+        const worker = workers.get(terminalId);
+        if (worker?.commanderTaskId === row.task_id) workers.delete(terminalId);
+      } else if (row.type === 'orchestration.workerTurnStarted') {
+        const worker = workers.get(terminalId);
+        if (worker?.commanderTaskId === row.task_id) worker.turnPending = true;
+      } else if (
+        row.type === 'orchestration.workerTurnSettled' ||
+        row.type === 'orchestration.workerExited'
+      ) {
+        const worker = workers.get(terminalId);
+        if (worker?.commanderTaskId === row.task_id) worker.turnPending = false;
+      }
+    }
+
+    return [...workers.values()].flatMap((worker): HistoricalLiveOrchestrationWorker[] => {
+      if (!liveIds.has(worker.terminalId)) return [];
+      const externalTask =
+        (worker.workerTaskId ? externalByTaskId.get(worker.workerTaskId) : null) ??
+        externalByTerminal.get(worker.terminalId);
+      const commanderExternal = externalByTaskId.get(worker.commanderTaskId);
+      const fallbackRoot = projectPathByTask.get(worker.commanderTaskId) ?? '';
+      return [
+        {
+          commanderTaskId: worker.commanderTaskId,
+          commanderTerminalId:
+            worker.commanderTerminalId ?? commanderExternal?.external.terminalId ?? null,
+          terminalId: worker.terminalId,
+          workerTaskId: worker.workerTaskId ?? externalTask?.taskId ?? null,
+          launch: worker.launch,
+          root: worker.root ?? externalTask?.external.cwd ?? fallbackRoot,
+          projectPath: externalTask?.projectPath ?? fallbackRoot,
+          title: worker.title ?? externalTask?.title ?? `${worker.launch} worker`,
+          turnPending: worker.turnPending,
+        },
+      ];
+    });
   }
 
   /** Create the task row backing an external CLI agent session. */

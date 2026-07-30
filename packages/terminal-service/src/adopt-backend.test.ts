@@ -116,6 +116,55 @@ describe('TerminalManager.adoptBackend (SSH remote sessions, ADR-0047)', () => {
     expect(manager.list()).toEqual([]);
   });
 
+  it('reads the emulated VT screen instead of an ANSI-stripped repaint stream', async () => {
+    manager = new TerminalManager(
+      () => {},
+      () => {},
+      { agentPollMs: 0 },
+    );
+    const backend = new FakeBackend();
+    const info = manager.adoptBackend(backend, {
+      title: 'codex',
+      cwd: '/repo',
+      projectName: 'repo',
+      cols: 40,
+      rows: 6,
+    });
+
+    backend.emit('\u001b[?1049h\u001b[2J\u001b[H');
+    backend.emit('\u001b(0lqqqqk\u001b(B\r\n');
+    backend.emit('Working...\r\u001b[2K完成：中文 review');
+
+    const snapshot = await manager.screenText(info.id, 4096);
+    expect(snapshot?.content).toContain('┌────┐');
+    expect(snapshot?.content).toContain('完成：中文 review');
+    expect(snapshot?.content).not.toContain('Working');
+    expect(snapshot?.content).not.toContain('qqqq');
+    expect(snapshot?.content).not.toContain('\u001b');
+  });
+
+  it('caps VT screen text on a valid UTF-8 boundary', async () => {
+    manager = new TerminalManager(
+      () => {},
+      () => {},
+      { agentPollMs: 0 },
+    );
+    const backend = new FakeBackend();
+    const info = manager.adoptBackend(backend, {
+      title: 'codex',
+      cwd: '/repo',
+      projectName: 'repo',
+      cols: 40,
+      rows: 4,
+    });
+    backend.emit('前置内容\r\n最终结论：饮食记录需求完整');
+
+    const snapshot = await manager.screenText(info.id, 24);
+    expect(snapshot?.totalBytes).toBeGreaterThan(24);
+    expect(snapshot?.content).not.toContain('�');
+    expect(Buffer.byteLength(snapshot?.content ?? '', 'utf8')).toBeLessThanOrEqual(24);
+  });
+
   it('delegates kill to the backend once and forgets the session', () => {
     manager = new TerminalManager(
       () => {},

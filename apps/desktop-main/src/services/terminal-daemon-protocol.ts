@@ -23,6 +23,9 @@ export interface DaemonTerminalSnapshot {
   hasChildren: boolean;
   sequence: number;
   replay: string;
+  /** Added compatibly so a restored headless VT model uses the PTY's real grid. */
+  cols?: number;
+  rows?: number;
 }
 
 export type TerminalDaemonRequest =

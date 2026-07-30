@@ -39,14 +39,25 @@ function RemoteControls({
   hostLabel,
   launch,
   exited,
+  onAllTerminals,
 }: {
   hostId: string;
   hostLabel: string;
   launch: 'shell' | 'claude' | 'codex';
   exited: boolean;
+  onAllTerminals?(): void;
 }): React.JSX.Element {
+  const [creating, setCreating] = useState(false);
   const reconnect = async (): Promise<void> => {
     await openRemoteSession(hostId, launch);
+  };
+  const createSession = async (): Promise<void> => {
+    setCreating(true);
+    try {
+      await openRemoteSession(hostId, 'shell');
+    } finally {
+      setCreating(false);
+    }
   };
   const disconnect = (): void => {
     void useSshStore.getState().disconnect(hostId);
@@ -58,9 +69,32 @@ function RemoteControls({
           <Ic name="terminal" size={12} /> Reconnect
         </button>
       ) : (
-        <button data-testid="ssh-disconnect" onClick={disconnect} title={`Disconnect ${hostLabel}`}>
-          Disconnect
-        </button>
+        <>
+          <button
+            data-testid="ssh-new-session"
+            disabled={creating}
+            onClick={() => void createSession()}
+            title={`Open another shell on ${hostLabel}`}
+          >
+            <Ic name="plus" size={12} /> {creating ? 'Opening…' : 'New SSH Session'}
+          </button>
+          {onAllTerminals ? (
+            <button
+              data-testid="ssh-all-terminals"
+              onClick={onAllTerminals}
+              title="Leave this host context and open the global terminal manager"
+            >
+              <Ic name="terminal" size={12} /> All Terminals
+            </button>
+          ) : null}
+          <button
+            data-testid="ssh-disconnect"
+            onClick={disconnect}
+            title={`Disconnect ${hostLabel}`}
+          >
+            Disconnect
+          </button>
+        </>
       )}
     </>
   );
@@ -70,10 +104,23 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
   const app = useAppStore();
   const item = useTerminalStore((state) => state.items.find((entry) => entry.id === terminalId));
   const workspace = useWorkspaceStore((state) => state.workspace);
+  const remoteContext = Boolean(item?.remote && app.remotesOpen);
+  const allTerminals = !remoteContext && app.sessionTerminalScope === 'all';
+  const singleSession = !remoteContext && !allTerminals;
   const promotedTerminalId = useExternalStore((state) => state.promoted?.terminalId ?? null);
   const dockItemCount = useTerminalStore(
     (state) =>
       state.items.filter((entry) => !entry.hidden && entry.id !== promotedTerminalId).length,
+  );
+  const remoteDockItemCount = useTerminalStore((state) =>
+    item?.remote
+      ? state.items.filter(
+          (entry) =>
+            !entry.hidden &&
+            entry.id !== promotedTerminalId &&
+            entry.remote?.hostId === item.remote?.hostId,
+        ).length
+      : 0,
   );
   const liveTerminalCount = useTerminalStore(
     (state) => state.items.filter((entry) => !entry.hidden && !entry.exited).length,
@@ -144,28 +191,49 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
     // route PTY may have exited while a newly created neighbour is live.
     // A terminal promoted into the side slot leaves the dock but remains a
     // live PTY owned by this manager, so lifecycle truth must include it.
-    const managerEnded = item.remote ? item.exited : liveTerminalCount === 0;
-    const managerStatusText = item.remote
+    const managerEnded = allTerminals ? liveTerminalCount === 0 : item.exited;
+    const managerStatusText = remoteContext
       ? item.exited
         ? 'remote process ended'
-        : 'remote session live'
-      : managerEnded
-        ? 'all processes ended'
-        : `live sessions · ${liveTerminalCount} active`;
+        : `${remoteDockItemCount} session${remoteDockItemCount === 1 ? '' : 's'} on ${item.remote!.hostLabel}`
+      : allTerminals
+        ? managerEnded
+          ? 'all processes ended'
+          : `live sessions · ${liveTerminalCount} active`
+        : item.exited
+          ? 'process ended'
+          : 'session live';
+    const managerDockItemCount = remoteContext
+      ? remoteDockItemCount
+      : allTerminals
+        ? dockItemCount
+        : item.id === promotedTerminalId
+          ? 0
+          : 1;
+    const terminalScope = remoteContext ? 'remote-host' : allTerminals ? 'all' : 'single';
     return (
       <main
         className="stv-root stv-manager"
         data-testid="session-terminal-view"
         data-terminal-id={terminalId}
+        data-terminal-scope={terminalScope}
       >
         <header className="stv-header">
           <ProviderMark provider="shell" size={19} />
           <div className="stv-title">
-            <strong>{item.remote ? `SSH · ${item.remote.hostLabel}` : 'Terminal Session'}</strong>
+            <strong>
+              {remoteContext || (singleSession && item.remote)
+                ? `SSH · ${item.remote!.hostLabel}`
+                : allTerminals
+                  ? 'All Terminals'
+                  : item.title}
+            </strong>
             <span>
-              {item.remote
-                ? `${item.remote.username}@${item.remote.host}:${item.remote.port}`
-                : `${item.contextLabel} · ${item.projectName}`}
+              {remoteContext || (singleSession && item.remote)
+                ? `${item.remote!.username}@${item.remote!.host}:${item.remote!.port}`
+                : allTerminals
+                  ? 'Local and remote sessions'
+                  : `${item.projectName} · ${item.contextLabel}`}
             </span>
           </div>
           <span
@@ -176,34 +244,66 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
             {managerEnded ? 'Ended' : 'Live'}
           </span>
           <span className="stv-spacer" />
-          {item.remote ? (
+          {remoteContext ? (
             <RemoteControls
-              hostId={item.remote.hostId}
-              hostLabel={item.remote.hostLabel}
+              hostId={item.remote!.hostId}
+              hostLabel={item.remote!.hostLabel}
               launch={item.launch}
               exited={item.exited}
+              onAllTerminals={() => {
+                useTerminalStore.getState().setActive(item.id);
+                app.openAllTerminals(item.id);
+              }}
             />
+          ) : null}
+          {singleSession ? (
+            <button
+              data-testid="session-all-terminals"
+              title="Open the global terminal manager"
+              onClick={() => app.openAllTerminals(item.id)}
+            >
+              <Ic name="terminal" size={12} /> All Terminals
+            </button>
           ) : null}
           <button
             onClick={
-              item.remote ? () => app.selectRemoteHost(item.remote!.hostId) : app.closeTaskRoom
+              remoteContext ? () => app.selectRemoteHost(item.remote!.hostId) : app.closeTaskRoom
             }
           >
-            <Ic name="chevron" size={12} /> {item.remote ? 'Host' : 'Sessions'}
+            <Ic name="chevron" size={12} /> {remoteContext ? 'Host' : 'Sessions'}
           </button>
         </header>
         <OrchestrationWorkerBand terminalId={terminalId} />
-        <div className={`stv-manager-body ${dockItemCount === 0 ? 'only-external' : ''}`}>
-          {dockItemCount > 0 ? (
+        <div className={`stv-manager-body ${managerDockItemCount === 0 ? 'only-external' : ''}`}>
+          {managerDockItemCount > 0 ? (
             <section className="stv-terminal-dock" data-testid="bottom-panel">
-              <TerminalPanel />
+              <TerminalPanel
+                scope={
+                  remoteContext
+                    ? {
+                        kind: 'remote-host',
+                        terminalId: item.id,
+                        hostId: item.remote!.hostId,
+                        hostLabel: item.remote!.hostLabel,
+                      }
+                    : allTerminals
+                      ? { kind: 'all' }
+                      : { kind: 'single', terminalId: item.id }
+                }
+              />
             </section>
           ) : null}
           <ExternalPanel />
         </div>
         <footer className="stv-footer" data-testid="session-terminal-manager-footer">
           <span>
-            <i className={managerEnded ? 'ended' : ''} /> Terminal manager · {managerStatusText}
+            <i className={managerEnded ? 'ended' : ''} />{' '}
+            {remoteContext
+              ? 'SSH sessions'
+              : allTerminals
+                ? 'Terminal manager'
+                : 'Terminal session'}{' '}
+            · {managerStatusText}
           </span>
           <span className="stv-spacer" />
           <span>PTYs stay alive while you switch Sessions</span>
