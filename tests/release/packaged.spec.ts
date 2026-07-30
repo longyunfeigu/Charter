@@ -144,6 +144,11 @@ test('packaged daemon keeps a PTY alive across a full app restart', async () => 
     await first?.close().catch(() => undefined);
     await second?.close().catch(() => undefined);
     if (userDataDir) {
+      // The persistent daemon keeps Windows file handles open through its
+      // documented 5s idle grace after the app window closes.
+      if (process.platform === 'win32') {
+        await new Promise((resolveWait) => setTimeout(resolveWait, 6_000));
+      }
       rmSync(userDataDir, {
         recursive: true,
         force: true,
