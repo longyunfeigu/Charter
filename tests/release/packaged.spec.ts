@@ -152,8 +152,11 @@ test('packaged daemon keeps a PTY alive across a full app restart', async () => 
       rmSync(userDataDir, {
         recursive: true,
         force: true,
-        maxRetries: process.platform === 'win32' ? 10 : 0,
-        retryDelay: 200,
+        // Windows may keep daemon, antivirus, or indexer handles alive after
+        // the documented grace period. Cleanup is not the product assertion,
+        // but it must eventually finish before the runner uninstalls the app.
+        maxRetries: process.platform === 'win32' ? 60 : 0,
+        retryDelay: 500,
       });
     }
     rmSync(fixture, { recursive: true, force: true });
