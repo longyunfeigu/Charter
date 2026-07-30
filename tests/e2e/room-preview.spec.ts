@@ -102,19 +102,15 @@ test.describe('Room live preview (ADR-0022 am.2)', () => {
       // task whose first run carries the screenshot.
       await page.getByTestId('agent-input').fill('Make this hint one line.');
       await page.getByTestId('agent-send').click();
-      await expect(
-        page.getByTestId('tl-user').filter({ hasText: 'Make this hint one line.' }).first(),
-      ).toBeVisible({ timeout: 20000 });
-      await expect(
-        page
-          .getByTestId('tl-user')
-          .filter({ hasText: 'Make this hint one line.' })
-          .first()
-          .locator('details pre'),
-      ).toContainText('Visible text: "Coupon expired"');
-      await expect(page.getByTestId('tl-preview-feedback').first()).toBeVisible({
-        timeout: 15000,
-      });
+      const followUp = page
+        .getByTestId('tl-user')
+        .filter({ hasText: 'Make this hint one line.' })
+        .first();
+      await expect(followUp).toBeVisible({ timeout: 20000 });
+      await expect(followUp.locator('details pre')).toContainText('Visible text: "Coupon expired"');
+      // The timeline can retain an older, windowed-off thumbnail. Bind the
+      // assertion to this follow-up bubble rather than its global first match.
+      await expect(followUp.getByTestId('tl-preview-feedback')).toBeVisible({ timeout: 15000 });
       await expect(
         page.getByTestId('tl-agent').filter({ hasText: 'received 1 image attachment' }).first(),
       ).toBeVisible({ timeout: 20000 });
