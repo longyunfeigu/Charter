@@ -44,13 +44,21 @@ describe('terminal control external CLI integration', () => {
     expect(env.PATH?.split(delimiter)[0]).toBe(integration!.binDir);
     expect(env.CHARTER_TERMINAL_BIN).toBe(integration!.binDir);
     expect(env.CHARTER_TERMINAL_COMMAND).toBe('charter-terminal');
+    expect(integration!.executableFor('claude')).toBe(join(integration!.binDir, 'claude'));
+    expect(integration!.executableFor('codex')).toBe(join(integration!.binDir, 'codex'));
     expect(readFileSync(join(integration!.binDir, 'claude'), 'utf8')).toContain(
       join(sourceBin, 'claude'),
     );
-    expect(readFileSync(join(integration!.binDir, 'codex'), 'utf8')).toContain(
-      'mcp_servers.charter.command',
+    const codexWrapper = readFileSync(join(integration!.binDir, 'codex'), 'utf8');
+    expect(codexWrapper).toContain('mcp_servers.charter.command');
+    expect(codexWrapper).toContain(
+      'mcp_servers.charter.env_vars=["CHARTER_CTL","CHARTER_CTL_TOKEN"]',
     );
+    expect(codexWrapper).toContain('mcp_servers.charter.startup_timeout_sec=120');
+    expect(codexWrapper).toContain('mcp_servers.charter.tool_timeout_sec=3605');
     expect(readFileSync(join(integration!.binDir, 'charter-terminal'), 'utf8')).toContain('--cli');
+    expect(readFileSync(join(integration!.binDir, 'charter'), 'utf8')).toContain('--cli');
+    expect(env.CHARTER_COMMAND).toBe('charter');
     const config = JSON.parse(
       readFileSync(join(root, 'user data', 'terminal-control', 'claude-mcp.json'), 'utf8'),
     ) as { mcpServers: { charter: { command: string; args: string[] } } };

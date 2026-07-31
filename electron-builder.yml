@@ -28,7 +28,11 @@ asarUnpack:
   # The detached daemon is executed in ELECTRON_RUN_AS_NODE mode, which cannot
   # load its entry from inside app.asar.
   - 'apps/desktop-main/dist/terminal-daemon.cjs'
+  - 'apps/desktop-main/dist/terminal-control-mcp.cjs'
   - 'node_modules/@vscode/ripgrep/**'
+  - 'node_modules/@agentclientprotocol/**'
+  - 'node_modules/@openai/**'
+  - 'node_modules/@anthropic-ai/**'
 
 # Both Electron Main and the run-as-node daemon reach this directory through
 # normal Node module resolution. Keeping node-pty outside app.asar.unpacked is

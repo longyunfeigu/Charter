@@ -57,13 +57,15 @@ export interface TerminalContextResolvers {
 export function terminalLaunchCommand(
   launch: 'shell' | 'claude' | 'codex',
   sessionId?: string | null,
+  executable?: string | null,
 ): string | null {
+  const command = executable ? `'${executable.replaceAll("'", "'\\''")}'` : launch;
   if (launch === 'claude') {
     return sessionId && isSafeCliSessionId(sessionId)
-      ? `claude --session-id ${sessionId}`
-      : 'claude';
+      ? `${command} --session-id ${sessionId}`
+      : command;
   }
-  if (launch === 'codex') return 'codex';
+  if (launch === 'codex') return command;
   return null;
 }
 
@@ -321,6 +323,8 @@ export function registerM4Handlers(
   externalLaunches?: ExternalLaunchIntents,
   /** ADR-0047: present once SshService is assembled; enables ssh targets. */
   remoteTerminals?: RemoteTerminalLauncher,
+  /** Host-resolved MCP wrapper. Never rely on user shell PATH ordering for product launches. */
+  localAgentExecutable?: (launch: 'claude' | 'codex') => string | null,
 ): void {
   const resolveTerminalContext = async (
     requested:
@@ -430,7 +434,11 @@ export function registerM4Handlers(
           launch,
         });
         const sessionId = launch === 'claude' ? randomUUID() : null;
-        const command = terminalLaunchCommand(launch, sessionId);
+        const command = terminalLaunchCommand(
+          launch,
+          sessionId,
+          launch === 'shell' ? null : localAgentExecutable?.(launch),
+        );
         if (command) {
           // The intent (pre-assigned conversation id + composer first prompt)
           // is consumed when agent detection confirms the CLI really started;

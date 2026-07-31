@@ -13,6 +13,7 @@ const alias = Object.fromEntries(
     'agent-runtime-mock',
     'agent-runtime-pi',
     'app-domain',
+    'orchestration-domain',
     'persistence',
     'tool-gateway',
     'workspace-service',
@@ -84,6 +85,7 @@ export const bundles = [
     bundle: true,
     sourcemap: true,
     target: 'node22',
+    alias,
   },
 ];
 

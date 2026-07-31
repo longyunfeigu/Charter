@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { errorMessage } from '@pi-ide/foundation';
 import type { CharterTerminalSurfaceDto } from '@pi-ide/ipc-contracts';
 import { CHARTER_TERMINAL_SKILL } from './terminal-control-manual.js';
+import { CHARTER_ORCHESTRATION_SKILL } from './orchestration-manual.js';
 
 /**
  * ADR-0045: user-level instruction surfaces for external CLIs.
@@ -25,14 +26,24 @@ function skillFile(home: string, dir: string): string {
   return join(home, dir, 'skills', 'charter-terminal', 'SKILL.md');
 }
 
-function statusOf(target: 'claude' | 'codex', path: string): CharterTerminalSurfaceDto {
+function orchestrationSkillFile(home: string, dir: string): string {
+  return join(home, dir, 'skills', 'charter-orchestration', 'SKILL.md');
+}
+
+function statusOf(
+  target: 'claude' | 'codex',
+  path: string,
+  orchestrationPath: string,
+): CharterTerminalSurfaceDto {
   try {
     const content = readFileSync(path, 'utf8');
     return {
       target,
       path,
       installed: true,
-      upToDate: content === CHARTER_TERMINAL_SKILL,
+      upToDate:
+        content === CHARTER_TERMINAL_SKILL &&
+        readFileSync(orchestrationPath, 'utf8') === CHARTER_ORCHESTRATION_SKILL,
       error: null,
     };
   } catch (error) {
@@ -48,7 +59,9 @@ function statusOf(target: 'claude' | 'codex', path: string): CharterTerminalSurf
 }
 
 export function charterTerminalSurfaceStatus(home = homedir()): CharterTerminalSurfaceDto[] {
-  return SURFACE_TARGETS.map(({ target, dir }) => statusOf(target, skillFile(home, dir)));
+  return SURFACE_TARGETS.map(({ target, dir }) =>
+    statusOf(target, skillFile(home, dir), orchestrationSkillFile(home, dir)),
+  );
 }
 
 /** Install or refresh the manual on every surface. Per-target failures land in
@@ -61,6 +74,11 @@ export function installCharterTerminalSurfaces(home = homedir()): CharterTermina
       const tmp = `${file}.tmp-${process.pid}`;
       writeFileSync(tmp, CHARTER_TERMINAL_SKILL, 'utf8');
       renameSync(tmp, file);
+      const orchestrationFile = orchestrationSkillFile(home, dir);
+      mkdirSync(join(home, dir, 'skills', 'charter-orchestration'), { recursive: true });
+      const orchestrationTmp = `${orchestrationFile}.tmp-${process.pid}`;
+      writeFileSync(orchestrationTmp, CHARTER_ORCHESTRATION_SKILL, 'utf8');
+      renameSync(orchestrationTmp, orchestrationFile);
       return { target, path: file, installed: true, upToDate: true, error: null };
     } catch (error) {
       return { target, path: file, installed: false, upToDate: false, error: errorMessage(error) };

@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, unlinkSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { Logger } from '@pi-ide/foundation';
-import type { ToolGateway } from '@pi-ide/tool-gateway';
+import { ORCHESTRATION_COMMANDS, type ToolGateway } from '@pi-ide/tool-gateway';
 import {
   TerminalControlIdentityRegistry,
   TerminalControlService,
@@ -60,6 +60,15 @@ function route(
   }
   if (method === 'POST' && url.pathname === '/v1/terminals') {
     return { toolName: 'terminal.create', input: {} };
+  }
+  if (parts.length === 3 && parts[0] === 'v1' && parts[1] === 'orchestration') {
+    const action = parts[2] ?? '';
+    const supported = new Set<string>(ORCHESTRATION_COMMANDS);
+    if (!supported.has(action)) return null;
+    if ((action === 'inspect' && method === 'GET') || method === 'POST') {
+      return { toolName: `orchestration.${action}`, input: {} };
+    }
+    return null;
   }
   if (parts.length !== 4 || parts[0] !== 'v1' || parts[1] !== 'terminals') return null;
   const id = decodeURIComponent(parts[2] ?? '');

@@ -26,6 +26,42 @@ describe('terminal-control CLI parser', () => {
     });
   });
 
+  it('parses recursive Mission orchestration commands', () => {
+    expect(parseTerminalControlCli(['orchestration', 'inspect', '--json'])).toEqual({
+      kind: 'call',
+      name: 'orchestration_inspect',
+      input: {},
+    });
+    expect(
+      parseTerminalControlCli([
+        'orchestration',
+        'wait',
+        '--types',
+        'question,completion',
+        '--timeout-ms',
+        '600000',
+      ]),
+    ).toEqual({
+      kind: 'call',
+      name: 'orchestration_wait',
+      input: { types: ['question', 'completion'], timeoutMs: 600000 },
+    });
+    expect(
+      parseTerminalControlCli([
+        'orchestration',
+        'cancel',
+        '--assignment',
+        'assign-b',
+        '--reason',
+        'superseded',
+      ]),
+    ).toEqual({
+      kind: 'call',
+      name: 'orchestration_cancel',
+      input: { assignmentId: 'assign-b', reason: 'superseded' },
+    });
+  });
+
   it('fails before contacting Charter when required arguments are missing', () => {
     expect(parseTerminalControlCli(['send', 'term_1'])).toEqual({
       kind: 'error',

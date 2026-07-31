@@ -96,12 +96,28 @@ import {
   TerminalControlService,
 } from './services/terminal-control-service.js';
 import { CtlServer } from './services/ctl-server.js';
-import { registerOrchestrationHandlers } from './ipc/orchestration-handlers.js';
+import {
+  registerMissionHandlers,
+  registerOrchestrationHandlers,
+} from './ipc/orchestration-handlers.js';
 import { installTerminalControlIntegration } from './services/terminal-control-integration.js';
 import { ArtifactService } from './services/artifact-service.js';
 import { registerArtifactHandlers } from './ipc/artifact-handlers.js';
 import { TerminalDaemonClient } from './services/terminal-daemon-client.js';
 import { defaultUpdateChannel, RELEASES_PAGE, UpdateService } from './services/update-service.js';
+import { MissionRepository } from '@pi-ide/persistence';
+import { MissionOrchestrationService } from './services/mission-orchestration-service.js';
+import { OrchestrationOutboxRunner } from './services/orchestration-outbox-runner.js';
+import { OrchestrationRuntimeRegistry } from './services/orchestration-runtime-registry.js';
+import { VisibleTerminalRuntime, ShellRuntime } from './services/visible-terminal-runtime.js';
+import { ManagedAgentRuntime } from './services/managed-agent-runtime.js';
+import { MissionToolCallerResolver } from './services/mission-tool-caller-resolver.js';
+import { OrchestrationRecoveryService } from './services/orchestration-recovery-service.js';
+import {
+  AcpProcessPool,
+  AcpRuntimeAdapter,
+  FallbackRuntimeAdapter,
+} from './services/acp-runtime.js';
 
 const DEV_SERVER_URL = process.env.PI_IDE_DEV_SERVER_URL;
 const isDev = Boolean(DEV_SERVER_URL);
@@ -140,6 +156,9 @@ let sshSftpRef: SshSftpService | null = null;
 let sshForwardsRef: SshForwardService | null = null;
 let terminalIdentitiesRef: TerminalControlIdentityRegistry | null = null;
 let ctlServerRef: CtlServer | null = null;
+let missionOrchestrationRef: MissionOrchestrationService | null = null;
+let missionRecoveryRef: OrchestrationRecoveryService | null = null;
+let acpPoolRef: AcpProcessPool | null = null;
 export function getM5(): M5Services | null {
   return m5Ref;
 }
@@ -687,6 +706,7 @@ if (!gotLock) {
         appPath: app.getAppPath(),
         logger: logger.child('terminal-mcp'),
       });
+      const missionVirtualTasks = new Map<string, string>();
       m4 = new M4Services(
         workspaceHost,
         settings,
@@ -709,6 +729,7 @@ if (!gotLock) {
         maxWorkers: () => settings.effective.orchestration.maxWorkers,
         maxSendsPerMinute: () => settings.effective.orchestration.maxSendsPerMinute,
         launchIntents: externalLaunchIntents,
+        resolveAgentExecutable: (launch) => terminalIntegration?.executableFor(launch) ?? null,
         taskForTerminal: (id) => externalSessionsRef?.taskIdForTerminal(id) ?? null,
         taskTitleForTerminal: (id) => {
           const taskId = externalSessionsRef?.taskIdForTerminal(id);
@@ -836,6 +857,7 @@ if (!gotLock) {
         {
           create: (options) => sshServiceRef!.createRemoteTerminal(options),
         },
+        (launch) => terminalIntegration?.executableFor(launch) ?? null,
       );
       registerTerminalOpenHandlers(m4, workspaceHost, logger.child('ipc'));
       m5Ref = new M5Services(workspaceHost, state, paths, logger.child('m5'));
@@ -893,6 +915,114 @@ if (!gotLock) {
         terminalControlRef,
       );
       taskServiceRef = taskService;
+      const missionRepository = new MissionRepository(state.db);
+      const missionRuntimes = new OrchestrationRuntimeRegistry();
+      const visibleMissionRuntime = new VisibleTerminalRuntime(terminalControlRef);
+      missionRuntimes.register(visibleMissionRuntime);
+      missionRuntimes.register(new ShellRuntime(terminalControlRef));
+      missionRuntimes.register(new ManagedAgentRuntime(taskService, settings));
+      const acpEnabled =
+        Boolean(terminalIntegration) &&
+        process.env.PI_IDE_ACP !== '0' &&
+        (!process.env.PI_IDE_E2E || process.env.PI_IDE_ACP === '1');
+      if (acpEnabled && terminalIntegration) {
+        const runtimeAppPath = app.getAppPath().endsWith('app.asar')
+          ? `${app.getAppPath()}.unpacked`
+          : app.getAppPath();
+        const scriptFor = (provider: 'claude' | 'codex') =>
+          join(
+            runtimeAppPath,
+            'node_modules',
+            '@agentclientprotocol',
+            provider === 'claude' ? 'claude-agent-acp' : 'codex-acp',
+            'dist',
+            'index.js',
+          );
+        const pool = new AcpProcessPool(
+          (provider) => ({
+            command: terminalIntegration.nodeExecutable,
+            args: [scriptFor(provider)],
+            env: terminalIntegration.environment(),
+          }),
+          logger.child('acp-pool'),
+        );
+        acpPoolRef = pool;
+        const options = {
+          missionMcp: (
+            input: import('./services/orchestration-runtime-registry.js').RuntimeStartRequest,
+            identity: string,
+          ) => {
+            const taskId = input.mission.originConversationTaskId;
+            if (!taskId) throw new Error('ACP Mission sessions require an origin conversation.');
+            missionVirtualTasks.set(identity, taskId);
+            return {
+              command: terminalIntegration.nodeExecutable,
+              args: [terminalIntegration.mcpServerPath],
+              env: {
+                ...terminalIntegration.environment(),
+                ...terminalIdentitiesRef!.environment(identity),
+              },
+            };
+          },
+          bindVirtualIdentity: (
+            identity: string,
+            input: import('./services/orchestration-runtime-registry.js').RuntimeStartRequest,
+          ) => {
+            const taskId = input.mission.originConversationTaskId;
+            if (taskId) missionVirtualTasks.set(identity, taskId);
+            terminalIdentitiesRef!.issue(identity);
+          },
+          releaseVirtualIdentity: (identity: string) => {
+            missionVirtualTasks.delete(identity);
+            terminalIdentitiesRef!.revokeTerminal(identity);
+          },
+        };
+        for (const provider of ['claude', 'codex'] as const) {
+          const acpRuntime = new AcpRuntimeAdapter(
+            provider,
+            pool,
+            missionRepository,
+            options,
+            logger.child(`acp-${provider}`),
+          );
+          missionRuntimes.registerForRuntime(
+            provider,
+            new FallbackRuntimeAdapter(acpRuntime, visibleMissionRuntime),
+          );
+        }
+      }
+      const missionOutbox = new OrchestrationOutboxRunner(missionRepository, missionRuntimes, {
+        onChanged: (missionId) =>
+          broadcast('mission.changed', missionRepository.snapshot(missionId)),
+      });
+      const missionOrchestration = new MissionOrchestrationService(
+        missionRepository,
+        missionOutbox,
+        (missionId) => broadcast('mission.changed', missionRepository.snapshot(missionId)),
+      );
+      missionOrchestrationRef = missionOrchestration;
+      missionRecoveryRef = new OrchestrationRecoveryService(
+        missionRepository,
+        missionRuntimes,
+        logger.child('mission-recovery'),
+        {
+          onChanged: (missionId) =>
+            broadcast('mission.changed', missionRepository.snapshot(missionId)),
+        },
+      );
+      missionRecoveryRef.start();
+      const missionCaller = new MissionToolCallerResolver(
+        missionOrchestration,
+        taskService,
+        agentHostRef,
+        terminalControlRef,
+      );
+      taskService.attachOrchestrationTools({
+        control: missionOrchestration,
+        callerForCall: (call) => missionCaller.resolve(call),
+      });
+      missionOrchestration.start();
+      registerMissionHandlers(missionOrchestration, logger.child('mission-ipc'));
       const artifactService = new ArtifactService(state.db, taskService, logger.child('artifacts'));
       protocol.handle('artifact', (request) => artifactService.handleResource(request));
       registerArtifactHandlers(artifactService, logger.child('ipc'));
@@ -1029,13 +1159,15 @@ if (!gotLock) {
           taskService.liveOrchestrationWorkers(m4!.terminals.list().map((terminal) => terminal.id)),
         );
         if (restored > 0) logger.info('orchestration fleet restored', { workers: restored });
+        void missionRecoveryRef?.reconcileAll();
       });
       ctlServerRef = new CtlServer({
         socketPath: ctlSocketPath,
         identities: terminalIdentitiesRef,
         control: terminalControlRef,
         enabled: () => settings.effective.orchestration.enabled,
-        taskForTerminal: (id) => externalSessionsRef?.taskIdForTerminal(id) ?? null,
+        taskForTerminal: (id) =>
+          missionVirtualTasks.get(id) ?? externalSessionsRef?.taskIdForTerminal(id) ?? null,
         gatewayForTask: (taskId) => taskService.gatewayForTask(taskId),
         prepareCaller: (taskId, terminalId) =>
           void taskService.ensureTerminalControlRun(taskId, terminalId),
@@ -1267,6 +1399,8 @@ if (!gotLock) {
     clipboardWatcherRef?.dispose();
     screenshotWatcherRef?.dispose();
     externalSessionsRef?.dispose(); // before terminals: sessions close into review while the DB is open
+    missionOrchestrationRef?.shutdown();
+    missionRecoveryRef?.stop();
     taskServiceRef?.shutdown();
     terminalControlRef?.dispose();
     sshForwardsRef?.stopAll(); // listeners first, so nothing re-dials mid-quit
@@ -1276,6 +1410,7 @@ if (!gotLock) {
     terminalIdentitiesRef?.clear();
     const disposal = Promise.all([
       ctlServerRef?.stop() ?? Promise.resolve(),
+      acpPoolRef?.shutdown() ?? Promise.resolve(),
       agentHostRef?.dispose() ?? Promise.resolve(),
     ]);
     void disposal

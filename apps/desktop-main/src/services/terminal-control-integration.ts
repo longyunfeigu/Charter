@@ -1,4 +1,12 @@
-import { accessSync, chmodSync, constants, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import type { Logger } from '@pi-ide/foundation';
@@ -6,7 +14,9 @@ import type { Logger } from '@pi-ide/foundation';
 export interface TerminalControlIntegration {
   binDir: string;
   mcpServerPath: string;
+  nodeExecutable: string;
   environment(basePath?: string): Record<string, string>;
+  executableFor(launch: 'claude' | 'codex'): string | null;
 }
 
 /** A Finder/dev-launched Electron process inherits a minimal PATH that misses
@@ -67,7 +77,10 @@ export function installTerminalControlIntegration(input: {
   }
   const root = join(input.userData, 'terminal-control');
   const binDir = join(root, 'bin');
-  const mcpServerPath = join(input.appPath, 'apps/desktop-main/dist/terminal-control-mcp.cjs');
+  const runtimeAppPath = input.appPath.endsWith('app.asar')
+    ? `${input.appPath}.unpacked`
+    : input.appPath;
+  const mcpServerPath = join(runtimeAppPath, 'apps/desktop-main/dist/terminal-control-mcp.cjs');
   const claudeConfigPath = join(root, 'claude-mcp.json');
   mkdirSync(binDir, { recursive: true, mode: 0o700 });
   writeFileSync(
@@ -85,6 +98,10 @@ export function installTerminalControlIntegration(input: {
   );
   writeExecutable(
     join(binDir, 'charter-terminal'),
+    `#!/bin/sh\nexec ${shellQuote(node)} ${shellQuote(mcpServerPath)} --cli "$@"\n`,
+  );
+  writeExecutable(
+    join(binDir, 'charter'),
     `#!/bin/sh\nexec ${shellQuote(node)} ${shellQuote(mcpServerPath)} --cli "$@"\n`,
   );
 
@@ -106,9 +123,22 @@ export function installTerminalControlIntegration(input: {
   if (codex) {
     const commandConfig = `mcp_servers.charter.command=${JSON.stringify(node)}`;
     const argsConfig = `mcp_servers.charter.args=${JSON.stringify([mcpServerPath])}`;
+    // Codex starts stdio MCP servers with a filtered environment. Explicitly
+    // forward the per-terminal Charter identity so the bridge can authenticate
+    // tool calls as the visible Lead/worker that launched it.
+    const envVarsConfig = 'mcp_servers.charter.env_vars=["CHARTER_CTL","CHARTER_CTL_TOKEN"]';
+    // Agent coordination intentionally supports long blocking waits. Keep the
+    // Codex-side MCP deadline above Charter's one-hour maximum instead of
+    // letting the client's shorter default terminate a healthy wait/join.
+    const startupTimeoutConfig = 'mcp_servers.charter.startup_timeout_sec=120';
+    const toolTimeoutConfig = 'mcp_servers.charter.tool_timeout_sec=3605';
     writeExecutable(
       join(binDir, 'codex'),
-      `#!/bin/sh\nexec ${shellQuote(codex)} -c ${shellQuote(commandConfig)} -c ${shellQuote(argsConfig)} "$@"\n`,
+      [
+        '#!/bin/sh',
+        `exec ${shellQuote(codex)} -c ${shellQuote(commandConfig)} -c ${shellQuote(argsConfig)} -c ${shellQuote(envVarsConfig)} -c ${shellQuote(startupTimeoutConfig)} -c ${shellQuote(toolTimeoutConfig)} "$@"`,
+        '',
+      ].join('\n'),
     );
   } else {
     rmSync(join(binDir, 'codex'), { force: true });
@@ -121,11 +151,17 @@ export function installTerminalControlIntegration(input: {
   return {
     binDir,
     mcpServerPath,
+    nodeExecutable: node,
+    executableFor(launch) {
+      const path = join(binDir, launch);
+      return existsSync(path) ? path : null;
+    },
     environment(basePath = pathValue) {
       return {
         PATH: `${binDir}${delimiter}${basePath}`,
         CHARTER_TERMINAL_BIN: binDir,
         CHARTER_TERMINAL_COMMAND: 'charter-terminal',
+        CHARTER_COMMAND: 'charter',
       };
     },
   };

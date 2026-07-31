@@ -33,6 +33,15 @@ function pendingPermission(page: Page, toolName: string) {
   return page.getByTestId('perm-card').filter({ hasText: toolName });
 }
 
+async function openLegacyOrchestration(page: Page): Promise<void> {
+  await page.getByTestId('session-more').click();
+  const legacyEntry = page.getByTestId('task-open-legacy-orchestration');
+  await expect(legacyEntry).toBeVisible({ timeout: 10_000 });
+  await legacyEntry.click();
+  await expect(page.getByTestId('task-room-fleet-tab')).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('orchestration-fleet')).toBeVisible();
+}
+
 function createExternalDriver(): { bin: string; executable: string; probe: string } {
   const bin = mkdtempSync(join(tmpdir(), 'charter-m13-driver-'));
   const executable = join(bin, 'codex');
@@ -294,22 +303,18 @@ test.describe('M13 session orchestration', () => {
       const args = JSON.parse(readFileSync(workerDriver.probe, 'utf8')) as string[];
       expect(args.slice(-2)).toEqual(['--', 'Report your identity and wait for the commander.']);
 
-      await expect(page.getByTestId('task-room-fleet-tab')).toContainText('Fleet 1');
+      await expect(page.getByTestId('task-room-fleet-tab')).toHaveCount(0);
       await page.setViewportSize({ width: 1024, height: 700 });
       const identityName = await page.locator('.session-identity-name').boundingBox();
       const identityMeta = await page.locator('.session-identity-meta').boundingBox();
-      const roomSwitcher = await page.locator('.task-room-switcher').boundingBox();
       const moreButton = await page.getByTestId('session-more').boundingBox();
       expect(identityName).not.toBeNull();
       expect(identityMeta).not.toBeNull();
-      expect(roomSwitcher).not.toBeNull();
       expect(moreButton).not.toBeNull();
-      expect(Math.abs(roomSwitcher!.y - identityMeta!.y)).toBeLessThanOrEqual(1);
-      expect(Math.abs(roomSwitcher!.height - identityMeta!.height)).toBeLessThanOrEqual(1);
       expect(Math.abs(moreButton!.y - identityMeta!.y)).toBeLessThanOrEqual(1);
       expect(Math.abs(moreButton!.height - identityMeta!.height)).toBeLessThanOrEqual(1);
       await page.screenshot({ path: '/tmp/charter-session-header-layout.png' });
-      await page.getByTestId('task-room-fleet-tab').click();
+      await openLegacyOrchestration(page);
       const fleetOutput = page.getByTestId('orchestration-native-terminal').locator('.xterm-rows');
       await expect(fleetOutput).toContainText('CODEX_WORKER_READY', { timeout: 10_000 });
       await expect(fleetOutput).not.toContainText('STALE_TUI_FRAME');
@@ -319,7 +324,7 @@ test.describe('M13 session orchestration', () => {
         'SUCCEEDED',
         { timeout: 15_000 },
       );
-      await page.getByTestId('task-room-fleet-tab').click();
+      await openLegacyOrchestration(page);
       await expect(page.locator('.orch-status.completed').first()).toContainText('完成');
     } finally {
       await app.close();
@@ -350,13 +355,9 @@ test.describe('M13 session orchestration', () => {
       const taskId = await page.getByTestId('task-room').getAttribute('data-task-id');
       expect(taskId).toBeTruthy();
 
-      await expect(page.getByTestId('task-room-fleet-tab')).toContainText('Fleet 1');
       await expect(pendingPermission(page, 'terminal.create')).toHaveCount(0);
-      await expect(page.getByTestId('task-room-conversation-tab')).toHaveAttribute(
-        'aria-current',
-        'page',
-      );
-      await page.getByTestId('task-room-fleet-tab').click();
+      await expect(page.getByTestId('task-room-fleet-tab')).toHaveCount(0);
+      await openLegacyOrchestration(page);
       const fleet = page.getByTestId('orchestration-fleet');
       await expect(fleet).toBeVisible();
       await expect(fleet.getByTestId('orchestration-native-terminal')).toBeVisible();
@@ -382,19 +383,13 @@ test.describe('M13 session orchestration', () => {
       await expect(workerRow).toBeVisible();
       await expect(workerRow.locator('xpath=..')).toHaveClass(/sr-orch-worker/);
       const commanderRow = page.getByTestId(`home-task-${taskId!}`);
-      const fleetShortcut = page.getByTestId(`home-fleet-${taskId!}`);
-      await expect(fleetShortcut).toContainText('1');
 
-      // A normal Session click still opens its conversation. Only the separate
-      // Fleet shortcut opens the Session-local command center.
+      // A normal Session click opens its conversation. The old command center
+      // is now deliberately isolated behind the explicit compatibility action.
       await commanderRow.click();
-      await expect(page.getByTestId('task-room-conversation-tab')).toHaveAttribute(
-        'aria-current',
-        'page',
-      );
+      await expect(page.getByTestId('task-room-fleet-tab')).toHaveCount(0);
       await expect(page.getByTestId('orchestration-fleet')).toHaveCount(0);
-      await fleetShortcut.click();
-      await expect(page.getByTestId('task-room-fleet-tab')).toHaveAttribute('aria-current', 'page');
+      await openLegacyOrchestration(page);
 
       // Switching and focusing workers are observation-only. Neither action
       // emits the user-input provenance that marks a terminal as taken over.
@@ -417,7 +412,7 @@ test.describe('M13 session orchestration', () => {
       await expect(page.getByTestId('orchestration-worker-band')).toBeVisible();
       await page.getByTestId('orchestration-worker-band').getByRole('button').first().click();
       await expect(page.getByTestId('task-room')).toHaveAttribute('data-task-id', taskId!);
-      await expect(page.getByTestId('task-room-fleet-tab')).toHaveAttribute('aria-current', 'page');
+      await openLegacyOrchestration(page);
 
       await expect(pendingPermission(page, 'terminal.send')).toHaveCount(0);
 
@@ -522,7 +517,7 @@ test.describe('M13 session orchestration', () => {
       }
       await expect(page.getByTestId('tl-tool-terminal.kill')).toHaveCount(0);
       await expect(workerRow).toBeVisible();
-      await page.getByTestId('task-room-fleet-tab').click();
+      await openLegacyOrchestration(page);
       await expect(fleet.locator('.orch-tile')).toHaveCount(1);
       await expect(fleet.locator('.orch-signal-card.done')).toContainText('worker 仍保持打开');
       const completedState = await page.evaluate(async () => {
@@ -617,13 +612,27 @@ test.describe('M13 session orchestration', () => {
         'terminal_wait',
         'terminal_read',
         'terminal_kill',
+        'orchestration_inspect',
+        'orchestration_delegate',
+        'orchestration_message',
+        'orchestration_reply',
+        'orchestration_wait',
+        'orchestration_progress',
+        'orchestration_complete',
+        'orchestration_escalate',
+        'orchestration_steer',
+        'orchestration_pause',
+        'orchestration_resume',
+        'orchestration_cancel',
+        'orchestration_retry',
+        'orchestration_reassign',
       ]);
       expect(
         [result.created, result.sent, result.waited, result.read].every((entry) => entry.ok),
       ).toBe(true);
       expect(result.waited?.data?.exitCode).toBe(0);
       expect(result.read?.data?.content).toContain('EXTERNAL_ORCH_OK');
-      await page.getByTestId('task-room-fleet-tab').click();
+      await openLegacyOrchestration(page);
       await expect(page.getByTestId('orchestration-fleet')).toBeVisible();
       await expect(pendingPermission(page, 'terminal.kill')).toHaveCount(0);
       const state = await page.evaluate(async () => {

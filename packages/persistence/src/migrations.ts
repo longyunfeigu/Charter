@@ -352,4 +352,236 @@ CREATE INDEX idx_skill_invocations_skill_at ON skill_invocations(skill, at);
 CREATE INDEX idx_tool_calls_name_created ON tool_calls(name, created_at);
 `,
   },
+  {
+    version: 9,
+    name: 'mission-orchestration-v2',
+    // Mission Orchestration V2: normalized responsibility tree, task DAG,
+    // replaceable attempts, structured messages and idempotent runtime outbox.
+    up: `
+CREATE TABLE missions (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  origin_conversation_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  goal_md TEXT NOT NULL,
+  acceptance_json TEXT NOT NULL DEFAULT '[]',
+  execution_policy_json TEXT NOT NULL,
+  state TEXT NOT NULL,
+  lead_assignment_id TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE INDEX idx_missions_workspace_state ON missions(workspace_id, state, updated_at);
+
+CREATE TABLE mission_tasks (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  parent_task_id TEXT REFERENCES mission_tasks(id) ON DELETE SET NULL,
+  created_by_assignment_id TEXT,
+  title TEXT NOT NULL,
+  goal_md TEXT NOT NULL,
+  acceptance_json TEXT NOT NULL DEFAULT '[]',
+  expected_artifacts_json TEXT NOT NULL DEFAULT '[]',
+  work_mode TEXT NOT NULL DEFAULT 'read-only',
+  write_scope_json TEXT,
+  state TEXT NOT NULL,
+  result_json TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE INDEX idx_mission_tasks_mission_state ON mission_tasks(mission_id, state, created_at);
+CREATE INDEX idx_mission_tasks_parent ON mission_tasks(parent_task_id);
+
+CREATE TABLE mission_task_dependencies (
+  task_id TEXT NOT NULL REFERENCES mission_tasks(id) ON DELETE CASCADE,
+  depends_on_task_id TEXT NOT NULL REFERENCES mission_tasks(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (task_id, depends_on_task_id),
+  CHECK (task_id <> depends_on_task_id)
+);
+CREATE INDEX idx_mission_task_dependencies_dep ON mission_task_dependencies(depends_on_task_id);
+
+CREATE TABLE orchestration_principals (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  provider TEXT,
+  external_identity TEXT,
+  display_name TEXT NOT NULL,
+  state TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_seen_at TEXT
+);
+CREATE UNIQUE INDEX idx_orchestration_principals_external
+  ON orchestration_principals(provider, external_identity)
+  WHERE external_identity IS NOT NULL;
+
+CREATE TABLE assignments (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL REFERENCES mission_tasks(id) ON DELETE CASCADE,
+  supervisor_assignment_id TEXT REFERENCES assignments(id) ON DELETE SET NULL,
+  assignee_principal_id TEXT NOT NULL REFERENCES orchestration_principals(id),
+  active_attempt_id TEXT,
+  state TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE INDEX idx_assignments_mission_state ON assignments(mission_id, state, created_at);
+CREATE INDEX idx_assignments_supervisor ON assignments(supervisor_assignment_id);
+CREATE INDEX idx_assignments_principal ON assignments(assignee_principal_id, state);
+
+CREATE TABLE execution_attempts (
+  id TEXT PRIMARY KEY,
+  assignment_id TEXT NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL,
+  requested_runtime TEXT NOT NULL,
+  requested_model TEXT,
+  runtime_session_id TEXT,
+  terminal_id TEXT,
+  state TEXT NOT NULL,
+  lease_expires_at TEXT,
+  last_heartbeat_at TEXT,
+  started_at TEXT,
+  ended_at TEXT,
+  failure_code TEXT,
+  failure_json TEXT,
+  result_json TEXT,
+  UNIQUE (assignment_id, ordinal)
+);
+CREATE INDEX idx_execution_attempts_state ON execution_attempts(state, lease_expires_at);
+CREATE INDEX idx_execution_attempts_runtime ON execution_attempts(runtime_session_id);
+CREATE INDEX idx_execution_attempts_terminal ON execution_attempts(terminal_id);
+
+CREATE TABLE orchestration_messages (
+  id TEXT NOT NULL UNIQUE,
+  mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  from_assignment_id TEXT REFERENCES assignments(id) ON DELETE SET NULL,
+  to_assignment_id TEXT REFERENCES assignments(id) ON DELETE SET NULL,
+  thread_id TEXT,
+  attempt_id TEXT REFERENCES execution_attempts(id) ON DELETE SET NULL,
+  type TEXT NOT NULL,
+  priority TEXT NOT NULL DEFAULT 'normal',
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  payload_json TEXT,
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL,
+  delivered_at TEXT,
+  read_at TEXT,
+  suppressed_at TEXT,
+  suppression_reason TEXT
+);
+CREATE INDEX idx_orchestration_messages_inbox
+  ON orchestration_messages(mission_id, to_assignment_id, read_at, sequence);
+CREATE INDEX idx_orchestration_messages_thread ON orchestration_messages(thread_id, sequence);
+
+CREATE TABLE mission_events (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  sequence INTEGER NOT NULL,
+  type TEXT NOT NULL,
+  actor_principal_id TEXT REFERENCES orchestration_principals(id) ON DELETE SET NULL,
+  assignment_id TEXT REFERENCES assignments(id) ON DELETE SET NULL,
+  attempt_id TEXT REFERENCES execution_attempts(id) ON DELETE SET NULL,
+  payload_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (mission_id, sequence)
+);
+CREATE INDEX idx_mission_events_mission ON mission_events(mission_id, sequence);
+
+CREATE TABLE orchestration_outbox (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  operation TEXT NOT NULL,
+  aggregate_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  state TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  available_at TEXT NOT NULL,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  completed_at TEXT,
+  UNIQUE (mission_id, operation, idempotency_key)
+);
+CREATE INDEX idx_orchestration_outbox_pending
+  ON orchestration_outbox(state, available_at, created_at);
+
+CREATE TABLE assignment_artifacts (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  assignment_id TEXT NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+  attempt_id TEXT REFERENCES execution_attempts(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL,
+  label TEXT NOT NULL,
+  reference_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_assignment_artifacts_assignment ON assignment_artifacts(assignment_id, created_at);
+`,
+  },
+  {
+    version: 10,
+    name: 'mission-fabric-runtime-and-delivery',
+    up: `
+CREATE TABLE orchestration_runtime_sessions (
+  id TEXT PRIMARY KEY,
+  attempt_id TEXT NOT NULL UNIQUE REFERENCES execution_attempts(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  transport TEXT NOT NULL,
+  external_session_id TEXT,
+  process_key TEXT,
+  state TEXT NOT NULL,
+  cwd TEXT NOT NULL,
+  capabilities_json TEXT NOT NULL DEFAULT '{}',
+  last_event_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_orchestration_runtime_sessions_process
+  ON orchestration_runtime_sessions(provider, process_key, state);
+
+CREATE TABLE orchestration_runtime_events (
+  id TEXT PRIMARY KEY,
+  runtime_session_id TEXT NOT NULL REFERENCES orchestration_runtime_sessions(id) ON DELETE CASCADE,
+  attempt_id TEXT NOT NULL REFERENCES execution_attempts(id) ON DELETE CASCADE,
+  sequence INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  UNIQUE(runtime_session_id, sequence)
+);
+CREATE INDEX idx_orchestration_runtime_events_attempt
+  ON orchestration_runtime_events(attempt_id, sequence);
+
+CREATE TABLE orchestration_message_deliveries (
+  message_id TEXT NOT NULL REFERENCES orchestration_messages(id) ON DELETE CASCADE,
+  assignment_id TEXT NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+  state TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  delivered_at TEXT,
+  observed_at TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(message_id, assignment_id)
+);
+CREATE INDEX idx_orchestration_message_deliveries_pending
+  ON orchestration_message_deliveries(assignment_id, state, updated_at);
+
+INSERT INTO orchestration_message_deliveries
+  (message_id, assignment_id, state, delivered_at, observed_at, updated_at)
+SELECT id, to_assignment_id,
+  CASE WHEN read_at IS NOT NULL THEN 'observed'
+       WHEN delivered_at IS NOT NULL THEN 'delivered'
+       ELSE 'pending' END,
+  delivered_at, read_at, created_at
+FROM orchestration_messages
+WHERE to_assignment_id IS NOT NULL AND suppressed_at IS NULL;
+`,
+  },
 ];

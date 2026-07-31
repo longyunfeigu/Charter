@@ -3,7 +3,7 @@ import { DocumentDtoSchema, FsChangeSchema } from './documents.js';
 import { WorkspaceDtoSchema } from './dto.js';
 import { TaskDtoSchema, TaskStateSchema, TimelineEventDtoSchema } from './agent-dto.js';
 import { ScreenshotCaptureSchema } from './screenshots.js';
-import { OrchestrationSnapshotSchema } from './orchestration.js';
+import { MissionSnapshotSchema, OrchestrationSnapshotSchema } from './orchestration.js';
 import { SftpTransferStateSchema, SshConnectionStateSchema, SshForwardStateSchema } from './ssh.js';
 import { UpdateStateSchema } from './updates.js';
 
@@ -143,6 +143,7 @@ export const EVENT_CHANNELS = {
   ),
   'terminal.exit': ev('terminal.exit', 1, z.object({ id: z.string(), exitCode: z.number() })),
   'orchestration.changed': ev('orchestration.changed', 1, OrchestrationSnapshotSchema),
+  'mission.changed': ev('mission.changed', 1, MissionSnapshotSchema),
   /** ADR-0017: a terminal entered (agent = CLI name) or left (agent = null) an
    * external agent session. taskId is present once accounting attached. */
   'terminal.agentState': ev(

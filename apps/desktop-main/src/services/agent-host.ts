@@ -22,6 +22,7 @@ import type {
   WorkerInbound,
   WorkerOutbound,
 } from '@pi-ide/agent-contract';
+import type { OrchestrationCallerContext } from '@pi-ide/orchestration-domain';
 import type { ToolGateway } from '@pi-ide/tool-gateway';
 import type { SecretService } from './secret-service.js';
 import { broadcast } from '../broadcast.js';
@@ -44,6 +45,7 @@ interface ActiveRun {
   taskId: string;
   runId: string;
   toolControllers: Map<string, AbortController>;
+  orchestration: OrchestrationCallerContext | null;
 }
 
 /** Supervises the agent utility process (AG-002, REL-002). */
@@ -84,6 +86,10 @@ export class AgentHost {
       if (run.taskId === taskId) return run.runId;
     }
     return null;
+  }
+
+  orchestrationContextForCall(call: ToolCallRequest): OrchestrationCallerContext | null {
+    return this.activeRuns.get(call.runId)?.orchestration ?? null;
   }
 
   hasActiveRuns(): boolean {
@@ -363,8 +369,17 @@ export class AgentHost {
     });
   }
 
-  startRun(taskId: string, input: StartRunInput): void {
-    this.activeRuns.set(input.runId, { taskId, runId: input.runId, toolControllers: new Map() });
+  startRun(
+    taskId: string,
+    input: StartRunInput,
+    orchestration: OrchestrationCallerContext | null = null,
+  ): void {
+    this.activeRuns.set(input.runId, {
+      taskId,
+      runId: input.runId,
+      toolControllers: new Map(),
+      orchestration,
+    });
     this.post({ type: 'startRun', taskId, input });
   }
 

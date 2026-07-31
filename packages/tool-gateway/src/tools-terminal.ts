@@ -32,6 +32,10 @@ export interface TerminalControlPort {
       launch: 'shell' | 'claude' | 'codex';
       initialText?: string;
       submit: boolean;
+      /** Host-internal runtime launch key; never supplied by the terminal tool schema. */
+      idempotencyKey?: string;
+      /** Mission scheduler already enforces Mission policy; skip the V1 flat-fleet cap. */
+      bypassLegacyBudget?: boolean;
     },
   ): Promise<unknown>;
   wait(

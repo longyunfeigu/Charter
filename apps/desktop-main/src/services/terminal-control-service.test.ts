@@ -291,6 +291,38 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
     expect(terminals.writes.at(-1)?.data).toBe('\r');
   });
 
+  it('controls a user-created terminal after it is adopted as a Mission runtime', async () => {
+    const adopted = terminals.create({ cwd: '/repo', launch: 'codex' });
+
+    service.pauseRuntime(adopted.id, true);
+    await service.sendRuntime(adopted.id, 'new Mission guidance');
+    expect(terminals.writes).toHaveLength(0);
+
+    service.pauseRuntime(adopted.id, false);
+    expect(terminals.writes.map((entry) => entry.data)).toEqual(['new Mission guidance', '\r']);
+
+    service.closeRuntime(adopted.id);
+    expect(terminals.infos.has(adopted.id)).toBe(false);
+    expect(() => service.pauseRuntime(adopted.id, true)).toThrowError(
+      expect.objectContaining({ error: expect.objectContaining({ code: 'TERMINAL_NOT_FOUND' }) }),
+    );
+  });
+
+  it('coalesces Mission doorbells until an adopted Agent turn settles', async () => {
+    const adopted = terminals.create({ cwd: '/repo', launch: 'codex' });
+    service.notifyTurnStarted(adopted.id, { taskId: 'task', source: 'input' });
+    await service.notifyRuntime(adopted.id, 'message 1');
+    await service.notifyRuntime(adopted.id, 'message 2');
+    expect(terminals.writes).toHaveLength(0);
+
+    service.notifyTurnSettled(adopted.id, {
+      taskId: 'task',
+      status: 'ok',
+      source: 'structured',
+    });
+    expect(terminals.writes.map((entry) => entry.data)).toEqual(['message 1\r\rmessage 2', '\r']);
+  });
+
   it('ignores terminal focus reports but treats real user input as takeover', async () => {
     const created = (await service.create(
       { taskId: 'task_1' },
@@ -317,6 +349,7 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
           enabled: () => true,
           maxWorkers: () => 3,
           launchIntents: intents,
+          resolveAgentExecutable: (launch) => `/charter-wrappers/${launch}`,
           settleMs: 30_000,
         },
       );
@@ -340,7 +373,7 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
       const claude = (await claudePromise) as { terminal: TerminalInfo };
       const codex = (await codexPromise) as { terminal: TerminalInfo };
       expect(terminals.creates[0]).toMatchObject({
-        executable: 'claude',
+        executable: '/charter-wrappers/claude',
         knownAgent: 'claude',
       });
       expect(terminals.creates[0]?.args?.[0]).toBe('--session-id');
@@ -349,7 +382,7 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
       );
       expect(terminals.creates[0]?.args?.slice(2)).toEqual(['--', 'review claude']);
       expect(terminals.creates[1]).toMatchObject({
-        executable: 'codex',
+        executable: '/charter-wrappers/codex',
         args: ['--', 'review codex'],
         knownAgent: 'codex',
       });

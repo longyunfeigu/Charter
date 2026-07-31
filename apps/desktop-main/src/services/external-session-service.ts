@@ -49,10 +49,21 @@ const FILE_ATTRIBUTION_GRACE_MS = 2_000;
 const INITIAL_COMMAND_ATTRIBUTION_MS = 10_000;
 /**
  * The Enter must be its own PTY write: a CR in the same chunk as a bracketed
- * paste is treated by TUI paste handling as pasted text — the exact "typed
- * but never sent" failure this path exists to prevent.
+ * paste is treated by TUI paste handling as pasted text. Long first prompts
+ * also take the TUI longer to ingest after bracketed-paste end, so the delay
+ * scales with bytes instead of racing every prompt against one fixed timer.
  */
-const PROMPT_ENTER_DELAY_MS = 250;
+const PROMPT_ENTER_BASE_DELAY_MS = 250;
+const PROMPT_ENTER_MAX_DELAY_MS = 3_000;
+const PROMPT_ENTER_BYTES_PER_MS = 4;
+
+export function externalPromptEnterDelayMs(prompt: string): number {
+  return Math.min(
+    PROMPT_ENTER_MAX_DELAY_MS,
+    PROMPT_ENTER_BASE_DELAY_MS +
+      Math.ceil(Buffer.byteLength(prompt, 'utf8') / PROMPT_ENTER_BYTES_PER_MS),
+  );
+}
 
 function countPatchLines(patch: string | null): { additions: number; deletions: number } {
   let additions = 0;
@@ -96,6 +107,17 @@ export function codexStartupTrustGateActive(output: string): boolean {
 export function codexStartupComposerReady(output: string): boolean {
   const { gate, ready } = codexStartupScreenPositions(output);
   return ready >= 0 && ready > gate;
+}
+
+export function codexStartupUpdateGateActive(output: string): boolean {
+  const compact = cleanTerminalText(output).toLowerCase().replace(/\s+/g, '');
+  const updateGate = Math.max(
+    compact.lastIndexOf('updateavailable!'),
+    compact.lastIndexOf('updatenow'),
+    compact.lastIndexOf('skipuntilnextversion'),
+  );
+  const { ready } = codexStartupScreenPositions(output);
+  return updateGate >= 0 && updateGate > ready;
 }
 
 export interface ExternalSessionSnapshot {
@@ -168,6 +190,7 @@ interface LiveSession {
   promptSettleTimer: ReturnType<typeof setTimeout> | null;
   promptDeadlineTimer: ReturnType<typeof setTimeout> | null;
   promptEnterTimer: ReturnType<typeof setTimeout> | null;
+  codexUpdateGateHandled: boolean;
   /** Notification copy: the user message the current reply answers. */
   typedLine: TypedLineTracker;
   lastUserLine: string | null;
@@ -729,10 +752,27 @@ export class ExternalSessionService {
   }
 
   private deliverPendingPrompt(session: LiveSession): void {
+    const recent = this.terminals.recentData(session.terminalId);
     if (
       session.cli === 'codex' &&
-      !codexStartupComposerReady(this.terminals.recentData(session.terminalId))
+      codexStartupUpdateGateActive(recent) &&
+      !session.codexUpdateGateHandled
     ) {
+      // Product-launched Codex has a pending first prompt, so leaving it
+      // parked on the optional self-update screen would silently drop the
+      // requested run. Select "Skip" (one row below "Update now") without
+      // changing the user's installed CLI, then resume normal readiness.
+      session.codexUpdateGateHandled = true;
+      this.writeProduct(session, '\u001b[B');
+      session.promptEnterTimer = setTimeout(() => {
+        session.promptEnterTimer = null;
+        if (!session.ended) this.writeProduct(session, '\r');
+        this.schedulePromptDeadline(session, PROMPT_SETTLE_QUIET_MS);
+      }, PROMPT_ENTER_BASE_DELAY_MS);
+      session.promptEnterTimer.unref?.();
+      return;
+    }
+    if (session.cli === 'codex' && !codexStartupComposerReady(recent)) {
       // Process detection and the shell's command echo both precede the first
       // Codex screen. Wait for the actual composer, not merely an absent gate.
       // Keep this deadline independent of continuously animated MCP startup.
@@ -753,7 +793,7 @@ export class ExternalSessionService {
     session.promptEnterTimer = setTimeout(() => {
       session.promptEnterTimer = null;
       if (!session.ended) this.writeProduct(session, '\r');
-    }, PROMPT_ENTER_DELAY_MS);
+    }, externalPromptEnterDelayMs(prompt));
     session.promptEnterTimer.unref?.();
   }
 
@@ -965,6 +1005,7 @@ export class ExternalSessionService {
       promptSettleTimer: null,
       promptDeadlineTimer: null,
       promptEnterTimer: null,
+      codexUpdateGateHandled: false,
       typedLine: new TypedLineTracker(),
       lastUserLine: null,
       suppressInputCapture: 0,
@@ -1583,6 +1624,7 @@ export class ExternalSessionService {
       promptSettleTimer: null,
       promptDeadlineTimer: null,
       promptEnterTimer: null,
+      codexUpdateGateHandled: false,
       typedLine: new TypedLineTracker(),
       lastUserLine: null,
       suppressInputCapture: 0,

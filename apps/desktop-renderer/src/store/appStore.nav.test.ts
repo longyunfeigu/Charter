@@ -17,6 +17,7 @@ function reset(): void {
       skills: { kind: 'home' },
     },
     taskRoomTaskId: null,
+    missionCenter: null,
     sessionRoomView: 'conversation',
     sessionTerminalId: null,
     sessionTerminalScope: 'single',
@@ -35,8 +36,9 @@ function reset(): void {
 beforeEach(reset);
 
 describe('railGroupOf / mainSurfaceOf', () => {
-  it('groups sessions, inbox and files into one workbench; projects and Skills stand alone', () => {
+  it('groups sessions, Missions, inbox and files into one workbench; projects and Skills stand alone', () => {
     expect(railGroupOf('sessions')).toBe('workbench');
+    expect(railGroupOf('missions')).toBe('workbench');
     expect(railGroupOf('inbox')).toBe('workbench');
     expect(railGroupOf('files')).toBe('workbench');
     expect(railGroupOf('projects')).toBe('projects');
@@ -47,6 +49,7 @@ describe('railGroupOf / mainSurfaceOf', () => {
     expect(
       mainSurfaceOf({
         taskRoomTaskId: 't1',
+        missionCenter: null,
         sessionTerminalId: 'term1',
         archaeology: { scope: null },
         projectTool: 'editor',
@@ -56,6 +59,7 @@ describe('railGroupOf / mainSurfaceOf', () => {
     expect(
       mainSurfaceOf({
         taskRoomTaskId: 't1',
+        missionCenter: null,
         sessionTerminalId: null,
         archaeology: null,
         projectTool: null,
@@ -65,12 +69,23 @@ describe('railGroupOf / mainSurfaceOf', () => {
     expect(
       mainSurfaceOf({
         taskRoomTaskId: null,
+        missionCenter: null,
         sessionTerminalId: null,
         archaeology: null,
         projectTool: null,
         remotesOpen: false,
       }),
     ).toEqual({ kind: 'home' });
+  });
+
+  it('treats Mission Center as an independent main surface', () => {
+    useAppStore.getState().openMission('mission-1');
+    expect(mainSurfaceOf(useAppStore.getState())).toEqual({
+      kind: 'mission',
+      missionId: 'mission-1',
+    });
+    expect(useAppStore.getState().taskRoomTaskId).toBeNull();
+    expect(useAppStore.getState().railView).toBe('missions');
   });
 });
 
@@ -143,14 +158,15 @@ describe('setRailView across groups (the stale-main bug class)', () => {
 });
 
 describe('surface openers keep the rail in step (reverse direction)', () => {
-  it('keeps Fleet as a Session-local view and resets normal room entry to conversation', () => {
-    useAppStore.getState().openTaskRoom('t-fleet');
-    useAppStore.getState().setSessionRoomView('fleet');
-    expect(useAppStore.getState().taskRoomTaskId).toBe('t-fleet');
-    expect(useAppStore.getState().sessionRoomView).toBe('fleet');
+  it('opens a Mission independently and returns to its origin conversation explicitly', () => {
+    useAppStore.getState().openTaskRoom('t-origin');
+    useAppStore.getState().openMission('mission-1');
+    expect(useAppStore.getState().missionCenter).toEqual({ missionId: 'mission-1' });
+    expect(useAppStore.getState().taskRoomTaskId).toBeNull();
 
-    useAppStore.getState().openTaskRoom('t-fleet');
-    expect(useAppStore.getState().sessionRoomView).toBe('conversation');
+    useAppStore.getState().openTaskRoom('t-origin');
+    expect(useAppStore.getState().missionCenter).toBeNull();
+    expect(useAppStore.getState().taskRoomTaskId).toBe('t-origin');
   });
 
   it('opening Session Archive from Project Center flips to Sessions and remembers the project', () => {

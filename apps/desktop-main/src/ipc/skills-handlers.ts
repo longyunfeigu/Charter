@@ -11,6 +11,7 @@ import {
   type SkillUsageEvent,
 } from '../services/skill-usage.js';
 import { CHARTER_TERMINAL_SKILL } from '../services/terminal-control-manual.js';
+import { CHARTER_ORCHESTRATION_SKILL } from '../services/orchestration-manual.js';
 import {
   charterTerminalSurfaceStatus,
   installCharterTerminalSurfaces,
@@ -60,10 +61,11 @@ export function registerSkillsHandlers(
       // store (Pi runtime) and in ~/.claude/skills + ~/.codex/skills, so a
       // hand-launched claude/codex can trigger orchestration even when the
       // MCP wrapper chain is bypassed by the user's shell.
-      'skills.installCharterTerminal': async () => ({
-        skill: skills.installManaged('charter-terminal', CHARTER_TERMINAL_SKILL),
-        surfaces: installCharterTerminalSurfaces(),
-      }),
+      'skills.installCharterTerminal': async () => {
+        const skill = skills.installManaged('charter-terminal', CHARTER_TERMINAL_SKILL);
+        skills.installManaged('charter-orchestration', CHARTER_ORCHESTRATION_SKILL);
+        return { skill, surfaces: installCharterTerminalSurfaces() };
+      },
       'skills.charterTerminalStatus': async () => ({
         surfaces: charterTerminalSurfaceStatus(),
       }),

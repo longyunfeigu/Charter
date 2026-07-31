@@ -1,0 +1,2531 @@
+import { newId, productError, ProductFailure } from '@pi-ide/foundation';
+import {
+  assertMissionTransition,
+  assertAssignmentTransition,
+  assertDependencyInsertion,
+  defaultMissionExecutionPolicy,
+  type Assignment,
+  type AssignmentArtifact,
+  type AssignmentWorkMode,
+  type ExecutionAttempt,
+  type Mission,
+  type MissionExecutionPolicy,
+  type MissionTask,
+  type OrchestrationMessage,
+  type OrchestrationMessageDelivery,
+  type OrchestrationMessagePriority,
+  type OrchestrationMessageType,
+  type OrchestrationPrincipal,
+  type OrchestrationRuntimeEvent,
+  type OrchestrationRuntimeSession,
+  type PrincipalKind,
+  type RuntimeKind,
+  type TaskDependency,
+} from '@pi-ide/orchestration-domain';
+import type { SqlDatabase } from './database.js';
+
+type JsonObject = Record<string, unknown>;
+
+interface MissionRow {
+  id: string;
+  workspace_id: string;
+  origin_conversation_task_id: string | null;
+  title: string;
+  goal_md: string;
+  acceptance_json: string;
+  execution_policy_json: string;
+  state: Mission['state'];
+  lead_assignment_id: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+interface TaskRow {
+  id: string;
+  mission_id: string;
+  parent_task_id: string | null;
+  created_by_assignment_id: string | null;
+  title: string;
+  goal_md: string;
+  acceptance_json: string;
+  expected_artifacts_json: string;
+  work_mode: AssignmentWorkMode;
+  write_scope_json: string | null;
+  state: MissionTask['state'];
+  result_json: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+interface PrincipalRow {
+  id: string;
+  kind: PrincipalKind;
+  provider: string | null;
+  external_identity: string | null;
+  display_name: string;
+  state: OrchestrationPrincipal['state'];
+  created_at: string;
+  last_seen_at: string | null;
+}
+
+interface AssignmentRow {
+  id: string;
+  mission_id: string;
+  task_id: string;
+  supervisor_assignment_id: string | null;
+  assignee_principal_id: string;
+  active_attempt_id: string | null;
+  state: Assignment['state'];
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+interface AttemptRow {
+  id: string;
+  assignment_id: string;
+  ordinal: number;
+  requested_runtime: RuntimeKind;
+  requested_model: string | null;
+  runtime_session_id: string | null;
+  terminal_id: string | null;
+  state: ExecutionAttempt['state'];
+  lease_expires_at: string | null;
+  last_heartbeat_at: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  failure_code: string | null;
+  failure_json: string | null;
+  result_json: string | null;
+}
+
+interface MessageRow {
+  id: string;
+  mission_id: string;
+  from_assignment_id: string | null;
+  to_assignment_id: string | null;
+  thread_id: string | null;
+  attempt_id: string | null;
+  type: OrchestrationMessageType;
+  priority: OrchestrationMessagePriority;
+  subject: string;
+  body: string;
+  payload_json: string | null;
+  sequence: number;
+  created_at: string;
+  delivered_at: string | null;
+  read_at: string | null;
+  suppressed_at: string | null;
+  suppression_reason: string | null;
+}
+
+interface ArtifactRow {
+  id: string;
+  mission_id: string;
+  assignment_id: string;
+  attempt_id: string | null;
+  kind: string;
+  label: string;
+  reference_json: string;
+  created_at: string;
+}
+
+interface RuntimeSessionRow {
+  id: string;
+  attempt_id: string;
+  provider: string;
+  transport: OrchestrationRuntimeSession['transport'];
+  external_session_id: string | null;
+  process_key: string | null;
+  state: OrchestrationRuntimeSession['state'];
+  cwd: string;
+  capabilities_json: string;
+  last_event_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface RuntimeEventRow {
+  id: string;
+  runtime_session_id: string;
+  attempt_id: string;
+  sequence: number;
+  kind: string;
+  payload_json: string;
+  created_at: string;
+}
+
+interface MessageDeliveryRow {
+  message_id: string;
+  assignment_id: string;
+  state: OrchestrationMessageDelivery['state'];
+  attempts: number;
+  last_error: string | null;
+  delivered_at: string | null;
+  observed_at: string | null;
+  updated_at: string;
+}
+
+export interface MissionSnapshot {
+  mission: Mission;
+  principals: OrchestrationPrincipal[];
+  tasks: MissionTask[];
+  dependencies: TaskDependency[];
+  assignments: Assignment[];
+  attempts: ExecutionAttempt[];
+  messages: OrchestrationMessage[];
+  artifacts: AssignmentArtifact[];
+  runtimeSessions: OrchestrationRuntimeSession[];
+  runtimeEvents: OrchestrationRuntimeEvent[];
+  messageDeliveries: OrchestrationMessageDelivery[];
+}
+
+export interface CreateMissionInput {
+  workspaceId: string;
+  workspaceRoot: string;
+  originConversationTaskId?: string | null;
+  title: string;
+  goal: string;
+  acceptanceCriteria?: string[];
+  executionPolicy?: MissionExecutionPolicy;
+  lead: {
+    principalId: string;
+    kind: PrincipalKind;
+    provider?: string | null;
+    externalIdentity?: string | null;
+    displayName: string;
+    runtimeSessionId: string;
+    terminalId?: string | null;
+    requestedRuntime: RuntimeKind;
+    requestedModel?: string | null;
+  };
+}
+
+export interface DelegateInput {
+  missionId: string;
+  supervisorAssignmentId: string;
+  actorPrincipalId: string;
+  goal: string;
+  title?: string;
+  acceptanceCriteria: string[];
+  dependencies?: string[];
+  expectedArtifacts?: string[];
+  requestedRuntime: RuntimeKind;
+  requestedModel?: string | null;
+  workMode: AssignmentWorkMode;
+  writeScope?: string[] | null;
+  reason: string;
+  idempotencyKey: string;
+}
+
+export interface DelegateResult {
+  missionId: string;
+  task: MissionTask;
+  assignment: Assignment;
+  attempt: ExecutionAttempt;
+  reused: boolean;
+}
+
+export interface OutboxRecord {
+  id: string;
+  missionId: string;
+  operation: string;
+  aggregateId: string;
+  idempotencyKey: string;
+  payload: JsonObject;
+  state: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  attempts: number;
+  availableAt: string;
+  lastError: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface CreateMessageInput {
+  missionId: string;
+  fromAssignmentId: string | null;
+  toAssignmentId: string | null;
+  threadId?: string | null;
+  attemptId?: string | null;
+  type: OrchestrationMessageType;
+  priority?: OrchestrationMessagePriority;
+  subject: string;
+  body?: string;
+  payload?: JsonObject | null;
+}
+
+export interface CompleteAttemptInput {
+  attemptId: string;
+  principalId: string;
+  outcome: 'success' | 'failure';
+  summary: string;
+  result?: JsonObject;
+  artifacts?: Array<{ kind: string; label: string; reference: JsonObject }>;
+  verification?: Array<{ id?: string; label: string; state: string; [key: string]: unknown }>;
+  filesModified?: string[];
+}
+
+export interface ReassignInput {
+  assignmentId: string;
+  actorPrincipalId: string | null;
+  assignee: {
+    principalId?: string;
+    kind: PrincipalKind;
+    provider?: string | null;
+    externalIdentity?: string | null;
+    displayName: string;
+  };
+  requestedRuntime?: RuntimeKind;
+  requestedModel?: string | null;
+  reason: string;
+}
+
+export interface RequestRevisionInput {
+  missionId: string;
+  actorPrincipalId: string | null;
+  feedback: string;
+  idempotencyKey: string;
+}
+
+export type LifecycleResult =
+  | { action: 'accepted'; message: OrchestrationMessage; assignment: Assignment; task: MissionTask }
+  | { action: 'suppressed'; message: OrchestrationMessage; reason: string };
+
+const parseJson = <T>(value: string | null, fallback: T): T => {
+  if (value === null) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+};
+
+function normalizedScopePath(value: string): string {
+  return value.replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+function writeScopesOverlap(left: string[] | null, right: string[] | null): boolean {
+  if (left === null || right === null) return true;
+  const a = left.map(normalizedScopePath).filter(Boolean);
+  const b = right.map(normalizedScopePath).filter(Boolean);
+  return a.some((first) =>
+    b.some(
+      (second) =>
+        first === second || first.startsWith(`${second}/`) || second.startsWith(`${first}/`),
+    ),
+  );
+}
+
+const missionFromRow = (row: MissionRow): Mission => ({
+  id: row.id,
+  workspaceId: row.workspace_id,
+  originConversationTaskId: row.origin_conversation_task_id,
+  title: row.title,
+  goal: row.goal_md,
+  acceptanceCriteria: parseJson(row.acceptance_json, []),
+  executionPolicy: parseJson(row.execution_policy_json, defaultMissionExecutionPolicy('')),
+  state: row.state,
+  leadAssignmentId: row.lead_assignment_id,
+  version: row.version,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  completedAt: row.completed_at,
+});
+
+const taskFromRow = (row: TaskRow): MissionTask => ({
+  id: row.id,
+  missionId: row.mission_id,
+  parentTaskId: row.parent_task_id,
+  createdByAssignmentId: row.created_by_assignment_id,
+  title: row.title,
+  goal: row.goal_md,
+  acceptanceCriteria: parseJson(row.acceptance_json, []),
+  expectedArtifacts: parseJson(row.expected_artifacts_json, []),
+  workMode: row.work_mode,
+  writeScope: parseJson(row.write_scope_json, null),
+  state: row.state,
+  result: parseJson(row.result_json, null),
+  version: row.version,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  completedAt: row.completed_at,
+});
+
+const principalFromRow = (row: PrincipalRow): OrchestrationPrincipal => ({
+  id: row.id,
+  kind: row.kind,
+  provider: row.provider,
+  externalIdentity: row.external_identity,
+  displayName: row.display_name,
+  state: row.state,
+  createdAt: row.created_at,
+  lastSeenAt: row.last_seen_at,
+});
+
+const assignmentFromRow = (row: AssignmentRow): Assignment => ({
+  id: row.id,
+  missionId: row.mission_id,
+  taskId: row.task_id,
+  supervisorAssignmentId: row.supervisor_assignment_id,
+  assigneePrincipalId: row.assignee_principal_id,
+  activeAttemptId: row.active_attempt_id,
+  state: row.state,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  completedAt: row.completed_at,
+});
+
+const attemptFromRow = (row: AttemptRow): ExecutionAttempt => ({
+  id: row.id,
+  assignmentId: row.assignment_id,
+  ordinal: row.ordinal,
+  requestedRuntime: row.requested_runtime,
+  requestedModel: row.requested_model,
+  runtimeSessionId: row.runtime_session_id,
+  terminalId: row.terminal_id,
+  state: row.state,
+  leaseExpiresAt: row.lease_expires_at,
+  lastHeartbeatAt: row.last_heartbeat_at,
+  startedAt: row.started_at,
+  endedAt: row.ended_at,
+  failureCode: row.failure_code,
+  failure: parseJson(row.failure_json, null),
+  result: parseJson(row.result_json, null),
+});
+
+const messageFromRow = (row: MessageRow): OrchestrationMessage => ({
+  id: row.id,
+  missionId: row.mission_id,
+  fromAssignmentId: row.from_assignment_id,
+  toAssignmentId: row.to_assignment_id,
+  threadId: row.thread_id,
+  attemptId: row.attempt_id,
+  type: row.type,
+  priority: row.priority,
+  subject: row.subject,
+  body: row.body,
+  payload: parseJson(row.payload_json, null),
+  sequence: row.sequence,
+  createdAt: row.created_at,
+  deliveredAt: row.delivered_at,
+  readAt: row.read_at,
+  suppressedAt: row.suppressed_at,
+  suppressionReason: row.suppression_reason,
+});
+
+const artifactFromRow = (row: ArtifactRow): AssignmentArtifact => ({
+  id: row.id,
+  missionId: row.mission_id,
+  assignmentId: row.assignment_id,
+  attemptId: row.attempt_id,
+  kind: row.kind,
+  label: row.label,
+  reference: parseJson(row.reference_json, {}),
+  createdAt: row.created_at,
+});
+
+const runtimeSessionFromRow = (row: RuntimeSessionRow): OrchestrationRuntimeSession => ({
+  id: row.id,
+  attemptId: row.attempt_id,
+  provider: row.provider,
+  transport: row.transport,
+  externalSessionId: row.external_session_id,
+  processKey: row.process_key,
+  state: row.state,
+  cwd: row.cwd,
+  capabilities: parseJson(row.capabilities_json, {}),
+  lastEventAt: row.last_event_at,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const runtimeEventFromRow = (row: RuntimeEventRow): OrchestrationRuntimeEvent => ({
+  id: row.id,
+  runtimeSessionId: row.runtime_session_id,
+  attemptId: row.attempt_id,
+  sequence: row.sequence,
+  kind: row.kind,
+  payload: parseJson(row.payload_json, {}),
+  createdAt: row.created_at,
+});
+
+const messageDeliveryFromRow = (row: MessageDeliveryRow): OrchestrationMessageDelivery => ({
+  messageId: row.message_id,
+  assignmentId: row.assignment_id,
+  state: row.state,
+  attempts: row.attempts,
+  lastError: row.last_error,
+  deliveredAt: row.delivered_at,
+  observedAt: row.observed_at,
+  updatedAt: row.updated_at,
+});
+
+export class MissionRepository {
+  constructor(
+    private readonly db: SqlDatabase,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+
+  createMission(input: CreateMissionInput): MissionSnapshot {
+    return this.db.transaction(() => {
+      const at = this.timestamp();
+      const missionId = newId('mission');
+      const taskId = newId('mtask');
+      const assignmentId = newId('assign');
+      const attemptId = newId('attempt');
+      const policy = input.executionPolicy ?? defaultMissionExecutionPolicy(input.workspaceRoot);
+
+      this.upsertPrincipal({
+        id: input.lead.principalId,
+        kind: input.lead.kind,
+        provider: input.lead.provider ?? null,
+        externalIdentity: input.lead.externalIdentity ?? null,
+        displayName: input.lead.displayName,
+        state: 'active',
+        createdAt: at,
+        lastSeenAt: at,
+      });
+      this.db
+        .prepare(
+          `INSERT INTO missions
+           (id, workspace_id, origin_conversation_task_id, title, goal_md, acceptance_json,
+            execution_policy_json, state, lead_assignment_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?, ?, ?)`,
+        )
+        .run(
+          missionId,
+          input.workspaceId,
+          input.originConversationTaskId ?? null,
+          input.title,
+          input.goal,
+          JSON.stringify(input.acceptanceCriteria ?? []),
+          JSON.stringify(policy),
+          assignmentId,
+          at,
+          at,
+        );
+      this.db
+        .prepare(
+          `INSERT INTO mission_tasks
+           (id, mission_id, title, goal_md, acceptance_json, work_mode, state, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'shared-write', 'RUNNING', ?, ?)`,
+        )
+        .run(
+          taskId,
+          missionId,
+          input.title,
+          input.goal,
+          JSON.stringify(input.acceptanceCriteria ?? []),
+          at,
+          at,
+        );
+      this.db
+        .prepare(
+          `INSERT INTO assignments
+           (id, mission_id, task_id, assignee_principal_id, active_attempt_id, state, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)`,
+        )
+        .run(assignmentId, missionId, taskId, input.lead.principalId, attemptId, at, at);
+      this.db
+        .prepare(
+          `INSERT INTO execution_attempts
+           (id, assignment_id, ordinal, requested_runtime, requested_model, runtime_session_id,
+            terminal_id, state, started_at, last_heartbeat_at)
+           VALUES (?, ?, 1, ?, ?, ?, ?, 'RUNNING', ?, ?)`,
+        )
+        .run(
+          attemptId,
+          assignmentId,
+          input.lead.requestedRuntime,
+          input.lead.requestedModel ?? null,
+          input.lead.runtimeSessionId,
+          input.lead.terminalId ?? null,
+          at,
+          at,
+        );
+      this.appendEvent(
+        missionId,
+        'mission.created',
+        input.lead.principalId,
+        assignmentId,
+        attemptId,
+        {
+          originConversationTaskId: input.originConversationTaskId ?? null,
+        },
+      );
+      return this.snapshot(missionId);
+    });
+  }
+
+  delegate(input: DelegateInput): DelegateResult {
+    return this.db.transaction(() => this.delegateOne(input));
+  }
+
+  delegateMany(inputs: readonly DelegateInput[]): DelegateResult[] {
+    if (inputs.length === 0) return [];
+    return this.db.transaction(() => inputs.map((input) => this.delegateOne(input)));
+  }
+
+  private delegateOne(input: DelegateInput): DelegateResult {
+    const existing = this.db
+      .prepare(
+        `SELECT aggregate_id FROM orchestration_outbox
+           WHERE mission_id = ? AND operation = 'start-runtime' AND idempotency_key = ?`,
+      )
+      .get(input.missionId, input.idempotencyKey) as { aggregate_id: string } | undefined;
+    if (existing) return { ...this.delegateResult(existing.aggregate_id), reused: true };
+
+    const mission = this.requireMission(input.missionId);
+    if (mission.state !== 'RUNNING' && mission.state !== 'BLOCKED') {
+      throw this.failure(
+        'ORCHESTRATION_MISSION_NOT_ACTIVE',
+        'This Mission is not accepting new work.',
+      );
+    }
+    const supervisor = this.requireAssignment(input.supervisorAssignmentId);
+    if (
+      supervisor.missionId !== mission.id ||
+      supervisor.assigneePrincipalId !== input.actorPrincipalId
+    ) {
+      throw this.failure(
+        'ORCHESTRATION_CALLER_MISMATCH',
+        'The caller is not the assignee of the supervising Assignment.',
+      );
+    }
+    if (!['ACTIVE', 'WAITING', 'PAUSED'].includes(supervisor.state)) {
+      throw this.failure(
+        'ORCHESTRATION_ASSIGNMENT_NOT_ACTIVE',
+        'The supervising Assignment is not active.',
+      );
+    }
+    this.assertCapacity(mission);
+
+    const at = this.timestamp();
+    const taskId = newId('mtask');
+    const assignmentId = newId('assign');
+    const attemptId = newId('attempt');
+    const principalId = newId('principal');
+    const dependencies = [...new Set(input.dependencies ?? [])];
+    const tasks = this.listTasks(mission.id);
+    const edges = this.listDependencies(mission.id);
+    assertDependencyInsertion(
+      tasks.map((task) => task.id),
+      edges,
+      taskId,
+      dependencies,
+    );
+    for (const dependency of dependencies) {
+      const depTask = tasks.find((task) => task.id === dependency);
+      if (!depTask || depTask.missionId !== mission.id) {
+        throw this.failure(
+          'ORCHESTRATION_DEPENDENCY_NOT_FOUND',
+          'A dependency is outside the Mission.',
+        );
+      }
+    }
+    const ready = dependencies.every(
+      (dependency) => tasks.find((task) => task.id === dependency)?.state === 'COMPLETED',
+    );
+    const principalKind: PrincipalKind =
+      input.requestedRuntime === 'managed'
+        ? 'managed_agent'
+        : input.requestedRuntime === 'shell'
+          ? 'shell_agent'
+          : 'external_agent';
+    this.upsertPrincipal({
+      id: principalId,
+      kind: principalKind,
+      provider: input.requestedRuntime,
+      externalIdentity: null,
+      displayName: input.title ?? input.goal.slice(0, 80),
+      state: 'disconnected',
+      createdAt: at,
+      lastSeenAt: null,
+    });
+    this.db
+      .prepare(
+        `INSERT INTO mission_tasks
+           (id, mission_id, parent_task_id, created_by_assignment_id, title, goal_md,
+            acceptance_json, expected_artifacts_json, work_mode, write_scope_json, state,
+            created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        taskId,
+        mission.id,
+        supervisor.taskId,
+        supervisor.id,
+        input.title ?? input.goal.slice(0, 120),
+        input.goal,
+        JSON.stringify(input.acceptanceCriteria),
+        JSON.stringify(input.expectedArtifacts ?? []),
+        input.workMode,
+        input.writeScope ? JSON.stringify(input.writeScope) : null,
+        ready ? 'READY' : 'BLOCKED',
+        at,
+        at,
+      );
+    for (const dependency of dependencies) {
+      this.db
+        .prepare(
+          'INSERT INTO mission_task_dependencies (task_id, depends_on_task_id, created_at) VALUES (?, ?, ?)',
+        )
+        .run(taskId, dependency, at);
+    }
+    this.db
+      .prepare(
+        `INSERT INTO assignments
+           (id, mission_id, task_id, supervisor_assignment_id, assignee_principal_id,
+            active_attempt_id, state, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)`,
+      )
+      .run(assignmentId, mission.id, taskId, supervisor.id, principalId, attemptId, at, at);
+    this.db
+      .prepare(
+        `INSERT INTO execution_attempts
+           (id, assignment_id, ordinal, requested_runtime, requested_model, state)
+           VALUES (?, ?, 1, ?, ?, 'PLANNED')`,
+      )
+      .run(attemptId, assignmentId, input.requestedRuntime, input.requestedModel ?? null);
+    const outboxId = newId('outbox');
+    this.db
+      .prepare(
+        `INSERT INTO orchestration_outbox
+           (id, mission_id, operation, aggregate_id, idempotency_key, payload_json, state,
+            available_at, created_at)
+           VALUES (?, ?, 'start-runtime', ?, ?, ?, 'PENDING', ?, ?)`,
+      )
+      .run(
+        outboxId,
+        mission.id,
+        assignmentId,
+        input.idempotencyKey,
+        JSON.stringify({ assignmentId, attemptId, reason: input.reason }),
+        at,
+        at,
+      );
+    this.appendEvent(
+      mission.id,
+      'assignment.delegated',
+      input.actorPrincipalId,
+      assignmentId,
+      attemptId,
+      {
+        supervisorAssignmentId: supervisor.id,
+        taskId,
+        reason: input.reason,
+        idempotencyKey: input.idempotencyKey,
+      },
+    );
+    if (input.workMode === 'shared-write') {
+      const overlaps = (
+        this.db
+          .prepare(
+            `SELECT a.id AS assignment_id, t.id AS task_id, t.write_scope_json
+               FROM assignments a JOIN mission_tasks t ON t.id = a.task_id
+               WHERE a.mission_id = ? AND a.id <> ? AND t.work_mode = 'shared-write'
+                 AND a.state IN ('PENDING','ACTIVE','WAITING','PAUSED')`,
+          )
+          .all(mission.id, assignmentId) as unknown as Array<{
+          assignment_id: string;
+          task_id: string;
+          write_scope_json: string | null;
+        }>
+      ).filter((row) =>
+        writeScopesOverlap(input.writeScope ?? null, parseJson(row.write_scope_json, null)),
+      );
+      if (overlaps.length > 0) {
+        const target = mission.leadAssignmentId ?? supervisor.id;
+        this.insertMessage({
+          missionId: mission.id,
+          fromAssignmentId: assignmentId,
+          toAssignmentId: target,
+          attemptId,
+          type: 'escalation',
+          priority: 'high',
+          subject: 'Shared-write overlap requires coordination',
+          body: 'This Assignment shares a target tree with another active writer. File attribution may be ambiguous.',
+          payload: {
+            assignmentId,
+            writeScope: input.writeScope ?? null,
+            overlaps: overlaps.map((row) => ({
+              assignmentId: row.assignment_id,
+              taskId: row.task_id,
+            })),
+          },
+        });
+        this.appendEvent(
+          mission.id,
+          'assignment.sharedWriteOverlap',
+          input.actorPrincipalId,
+          assignmentId,
+          attemptId,
+          { overlappingAssignmentIds: overlaps.map((row) => row.assignment_id) },
+        );
+      }
+    }
+    return { ...this.delegateResult(assignmentId), reused: false };
+  }
+
+  bindRuntime(
+    assignmentId: string,
+    attemptId: string,
+    input: {
+      runtimeSessionId: string;
+      terminalId?: string | null;
+      leaseExpiresAt?: string | null;
+      artifacts?: Array<{ kind: string; label: string; reference: JsonObject }>;
+    },
+  ): ExecutionAttempt {
+    return this.db.transaction(() => {
+      const assignment = this.requireAssignment(assignmentId);
+      if (assignment.activeAttemptId !== attemptId) {
+        throw this.failure(
+          'ORCHESTRATION_ATTEMPT_STALE',
+          'This execution Attempt is no longer active.',
+        );
+      }
+      const at = this.timestamp();
+      this.db
+        .prepare(
+          `UPDATE execution_attempts SET runtime_session_id = ?, terminal_id = ?, state = 'RUNNING',
+           lease_expires_at = ?, last_heartbeat_at = ?, started_at = COALESCE(started_at, ?)
+           WHERE id = ? AND assignment_id = ? AND state IN ('PLANNED','STARTING')`,
+        )
+        .run(
+          input.runtimeSessionId,
+          input.terminalId ?? null,
+          input.leaseExpiresAt ?? null,
+          at,
+          at,
+          attemptId,
+          assignmentId,
+        );
+      this.db
+        .prepare("UPDATE assignments SET state = 'ACTIVE', updated_at = ? WHERE id = ?")
+        .run(at, assignmentId);
+      if (input.artifacts?.length) {
+        this.recordArtifacts(assignment.missionId, assignment.id, attemptId, input.artifacts);
+      }
+      this.db
+        .prepare(
+          "UPDATE mission_tasks SET state = 'RUNNING', updated_at = ?, version = version + 1 WHERE id = ? AND state = 'READY'",
+        )
+        .run(at, assignment.taskId);
+      this.appendEvent(
+        assignment.missionId,
+        'attempt.started',
+        assignment.assigneePrincipalId,
+        assignment.id,
+        attemptId,
+        {
+          runtimeSessionId: input.runtimeSessionId,
+          terminalId: input.terminalId ?? null,
+        },
+      );
+      return this.requireAttempt(attemptId);
+    });
+  }
+
+  rebindActiveRuntime(
+    assignmentId: string,
+    input: { runtimeSessionId: string; terminalId?: string | null; leaseExpiresAt?: string | null },
+  ): ExecutionAttempt {
+    return this.db.transaction(() => {
+      const assignment = this.requireAssignment(assignmentId);
+      if (!assignment.activeAttemptId) {
+        throw this.failure(
+          'ORCHESTRATION_ATTEMPT_REQUIRED',
+          'The Assignment has no active Attempt.',
+        );
+      }
+      const attempt = this.requireAttempt(assignment.activeAttemptId);
+      if (['SUCCEEDED', 'FAILED', 'TIMED_OUT', 'CANCELLED', 'STALE'].includes(attempt.state)) {
+        throw this.failure(
+          'ORCHESTRATION_ATTEMPT_TERMINAL',
+          'The active Attempt is already terminal.',
+        );
+      }
+      const at = this.timestamp();
+      this.db
+        .prepare(
+          `UPDATE execution_attempts SET runtime_session_id = ?, terminal_id = ?,
+           last_heartbeat_at = ?, lease_expires_at = ?,
+           state = CASE WHEN state IN ('PLANNED','STARTING') THEN 'RUNNING' ELSE state END
+           WHERE id = ?`,
+        )
+        .run(
+          input.runtimeSessionId,
+          input.terminalId ?? null,
+          at,
+          input.leaseExpiresAt ?? attempt.leaseExpiresAt,
+          attempt.id,
+        );
+      this.db
+        .prepare(
+          "UPDATE assignments SET state = 'ACTIVE', completed_at = NULL, updated_at = ? WHERE id = ? AND state IN ('PENDING','WAITING','ORPHANED','FAILED')",
+        )
+        .run(at, assignment.id);
+      this.db
+        .prepare(
+          "UPDATE mission_tasks SET state = 'RUNNING', completed_at = NULL, updated_at = ?, version = version + 1 WHERE id = ? AND state IN ('READY','FAILED')",
+        )
+        .run(at, assignment.taskId);
+      const mission = this.requireMission(assignment.missionId);
+      if (mission.leadAssignmentId === assignment.id) {
+        this.db
+          .prepare(
+            "UPDATE missions SET state = 'RUNNING', completed_at = NULL, updated_at = ?, version = version + 1 WHERE id = ? AND state = 'BLOCKED'",
+          )
+          .run(at, assignment.missionId);
+      }
+      this.appendEvent(
+        assignment.missionId,
+        'attempt.runtimeRebound',
+        assignment.assigneePrincipalId,
+        assignment.id,
+        attempt.id,
+        { runtimeSessionId: input.runtimeSessionId, terminalId: input.terminalId ?? null },
+      );
+      return this.requireAttempt(attempt.id);
+    });
+  }
+
+  markAttemptStarting(attemptId: string): ExecutionAttempt {
+    return this.db.transaction(() => {
+      const attempt = this.requireAttempt(attemptId);
+      const assignment = this.requireAssignment(attempt.assignmentId);
+      if (assignment.activeAttemptId !== attempt.id) {
+        throw this.failure(
+          'ORCHESTRATION_ATTEMPT_STALE',
+          'This execution Attempt is no longer active.',
+        );
+      }
+      if (attempt.state === 'PLANNED') {
+        this.db
+          .prepare(
+            "UPDATE execution_attempts SET state = 'STARTING' WHERE id = ? AND state = 'PLANNED'",
+          )
+          .run(attempt.id);
+      }
+      return this.requireAttempt(attempt.id);
+    });
+  }
+
+  createRetry(assignmentId: string, requestedRuntime?: RuntimeKind): ExecutionAttempt {
+    return this.db.transaction(() => {
+      const assignment = this.requireAssignment(assignmentId);
+      const active = assignment.activeAttemptId
+        ? this.requireAttempt(assignment.activeAttemptId)
+        : null;
+      if (active && !['FAILED', 'TIMED_OUT', 'CANCELLED', 'STALE'].includes(active.state)) {
+        throw this.failure(
+          'ORCHESTRATION_ATTEMPT_ACTIVE',
+          'The Assignment already has an active Attempt.',
+        );
+      }
+      const row = this.db
+        .prepare(
+          'SELECT COALESCE(MAX(ordinal), 0) AS ordinal FROM execution_attempts WHERE assignment_id = ?',
+        )
+        .get(assignmentId) as { ordinal: number };
+      const attemptId = newId('attempt');
+      const at = this.timestamp();
+      const runtime = requestedRuntime ?? active?.requestedRuntime ?? 'managed';
+      this.db
+        .prepare(
+          `INSERT INTO execution_attempts
+           (id, assignment_id, ordinal, requested_runtime, requested_model, state)
+           VALUES (?, ?, ?, ?, ?, 'PLANNED')`,
+        )
+        .run(attemptId, assignmentId, row.ordinal + 1, runtime, active?.requestedModel ?? null);
+      this.db
+        .prepare(
+          "UPDATE assignments SET active_attempt_id = ?, state = 'PENDING', updated_at = ? WHERE id = ?",
+        )
+        .run(attemptId, at, assignmentId);
+      this.db
+        .prepare(
+          "UPDATE mission_tasks SET state = 'READY', updated_at = ?, version = version + 1 WHERE id = ?",
+        )
+        .run(at, assignment.taskId);
+      this.db
+        .prepare(
+          `INSERT INTO orchestration_outbox
+           (id, mission_id, operation, aggregate_id, idempotency_key, payload_json, state,
+            available_at, created_at)
+           VALUES (?, ?, 'start-runtime', ?, ?, ?, 'PENDING', ?, ?)`,
+        )
+        .run(
+          newId('outbox'),
+          assignment.missionId,
+          assignment.id,
+          `${assignment.id}:retry:${row.ordinal + 1}`,
+          JSON.stringify({ assignmentId, attemptId, retry: true }),
+          at,
+          at,
+        );
+      this.appendEvent(
+        assignment.missionId,
+        'attempt.retryPlanned',
+        assignment.assigneePrincipalId,
+        assignment.id,
+        attemptId,
+        {
+          ordinal: row.ordinal + 1,
+        },
+      );
+      return this.requireAttempt(attemptId);
+    });
+  }
+
+  /** Re-open the Lead's work after a user rejects a VERIFYING result. The
+   * durable Assignment identity stays stable while a fresh Attempt owns the
+   * replacement runtime. */
+  requestRevision(input: RequestRevisionInput): {
+    assignment: Assignment;
+    attempt: ExecutionAttempt;
+    reused: boolean;
+  } {
+    return this.db.transaction(() => {
+      const existing = this.db
+        .prepare(
+          `SELECT aggregate_id FROM orchestration_outbox
+           WHERE mission_id = ? AND operation = 'start-runtime' AND idempotency_key = ?`,
+        )
+        .get(input.missionId, input.idempotencyKey) as { aggregate_id: string } | undefined;
+      if (existing) {
+        const assignment = this.requireAssignment(existing.aggregate_id);
+        if (!assignment.activeAttemptId) {
+          throw this.failure(
+            'ORCHESTRATION_ATTEMPT_REQUIRED',
+            'The revision Assignment has no active Attempt.',
+          );
+        }
+        return {
+          assignment,
+          attempt: this.requireAttempt(assignment.activeAttemptId),
+          reused: true,
+        };
+      }
+
+      const mission = this.requireMission(input.missionId);
+      if (mission.state !== 'VERIFYING') {
+        throw this.failure(
+          'ORCHESTRATION_MISSION_NOT_VERIFYING',
+          'Changes can only be requested while a Mission is ready for review.',
+        );
+      }
+      if (!mission.leadAssignmentId) {
+        throw this.failure('ORCHESTRATION_LEAD_REQUIRED', 'The Mission has no Lead to revise it.');
+      }
+      const assignment = this.requireAssignment(mission.leadAssignmentId);
+      const previousAttempt = assignment.activeAttemptId
+        ? this.requireAttempt(assignment.activeAttemptId)
+        : null;
+      const ordinalRow = this.db
+        .prepare(
+          'SELECT COALESCE(MAX(ordinal), 0) AS ordinal FROM execution_attempts WHERE assignment_id = ?',
+        )
+        .get(assignment.id) as { ordinal: number };
+      const attemptId = newId('attempt');
+      const at = this.timestamp();
+      const requestedRuntime = previousAttempt?.requestedRuntime ?? 'managed';
+      this.db
+        .prepare(
+          `INSERT INTO execution_attempts
+           (id, assignment_id, ordinal, requested_runtime, requested_model, state)
+           VALUES (?, ?, ?, ?, ?, 'PLANNED')`,
+        )
+        .run(
+          attemptId,
+          assignment.id,
+          ordinalRow.ordinal + 1,
+          requestedRuntime,
+          previousAttempt?.requestedModel ?? null,
+        );
+      this.db
+        .prepare(
+          `UPDATE assignments SET active_attempt_id = ?, state = 'PENDING', completed_at = NULL,
+           updated_at = ? WHERE id = ?`,
+        )
+        .run(attemptId, at, assignment.id);
+      this.db
+        .prepare(
+          `UPDATE mission_tasks SET state = 'READY', result_json = NULL, completed_at = NULL,
+           goal_md = goal_md || ?, updated_at = ?, version = version + 1 WHERE id = ?`,
+        )
+        .run(`\n\nUser requested revision:\n${input.feedback}`, at, assignment.taskId);
+      this.db
+        .prepare(
+          `UPDATE missions SET state = 'RUNNING', completed_at = NULL, updated_at = ?,
+           version = version + 1 WHERE id = ?`,
+        )
+        .run(at, mission.id);
+      this.db
+        .prepare(
+          `INSERT INTO orchestration_outbox
+           (id, mission_id, operation, aggregate_id, idempotency_key, payload_json, state,
+            available_at, created_at)
+           VALUES (?, ?, 'start-runtime', ?, ?, ?, 'PENDING', ?, ?)`,
+        )
+        .run(
+          newId('outbox'),
+          mission.id,
+          assignment.id,
+          input.idempotencyKey,
+          JSON.stringify({
+            assignmentId: assignment.id,
+            attemptId,
+            reason: 'User requested changes during Mission review.',
+          }),
+          at,
+          at,
+        );
+      this.insertMessage({
+        missionId: mission.id,
+        fromAssignmentId: null,
+        toAssignmentId: assignment.id,
+        attemptId,
+        type: 'assignment',
+        priority: 'high',
+        subject: 'User requested changes',
+        body: input.feedback,
+      });
+      this.appendEvent(
+        mission.id,
+        'mission.revisionRequested',
+        input.actorPrincipalId,
+        assignment.id,
+        attemptId,
+        { feedback: input.feedback, idempotencyKey: input.idempotencyKey },
+      );
+      return {
+        assignment: this.requireAssignment(assignment.id),
+        attempt: this.requireAttempt(attemptId),
+        reused: false,
+      };
+    });
+  }
+
+  createMessage(input: CreateMessageInput): OrchestrationMessage {
+    return this.db.transaction(() => {
+      this.requireMission(input.missionId);
+      if (input.fromAssignmentId)
+        this.assertAssignmentMission(input.fromAssignmentId, input.missionId);
+      if (input.toAssignmentId) this.assertAssignmentMission(input.toAssignmentId, input.missionId);
+      return this.insertMessage(input);
+    });
+  }
+
+  recordArtifacts(
+    missionId: string,
+    assignmentId: string,
+    attemptId: string | null,
+    artifacts: Array<{ kind: string; label: string; reference: JsonObject }>,
+  ): AssignmentArtifact[] {
+    return this.db.transaction(() => {
+      const assignment = this.requireAssignment(assignmentId);
+      if (assignment.missionId !== missionId) {
+        throw this.failure(
+          'ORCHESTRATION_TARGET_OUTSIDE_MISSION',
+          'Artifact Assignment does not belong to this Mission.',
+        );
+      }
+      if (attemptId) {
+        const attempt = this.requireAttempt(attemptId);
+        if (attempt.assignmentId !== assignment.id) {
+          throw this.failure(
+            'ORCHESTRATION_ATTEMPT_MISMATCH',
+            'Artifact Attempt does not belong to this Assignment.',
+          );
+        }
+      }
+      const at = this.timestamp();
+      const created: AssignmentArtifact[] = [];
+      for (const artifact of artifacts) {
+        const id = newId('artifact');
+        this.db
+          .prepare(
+            `INSERT INTO assignment_artifacts
+             (id, mission_id, assignment_id, attempt_id, kind, label, reference_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            id,
+            missionId,
+            assignment.id,
+            attemptId,
+            artifact.kind,
+            artifact.label,
+            JSON.stringify(artifact.reference),
+            at,
+          );
+        created.push({
+          id,
+          missionId,
+          assignmentId: assignment.id,
+          attemptId,
+          kind: artifact.kind,
+          label: artifact.label,
+          reference: artifact.reference,
+          createdAt: at,
+        });
+      }
+      return created;
+    });
+  }
+
+  listInbox(
+    assignmentId: string,
+    input: {
+      unreadOnly?: boolean;
+      types?: OrchestrationMessageType[];
+      threadId?: string;
+      afterSequence?: number;
+      limit?: number;
+    } = {},
+  ): OrchestrationMessage[] {
+    const assignment = this.requireAssignment(assignmentId);
+    const clauses = ['mission_id = ?', 'to_assignment_id = ?', 'suppressed_at IS NULL'];
+    const params: Array<string | number> = [assignment.missionId, assignmentId];
+    if (input.unreadOnly ?? true) clauses.push('read_at IS NULL');
+    if (input.threadId) {
+      clauses.push('thread_id = ?');
+      params.push(input.threadId);
+    }
+    if (input.afterSequence !== undefined) {
+      clauses.push('sequence > ?');
+      params.push(input.afterSequence);
+    }
+    if (input.types && input.types.length > 0) {
+      clauses.push(`type IN (${input.types.map(() => '?').join(',')})`);
+      params.push(...input.types);
+    }
+    params.push(input.limit ?? 100);
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM orchestration_messages WHERE ${clauses.join(' AND ')}
+           ORDER BY sequence ASC LIMIT ?`,
+        )
+        .all(...params) as unknown as MessageRow[]
+    ).map(messageFromRow);
+  }
+
+  markMessagesRead(assignmentId: string, messageIds: readonly string[]): void {
+    if (messageIds.length === 0) return;
+    const assignment = this.requireAssignment(assignmentId);
+    const placeholders = messageIds.map(() => '?').join(',');
+    const at = this.timestamp();
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE orchestration_messages SET read_at = COALESCE(read_at, ?)
+           WHERE mission_id = ? AND to_assignment_id = ? AND id IN (${placeholders})`,
+        )
+        .run(at, assignment.missionId, assignmentId, ...messageIds);
+      this.db
+        .prepare(
+          `UPDATE orchestration_message_deliveries
+           SET state = 'observed', observed_at = COALESCE(observed_at, ?),
+               delivered_at = COALESCE(delivered_at, ?), updated_at = ?
+           WHERE assignment_id = ? AND message_id IN (${placeholders})`,
+        )
+        .run(at, at, at, assignmentId, ...messageIds);
+    });
+  }
+
+  markMessagesDelivered(assignmentId: string, messageIds: readonly string[]): void {
+    if (messageIds.length === 0) return;
+    const assignment = this.requireAssignment(assignmentId);
+    const placeholders = messageIds.map(() => '?').join(',');
+    const at = this.timestamp();
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `UPDATE orchestration_messages SET delivered_at = COALESCE(delivered_at, ?)
+           WHERE mission_id = ? AND to_assignment_id = ? AND id IN (${placeholders})`,
+        )
+        .run(at, assignment.missionId, assignmentId, ...messageIds);
+      this.db
+        .prepare(
+          `UPDATE orchestration_message_deliveries
+           SET state = CASE WHEN state = 'observed' THEN state ELSE 'delivered' END,
+               attempts = attempts + 1, last_error = NULL,
+               delivered_at = COALESCE(delivered_at, ?), updated_at = ?
+           WHERE assignment_id = ? AND message_id IN (${placeholders})`,
+        )
+        .run(at, at, assignmentId, ...messageIds);
+    });
+  }
+
+  markMessageDeliveryFailed(
+    assignmentId: string,
+    messageIds: readonly string[],
+    error: string,
+  ): void {
+    if (messageIds.length === 0) return;
+    const placeholders = messageIds.map(() => '?').join(',');
+    this.db
+      .prepare(
+        `UPDATE orchestration_message_deliveries
+         SET state = 'failed', attempts = attempts + 1, last_error = ?, updated_at = ?
+         WHERE assignment_id = ? AND message_id IN (${placeholders})`,
+      )
+      .run(error, this.timestamp(), assignmentId, ...messageIds);
+  }
+
+  recordProgress(input: {
+    attemptId: string;
+    principalId: string;
+    phase: string;
+    summary: string;
+    completed?: string[];
+    remaining?: string[];
+    blockers?: string[];
+    leaseExpiresAt?: string | null;
+  }): LifecycleResult {
+    return this.db.transaction(() => {
+      const attempt = this.requireAttempt(input.attemptId);
+      const assignment = this.requireAssignment(attempt.assignmentId);
+      const authority = this.lifecycleAuthority(assignment, attempt, input.principalId);
+      const message = this.insertMessage(
+        {
+          missionId: assignment.missionId,
+          fromAssignmentId: assignment.id,
+          toAssignmentId: assignment.supervisorAssignmentId,
+          attemptId: attempt.id,
+          type: 'progress',
+          subject: input.phase,
+          body: input.summary,
+          payload: {
+            completed: input.completed ?? [],
+            remaining: input.remaining ?? [],
+            blockers: input.blockers ?? [],
+          },
+        },
+        authority,
+      );
+      if (authority) return { action: 'suppressed', message, reason: authority };
+      const at = this.timestamp();
+      this.db
+        .prepare(
+          `UPDATE execution_attempts SET last_heartbeat_at = ?, lease_expires_at = ?
+           WHERE id = ? AND state IN ('RUNNING','WAITING')`,
+        )
+        .run(at, input.leaseExpiresAt ?? attempt.leaseExpiresAt, attempt.id);
+      this.db
+        .prepare(
+          "UPDATE orchestration_principals SET state = 'active', last_seen_at = ? WHERE id = ?",
+        )
+        .run(at, input.principalId);
+      return {
+        action: 'accepted',
+        message,
+        assignment: this.requireAssignment(assignment.id),
+        task: this.requireTask(assignment.taskId),
+      };
+    });
+  }
+
+  recordHeartbeat(input: {
+    attemptId: string;
+    principalId: string;
+    leaseExpiresAt?: string | null;
+  }): LifecycleResult {
+    return this.db.transaction(() => {
+      const attempt = this.requireAttempt(input.attemptId);
+      const assignment = this.requireAssignment(attempt.assignmentId);
+      const authority = this.lifecycleAuthority(assignment, attempt, input.principalId);
+      const message = this.insertMessage(
+        {
+          missionId: assignment.missionId,
+          fromAssignmentId: assignment.id,
+          toAssignmentId: assignment.supervisorAssignmentId,
+          attemptId: attempt.id,
+          type: 'heartbeat',
+          subject: 'heartbeat',
+          payload: { attemptId: attempt.id },
+        },
+        authority,
+      );
+      if (authority) return { action: 'suppressed', message, reason: authority };
+      const at = this.timestamp();
+      this.db
+        .prepare(
+          `UPDATE execution_attempts SET last_heartbeat_at = ?, lease_expires_at = ?
+           WHERE id = ? AND state IN ('RUNNING','WAITING')`,
+        )
+        .run(at, input.leaseExpiresAt ?? attempt.leaseExpiresAt, attempt.id);
+      this.db
+        .prepare(
+          "UPDATE orchestration_principals SET state = 'active', last_seen_at = ? WHERE id = ?",
+        )
+        .run(at, input.principalId);
+      return {
+        action: 'accepted',
+        message,
+        assignment: this.requireAssignment(assignment.id),
+        task: this.requireTask(assignment.taskId),
+      };
+    });
+  }
+
+  completeAttempt(input: CompleteAttemptInput): LifecycleResult {
+    return this.db.transaction(() => {
+      const attempt = this.requireAttempt(input.attemptId);
+      const assignment = this.requireAssignment(attempt.assignmentId);
+      const authority = this.lifecycleAuthority(assignment, attempt, input.principalId);
+      const message = this.insertMessage(
+        {
+          missionId: assignment.missionId,
+          fromAssignmentId: assignment.id,
+          toAssignmentId: assignment.supervisorAssignmentId,
+          attemptId: attempt.id,
+          type: 'completion',
+          subject: input.outcome,
+          body: input.summary,
+          payload: { outcome: input.outcome, ...(input.result ?? {}) },
+        },
+        authority,
+      );
+      if (authority) return { action: 'suppressed', message, reason: authority };
+
+      const at = this.timestamp();
+      const success = input.outcome === 'success';
+      this.db
+        .prepare(
+          `UPDATE execution_attempts SET state = ?, result_json = ?, failure_code = ?,
+           failure_json = ?, ended_at = ? WHERE id = ?`,
+        )
+        .run(
+          success ? 'SUCCEEDED' : 'FAILED',
+          success ? JSON.stringify(input.result ?? { summary: input.summary }) : null,
+          success ? null : 'agent_reported_failure',
+          success ? null : JSON.stringify(input.result ?? { summary: input.summary }),
+          at,
+          attempt.id,
+        );
+      this.db
+        .prepare('UPDATE assignments SET state = ?, updated_at = ?, completed_at = ? WHERE id = ?')
+        .run(success ? 'COMPLETED' : 'FAILED', at, at, assignment.id);
+      this.db
+        .prepare(
+          `UPDATE mission_tasks SET state = ?, result_json = ?, version = version + 1,
+           updated_at = ?, completed_at = ? WHERE id = ?`,
+        )
+        .run(
+          success ? 'COMPLETED' : 'FAILED',
+          JSON.stringify(input.result ?? { summary: input.summary }),
+          at,
+          at,
+          assignment.taskId,
+        );
+      const artifacts = [
+        ...(input.artifacts ?? []),
+        ...[...new Set(input.filesModified ?? [])].map((path) => ({
+          kind: 'file-change',
+          label: path,
+          reference: { path },
+        })),
+        ...(input.verification ?? []).map((verification) => ({
+          kind: 'verification',
+          label: verification.label,
+          reference: { ...verification },
+        })),
+      ];
+      for (const artifact of artifacts) {
+        this.db
+          .prepare(
+            `INSERT INTO assignment_artifacts
+             (id, mission_id, assignment_id, attempt_id, kind, label, reference_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            newId('artifact'),
+            assignment.missionId,
+            assignment.id,
+            attempt.id,
+            artifact.kind,
+            artifact.label,
+            JSON.stringify(artifact.reference),
+            at,
+          );
+      }
+      if (success) this.promoteReadyTasks(assignment.missionId, assignment.taskId, at);
+      if (success) this.reconcileMissionState(assignment.missionId, at);
+      this.appendEvent(
+        assignment.missionId,
+        success ? 'attempt.completed' : 'attempt.failed',
+        input.principalId,
+        assignment.id,
+        attempt.id,
+        { summary: input.summary },
+      );
+      return {
+        action: 'accepted',
+        message,
+        assignment: this.requireAssignment(assignment.id),
+        task: this.requireTask(assignment.taskId),
+      };
+    });
+  }
+
+  failAttemptFromRuntime(attemptId: string, code: string, failure: JsonObject): Assignment {
+    return this.db.transaction(() => {
+      const attempt = this.requireAttempt(attemptId);
+      const assignment = this.requireAssignment(attempt.assignmentId);
+      if (
+        assignment.activeAttemptId !== attempt.id ||
+        !['STARTING', 'RUNNING', 'WAITING'].includes(attempt.state)
+      ) {
+        return assignment;
+      }
+      const at = this.timestamp();
+      this.db
+        .prepare(
+          "UPDATE execution_attempts SET state = 'FAILED', failure_code = ?, failure_json = ?, ended_at = ? WHERE id = ?",
+        )
+        .run(code, JSON.stringify(failure), at, attempt.id);
+      this.db
+        .prepare(
+          "UPDATE assignments SET state = 'FAILED', updated_at = ?, completed_at = ? WHERE id = ?",
+        )
+        .run(at, at, assignment.id);
+      this.db
+        .prepare(
+          "UPDATE mission_tasks SET state = 'FAILED', updated_at = ?, completed_at = ?, version = version + 1 WHERE id = ?",
+        )
+        .run(at, at, assignment.taskId);
+      this.appendEvent(
+        assignment.missionId,
+        'attempt.runtimeFailed',
+        null,
+        assignment.id,
+        attempt.id,
+        {
+          code,
+          failure,
+        },
+      );
+      return this.requireAssignment(assignment.id);
+    });
+  }
+
+  pauseAssignment(
+    assignmentId: string,
+    paused: boolean,
+    actorPrincipalId: string | null,
+  ): Assignment {
+    return this.db.transaction(() => {
+      const assignment = this.requireAssignment(assignmentId);
+      const next = paused ? 'PAUSED' : assignment.activeAttemptId ? 'ACTIVE' : 'PENDING';
+      assertAssignmentTransition(assignment.state, next);
+      const at = this.timestamp();
+      this.db
+        .prepare('UPDATE assignments SET state = ?, updated_at = ? WHERE id = ?')
+        .run(next, at, assignment.id);
+      this.appendEvent(
+        assignment.missionId,
+        paused ? 'assignment.paused' : 'assignment.resumed',
+        actorPrincipalId,
+        assignment.id,
+        assignment.activeAttemptId,
+        {},
+      );
+      return this.requireAssignment(assignment.id);
+    });
+  }
+
+  cancelAssignment(
+    assignmentId: string,
+    actorPrincipalId: string | null,
+    reason: string,
+  ): Assignment {
+    return this.db.transaction(() => {
+      const assignment = this.requireAssignment(assignmentId);
+      assertAssignmentTransition(assignment.state, 'CANCELLED');
+      const at = this.timestamp();
+      if (assignment.activeAttemptId) {
+        this.db
+          .prepare(
+            `UPDATE execution_attempts SET state = 'CANCELLED', ended_at = ?, failure_code = 'cancelled',
+             failure_json = ? WHERE id = ? AND state NOT IN ('SUCCEEDED','FAILED','TIMED_OUT','CANCELLED','STALE')`,
+          )
+          .run(at, JSON.stringify({ reason }), assignment.activeAttemptId);
+        const attempt = this.requireAttempt(assignment.activeAttemptId);
+        if (attempt.runtimeSessionId) {
+          this.db
+            .prepare(
+              `INSERT OR IGNORE INTO orchestration_outbox
+               (id, mission_id, operation, aggregate_id, idempotency_key, payload_json, state,
+                available_at, created_at)
+               VALUES (?, ?, 'cancel-runtime', ?, ?, ?, 'PENDING', ?, ?)`,
+            )
+            .run(
+              newId('outbox'),
+              assignment.missionId,
+              assignment.id,
+              `${assignment.id}:cancel:${assignment.activeAttemptId}`,
+              JSON.stringify({ assignmentId, attemptId: assignment.activeAttemptId, reason }),
+              at,
+              at,
+            );
+        }
+      }
+      this.db
+        .prepare(
+          "UPDATE assignments SET state = 'CANCELLED', updated_at = ?, completed_at = ? WHERE id = ?",
+        )
+        .run(at, at, assignment.id);
+      this.db
+        .prepare(
+          "UPDATE mission_tasks SET state = 'CANCELLED', updated_at = ?, completed_at = ?, version = version + 1 WHERE id = ?",
+        )
+        .run(at, at, assignment.taskId);
+      this.appendEvent(
+        assignment.missionId,
+        'assignment.cancelled',
+        actorPrincipalId,
+        assignment.id,
+        assignment.activeAttemptId,
+        { reason },
+      );
+      return this.requireAssignment(assignment.id);
+    });
+  }
+
+  promoteLead(
+    missionId: string,
+    assignmentId: string,
+    actorPrincipalId: string | null,
+    reason: string,
+  ): MissionSnapshot {
+    return this.db.transaction(() => {
+      const mission = this.requireMission(missionId);
+      const nextLead = this.requireAssignment(assignmentId);
+      if (nextLead.missionId !== mission.id) {
+        throw this.failure(
+          'ORCHESTRATION_TARGET_OUTSIDE_MISSION',
+          'The promoted Lead must belong to this Mission.',
+        );
+      }
+      if (!['PENDING', 'ACTIVE', 'WAITING', 'PAUSED', 'ORPHANED'].includes(nextLead.state)) {
+        throw this.failure(
+          'ORCHESTRATION_LEAD_NOT_AVAILABLE',
+          'Only a recoverable Mission member can become Lead.',
+        );
+      }
+      if (mission.leadAssignmentId === nextLead.id) return this.snapshot(mission.id);
+      const previousLead = mission.leadAssignmentId
+        ? this.requireAssignment(mission.leadAssignmentId)
+        : null;
+      const at = this.timestamp();
+      this.db
+        .prepare(
+          'UPDATE assignments SET supervisor_assignment_id = NULL, updated_at = ? WHERE id = ?',
+        )
+        .run(at, nextLead.id);
+      if (previousLead && previousLead.id !== nextLead.id) {
+        this.db
+          .prepare(
+            'UPDATE assignments SET supervisor_assignment_id = ?, updated_at = ? WHERE id = ?',
+          )
+          .run(nextLead.id, at, previousLead.id);
+      }
+      this.db
+        .prepare(
+          `UPDATE missions SET lead_assignment_id = ?,
+           state = CASE WHEN state = 'BLOCKED' THEN 'RUNNING' ELSE state END,
+           version = version + 1, updated_at = ? WHERE id = ?`,
+        )
+        .run(nextLead.id, at, mission.id);
+      this.appendEvent(
+        mission.id,
+        'mission.leadPromoted',
+        actorPrincipalId,
+        nextLead.id,
+        nextLead.activeAttemptId,
+        { previousLeadAssignmentId: previousLead?.id ?? null, reason },
+      );
+      return this.snapshot(mission.id);
+    });
+  }
+
+  reassign(input: ReassignInput): { assignment: Assignment; attempt: ExecutionAttempt } {
+    return this.db.transaction(() => {
+      const assignment = this.requireAssignment(input.assignmentId);
+      if (['COMPLETED', 'CANCELLED'].includes(assignment.state)) {
+        throw this.failure(
+          'ORCHESTRATION_ASSIGNMENT_TERMINAL',
+          'A completed or cancelled Assignment cannot be reassigned.',
+        );
+      }
+      const active = assignment.activeAttemptId
+        ? this.requireAttempt(assignment.activeAttemptId)
+        : null;
+      const at = this.timestamp();
+      const principalId = input.assignee.principalId ?? newId('principal');
+      this.upsertPrincipal({
+        id: principalId,
+        kind: input.assignee.kind,
+        provider: input.assignee.provider ?? null,
+        externalIdentity: input.assignee.externalIdentity ?? null,
+        displayName: input.assignee.displayName,
+        state: 'disconnected',
+        createdAt: at,
+        lastSeenAt: null,
+      });
+      if (
+        active &&
+        !['SUCCEEDED', 'FAILED', 'TIMED_OUT', 'CANCELLED', 'STALE'].includes(active.state)
+      ) {
+        this.db
+          .prepare(
+            "UPDATE execution_attempts SET state = 'STALE', ended_at = ?, failure_code = 'reassigned', failure_json = ? WHERE id = ?",
+          )
+          .run(at, JSON.stringify({ reason: input.reason }), active.id);
+        if (active.runtimeSessionId) {
+          this.db
+            .prepare(
+              `INSERT OR IGNORE INTO orchestration_outbox
+               (id, mission_id, operation, aggregate_id, idempotency_key, payload_json, state,
+                available_at, created_at)
+               VALUES (?, ?, 'cancel-runtime', ?, ?, ?, 'PENDING', ?, ?)`,
+            )
+            .run(
+              newId('outbox'),
+              assignment.missionId,
+              assignment.id,
+              `${assignment.id}:reassign-cancel:${active.id}`,
+              JSON.stringify({
+                assignmentId: assignment.id,
+                attemptId: active.id,
+                reason: input.reason,
+              }),
+              at,
+              at,
+            );
+        }
+      }
+      const ordinalRow = this.db
+        .prepare(
+          'SELECT COALESCE(MAX(ordinal), 0) AS ordinal FROM execution_attempts WHERE assignment_id = ?',
+        )
+        .get(assignment.id) as { ordinal: number };
+      const attemptId = newId('attempt');
+      const runtime = input.requestedRuntime ?? active?.requestedRuntime ?? 'managed';
+      this.db
+        .prepare(
+          `INSERT INTO execution_attempts
+           (id, assignment_id, ordinal, requested_runtime, requested_model, state)
+           VALUES (?, ?, ?, ?, ?, 'PLANNED')`,
+        )
+        .run(
+          attemptId,
+          assignment.id,
+          ordinalRow.ordinal + 1,
+          runtime,
+          input.requestedModel ?? active?.requestedModel ?? null,
+        );
+      this.db
+        .prepare(
+          "UPDATE assignments SET assignee_principal_id = ?, active_attempt_id = ?, state = 'PENDING', completed_at = NULL, updated_at = ? WHERE id = ?",
+        )
+        .run(principalId, attemptId, at, assignment.id);
+      this.db
+        .prepare(
+          "UPDATE mission_tasks SET state = 'READY', completed_at = NULL, updated_at = ?, version = version + 1 WHERE id = ?",
+        )
+        .run(at, assignment.taskId);
+      this.db
+        .prepare(
+          `INSERT INTO orchestration_outbox
+           (id, mission_id, operation, aggregate_id, idempotency_key, payload_json, state,
+            available_at, created_at)
+           VALUES (?, ?, 'start-runtime', ?, ?, ?, 'PENDING', ?, ?)`,
+        )
+        .run(
+          newId('outbox'),
+          assignment.missionId,
+          assignment.id,
+          `${assignment.id}:reassign:${attemptId}`,
+          JSON.stringify({ assignmentId: assignment.id, attemptId, reason: input.reason }),
+          at,
+          at,
+        );
+      this.appendEvent(
+        assignment.missionId,
+        'assignment.reassigned',
+        input.actorPrincipalId,
+        assignment.id,
+        attemptId,
+        { principalId, reason: input.reason },
+      );
+      return {
+        assignment: this.requireAssignment(assignment.id),
+        attempt: this.requireAttempt(attemptId),
+      };
+    });
+  }
+
+  listExpiredAttempts(at: string): ExecutionAttempt[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM execution_attempts WHERE state IN ('STARTING','RUNNING','WAITING')
+         AND lease_expires_at IS NOT NULL AND lease_expires_at < ? ORDER BY lease_expires_at`,
+        )
+        .all(at) as unknown as AttemptRow[]
+    ).map(attemptFromRow);
+  }
+
+  renewAttemptLease(attemptId: string, leaseExpiresAt: string): ExecutionAttempt {
+    const attempt = this.requireAttempt(attemptId);
+    this.db
+      .prepare(
+        `UPDATE execution_attempts SET last_heartbeat_at = ?, lease_expires_at = ?
+         WHERE id = ? AND state IN ('STARTING','RUNNING','WAITING')`,
+      )
+      .run(this.timestamp(), leaseExpiresAt, attempt.id);
+    return this.requireAttempt(attempt.id);
+  }
+
+  orphanAttemptFromRuntime(attemptId: string, code: string, failure: JsonObject): Assignment {
+    return this.db.transaction(() => {
+      const attempt = this.requireAttempt(attemptId);
+      const assignment = this.requireAssignment(attempt.assignmentId);
+      if (assignment.activeAttemptId !== attempt.id) return assignment;
+      const at = this.timestamp();
+      this.db
+        .prepare(
+          "UPDATE execution_attempts SET state = 'STALE', ended_at = ?, failure_code = ?, failure_json = ? WHERE id = ? AND state IN ('STARTING','RUNNING','WAITING')",
+        )
+        .run(at, code, JSON.stringify(failure), attempt.id);
+      this.db
+        .prepare("UPDATE assignments SET state = 'ORPHANED', updated_at = ? WHERE id = ?")
+        .run(at, assignment.id);
+      const mission = this.requireMission(assignment.missionId);
+      if (mission.leadAssignmentId === assignment.id && mission.state === 'RUNNING') {
+        this.db
+          .prepare(
+            "UPDATE missions SET state = 'BLOCKED', updated_at = ?, version = version + 1 WHERE id = ?",
+          )
+          .run(at, mission.id);
+      }
+      this.insertMessage({
+        missionId: assignment.missionId,
+        fromAssignmentId: assignment.id,
+        toAssignmentId: assignment.supervisorAssignmentId,
+        attemptId: attempt.id,
+        type: 'escalation',
+        priority: 'urgent',
+        subject: 'Runtime lost',
+        body: `Runtime reconciliation failed: ${code}`,
+        payload: failure,
+      });
+      this.appendEvent(assignment.missionId, 'attempt.orphaned', null, assignment.id, attempt.id, {
+        code,
+        failure,
+      });
+      return this.requireAssignment(assignment.id);
+    });
+  }
+
+  setMissionState(
+    missionId: string,
+    state: Mission['state'],
+    actorPrincipalId: string | null,
+    reason: string,
+  ): Mission {
+    return this.db.transaction(() => {
+      const mission = this.requireMission(missionId);
+      if (mission.state === state) return mission;
+      assertMissionTransition(mission.state, state);
+      const at = this.timestamp();
+      this.db
+        .prepare(
+          `UPDATE missions SET state = ?, version = version + 1, updated_at = ?,
+           completed_at = CASE WHEN ? IN ('COMPLETED','FAILED','CANCELLED') THEN ? ELSE NULL END
+           WHERE id = ?`,
+        )
+        .run(state, at, state, at, missionId);
+      this.appendEvent(missionId, `mission.${state.toLowerCase()}`, actorPrincipalId, null, null, {
+        reason,
+      });
+      return this.requireMission(missionId);
+    });
+  }
+
+  getMission(id: string): Mission | null {
+    const row = this.db.prepare('SELECT * FROM missions WHERE id = ?').get(id) as
+      MissionRow | undefined;
+    return row ? missionFromRow(row) : null;
+  }
+
+  getMissionForOriginTask(taskId: string): Mission | null {
+    const row = this.db
+      .prepare(
+        'SELECT * FROM missions WHERE origin_conversation_task_id = ? ORDER BY created_at DESC LIMIT 1',
+      )
+      .get(taskId) as MissionRow | undefined;
+    return row ? missionFromRow(row) : null;
+  }
+
+  getMissionForRuntime(runtimeSessionId: string): Mission | null {
+    const row = this.db
+      .prepare(
+        `SELECT m.* FROM missions m
+         JOIN assignments a ON a.mission_id = m.id
+         JOIN execution_attempts e ON e.assignment_id = a.id
+         WHERE e.runtime_session_id = ? ORDER BY e.rowid DESC LIMIT 1`,
+      )
+      .get(runtimeSessionId) as MissionRow | undefined;
+    return row ? missionFromRow(row) : null;
+  }
+
+  getAssignment(id: string): Assignment | null {
+    const row = this.db.prepare('SELECT * FROM assignments WHERE id = ?').get(id) as
+      AssignmentRow | undefined;
+    return row ? assignmentFromRow(row) : null;
+  }
+
+  getPrincipal(id: string): OrchestrationPrincipal | null {
+    const row = this.db.prepare('SELECT * FROM orchestration_principals WHERE id = ?').get(id) as
+      PrincipalRow | undefined;
+    return row ? principalFromRow(row) : null;
+  }
+
+  getAssignmentForRuntime(runtimeSessionId: string): Assignment | null {
+    const row = this.db
+      .prepare(
+        `SELECT a.* FROM assignments a JOIN execution_attempts e ON e.assignment_id = a.id
+         WHERE e.runtime_session_id = ? ORDER BY e.rowid DESC LIMIT 1`,
+      )
+      .get(runtimeSessionId) as AssignmentRow | undefined;
+    return row ? assignmentFromRow(row) : null;
+  }
+
+  getAssignmentForTerminal(terminalId: string): Assignment | null {
+    const row = this.db
+      .prepare(
+        `SELECT a.* FROM assignments a JOIN execution_attempts e ON e.assignment_id = a.id
+         WHERE e.terminal_id = ? ORDER BY e.rowid DESC LIMIT 1`,
+      )
+      .get(terminalId) as AssignmentRow | undefined;
+    return row ? assignmentFromRow(row) : null;
+  }
+
+  getAttempt(id: string): ExecutionAttempt | null {
+    const row = this.db.prepare('SELECT * FROM execution_attempts WHERE id = ?').get(id) as
+      AttemptRow | undefined;
+    return row ? attemptFromRow(row) : null;
+  }
+
+  listTasks(missionId: string): MissionTask[] {
+    return (
+      this.db
+        .prepare('SELECT * FROM mission_tasks WHERE mission_id = ? ORDER BY created_at, rowid')
+        .all(missionId) as unknown as TaskRow[]
+    ).map(taskFromRow);
+  }
+
+  listDependencies(missionId: string): TaskDependency[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT d.task_id, d.depends_on_task_id, d.created_at
+           FROM mission_task_dependencies d JOIN mission_tasks t ON t.id = d.task_id
+           WHERE t.mission_id = ? ORDER BY d.created_at, d.rowid`,
+        )
+        .all(missionId) as unknown as Array<{
+        task_id: string;
+        depends_on_task_id: string;
+        created_at: string;
+      }>
+    ).map((row) => ({
+      taskId: row.task_id,
+      dependsOnTaskId: row.depends_on_task_id,
+      createdAt: row.created_at,
+    }));
+  }
+
+  listArtifacts(missionId: string): AssignmentArtifact[] {
+    return (
+      this.db
+        .prepare(
+          'SELECT * FROM assignment_artifacts WHERE mission_id = ? ORDER BY created_at, rowid',
+        )
+        .all(missionId) as unknown as ArtifactRow[]
+    ).map(artifactFromRow);
+  }
+
+  upsertRuntimeSession(input: {
+    id: string;
+    attemptId: string;
+    provider: string;
+    transport: OrchestrationRuntimeSession['transport'];
+    externalSessionId?: string | null;
+    processKey?: string | null;
+    state: OrchestrationRuntimeSession['state'];
+    cwd: string;
+    capabilities?: JsonObject;
+  }): OrchestrationRuntimeSession {
+    const at = this.timestamp();
+    this.db
+      .prepare(
+        `INSERT INTO orchestration_runtime_sessions
+         (id, attempt_id, provider, transport, external_session_id, process_key, state, cwd,
+          capabilities_json, last_event_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(attempt_id) DO UPDATE SET
+           provider = excluded.provider, transport = excluded.transport,
+           external_session_id = excluded.external_session_id,
+           process_key = excluded.process_key, state = excluded.state, cwd = excluded.cwd,
+           capabilities_json = excluded.capabilities_json, updated_at = excluded.updated_at`,
+      )
+      .run(
+        input.id,
+        input.attemptId,
+        input.provider,
+        input.transport,
+        input.externalSessionId ?? null,
+        input.processKey ?? null,
+        input.state,
+        input.cwd,
+        JSON.stringify(input.capabilities ?? {}),
+        at,
+        at,
+        at,
+      );
+    return this.getRuntimeSessionForAttempt(input.attemptId)!;
+  }
+
+  updateRuntimeSessionState(
+    attemptId: string,
+    state: OrchestrationRuntimeSession['state'],
+  ): OrchestrationRuntimeSession | null {
+    this.db
+      .prepare(
+        'UPDATE orchestration_runtime_sessions SET state = ?, updated_at = ? WHERE attempt_id = ?',
+      )
+      .run(state, this.timestamp(), attemptId);
+    return this.getRuntimeSessionForAttempt(attemptId);
+  }
+
+  appendRuntimeEvent(
+    runtimeSessionId: string,
+    attemptId: string,
+    kind: string,
+    payload: JsonObject = {},
+  ): OrchestrationRuntimeEvent {
+    return this.db.transaction(() => {
+      const at = this.timestamp();
+      const sequenceRow = this.db
+        .prepare(
+          'SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM orchestration_runtime_events WHERE runtime_session_id = ?',
+        )
+        .get(runtimeSessionId) as { sequence: number };
+      const id = newId('runtime_event');
+      this.db
+        .prepare(
+          `INSERT INTO orchestration_runtime_events
+           (id, runtime_session_id, attempt_id, sequence, kind, payload_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          runtimeSessionId,
+          attemptId,
+          sequenceRow.sequence,
+          kind,
+          JSON.stringify(payload),
+          at,
+        );
+      this.db
+        .prepare(
+          'UPDATE orchestration_runtime_sessions SET last_event_at = ?, updated_at = ? WHERE id = ?',
+        )
+        .run(at, at, runtimeSessionId);
+      return {
+        id,
+        runtimeSessionId,
+        attemptId,
+        sequence: sequenceRow.sequence,
+        kind,
+        payload,
+        createdAt: at,
+      };
+    });
+  }
+
+  getRuntimeSessionForAttempt(attemptId: string): OrchestrationRuntimeSession | null {
+    const row = this.db
+      .prepare('SELECT * FROM orchestration_runtime_sessions WHERE attempt_id = ?')
+      .get(attemptId) as RuntimeSessionRow | undefined;
+    return row ? runtimeSessionFromRow(row) : null;
+  }
+
+  listRuntimeSessions(missionId: string): OrchestrationRuntimeSession[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT r.* FROM orchestration_runtime_sessions r
+           JOIN execution_attempts e ON e.id = r.attempt_id
+           JOIN assignments a ON a.id = e.assignment_id
+           WHERE a.mission_id = ? ORDER BY r.created_at, r.rowid`,
+        )
+        .all(missionId) as unknown as RuntimeSessionRow[]
+    ).map(runtimeSessionFromRow);
+  }
+
+  listRuntimeEvents(missionId: string, limit = 500): OrchestrationRuntimeEvent[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT e.* FROM orchestration_runtime_events e
+           JOIN execution_attempts x ON x.id = e.attempt_id
+           JOIN assignments a ON a.id = x.assignment_id
+           WHERE a.mission_id = ? ORDER BY e.created_at DESC, e.rowid DESC LIMIT ?`,
+        )
+        .all(missionId, limit) as unknown as RuntimeEventRow[]
+    )
+      .map(runtimeEventFromRow)
+      .reverse();
+  }
+
+  listMessageDeliveries(missionId: string): OrchestrationMessageDelivery[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT d.* FROM orchestration_message_deliveries d
+           JOIN orchestration_messages m ON m.id = d.message_id
+           WHERE m.mission_id = ? ORDER BY m.sequence`,
+        )
+        .all(missionId) as unknown as MessageDeliveryRow[]
+    ).map(messageDeliveryFromRow);
+  }
+
+  listUndeliveredMessages(assignmentId?: string): OrchestrationMessage[] {
+    const whereAssignment = assignmentId ? 'AND d.assignment_id = ?' : '';
+    const params = assignmentId ? [assignmentId] : [];
+    return (
+      this.db
+        .prepare(
+          `SELECT m.* FROM orchestration_messages m
+           JOIN orchestration_message_deliveries d ON d.message_id = m.id
+           JOIN assignments a ON a.id = d.assignment_id
+           WHERE d.state IN ('pending','failed') AND m.suppressed_at IS NULL
+             AND a.state IN ('PENDING','ACTIVE','WAITING','PAUSED') ${whereAssignment}
+           ORDER BY m.sequence`,
+        )
+        .all(...params) as unknown as MessageRow[]
+    ).map(messageFromRow);
+  }
+
+  snapshot(missionId: string, messageLimit = 200): MissionSnapshot {
+    const mission = this.requireMission(missionId);
+    const assignments = (
+      this.db
+        .prepare('SELECT * FROM assignments WHERE mission_id = ? ORDER BY created_at, rowid')
+        .all(missionId) as unknown as AssignmentRow[]
+    ).map(assignmentFromRow);
+    const principalIds = [
+      ...new Set(assignments.map((assignment) => assignment.assigneePrincipalId)),
+    ];
+    const principals = principalIds.map((id) => this.requirePrincipal(id));
+    const attempts = (
+      this.db
+        .prepare(
+          `SELECT e.* FROM execution_attempts e JOIN assignments a ON a.id = e.assignment_id
+         WHERE a.mission_id = ? ORDER BY e.rowid`,
+        )
+        .all(missionId) as unknown as AttemptRow[]
+    ).map(attemptFromRow);
+    const messages = (
+      this.db
+        .prepare(
+          'SELECT * FROM orchestration_messages WHERE mission_id = ? ORDER BY sequence DESC LIMIT ?',
+        )
+        .all(missionId, messageLimit) as unknown as MessageRow[]
+    )
+      .map(messageFromRow)
+      .reverse();
+    return {
+      mission,
+      principals,
+      tasks: this.listTasks(missionId),
+      dependencies: this.listDependencies(missionId),
+      assignments,
+      attempts,
+      messages,
+      artifacts: this.listArtifacts(missionId),
+      runtimeSessions: this.listRuntimeSessions(missionId),
+      runtimeEvents: this.listRuntimeEvents(missionId),
+      messageDeliveries: this.listMessageDeliveries(missionId),
+    };
+  }
+
+  listRecoverableMissions(): Mission[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT * FROM missions WHERE state IN ('PLANNING','RUNNING','BLOCKED','VERIFYING') ORDER BY updated_at",
+        )
+        .all() as unknown as MissionRow[]
+    ).map(missionFromRow);
+  }
+
+  /**
+   * Product-facing Mission history. Recovery deliberately reads only live
+   * Missions, while the Mission Center also needs recent terminal Missions so
+   * completion, evidence and user acceptance do not disappear after restart.
+   */
+  listMissions(limit = 50): Mission[] {
+    const boundedLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
+    return (
+      this.db
+        .prepare('SELECT * FROM missions ORDER BY updated_at DESC, rowid DESC LIMIT ?')
+        .all(boundedLimit) as unknown as MissionRow[]
+    ).map(missionFromRow);
+  }
+
+  listPendingOutbox(limit = 20): OutboxRecord[] {
+    const now = this.timestamp();
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM orchestration_outbox
+         WHERE state = 'PENDING' AND available_at <= ? ORDER BY created_at LIMIT ?`,
+        )
+        .all(now, limit) as unknown as Array<{
+        id: string;
+        mission_id: string;
+        operation: string;
+        aggregate_id: string;
+        idempotency_key: string;
+        payload_json: string;
+        state: OutboxRecord['state'];
+        attempts: number;
+        available_at: string;
+        last_error: string | null;
+        created_at: string;
+        completed_at: string | null;
+      }>
+    ).map((row) => ({
+      id: row.id,
+      missionId: row.mission_id,
+      operation: row.operation,
+      aggregateId: row.aggregate_id,
+      idempotencyKey: row.idempotency_key,
+      payload: parseJson(row.payload_json, {}),
+      state: row.state,
+      attempts: row.attempts,
+      availableAt: row.available_at,
+      lastError: row.last_error,
+      createdAt: row.created_at,
+      completedAt: row.completed_at,
+    }));
+  }
+
+  markOutboxProcessing(id: string): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE orchestration_outbox SET state = 'PROCESSING', attempts = attempts + 1 WHERE id = ? AND state = 'PENDING'",
+      )
+      .run(id);
+    return Number(result.changes) === 1;
+  }
+
+  completeOutbox(id: string): void {
+    this.db
+      .prepare(
+        "UPDATE orchestration_outbox SET state = 'COMPLETED', completed_at = ?, last_error = NULL WHERE id = ?",
+      )
+      .run(this.timestamp(), id);
+  }
+
+  retryOutbox(id: string, error: string, availableAt: string): void {
+    this.db
+      .prepare(
+        "UPDATE orchestration_outbox SET state = 'PENDING', available_at = ?, last_error = ? WHERE id = ?",
+      )
+      .run(availableAt, error, id);
+  }
+
+  failOutbox(id: string, error: string): void {
+    this.db
+      .prepare(
+        "UPDATE orchestration_outbox SET state = 'FAILED', completed_at = ?, last_error = ? WHERE id = ?",
+      )
+      .run(this.timestamp(), error, id);
+  }
+
+  recoverInterruptedOutbox(): number {
+    const result = this.db
+      .prepare("UPDATE orchestration_outbox SET state = 'PENDING' WHERE state = 'PROCESSING'")
+      .run();
+    return Number(result.changes);
+  }
+
+  private delegateResult(assignmentId: string): Omit<DelegateResult, 'reused'> {
+    const assignment = this.requireAssignment(assignmentId);
+    return {
+      missionId: assignment.missionId,
+      assignment,
+      task: this.requireTask(assignment.taskId),
+      attempt: this.requireAttempt(assignment.activeAttemptId!),
+    };
+  }
+
+  private reconcileMissionState(missionId: string, at: string): void {
+    const mission = this.requireMission(missionId);
+    if (mission.state !== 'RUNNING') return;
+    const tasks = this.listTasks(missionId);
+    if (tasks.length === 0 || !tasks.every((task) => task.state === 'COMPLETED')) return;
+    this.db
+      .prepare(
+        "UPDATE missions SET state = 'VERIFYING', version = version + 1, updated_at = ? WHERE id = ? AND state = 'RUNNING'",
+      )
+      .run(at, missionId);
+    this.appendEvent(missionId, 'mission.verificationReady', null, null, null, {
+      completedTasks: tasks.length,
+    });
+  }
+
+  private requireMission(id: string): Mission {
+    const mission = this.getMission(id);
+    if (!mission)
+      throw this.failure('ORCHESTRATION_MISSION_NOT_FOUND', `Mission ${id} was not found.`);
+    return mission;
+  }
+
+  private requireTask(id: string): MissionTask {
+    const row = this.db.prepare('SELECT * FROM mission_tasks WHERE id = ?').get(id) as
+      TaskRow | undefined;
+    if (!row)
+      throw this.failure('ORCHESTRATION_TASK_NOT_FOUND', `Mission task ${id} was not found.`);
+    return taskFromRow(row);
+  }
+
+  private requirePrincipal(id: string): OrchestrationPrincipal {
+    const principal = this.getPrincipal(id);
+    if (!principal)
+      throw this.failure('ORCHESTRATION_PRINCIPAL_NOT_FOUND', `Principal ${id} was not found.`);
+    return principal;
+  }
+
+  private requireAssignment(id: string): Assignment {
+    const assignment = this.getAssignment(id);
+    if (!assignment)
+      throw this.failure('ORCHESTRATION_ASSIGNMENT_NOT_FOUND', `Assignment ${id} was not found.`);
+    return assignment;
+  }
+
+  private requireAttempt(id: string): ExecutionAttempt {
+    const attempt = this.getAttempt(id);
+    if (!attempt)
+      throw this.failure('ORCHESTRATION_ATTEMPT_NOT_FOUND', `Attempt ${id} was not found.`);
+    return attempt;
+  }
+
+  private upsertPrincipal(principal: OrchestrationPrincipal): void {
+    this.db
+      .prepare(
+        `INSERT INTO orchestration_principals
+         (id, kind, provider, external_identity, display_name, state, created_at, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET provider = excluded.provider,
+           external_identity = COALESCE(excluded.external_identity, orchestration_principals.external_identity),
+           display_name = excluded.display_name, state = excluded.state,
+           last_seen_at = excluded.last_seen_at`,
+      )
+      .run(
+        principal.id,
+        principal.kind,
+        principal.provider,
+        principal.externalIdentity,
+        principal.displayName,
+        principal.state,
+        principal.createdAt,
+        principal.lastSeenAt,
+      );
+  }
+
+  private insertMessage(
+    input: CreateMessageInput,
+    suppressionReason?: string | null,
+  ): OrchestrationMessage {
+    const id = newId('message');
+    const at = this.timestamp();
+    this.db
+      .prepare(
+        `INSERT INTO orchestration_messages
+         (id, mission_id, from_assignment_id, to_assignment_id, thread_id, attempt_id, type,
+          priority, subject, body, payload_json, created_at, suppressed_at, suppression_reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.missionId,
+        input.fromAssignmentId,
+        input.toAssignmentId,
+        input.threadId ?? null,
+        input.attemptId ?? null,
+        input.type,
+        input.priority ?? 'normal',
+        input.subject,
+        input.body ?? '',
+        input.payload ? JSON.stringify(input.payload) : null,
+        at,
+        suppressionReason ? at : null,
+        suppressionReason ?? null,
+      );
+    if (input.toAssignmentId && !suppressionReason) {
+      this.db
+        .prepare(
+          `INSERT INTO orchestration_message_deliveries
+           (message_id, assignment_id, state, updated_at)
+           VALUES (?, ?, 'pending', ?)`,
+        )
+        .run(id, input.toAssignmentId, at);
+    }
+    const row = this.db
+      .prepare('SELECT * FROM orchestration_messages WHERE id = ?')
+      .get(id) as unknown as MessageRow;
+    return messageFromRow(row);
+  }
+
+  private lifecycleAuthority(
+    assignment: Assignment,
+    attempt: ExecutionAttempt,
+    principalId: string,
+  ): string | null {
+    if (assignment.assigneePrincipalId !== principalId) return 'sender_not_assignee';
+    if (assignment.activeAttemptId !== attempt.id) return 'inactive_attempt';
+    if (!['STARTING', 'RUNNING', 'WAITING'].includes(attempt.state)) return 'attempt_not_active';
+    return null;
+  }
+
+  private promoteReadyTasks(missionId: string, completedTaskId: string, at: string): void {
+    const candidates = this.db
+      .prepare(
+        `SELECT DISTINCT t.* FROM mission_tasks t
+         JOIN mission_task_dependencies d ON d.task_id = t.id
+         WHERE t.mission_id = ? AND t.state = 'BLOCKED' AND d.depends_on_task_id = ?`,
+      )
+      .all(missionId, completedTaskId) as unknown as TaskRow[];
+    for (const candidate of candidates) {
+      const incomplete = this.db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM mission_task_dependencies d
+           JOIN mission_tasks dep ON dep.id = d.depends_on_task_id
+           WHERE d.task_id = ? AND dep.state <> 'COMPLETED'`,
+        )
+        .get(candidate.id) as { count: number };
+      if (incomplete.count === 0) {
+        this.db
+          .prepare(
+            "UPDATE mission_tasks SET state = 'READY', updated_at = ?, version = version + 1 WHERE id = ?",
+          )
+          .run(at, candidate.id);
+        this.db
+          .prepare(
+            `UPDATE orchestration_outbox SET available_at = ?
+             WHERE state = 'PENDING' AND operation = 'start-runtime'
+               AND aggregate_id IN (SELECT id FROM assignments WHERE task_id = ?)`,
+          )
+          .run(at, candidate.id);
+        this.appendEvent(missionId, 'task.ready', null, null, null, { taskId: candidate.id });
+      }
+    }
+  }
+
+  private assertAssignmentMission(assignmentId: string, missionId: string): void {
+    if (this.requireAssignment(assignmentId).missionId !== missionId) {
+      throw this.failure('ORCHESTRATION_TARGET_MISMATCH', 'The target belongs to another Mission.');
+    }
+  }
+
+  private appendEvent(
+    missionId: string,
+    type: string,
+    actorPrincipalId: string | null,
+    assignmentId: string | null,
+    attemptId: string | null,
+    payload: JsonObject,
+  ): void {
+    const durableActor =
+      actorPrincipalId && this.getPrincipal(actorPrincipalId) ? actorPrincipalId : null;
+    const sequence = (
+      this.db
+        .prepare(
+          'SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM mission_events WHERE mission_id = ?',
+        )
+        .get(missionId) as {
+        next: number;
+      }
+    ).next;
+    this.db
+      .prepare(
+        `INSERT INTO mission_events
+         (id, mission_id, sequence, type, actor_principal_id, assignment_id, attempt_id,
+          payload_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        newId('mevent'),
+        missionId,
+        sequence,
+        type,
+        durableActor,
+        assignmentId,
+        attemptId,
+        JSON.stringify(payload),
+        this.timestamp(),
+      );
+  }
+
+  private assertCapacity(mission: Mission): void {
+    const total = (
+      this.db
+        .prepare('SELECT COUNT(*) AS count FROM assignments WHERE mission_id = ?')
+        .get(mission.id) as {
+        count: number;
+      }
+    ).count;
+    const active = (
+      this.db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM assignments WHERE mission_id = ? AND state IN ('PENDING','ACTIVE','WAITING','PAUSED','ORPHANED')",
+        )
+        .get(mission.id) as { count: number }
+    ).count;
+    const limits = mission.executionPolicy.limits;
+    if (limits.maxTotalAgents !== null && total >= limits.maxTotalAgents) {
+      throw this.failure(
+        'ORCHESTRATION_TOTAL_LIMIT',
+        'This Mission reached its configured Agent limit.',
+      );
+    }
+    if (limits.maxConcurrentAgents !== null && active >= limits.maxConcurrentAgents) {
+      throw this.failure(
+        'ORCHESTRATION_CONCURRENCY_LIMIT',
+        'This Mission reached its configured concurrency limit.',
+      );
+    }
+  }
+
+  private timestamp(): string {
+    return this.now().toISOString();
+  }
+
+  private failure(code: string, userMessage: string): ProductFailure {
+    return new ProductFailure(productError(code, { userMessage }));
+  }
+}

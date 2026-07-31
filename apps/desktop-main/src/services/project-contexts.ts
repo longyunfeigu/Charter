@@ -11,6 +11,8 @@ import {
   registerVerificationTool,
   registerSkillTool,
   registerTerminalTools,
+  registerOrchestrationTools,
+  ORCHESTRATION_TOOL_NAMES,
   createPlanAwarePermission,
   PermissionEngine,
   type AskUserPrompt,
@@ -19,6 +21,7 @@ import {
   type SkillProviderEntry,
   type ToolAuditRecord,
   type TerminalControlPort,
+  type OrchestrationToolServices,
   type VerificationGate,
 } from '@pi-ide/tool-gateway';
 import { SearchService } from '@pi-ide/search-service';
@@ -141,6 +144,7 @@ class RoutedDocumentStore extends DocumentStore {
 /** Lazily creates and caches per-root agent contexts (ADR-0009). */
 export class ProjectContexts {
   private readonly byRoot = new Map<string, ProjectContext>();
+  private orchestrationTools: OrchestrationToolServices | null = null;
 
   constructor(
     private readonly db: SqlDatabase,
@@ -241,6 +245,9 @@ export class ProjectContexts {
         callerTerminalForCall: (callId) => this.terminalControl!.callerTerminalForCall(callId),
       });
     }
+    if (this.settings.effective.orchestration.enabled && this.orchestrationTools) {
+      registerOrchestrationTools(gateway, this.orchestrationTools);
+    }
 
     const verifications = new VerificationService({
       root: input.root,
@@ -283,6 +290,20 @@ export class ProjectContexts {
         });
       } else {
         for (const name of names) context.gateway.unregister(name);
+      }
+    }
+  }
+
+  configureOrchestrationTools(services: OrchestrationToolServices | null): void {
+    this.orchestrationTools = services;
+    this.syncOrchestrationTools(Boolean(services) && this.settings.effective.orchestration.enabled);
+  }
+
+  syncOrchestrationTools(enabled: boolean): void {
+    for (const context of this.byRoot.values()) {
+      for (const name of ORCHESTRATION_TOOL_NAMES) context.gateway.unregister(name);
+      if (enabled && this.orchestrationTools) {
+        registerOrchestrationTools(context.gateway, this.orchestrationTools);
       }
     }
   }

@@ -48,6 +48,7 @@ import { OrchestrationFleet, OrchestrationWorkerBand } from './OrchestrationFlee
 import { useOrchestrationStore } from '../store/orchestrationStore.js';
 import { ArtifactFeedbackAttachments } from './ArtifactFeedbackAttachments.js';
 import { SessionRenameDialog } from './SessionRenameDialog.js';
+import { MissionStatusStrip } from './mission/MissionStatusStrip.js';
 
 const EMPTY_TERMINAL_REFS: TerminalOutputRef[] = [];
 const EMPTY_ORCHESTRATION_PERMISSIONS: PermissionCardDto[] = [];
@@ -81,6 +82,9 @@ export function TaskRoomView(): React.JSX.Element {
   const task = store.tasks.find((t) => t.id === taskId) ?? null;
   const activity = useActivityStore((s) => (taskId ? s.perTask[taskId] : undefined));
   const orchestration = useOrchestrationStore((state) => state.snapshot);
+  const mission = useOrchestrationStore((state) =>
+    taskId ? (state.missions[taskId] ?? null) : null,
+  );
   const orchestrationPermissions = useOrchestrationStore((state) =>
     taskId
       ? (state.permissions[taskId] ?? EMPTY_ORCHESTRATION_PERMISSIONS)
@@ -94,10 +98,8 @@ export function TaskRoomView(): React.JSX.Element {
   const workerRoom = taskId
     ? orchestration.workers.some((worker) => worker.taskId === taskId)
     : false;
-  const fleetAvailable = orchestration.enabled && commanderWorkers.length > 0 && !workerRoom;
-  const orchestrationNeeds =
-    orchestrationPermissions.length +
-    commanderWorkers.filter((worker) => worker.status === 'failed').length;
+  const legacyFleetAvailable =
+    !mission && orchestration.enabled && commanderWorkers.length > 0 && !workerRoom;
   const [moreOpen, setMoreOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -138,8 +140,10 @@ export function TaskRoomView(): React.JSX.Element {
   }, [taskId]);
 
   useEffect(() => {
-    if (sessionRoomView === 'fleet' && !fleetAvailable) app.setSessionRoomView('conversation');
-  }, [app, fleetAvailable, sessionRoomView]);
+    if (sessionRoomView === 'fleet' && !legacyFleetAvailable) {
+      app.setSessionRoomView('conversation');
+    }
+  }, [app, legacyFleetAvailable, sessionRoomView]);
 
   // Some external-session entry points (terminal bar / promoted panel) route
   // directly to a room. Keep the task store aligned with the room URL/state so
@@ -317,24 +321,22 @@ export function TaskRoomView(): React.JSX.Element {
               ) : null}
             </div>
             <div className="session-header-actions">
-              {fleetAvailable ? (
+              {legacyFleetAvailable && sessionRoomView === 'fleet' ? (
                 <nav className="task-room-switcher" aria-label="Session views">
                   <button
-                    className={sessionRoomView === 'conversation' ? 'active' : ''}
+                    className=""
                     data-testid="task-room-conversation-tab"
-                    aria-current={sessionRoomView === 'conversation' ? 'page' : undefined}
                     onClick={() => app.setSessionRoomView('conversation')}
                   >
                     Conversation
                   </button>
                   <button
-                    className={sessionRoomView === 'fleet' ? 'active' : ''}
+                    className="active"
                     data-testid="task-room-fleet-tab"
-                    aria-current={sessionRoomView === 'fleet' ? 'page' : undefined}
+                    aria-current="page"
                     onClick={() => app.setSessionRoomView('fleet')}
                   >
-                    <span>⌁ Fleet {commanderWorkers.length}</span>
-                    {orchestrationNeeds > 0 ? <b>{orchestrationNeeds}</b> : null}
+                    <span>Legacy orchestration</span>
                   </button>
                 </nav>
               ) : null}
@@ -394,6 +396,17 @@ export function TaskRoomView(): React.JSX.Element {
                     >
                       <Ic name="play" size={12} /> Replay Session
                     </button>
+                    {legacyFleetAvailable ? (
+                      <button
+                        data-testid="task-open-legacy-orchestration"
+                        onClick={() => {
+                          setMoreOpen(false);
+                          app.setSessionRoomView('fleet');
+                        }}
+                      >
+                        <Ic name="archive" size={12} /> Legacy orchestration
+                      </button>
+                    ) : null}
                     {files[0] && sameProject && !task.worktree ? (
                       <button
                         data-testid="task-room-edit-file"
@@ -422,7 +435,7 @@ export function TaskRoomView(): React.JSX.Element {
         </div>
       </div>
 
-      {sessionRoomView === 'fleet' && fleetAvailable ? (
+      {sessionRoomView === 'fleet' && legacyFleetAvailable ? (
         <div className="tr-body fleet-canvas-body">
           <OrchestrationFleet taskId={task.id} />
         </div>
@@ -440,6 +453,7 @@ export function TaskRoomView(): React.JSX.Element {
           } ${app.sessionSplitDragging ? 'splitting' : ''}`}
         >
           <div className="tr-main">
+            {mission ? <MissionStatusStrip snapshot={mission} /> : null}
             {task.external ? (
               <OrchestrationWorkerBand taskId={task.id} terminalId={task.external.terminalId} />
             ) : null}

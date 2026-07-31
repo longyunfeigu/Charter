@@ -33,6 +33,14 @@ async function approveCurrentGate(page: Page): Promise<void> {
   }
 }
 
+async function openLegacyOrchestration(page: Page): Promise<void> {
+  await page.getByTestId('session-more').click();
+  const legacyEntry = page.getByTestId('task-open-legacy-orchestration');
+  await expect(legacyEntry).toBeVisible({ timeout: 10_000 });
+  await legacyEntry.click();
+  await expect(page.getByTestId('orchestration-fleet')).toBeVisible();
+}
+
 test('live model: colloquial intent alone drives terminal.create → send/wait/read', async () => {
   test.skip(!KEY || !BASEURL, 'no real credentials in env');
   test.setTimeout(600_000);
@@ -65,12 +73,15 @@ test('live model: colloquial intent alone drives terminal.create → send/wait/r
     // 3) THE assertion this spec exists for: the model must reach for
     // terminal.create on its own. The worker appearing is the observable proof;
     // terminal calls no longer pause on a permission card.
-    const fleetTab = page.getByTestId('task-room-fleet-tab');
     await expect
       .poll(
         async () => {
-          if (((await fleetTab.textContent().catch(() => '')) ?? '').includes('Fleet 1'))
+          const snapshot = await page.evaluate(async () => {
+            return window.product.rpc['orchestration.getState']!({});
+          });
+          if (snapshot.ok && (snapshot.data as { workers: Array<unknown> }).workers.length > 0) {
             return true;
+          }
           await approveCurrentGate(page);
           const state = await page
             .getByTestId('task-state')
@@ -89,7 +100,7 @@ test('live model: colloquial intent alone drives terminal.create → send/wait/r
 
     // 4) Worker appears in the fleet; keep approving send-class gates until
     // the probe output lands in the worker pty.
-    await fleetTab.click();
+    await openLegacyOrchestration(page);
     const workerScreen = page
       .getByTestId('orchestration-fleet')
       .getByTestId('orchestration-native-terminal')

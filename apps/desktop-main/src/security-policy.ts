@@ -13,9 +13,15 @@ export function allowedNavigation(devServerUrl: string | undefined, url: string)
 
 export function isAllowedExternalUrl(url: string): boolean {
   if (url.trim() !== url) return false;
+  // WHATWG URL parsing repairs malformed web URLs such as `https:/host` and
+  // `https:///host`. Require an explicit, non-empty authority before parsing
+  // so the desktop shell never opens a normalized form the user did not see.
+  if (!/^https?:\/\/[^/?#\\\s]+(?:[/?#]|$)/i.test(url)) return false;
   try {
     const parsed = new URL(url);
-    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+    return (
+      (parsed.protocol === 'https:' || parsed.protocol === 'http:') && parsed.hostname.length > 0
+    );
   } catch {
     return false;
   }

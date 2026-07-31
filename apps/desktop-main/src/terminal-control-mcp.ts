@@ -3,6 +3,7 @@ import {
   parseTerminalControlCli,
   TERMINAL_CONTROL_CLI_USAGE,
 } from './services/terminal-control-cli.js';
+import { ORCHESTRATION_MCP_TOOLS } from '../../../packages/tool-gateway/src/orchestration-command-registry.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -91,6 +92,7 @@ const tools = [
       additionalProperties: false,
     },
   },
+  ...ORCHESTRATION_MCP_TOOLS,
 ] as const;
 
 function ctlRoute(
@@ -117,7 +119,15 @@ function ctlRoute(
     case 'terminal_kill':
       return { method: 'DELETE', path: `/v1/terminals/${id}/kill` };
     default:
-      throw new Error(`Unknown terminal tool: ${name}`);
+      if (name.startsWith('orchestration_')) {
+        const action = name.slice('orchestration_'.length);
+        return {
+          method: action === 'inspect' ? 'GET' : 'POST',
+          path: `/v1/orchestration/${encodeURIComponent(action)}`,
+          ...(action === 'inspect' ? {} : { body: input }),
+        };
+      }
+      throw new Error(`Unknown Charter tool: ${name}`);
   }
 }
 
@@ -183,7 +193,13 @@ async function callDoor(name: string, input: JsonObject): Promise<JsonObject> {
       finish({ ok: false, code: 'CTL_UNAVAILABLE', summary: error.message });
     });
     const requestedWait =
-      name === 'terminal_wait' && typeof input.timeoutMs === 'number' ? input.timeoutMs : 0;
+      (name === 'terminal_wait' ||
+        name === 'orchestration_wait' ||
+        name === 'orchestration_ask' ||
+        name === 'orchestration_join') &&
+      typeof input.timeoutMs === 'number'
+        ? input.timeoutMs
+        : 0;
     const timeoutMs = requestedWait > 0 ? requestedWait + 5_000 : 30_000;
     timer = setTimeout(() => {
       request.destroy();

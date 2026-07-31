@@ -26,8 +26,8 @@ export type OverlayKind = 'none' | 'settings' | 'diagnostics' | 'about' | 'memor
  * app-level workspace shell. */
 export type SessionTool = 'summary' | 'diff' | 'file' | 'preview' | 'terminal' | 'review';
 export type PreviewRailMode = 'artifact' | 'live';
-/** Primary content inside a Commander Session. Fleet is a Session-local view,
- * never a global navigation destination or a replacement for Home. */
+/** Historical V1 orchestration can still be opened programmatically while its
+ * compatibility data is migrated. V2 Missions use their own product surface. */
 export type SessionRoomView = 'conversation' | 'fleet';
 /** Project-level tools used before a Session exists. They render inside the
  * persistent Session shell and never recreate the legacy IDE frame.
@@ -38,13 +38,14 @@ export type ProjectCenterTab = 'overview' | 'sessions' | 'files' | 'changes' | '
 export type RemoteSubview = 'overview' | 'files' | 'forwards';
 /** The rail's contextual views inside the single navigation surface.
  * 'files' is the persistent context-feeding tree (ADR-0024, ADR-0029). */
-export type RailView = 'sessions' | 'inbox' | 'projects' | 'files' | 'skills';
+export type RailView = 'sessions' | 'missions' | 'inbox' | 'projects' | 'files' | 'skills';
 
 /** ADR-0042 — the identity of what the main content area is showing
  * (mirrors HomeShell's render priority). */
 export type MainSurface =
   | { kind: 'home' }
   | { kind: 'room'; taskId: string }
+  | { kind: 'mission'; missionId: string | null }
   | { kind: 'terminal'; terminalId: string }
   | { kind: 'project-center'; path: string; tab: ProjectCenterTab }
   | { kind: 'project-tool'; tool: ProjectTool }
@@ -65,10 +66,16 @@ export function railGroupOf(view: RailView): RailGroup {
 export function mainSurfaceOf(
   s: Pick<
     AppStore,
-    'taskRoomTaskId' | 'sessionTerminalId' | 'archaeology' | 'projectTool' | 'remotesOpen'
+    | 'taskRoomTaskId'
+    | 'missionCenter'
+    | 'sessionTerminalId'
+    | 'archaeology'
+    | 'projectTool'
+    | 'remotesOpen'
   > & { projectCenter?: { path: string; tab: ProjectCenterTab } | null },
 ): MainSurface {
   if (s.sessionTerminalId) return { kind: 'terminal', terminalId: s.sessionTerminalId };
+  if (s.missionCenter) return { kind: 'mission', missionId: s.missionCenter.missionId };
   if (s.taskRoomTaskId) return { kind: 'room', taskId: s.taskRoomTaskId };
   if (s.projectCenter) {
     return { kind: 'project-center', path: s.projectCenter.path, tab: s.projectCenter.tab };
@@ -155,6 +162,8 @@ interface AppStore {
   surface: 'home' | 'workspace';
   /** The managed task selected as the active user-facing Session. */
   taskRoomTaskId: string | null;
+  /** Global Mission Center selection. A null id renders the portfolio overview. */
+  missionCenter: { missionId: string | null } | null;
   sessionRoomView: SessionRoomView;
   /**
    * Session-first shell: a terminal can be selected before external-agent
@@ -241,6 +250,8 @@ interface AppStore {
   init(): Promise<void>;
   setSurface(surface: 'home' | 'workspace'): void;
   openTaskRoom(taskId: string): void;
+  openMission(missionId?: string | null): void;
+  closeMission(): void;
   setSessionRoomView(view: SessionRoomView): void;
   openTerminalSession(terminalId: string): void;
   openAllTerminals(terminalId: string): void;
@@ -364,6 +375,7 @@ function loadRailView(): RailView {
     const saved = window.sessionStorage.getItem(RAIL_VIEW_KEY);
     if (
       saved === 'sessions' ||
+      saved === 'missions' ||
       saved === 'inbox' ||
       saved === 'projects' ||
       saved === 'files' ||
@@ -428,6 +440,9 @@ export const useAppStore = create<AppStore>((set, get) => {
       case 'room':
         get().openTaskRoom(surface.taskId);
         return;
+      case 'mission':
+        get().openMission(surface.missionId);
+        return;
       case 'terminal':
         get().openTerminalSession(surface.terminalId);
         return;
@@ -446,6 +461,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       default:
         set({
           taskRoomTaskId: null,
+          missionCenter: null,
           sessionTerminalId: null,
           projectCenter: null,
           archaeology: null,
@@ -476,6 +492,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     sessionReveal: null,
     surface: 'home',
     taskRoomTaskId: null,
+    missionCenter: null,
     sessionRoomView: 'conversation',
     sessionTerminalId: null,
     sessionTerminalScope: 'single',
@@ -511,6 +528,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         archaeology: { scope },
         projectCenter: null,
         taskRoomTaskId: null,
+        missionCenter: null,
         sessionTerminalId: null,
         remotesOpen: false,
         projectTool: null,
@@ -531,6 +549,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         },
         archaeology: null,
         taskRoomTaskId: null,
+        missionCenter: null,
         sessionTerminalId: null,
         remotesOpen: false,
         projectTool: null,
@@ -554,6 +573,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         remoteSelectedHostId: hostId ?? get().remoteSelectedHostId,
         remoteSubview: 'overview',
         taskRoomTaskId: null,
+        missionCenter: null,
         sessionTerminalId: null,
         archaeology: null,
         projectTool: null,
@@ -572,6 +592,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         remoteSubview,
         sessionTerminalId: null,
         taskRoomTaskId: null,
+        missionCenter: null,
         archaeology: null,
         projectCenter: null,
         projectTool: null,
@@ -585,6 +606,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         remoteSubview,
         sessionTerminalId: null,
         taskRoomTaskId: null,
+        missionCenter: null,
         surface: 'home',
       });
     },
@@ -629,7 +651,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         remotesOpen: false,
         ...(get().remotesOpen ? { sessionTerminalId: null } : {}),
         projectTool: surface === 'workspace' ? (get().projectTool ?? 'editor') : null,
-        ...(surface === 'workspace' ? { projectCenter: null } : {}),
+        ...(surface === 'workspace' ? { projectCenter: null, missionCenter: null } : {}),
         ...(surface === 'workspace' ? crossRailPatch('files') : {}),
       });
     },
@@ -733,6 +755,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         ...(projectTool
           ? {
               taskRoomTaskId: null,
+              missionCenter: null,
               sessionTerminalId: null,
               archaeology: null,
               // ADR-0029/0040: project tools pair with the rail's Files tree
@@ -774,6 +797,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       const peek = get().peek;
       set({
         taskRoomTaskId: taskId,
+        missionCenter: null,
         sessionRoomView: 'conversation',
         sessionTerminalId: null,
         surface: 'home',
@@ -790,6 +814,33 @@ export const useAppStore = create<AppStore>((set, get) => {
         ...crossRailPatch('sessions'),
       });
       void followTaskProject(taskId);
+    },
+
+    openMission(missionId = null) {
+      saveRailView('missions');
+      set({
+        missionCenter: { missionId },
+        taskRoomTaskId: null,
+        sessionTerminalId: null,
+        sessionRoomView: 'conversation',
+        surface: 'home',
+        peek: null,
+        previewRailTaskId: null,
+        sessionTool: 'summary',
+        sessionToolsOpen: false,
+        sessionToolExpanded: false,
+        projectTool: null,
+        projectCenter: null,
+        projectBottomTab: null,
+        archaeology: null,
+        remotesOpen: false,
+        ...crossRailPatch('missions'),
+        railView: 'missions',
+      });
+    },
+
+    closeMission() {
+      set({ missionCenter: null });
     },
 
     setSessionRoomView(sessionRoomView) {
@@ -814,6 +865,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         sessionTerminalId: terminalId,
         sessionTerminalScope: 'single',
         taskRoomTaskId: null,
+        missionCenter: null,
         sessionRoomView: 'conversation',
         surface: 'home',
         peek: null,
@@ -835,6 +887,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         sessionTerminalId: terminalId,
         sessionTerminalScope: 'all',
         taskRoomTaskId: null,
+        missionCenter: null,
         sessionRoomView: 'conversation',
         surface: 'home',
         peek: null,
@@ -856,6 +909,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         sessionTerminalId: terminalId,
         sessionTerminalScope: 'single',
         taskRoomTaskId: null,
+        missionCenter: null,
         sessionRoomView: 'conversation',
         surface: 'home',
         peek: null,
@@ -877,6 +931,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     closeTaskRoom() {
       set({
         taskRoomTaskId: null,
+        missionCenter: null,
         sessionRoomView: 'conversation',
         sessionTerminalId: null,
         sessionTerminalScope: 'single',

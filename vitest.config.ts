@@ -12,6 +12,7 @@ export default defineConfig({
       '@pi-ide/agent-runtime-mock': r('./packages/agent-runtime-mock/src/index.ts'),
       '@pi-ide/agent-runtime-pi': r('./packages/agent-runtime-pi/src/index.ts'),
       '@pi-ide/app-domain': r('./packages/app-domain/src/index.ts'),
+      '@pi-ide/orchestration-domain': r('./packages/orchestration-domain/src/index.ts'),
       '@pi-ide/persistence': r('./packages/persistence/src/index.ts'),
       '@pi-ide/tool-gateway': r('./packages/tool-gateway/src/index.ts'),
       '@pi-ide/workspace-service': r('./packages/workspace-service/src/index.ts'),

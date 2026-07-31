@@ -124,7 +124,7 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([4, 5, 6, 7, 8]);
+    expect(upgraded.appliedVersions).toEqual([4, 5, 6, 7, 8, 9, 10]);
     const names = (
       upgraded.db
         .prepare(
@@ -216,7 +216,7 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([7, 8]);
+    expect(upgraded.appliedVersions).toEqual([7, 8, 9, 10]);
     const status = (id: string) =>
       (
         upgraded.db
@@ -227,6 +227,40 @@ describe('persistence database', () => {
     expect(status('t-live')).toBe('active'); // untouched
     expect(status('t-done')).toBe('ended'); // untouched
     expect(status('t-managed')).toBeNull(); // no external payload
+    upgraded.db.close();
+  });
+
+  it('v9-v10 add normalized Missions, runtime sessions, events, and delivery state', () => {
+    const before = open(MIGRATIONS.slice(0, 8));
+    before.db.close();
+    const upgraded = open(MIGRATIONS);
+    expect(upgraded.appliedVersions).toEqual([9, 10]);
+    const names = (
+      upgraded.db
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN
+           ('missions','mission_tasks','mission_task_dependencies','orchestration_principals',
+            'assignments','execution_attempts','orchestration_messages','mission_events',
+            'orchestration_outbox','assignment_artifacts','orchestration_runtime_sessions',
+            'orchestration_runtime_events','orchestration_message_deliveries') ORDER BY name`,
+        )
+        .all() as { name: string }[]
+    ).map((row) => row.name);
+    expect(names).toEqual([
+      'assignment_artifacts',
+      'assignments',
+      'execution_attempts',
+      'mission_events',
+      'mission_task_dependencies',
+      'mission_tasks',
+      'missions',
+      'orchestration_message_deliveries',
+      'orchestration_messages',
+      'orchestration_outbox',
+      'orchestration_principals',
+      'orchestration_runtime_events',
+      'orchestration_runtime_sessions',
+    ]);
     upgraded.db.close();
   });
 });

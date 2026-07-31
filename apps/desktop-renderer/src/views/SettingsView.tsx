@@ -313,8 +313,8 @@ function CharterTerminalManualRow(): React.JSX.Element {
 
   return (
     <Row
-      label="External CLI instructions"
-      hint="Installs the charter-terminal manual into Charter's Skills store plus ~/.claude/skills and ~/.codex/skills, so hand-launched claude/codex sessions can trigger orchestration"
+      label="Mission orchestration Skill"
+      hint="Installs one generated Mission command manual into Charter, Claude and Codex. Native tools, MCP and the charter CLI share the same command definitions."
     >
       <span className="st-provider-form" style={{ padding: 0 }}>
         {statusError ? <span className="st-hint">{statusError}</span> : null}
@@ -1322,16 +1322,17 @@ export function SettingsView(): React.JSX.Element {
               <div className="st-card-head">
                 <Ic name="terminal" size={14} />
                 <div>
-                  <div className="st-card-title">Session orchestration</div>
+                  <div className="st-card-title">Mission Fabric</div>
                   <div className="st-card-sub">
-                    One agent can direct visible Claude, Codex, or shell workers. Terminal tools run
-                    immediately without permission cards; pause and takeover remain available.
+                    Recursive Agent teams with durable inboxes, parallel scheduling and ACP session
+                    reuse. Claude and Codex automatically fall back to visible terminals if ACP
+                    startup is unavailable.
                   </div>
                 </div>
               </div>
               <Row
-                label="会话编排"
-                hint="Master switch: off unregisters terminal.* tools, removes ctl.sock, and hides every orchestration surface"
+                label="Mission Fabric"
+                hint="Master switch for Mission tools, ACP/MCP bridge, durable messaging and visible terminal fallback"
               >
                 <Toggle
                   testid="settings-orchestration"

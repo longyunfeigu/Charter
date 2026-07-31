@@ -25,6 +25,7 @@
       "@pi-ide/agent-runtime-mock": ["./packages/agent-runtime-mock/src/index.ts"],
       "@pi-ide/agent-runtime-pi": ["./packages/agent-runtime-pi/src/index.ts"],
       "@pi-ide/app-domain": ["./packages/app-domain/src/index.ts"],
+      "@pi-ide/orchestration-domain": ["./packages/orchestration-domain/src/index.ts"],
       "@pi-ide/persistence": ["./packages/persistence/src/index.ts"],
       "@pi-ide/tool-gateway": ["./packages/tool-gateway/src/index.ts"],
       "@pi-ide/workspace-service": ["./packages/workspace-service/src/index.ts"],

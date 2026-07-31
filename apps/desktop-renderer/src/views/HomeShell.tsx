@@ -15,6 +15,7 @@ import { RemoteInspector } from './RemoteInspector.js';
 import { useTerminalStore } from './TerminalPanel.js';
 import { FileLens } from './FileLens.js';
 import { NewProjectDialog } from './NewProjectDialog.js';
+import { MissionCenterView } from './MissionCenterView.js';
 import '../styles/home.css';
 import '../styles/remotes.css';
 import '../styles/room.css';
@@ -22,6 +23,7 @@ import '../styles/context-refs.css';
 import '../styles/session-workbench.css';
 import '../styles/session-canvas.css';
 import '../styles/project-center.css';
+import '../styles/mission.css';
 
 /**
  * Persistent Session shell: the rail is the app's skeleton and never unmounts.
@@ -30,6 +32,7 @@ import '../styles/project-center.css';
  */
 export function HomeShell(): React.JSX.Element {
   const taskRoomTaskId = useAppStore((s) => s.taskRoomTaskId);
+  const missionCenter = useAppStore((s) => s.missionCenter);
   const sessionTerminalId = useAppStore((s) => s.sessionTerminalId);
   const projectTool = useAppStore((s) => s.projectTool);
   const projectCenter = useAppStore((s) => s.projectCenter);
@@ -100,6 +103,8 @@ export function HomeShell(): React.JSX.Element {
           </div>
         ) : sessionTerminalId ? (
           <SessionTerminalView key={sessionTerminalId} terminalId={sessionTerminalId} />
+        ) : missionCenter ? (
+          <MissionCenterView />
         ) : taskRoomTaskId ? (
           <TaskRoomView key={taskRoomTaskId} />
         ) : projectCenter ? (

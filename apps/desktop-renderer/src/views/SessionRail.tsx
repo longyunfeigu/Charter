@@ -22,7 +22,7 @@ import { SkillsRailPanel } from './SkillsRailPanel.js';
 import { useGlowTasks } from './useGlow.js';
 import { sessionDisplayTitle } from '../store/sessionAttention.js';
 import { useArchaeologyStore } from '../store/archaeologyStore.js';
-import { permissionForWorker, useOrchestrationStore } from '../store/orchestrationStore.js';
+import { useOrchestrationStore } from '../store/orchestrationStore.js';
 import {
   ACTIVE_SESSION_GROUP_LIMIT,
   HISTORY_PERIOD_INITIAL_LIMIT,
@@ -38,6 +38,7 @@ import {
   type SessionEntry,
 } from './rail-groups.js';
 import { ActivityBar } from './ActivityBar.js';
+import { MissionRailPanel } from './mission/MissionRailPanel.js';
 import { SessionRenameDialog } from './SessionRenameDialog.js';
 import { visibleAttentionTasks } from '../store/attentionDismissals.js';
 import {
@@ -46,6 +47,11 @@ import {
   externalTerminalLifecycle,
   isExternalCli,
 } from './external-terminal-lifecycle.js';
+import {
+  missionAwareWorking,
+  missionRuntimeStatusByTerminal,
+  type MissionRuntimeStatus,
+} from './mission-runtime-status.js';
 
 export { isHistoryEntry, type SessionEntry } from './rail-groups.js';
 
@@ -256,8 +262,7 @@ function SessionTaskRow({
   now,
   worker = false,
   workerWorking = false,
-  workerCount = 0,
-  orchestrationNeeds = 0,
+  missionRuntimeStatus = null,
 }: {
   task: TaskDto;
   /** Rows inside a project group drop the redundant project name (ADR-0023). */
@@ -265,8 +270,7 @@ function SessionTaskRow({
   now: number;
   worker?: boolean;
   workerWorking?: boolean;
-  workerCount?: number;
-  orchestrationNeeds?: number;
+  missionRuntimeStatus?: MissionRuntimeStatus | null;
 }): React.JSX.Element {
   const app = useAppStore();
   const hoverTooltip = useSessionHoverTooltip();
@@ -281,7 +285,14 @@ function SessionTaskRow({
   const running = RUNNING_TASK_STATES.has(task.state);
   const meta = presentedMeta(task);
   const action = running ? currentActionLine(activity) : null;
-  const badge = statusBadge(task);
+  const missionSettled = missionRuntimeStatus !== null && missionRuntimeStatus !== 'active';
+  const badge = missionSettled
+    ? missionRuntimeStatus === 'succeeded'
+      ? { label: 'Done', tone: 'answered' }
+      : missionRuntimeStatus === 'failed'
+        ? { label: 'Failed', tone: 'failed' }
+        : { label: 'Stopped', tone: 'neutral' }
+    : statusBadge(task);
   const externalSession = useExternalStore((state) => state.sessions[task.id]);
   const externalWorking = useExternalStore((state) => Boolean(state.working[task.id]));
   const resumingTaskId = useExternalStore((state) => state.resumingTaskId);
@@ -294,7 +305,7 @@ function SessionTaskRow({
     ? (externalSession?.status ?? task.external.status) === 'active'
     : running;
   const working = task.external
-    ? externalWorking || workerWorking
+    ? missionAwareWorking(externalWorking || workerWorking, missionRuntimeStatus)
     : ['EXPLORING', 'PLANNING', 'IN_PROGRESS', 'VERIFYING'].includes(task.state);
   const resumable = canResumeExternal(task) && !live;
   const endable = task.external !== null && live;
@@ -323,13 +334,6 @@ function SessionTaskRow({
     app.openTaskRoom(task.id);
   };
 
-  const openFleet = (event: React.MouseEvent): void => {
-    event.stopPropagation();
-    void useTaskStore.getState().openTask(task.id);
-    app.openTaskRoom(task.id);
-    app.setSessionRoomView('fleet');
-  };
-
   const endExternalSession = (): void => {
     if (!task.external || endingExternal) return;
     setEndingExternal(true);
@@ -351,7 +355,7 @@ function SessionTaskRow({
 
   return (
     <div
-      className={`sr-row-wrap ${showProject ? 'has-detail' : ''} ${hasActions ? 'has-actions' : ''} ${worker ? 'sr-orch-worker' : ''} ${workerCount > 0 ? 'has-fleet' : ''}`}
+      className={`sr-row-wrap ${showProject ? 'has-detail' : ''} ${hasActions ? 'has-actions' : ''} ${worker ? 'sr-orch-worker' : ''}`}
     >
       <button
         className={`sr-session ${showProject ? 'has-detail' : ''} ${selected ? 'selected' : ''} ${working ? 'is-working' : ''} ${glowTasks.has(task.id) ? 'glow-pulse' : ''} ${completion ? `completion-ripple completion-${completion.tone}` : ''} ${reply ? 'reply-shake' : ''}`}
@@ -412,21 +416,6 @@ function SessionTaskRow({
           ) : null}
         </span>
       </button>
-      {workerCount > 0 ? (
-        <button
-          className={`sr-fleet-shortcut ${selected && app.sessionRoomView === 'fleet' ? 'active' : ''}`}
-          data-testid={`home-fleet-${task.id}`}
-          title={`Open Fleet · ${workerCount} worker${workerCount === 1 ? '' : 's'}${
-            orchestrationNeeds > 0 ? ` · ${orchestrationNeeds} need attention` : ''
-          }`}
-          aria-label={`Open Fleet for ${displayTitle}`}
-          onClick={openFleet}
-        >
-          <span>⌁</span>
-          <b>{workerCount}</b>
-          {orchestrationNeeds > 0 ? <i>{orchestrationNeeds}</i> : null}
-        </button>
-      ) : null}
       {hasActions ? (
         <div className="sr-actions">
           {endable ? (
@@ -485,12 +474,14 @@ function TerminalSessionRow({
   showProject = true,
   worker = false,
   working = false,
+  missionRuntimeStatus = null,
 }: {
   terminalId: string;
   launch: 'shell' | 'claude' | 'codex';
   showProject?: boolean;
   worker?: boolean;
   working?: boolean;
+  missionRuntimeStatus?: MissionRuntimeStatus | null;
 }): React.JSX.Element | null {
   const app = useAppStore();
   const hoverTooltip = useSessionHoverTooltip();
@@ -498,6 +489,8 @@ function TerminalSessionRow({
   if (!item) return null;
   const selected = app.sessionTerminalId === terminalId;
   const provider = launch;
+  const missionSettled = missionRuntimeStatus !== null && missionRuntimeStatus !== 'active';
+  const visiblyWorking = missionAwareWorking(working, missionRuntimeStatus);
   // The brand mark carries the provider — never repeat the CLI name as the
   // title. Generic launch titles read as an unnamed session.
   const sessionName = isExternalCli(launch) ? externalSessionTitle(launch, item.title) : item.title;
@@ -505,7 +498,7 @@ function TerminalSessionRow({
     ? 'Process ended'
     : item.remote
       ? 'Remote SSH session live'
-      : working
+      : visiblyWorking
         ? `${providerLabel(provider)} working`
         : 'Terminal live';
   const rowDescription = `${providerLabel(provider)} · ${sessionName} · ${item.contextLabel} — ${terminalState}`;
@@ -514,10 +507,10 @@ function TerminalSessionRow({
       className={`sr-row-wrap ${showProject ? 'has-detail' : ''} ${worker ? 'sr-orch-worker' : ''}`}
     >
       <button
-        className={`sr-session ${showProject ? 'has-detail' : ''} ${selected ? 'selected' : ''} ${working ? 'is-working' : ''}`}
+        className={`sr-session ${showProject ? 'has-detail' : ''} ${selected ? 'selected' : ''} ${visiblyWorking ? 'is-working' : ''}`}
         data-testid={`session-terminal-${terminalId}`}
         data-session-key={`terminal:${terminalId}`}
-        data-working={working ? 'true' : 'false'}
+        data-working={visiblyWorking ? 'true' : 'false'}
         aria-label={rowDescription}
         {...hoverTooltip.triggerProps(rowDescription, `session-tooltip-terminal-${terminalId}`)}
         onClick={() => {
@@ -528,13 +521,30 @@ function TerminalSessionRow({
           app.openTerminalSession(terminalId);
         }}
       >
-        <ProviderMark provider={provider} className={working ? 'is-working' : ''} />
+        <ProviderMark provider={provider} className={visiblyWorking ? 'is-working' : ''} />
         <span className="sr-session-copy">
           <span className="sr-session-title">
             <span className={`sr-live-dot ${item.exited ? '' : 'live'}`} />
             {item.remote ? <span className="sr-remote-mark">⌁</span> : null}
             <b>{sessionName}</b>
             {item.exited ? <span className="sr-state neutral">Ended</span> : null}
+            {!item.exited && missionSettled ? (
+              <span
+                className={`sr-state ${
+                  missionRuntimeStatus === 'succeeded'
+                    ? 'answered'
+                    : missionRuntimeStatus === 'failed'
+                      ? 'failed'
+                      : 'neutral'
+                }`}
+              >
+                {missionRuntimeStatus === 'succeeded'
+                  ? 'Done'
+                  : missionRuntimeStatus === 'failed'
+                    ? 'Failed'
+                    : 'Stopped'}
+              </span>
+            ) : null}
           </span>
           {showProject ? (
             <span className="sr-session-detail">
@@ -578,7 +588,11 @@ export function SessionRail(): React.JSX.Element {
   const terminalStore = useTerminalStore();
   const taskByTerminal = useExternalStore((state) => state.taskByTerminal);
   const orchestration = useOrchestrationStore((state) => state.snapshot);
-  const orchestrationPermissions = useOrchestrationStore((state) => state.permissions);
+  const missionsById = useOrchestrationStore((state) => state.missionsById);
+  const missionRuntimeStatuses = useMemo(
+    () => missionRuntimeStatusByTerminal(Object.values(missionsById)),
+    [missionsById],
+  );
   const inbox = visibleAttentionTasks(tasks, attentionDismissals);
   const [recent, setRecent] = useState<RecentWorkspaceDto[]>([]);
   // ADR-0029: the rail view lives in the app store so commands (⌘⇧E) and
@@ -608,7 +622,8 @@ export function SessionRail(): React.JSX.Element {
   // project-attributed counts.
   const discovered = useArchaeologyStore((s) => s.sessions);
   const setView = (next: RailView): void => {
-    app.setRailView(next);
+    if (next === 'missions') app.openMission(app.missionCenter?.missionId ?? null);
+    else app.setRailView(next);
     if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(true);
     // Rail navigation dismisses the Remotes surface — switching the left panel
     // while the main area stays parked on hosts reads as a dead click.
@@ -1033,34 +1048,26 @@ export function SessionRail(): React.JSX.Element {
     if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(false);
   };
 
-  const renderSessionEntry = (entry: SessionEntry, showProject: boolean): React.ReactNode =>
-    entry.kind === 'task' ? (
-      <SessionTaskRow
-        key={entry.key}
-        task={entry.task}
-        showProject={showProject}
-        now={now}
-        worker={orchestration.workers.some((worker) => worker.taskId === entry.task.id)}
-        workerWorking={orchestration.workers.some(
-          (worker) => worker.taskId === entry.task.id && worker.status === 'streaming',
-        )}
-        workerCount={
-          orchestration.workers.filter((worker) => worker.commanderTaskId === entry.task.id).length
-        }
-        orchestrationNeeds={
-          orchestration.workers.some((worker) => worker.taskId === entry.task.id)
-            ? orchestration.workers.filter(
-                (worker) =>
-                  worker.taskId === entry.task.id &&
-                  permissionForWorker(
-                    orchestrationPermissions[worker.commanderTaskId] ?? [],
-                    worker.terminalId,
-                  ),
-              ).length
-            : (orchestrationPermissions[entry.task.id]?.length ?? 0)
-        }
-      />
-    ) : (
+  const renderSessionEntry = (entry: SessionEntry, showProject: boolean): React.ReactNode => {
+    if (entry.kind === 'task') {
+      const terminalId = entry.task.external?.terminalId ?? null;
+      return (
+        <SessionTaskRow
+          key={entry.key}
+          task={entry.task}
+          showProject={showProject}
+          now={now}
+          worker={orchestration.workers.some((worker) => worker.taskId === entry.task.id)}
+          workerWorking={orchestration.workers.some(
+            (worker) => worker.taskId === entry.task.id && worker.status === 'streaming',
+          )}
+          missionRuntimeStatus={
+            terminalId ? (missionRuntimeStatuses.get(terminalId) ?? null) : null
+          }
+        />
+      );
+    }
+    return (
       <TerminalSessionRow
         key={entry.key}
         terminalId={entry.terminalId}
@@ -1070,8 +1077,10 @@ export function SessionRail(): React.JSX.Element {
         working={orchestration.workers.some(
           (worker) => worker.terminalId === entry.terminalId && worker.status === 'streaming',
         )}
+        missionRuntimeStatus={missionRuntimeStatuses.get(entry.terminalId) ?? null}
       />
     );
+  };
 
   // ADR-0024 (mock B+D): Sessions ⇄ Files segmented tabs. The attention dot on
   // Sessions keeps needs-you visible while the Files tree is showing.
@@ -1653,7 +1662,7 @@ export function SessionRail(): React.JSX.Element {
         compactPanelOpen ? 'compact-open' : ''
       } ${railResizing ? 'is-resizing' : ''}`}
       data-testid="home-sidebar"
-      aria-label={view === 'skills' ? 'Skills' : 'Sessions'}
+      aria-label={view === 'skills' ? 'Skills' : view === 'missions' ? 'Missions' : 'Sessions'}
       style={{ '--rail-width': `${railWidth}px` } as React.CSSProperties}
     >
       <ActivityBar
@@ -1690,6 +1699,8 @@ export function SessionRail(): React.JSX.Element {
         </button>
         {view === 'inbox' ? (
           inboxPanel
+        ) : view === 'missions' ? (
+          <MissionRailPanel />
         ) : view === 'projects' ? (
           projectsPanel
         ) : view === 'skills' ? (

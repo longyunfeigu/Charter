@@ -20,6 +20,7 @@ import type {
   TaskPlan,
   ToolCallRequest,
 } from '@pi-ide/agent-contract';
+import type { OrchestrationCallerContext } from '@pi-ide/orchestration-domain';
 import type {
   ActivityItem,
   AskUserPromptDto,
@@ -58,6 +59,7 @@ import {
   type ProposedPlanInput,
   type ToolAuditRecord,
   type ToolGateway,
+  type OrchestrationToolServices,
   type VerificationGate,
 } from '@pi-ide/tool-gateway';
 import { parseHunks, type ChangeSet } from '@pi-ide/change-service';
@@ -82,6 +84,7 @@ import { WorktreeService, type TaskWorktree } from './worktree-service.js';
 import { buildPrCommands, buildPrDraft } from './pr-draft.js';
 import { buildExternalSessionIndex, type ExternalSessionRow } from './external-session-index.js';
 import { broadcast } from '../broadcast.js';
+import { CHARTER_ORCHESTRATION_PREAMBLE } from './orchestration-manual.js';
 
 /** ADR-0022: preview-feedback metadata recorded on the user.message event. */
 export interface PreviewFeedbackMeta {
@@ -198,6 +201,7 @@ export interface HistoricalOrchestrationWorker {
   root: string;
   projectPath: string;
   title: string;
+  idempotencyKey?: string | null;
 }
 
 /** One still-live terminal relationship projected from the durable event ledger. */
@@ -242,6 +246,7 @@ export function projectHistoricalOrchestrationFleet(
       launch: 'shell' | 'claude' | 'codex';
       root: string | null;
       title: string | null;
+      idempotencyKey: string | null;
     }
   >();
   for (const event of events) {
@@ -258,6 +263,8 @@ export function projectHistoricalOrchestrationFleet(
         launch,
         root: typeof event.payload.root === 'string' ? event.payload.root : null,
         title: typeof event.payload.title === 'string' ? event.payload.title : null,
+        idempotencyKey:
+          typeof event.payload.idempotencyKey === 'string' ? event.payload.idempotencyKey : null,
       });
     } else if (event.type === 'orchestration.workerBound') {
       const worker = workers.get(terminalId);
@@ -279,6 +286,7 @@ export function projectHistoricalOrchestrationFleet(
       root: worker.root ?? externalTask?.external.cwd ?? fallbackRoot,
       projectPath: externalTask?.projectPath ?? fallbackRoot,
       title: worker.title ?? externalTask?.title ?? `${worker.launch} worker`,
+      ...(worker.idempotencyKey ? { idempotencyKey: worker.idempotencyKey } : {}),
     };
   });
 }
@@ -327,6 +335,7 @@ export class TaskService {
   private readonly sequences = createSequenceAllocator();
   private readonly sessionRefs = new Map<string, RuntimeSessionRef>();
   private readonly runsByTask = new Map<string, string>();
+  private readonly orchestrationByTask = new Map<string, OrchestrationCallerContext>();
   private readonly startQueue: Array<{
     taskId: string;
     prompt: string | undefined;
@@ -445,6 +454,7 @@ export class TaskService {
     );
     this.unsubscribeOrchestrationSettings = settings.onChange((state) => {
       this.contexts.syncTerminalTools(state.effective.orchestration.enabled);
+      this.contexts.syncOrchestrationTools(state.effective.orchestration.enabled);
     });
     host.delegate = {
       onAgentEvent: (taskId, runId, event) => this.onAgentEvent(taskId, runId, event),
@@ -477,6 +487,57 @@ export class TaskService {
     } catch {
       return null;
     }
+  }
+
+  attachOrchestrationTools(services: OrchestrationToolServices | null): void {
+    this.contexts.configureOrchestrationTools(services);
+  }
+
+  async createOrchestratedTask(
+    input: CreateTaskInput,
+    caller: OrchestrationCallerContext,
+    launch?: { attemptId: string; idempotencyKey: string },
+  ): Promise<{ taskId: string; queued: boolean }> {
+    if (launch) {
+      const existing = this.db
+        .prepare(
+          `SELECT task_id FROM task_events
+           WHERE type = 'orchestration.attemptBound'
+             AND json_extract(payload_json, '$.attemptId') = ?
+           ORDER BY rowid DESC LIMIT 1`,
+        )
+        .get(launch.attemptId) as { task_id: string } | undefined;
+      if (existing) {
+        const task = this.getTask(existing.task_id);
+        this.orchestrationByTask.set(task.id, caller);
+        if (['READY', 'IDLE', 'INTERRUPTED', 'FAILED'].includes(task.state)) {
+          const started = await this.startTask(task.id);
+          return { taskId: task.id, queued: started.queued };
+        }
+        return { taskId: task.id, queued: task.state === 'READY' };
+      }
+    }
+    const task = await this.createTask(input);
+    this.orchestrationByTask.set(task.id, caller);
+    if (launch) {
+      this.recordEvent(task.id, 'orchestration.attemptBound', launch);
+    }
+    try {
+      const started = await this.startTask(task.id);
+      return { taskId: task.id, queued: started.queued };
+    } catch (error) {
+      this.orchestrationByTask.delete(task.id);
+      throw error;
+    }
+  }
+
+  async steerOrchestratedTask(taskId: string, text: string): Promise<void> {
+    const runId = this.runsByTask.get(taskId) ?? this.host.activeRunForTask(taskId);
+    if (runId) {
+      this.host.steer(runId, text);
+      return;
+    }
+    await this.startTask(taskId, text);
   }
 
   /** The authenticated external control door has no managed runtime run, but
@@ -2578,6 +2639,7 @@ export class TaskService {
         launch: 'shell' | 'claude' | 'codex';
         root: string | null;
         title: string | null;
+        idempotencyKey: string | null;
         turnPending: boolean;
       }
     >();
@@ -2605,6 +2667,8 @@ export class TaskService {
           launch,
           root: typeof payload?.root === 'string' ? payload.root : null,
           title: typeof payload?.title === 'string' ? payload.title : null,
+          idempotencyKey:
+            typeof payload?.idempotencyKey === 'string' ? payload.idempotencyKey : null,
           turnPending: false,
         });
       } else if (row.type === 'orchestration.workerBound') {
@@ -2649,6 +2713,7 @@ export class TaskService {
           root: worker.root ?? externalTask?.external.cwd ?? fallbackRoot,
           projectPath: externalTask?.projectPath ?? fallbackRoot,
           title: worker.title ?? externalTask?.title ?? `${worker.launch} worker`,
+          ...(worker.idempotencyKey ? { idempotencyKey: worker.idempotencyKey } : {}),
           turnPending: worker.turnPending,
         },
       ];
@@ -3125,30 +3190,34 @@ export class TaskService {
     // ADR-0037: explicit `/skill:` runs bypass load_skill — ledger them here.
     const expandedCommand = this.skills.expandCommandDetailed(runtimeText);
     this.recordSkillInvocation(expandedCommand.skill, taskId);
-    this.host.startRun(taskId, {
-      sessionRef: ref,
-      runId,
-      // ADR-0015: a leading `/skill:name` expands to the skill's instructions
-      // (the timeline keeps the user's original text above).
-      // Reused runtime sessions keep their original system preamble. Refresh
-      // the derived skill catalog on each later run so linked-source changes
-      // are visible without recreating the conversation session.
-      prompt: [
-        ...(refreshedSkills
-          ? [`<skill_catalog_refresh>\n${refreshedSkills}\n</skill_catalog_refresh>`]
-          : []),
-        ...(refreshedRules ? [refreshedRules] : []),
-        formatPromptWithArtifactFeedback(
-          formatPromptWithFileContext(
-            formatPromptWithCodeContext(expandedCommand.text, extras?.codeRefs ?? []),
-            extras?.fileRefs ?? [],
+    this.host.startRun(
+      taskId,
+      {
+        sessionRef: ref,
+        runId,
+        // ADR-0015: a leading `/skill:name` expands to the skill's instructions
+        // (the timeline keeps the user's original text above).
+        // Reused runtime sessions keep their original system preamble. Refresh
+        // the derived skill catalog on each later run so linked-source changes
+        // are visible without recreating the conversation session.
+        prompt: [
+          ...(refreshedSkills
+            ? [`<skill_catalog_refresh>\n${refreshedSkills}\n</skill_catalog_refresh>`]
+            : []),
+          ...(refreshedRules ? [refreshedRules] : []),
+          formatPromptWithArtifactFeedback(
+            formatPromptWithFileContext(
+              formatPromptWithCodeContext(expandedCommand.text, extras?.codeRefs ?? []),
+              extras?.fileRefs ?? [],
+            ),
+            extras?.artifactRefs ?? [],
           ),
-          extras?.artifactRefs ?? [],
-        ),
-      ].join('\n\n'),
-      ...(extras?.images?.length ? { images: extras.images } : {}),
-      priorConversations,
-    });
+        ].join('\n\n'),
+        ...(extras?.images?.length ? { images: extras.images } : {}),
+        priorConversations,
+      },
+      this.orchestrationByTask.get(taskId) ?? null,
+    );
   }
 
   private initialPrompt(task: TaskDto): string {
@@ -3186,6 +3255,7 @@ export class TaskService {
       ...(planRule ? [planRule] : []),
       'Use only the provided tools. read_file returns a hash — pass it as baseHash when patching.',
       'Never claim work is complete without evidence from tools; verification results are recorded by the IDE.',
+      ...(this.settings.effective.orchestration.enabled ? [CHARTER_ORCHESTRATION_PREAMBLE] : []),
       // ADR-0015: enabled, model-invocable skills (loading goes through the
       // audited load_skill tool; explicit-only skills stay out of this list).
       ...(skillsBlock ? [skillsBlock] : []),

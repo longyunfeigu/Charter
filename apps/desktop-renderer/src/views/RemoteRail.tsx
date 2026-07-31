@@ -62,7 +62,8 @@ export function RemoteRail(): React.JSX.Element {
 
   const leaveRemote = (view: Exclude<RailView, 'files'>): void => {
     app.closeRemotes();
-    app.setRailView(view);
+    if (view === 'missions') app.openMission(null);
+    else app.setRailView(view);
   };
 
   const openImport = async (): Promise<void> => {

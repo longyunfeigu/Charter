@@ -4,6 +4,8 @@ import { useAppStore } from '../store/appStore.js';
 import { useTaskStore } from '../store/taskStore.js';
 import { visibleAttentionTasks } from '../store/attentionDismissals.js';
 import { Ic } from './home-icons.js';
+import { useOrchestrationStore } from '../store/orchestrationStore.js';
+import { TERMINAL_MISSION_STATES } from './mission/mission-view-model.js';
 
 export type ActivityDestination = RailView | 'remotes';
 
@@ -28,6 +30,13 @@ export function ActivityBar({
     (state) => visibleAttentionTasks(state.tasks, state.attentionDismissals).length,
   );
   const sessionsActive = active === 'sessions' || active === 'files';
+  const activeMissionCount = useOrchestrationStore(
+    (state) =>
+      state.missionOrder.filter((id) => {
+        const snapshot = state.missionsById[id];
+        return snapshot && !TERMINAL_MISSION_STATES.has(snapshot.mission.state);
+      }).length,
+  );
 
   return (
     <nav className="sr-activity" aria-label="Application">
@@ -42,6 +51,18 @@ export function ActivityBar({
         onClick={() => onSelect('sessions')}
       >
         <Ic name="sessions" size={17} />
+      </button>
+      <button
+        className={`sr-activity-item ${active === 'missions' ? 'active' : ''}`}
+        data-testid="rail-view-missions"
+        aria-label="Missions"
+        title="Missions"
+        onClick={() => onSelect('missions')}
+      >
+        <Ic name="compass" size={17} />
+        {activeMissionCount > 0 ? (
+          <span className="sr-mini-badge mission-count">{activeMissionCount}</span>
+        ) : null}
       </button>
       <button
         className={`sr-activity-item ${active === 'inbox' ? 'active' : ''}`}
@@ -71,15 +92,6 @@ export function ActivityBar({
         onClick={onRemotes}
       >
         <Ic name="remote-terminal" size={17} />
-      </button>
-      <button
-        className="sr-activity-item"
-        data-testid="rail-search"
-        aria-label="Search everything"
-        title="Search everything · ⌘K"
-        onClick={() => app.setLauncherOpen(true)}
-      >
-        <Ic name="search" size={16} />
       </button>
       <button
         className={`sr-activity-item ${app.overlay === 'memory' ? 'active' : ''}`}

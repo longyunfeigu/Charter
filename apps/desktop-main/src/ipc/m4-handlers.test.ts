@@ -18,4 +18,15 @@ describe('terminalLaunchCommand (product-owned launch presets)', () => {
     expect(terminalLaunchCommand('claude', 'abc; rm -rf .')).toBe('claude');
     expect(terminalLaunchCommand('claude', '$(evil)')).toBe('claude');
   });
+
+  it('uses the absolute host wrapper even when the user shell reorders PATH', () => {
+    const id = '924241d6-f2e8-444d-8d75-0386362bf52f';
+    const wrapper = "/tmp/Charter user's data/claude";
+    expect(terminalLaunchCommand('claude', id, wrapper)).toBe(
+      `'${wrapper.replaceAll("'", "'\\''")}' --session-id ${id}`,
+    );
+    expect(terminalLaunchCommand('codex', null, '/tmp/Charter Data/codex')).toBe(
+      "'/tmp/Charter Data/codex'",
+    );
+  });
 });

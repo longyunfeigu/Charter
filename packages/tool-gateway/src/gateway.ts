@@ -147,8 +147,14 @@ export class ToolGateway {
   }
 
   register<I>(tool: GatewayTool<I>): void {
-    if (tool.permissionPolicy === 'auto-allow' && !tool.name.startsWith('terminal.')) {
-      throw new Error('The auto-allow permission policy is reserved for terminal.* tools.');
+    if (
+      tool.permissionPolicy === 'auto-allow' &&
+      !tool.name.startsWith('terminal.') &&
+      !tool.name.startsWith('orchestration.')
+    ) {
+      throw new Error(
+        'The auto-allow permission policy is reserved for terminal.* and orchestration.* tools.',
+      );
     }
     this.tools.set(tool.name, tool as GatewayTool<never>);
   }

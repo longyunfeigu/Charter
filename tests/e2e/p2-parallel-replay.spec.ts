@@ -138,6 +138,27 @@ test.describe('P2 — parallel runs, session replay, quick launcher', () => {
     });
     try {
       const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+      const projectName = fixture.split('/').at(-1)!;
+      await expect(page.getByTestId('rail-search')).toHaveCount(0);
+
+      // A real Session title is indexed across projects.
+      await page.getByTestId('surface-home').click();
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i);
+      await page.getByTestId('home-mode-auto').click();
+      await page
+        .getByTestId('home-intent')
+        .fill('[scenario:edit-basic] searchable launcher session');
+      await page.getByTestId('home-submit').click();
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+        timeout: 30_000,
+      });
+
+      await page.keyboard.press(`${mod}+k`);
+      await page.getByTestId('qk-input').fill('searchable launcher session');
+      await expect(page.locator('[data-testid^="qk-task-"]')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await page.getByTestId('task-room-back').click();
+
       await page.keyboard.press(`${mod}+k`);
       await expect(page.getByTestId('qk-view')).toBeVisible();
 
@@ -152,8 +173,12 @@ test.describe('P2 — parallel runs, session replay, quick launcher', () => {
       await page.keyboard.press(`${mod}+k`);
       await page.getByTestId('qk-input').fill('settings');
       await expect(page.getByTestId('qk-action-settings')).toBeVisible();
-      await page.getByTestId('qk-input').fill('');
-      await expect(page.getByTestId('qk-view')).toContainText('node'); // project kind badge
+      await page.getByTestId('qk-input').fill(projectName);
+      const projectResult = page
+        .locator('[data-testid^="qk-project-"]')
+        .filter({ hasText: projectName });
+      await expect(projectResult).toBeVisible();
+      await expect(projectResult).toContainText('node'); // project kind badge
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('qk-view')).toHaveCount(0);
     } finally {

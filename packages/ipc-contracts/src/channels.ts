@@ -53,7 +53,12 @@ import {
   DiscoveredSessionDtoSchema,
   MAX_DISCOVERED_SESSIONS,
 } from './archaeology.js';
-import { OrchestrationSnapshotSchema } from './orchestration.js';
+import {
+  MissionSnapshotSchema,
+  OrchestrationSnapshotSchema,
+  PrincipalKindSchema,
+  RuntimeKindSchema,
+} from './orchestration.js';
 import {
   ArtifactDescriptorSchema,
   ArtifactFeedbackRefsSchema,
@@ -1019,6 +1024,155 @@ export const CHANNELS = {
       })
       .strict(),
     z.object({ recorded: z.boolean() }),
+  ),
+  'mission.forConversation': ch(
+    'mission.forConversation',
+    1,
+    z.object({ taskId: z.string().min(1) }).strict(),
+    z.object({ snapshot: MissionSnapshotSchema.nullable() }),
+  ),
+  'mission.listActive': ch(
+    'mission.listActive',
+    1,
+    z.object({}).strict(),
+    z.object({ missions: z.array(MissionSnapshotSchema) }),
+  ),
+  'mission.list': ch(
+    'mission.list',
+    1,
+    z.object({ limit: z.number().int().min(1).max(200).default(50) }).strict(),
+    z.object({ missions: z.array(MissionSnapshotSchema) }),
+  ),
+  'mission.pauseAssignment': ch(
+    'mission.pauseAssignment',
+    1,
+    z
+      .object({
+        missionId: z.string().min(1),
+        assignmentId: z.string().min(1),
+        paused: z.boolean(),
+      })
+      .strict(),
+    MissionSnapshotSchema,
+  ),
+  'mission.steerAssignment': ch(
+    'mission.steerAssignment',
+    1,
+    z
+      .object({
+        missionId: z.string().min(1),
+        assignmentId: z.string().min(1),
+        text: z.string().min(1).max(100_000),
+      })
+      .strict(),
+    MissionSnapshotSchema,
+  ),
+  'mission.replyMessage': ch(
+    'mission.replyMessage',
+    1,
+    z
+      .object({
+        missionId: z.string().min(1),
+        messageId: z.string().min(1),
+        body: z.string().min(1).max(100_000),
+      })
+      .strict(),
+    MissionSnapshotSchema,
+  ),
+  'mission.closeRuntime': ch(
+    'mission.closeRuntime',
+    1,
+    z
+      .object({
+        missionId: z.string().min(1),
+        assignmentId: z.string().min(1),
+        reason: z.string().min(1).max(4_000),
+      })
+      .strict(),
+    MissionSnapshotSchema,
+  ),
+  'mission.promoteLead': ch(
+    'mission.promoteLead',
+    1,
+    z
+      .object({
+        missionId: z.string().min(1),
+        assignmentId: z.string().min(1),
+        reason: z.string().min(1).max(4_000),
+      })
+      .strict(),
+    MissionSnapshotSchema,
+  ),
+  'mission.cancelAssignment': ch(
+    'mission.cancelAssignment',
+    1,
+    z
+      .object({
+        missionId: z.string().min(1),
+        assignmentId: z.string().min(1),
+        reason: z.string().min(1).max(4000),
+      })
+      .strict(),
+    MissionSnapshotSchema,
+  ),
+  'mission.retryAssignment': ch(
+    'mission.retryAssignment',
+    1,
+    z
+      .object({
+        missionId: z.string().min(1),
+        assignmentId: z.string().min(1),
+        requestedRuntime: RuntimeKindSchema.optional(),
+      })
+      .strict(),
+    MissionSnapshotSchema,
+  ),
+  'mission.reassignAssignment': ch(
+    'mission.reassignAssignment',
+    1,
+    z
+      .object({
+        missionId: z.string().min(1),
+        assignmentId: z.string().min(1),
+        assignee: z
+          .object({
+            principalId: z.string().min(1).optional(),
+            kind: PrincipalKindSchema,
+            provider: z.string().nullable().optional(),
+            externalIdentity: z.string().nullable().optional(),
+            displayName: z.string().min(1).max(300),
+          })
+          .strict(),
+        requestedRuntime: RuntimeKindSchema.optional(),
+        requestedModel: z.string().nullable().optional(),
+        reason: z.string().min(1).max(4000),
+      })
+      .strict(),
+    MissionSnapshotSchema,
+  ),
+  'mission.finish': ch(
+    'mission.finish',
+    1,
+    z
+      .object({
+        missionId: z.string().min(1),
+        outcome: z.enum(['completed', 'failed', 'cancelled']),
+        reason: z.string().min(1).max(4000),
+      })
+      .strict(),
+    MissionSnapshotSchema,
+  ),
+  'mission.requestRevision': ch(
+    'mission.requestRevision',
+    1,
+    z
+      .object({
+        missionId: z.string().min(1),
+        feedback: z.string().min(1).max(100_000),
+        idempotencyKey: z.string().min(1).max(300),
+      })
+      .strict(),
+    MissionSnapshotSchema,
   ),
   /** ADR-0033: modifier-click a terminal file token. Workspace files keep the
    * editor/system split; explicit absolute paths outside the focused workspace

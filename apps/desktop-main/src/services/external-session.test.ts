@@ -3,6 +3,8 @@ import type { CodeContextRefDto } from '@pi-ide/ipc-contracts';
 import {
   codexStartupComposerReady,
   codexStartupTrustGateActive,
+  codexStartupUpdateGateActive,
+  externalPromptEnterDelayMs,
   externalInjectText,
   isExternalPromptSubmit,
   externalResumeCommand,
@@ -76,6 +78,25 @@ describe('codexStartupTrustGateActive', () => {
         'Press enter to continue\u001b[2J>_ OpenAI Codex (v0.145.0) /model to change',
       ),
     ).toBe(true);
+  });
+});
+
+describe('codexStartupUpdateGateActive', () => {
+  it('recognizes the optional Codex self-update screen before the Composer', () => {
+    expect(
+      codexStartupUpdateGateActive(
+        '✨ Update available! 0.145.0 -> 0.146.0 › 1. Update now 2. Skip ' +
+          '3. Skip until next version Press enter to continue',
+      ),
+    ).toBe(true);
+  });
+
+  it('ignores retained update text once the Composer has painted', () => {
+    expect(
+      codexStartupUpdateGateActive(
+        'Update available! 1. Update now 2. Skip\u001b[2J>_ OpenAI Codex /model to change',
+      ),
+    ).toBe(false);
   });
 });
 
@@ -247,6 +268,18 @@ describe('isExternalPromptSubmit', () => {
   it('recognizes Enter without treating multiline pasted content as submitted', () => {
     expect(isExternalPromptSubmit('\r')).toBe(true);
     expect(isExternalPromptSubmit('\u001b[200~line one\nline two\u001b[201~')).toBe(false);
+  });
+});
+
+describe('externalPromptEnterDelayMs', () => {
+  it('keeps ordinary prompts responsive and gives long bracketed pastes time to settle', () => {
+    expect(externalPromptEnterDelayMs('hi')).toBe(251);
+    expect(externalPromptEnterDelayMs('x'.repeat(4_000))).toBe(1_250);
+    expect(externalPromptEnterDelayMs('x'.repeat(40_000))).toBe(3_000);
+  });
+
+  it('scales by UTF-8 bytes instead of JavaScript code units', () => {
+    expect(externalPromptEnterDelayMs('你'.repeat(1_000))).toBe(1_000);
   });
 });
 

@@ -119,6 +119,7 @@ export interface OrchestrationFleetRestoreMember {
   root: string;
   projectPath: string;
   title: string;
+  idempotencyKey?: string | null;
 }
 
 /** A live worker relationship reconstructed from the durable task ledger. */
@@ -145,6 +146,7 @@ interface WorkerRelation {
   launch: 'shell' | 'claude' | 'codex';
   title: string;
   projectName: string;
+  idempotencyKey: string | null;
   closeRequested: boolean;
   starting: boolean;
   startupTimer: ReturnType<typeof setTimeout> | null;
@@ -199,6 +201,8 @@ export interface TerminalControlServiceOptions {
   recordEvent?: (taskId: string, type: string, payload: Record<string, unknown>) => void;
   now?: () => number;
   settleMs?: number;
+  /** Absolute host-owned MCP wrapper for visible agent runtimes. */
+  resolveAgentExecutable?: (launch: 'claude' | 'codex') => string | null;
 }
 
 /** The one orchestration heart behind both Gateway tools and ctl.sock. */
@@ -209,6 +213,14 @@ export class TerminalControlService implements TerminalControlPort {
   private readonly sendTimes = new Map<string, number[]>();
   private readonly lastSendExitSequence = new Map<string, number>();
   private readonly lastSendTurnSequence = new Map<string, number>();
+  /** Mission runtimes may adopt an already-open user terminal, so they are
+   * not necessarily present in the legacy worker graph. Keep their held input
+   * here instead of pretending that every Mission member is a V1 worker. */
+  private readonly heldRuntimeInput = new Map<string, Array<{ text: string; submit: boolean }>>();
+  private readonly queuedRuntimeNotifications = new Map<
+    string,
+    Array<{ text: string; submit: boolean }>
+  >();
   private readonly waiters = new Map<number, Waiter>();
   private readonly externalCallers = new Map<string, string>();
   private waiterSequence = 0;
@@ -251,6 +263,7 @@ export class TerminalControlService implements TerminalControlPort {
       const state = this.stateFor(id);
       state.exited = true;
       state.processExitCode = exitCode;
+      this.heldRuntimeInput.delete(id);
       const worker = this.workers.get(id);
       if (worker) {
         if (worker.startupTimer) clearTimeout(worker.startupTimer);
@@ -422,17 +435,30 @@ export class TerminalControlService implements TerminalControlPort {
       launch: 'shell' | 'claude' | 'codex';
       initialText?: string;
       submit: boolean;
+      idempotencyKey?: string;
+      bypassLegacyBudget?: boolean;
     },
   ): Promise<unknown> {
     this.assertEnabled();
     this.assertTopLevel(caller);
+    if (input.idempotencyKey) {
+      const existing = [...this.workers.values()].find(
+        (worker) =>
+          worker.idempotencyKey === input.idempotencyKey &&
+          this.terminals.list().some((terminal) => terminal.id === worker.terminalId),
+      );
+      if (existing) {
+        const terminal = this.terminals.list().find((item) => item.id === existing.terminalId)!;
+        return { terminal, worker: this.workerSnapshot(existing), reused: true };
+      }
+    }
     const liveWorkers = [...this.workers.values()].filter(
       (worker) =>
         worker.commanderTaskId === caller.taskId &&
         this.terminals.list().some((terminal) => terminal.id === worker.terminalId),
     );
     const limit = this.options.maxWorkers?.() ?? DEFAULT_MAX_WORKERS;
-    if (liveWorkers.length >= limit) {
+    if (!input.bypassLegacyBudget && liveWorkers.length >= limit) {
       throw new ProductFailure(
         productError('TERMINAL_WORKER_BUDGET', {
           userMessage: `This session already has ${limit} live workers. Close one before creating another.`,
@@ -442,6 +468,9 @@ export class TerminalControlService implements TerminalControlPort {
     }
 
     const directAgent = input.launch === 'claude' || input.launch === 'codex' ? input.launch : null;
+    const agentExecutable = directAgent
+      ? (this.options.resolveAgentExecutable?.(directAgent) ?? directAgent)
+      : null;
     const sessionId = input.launch === 'claude' ? randomUUID() : null;
     const initialPrompt = input.initialText?.trim() ? input.initialText : null;
     const agentArgs =
@@ -461,7 +490,9 @@ export class TerminalControlService implements TerminalControlPort {
       contextLabel: basename(input.root),
       contextTaskId: caller.taskId,
       launch: input.launch,
-      ...(directAgent ? { executable: directAgent, args: agentArgs, knownAgent: directAgent } : {}),
+      ...(directAgent
+        ? { executable: agentExecutable!, args: agentArgs, knownAgent: directAgent }
+        : {}),
     });
     const relation: WorkerRelation = {
       terminalId: info.id,
@@ -472,6 +503,7 @@ export class TerminalControlService implements TerminalControlPort {
       launch: input.launch,
       title: info.title,
       projectName: info.projectName,
+      idempotencyKey: input.idempotencyKey ?? null,
       closeRequested: false,
       starting: !directAgent && this.settleMs > 0,
       startupTimer: null,
@@ -517,6 +549,7 @@ export class TerminalControlService implements TerminalControlPort {
       root: input.root,
       title: info.title,
       commanderTerminalId: caller.terminalId ?? null,
+      idempotencyKey: input.idempotencyKey ?? null,
     });
     if (directAgent && initialPrompt) {
       // The first prompt was submitted through argv before the external-session
@@ -673,6 +706,87 @@ export class TerminalControlService implements TerminalControlPort {
     return this.snapshot();
   }
 
+  /**
+   * Mission-facing control for a visible runtime. Unlike pauseWorker, this
+   * also supports a user-created Claude/Codex terminal that was adopted as the
+   * Mission Lead. "Pause" intentionally means hold future injected guidance;
+   * it does not freeze an already-running model turn.
+   */
+  pauseRuntime(terminalId: string, paused: boolean): void {
+    this.assertEnabled();
+    this.assertLiveTerminal(terminalId);
+    if (this.workers.has(terminalId)) {
+      this.pauseWorker(terminalId, paused);
+      return;
+    }
+    if (paused) {
+      if (!this.heldRuntimeInput.has(terminalId)) this.heldRuntimeInput.set(terminalId, []);
+      return;
+    }
+    const queued = this.heldRuntimeInput.get(terminalId) ?? [];
+    this.heldRuntimeInput.delete(terminalId);
+    for (const item of queued) this.writeInjection(terminalId, item.text, item.submit);
+    this.flushRuntimeNotifications(terminalId);
+  }
+
+  /**
+   * Deliver Mission guidance to either a recursively-created worker or an
+   * adopted top-level terminal. Legacy takeover, fleet-pause and send-budget
+   * behavior remains in force for workers.
+   */
+  async sendRuntime(terminalId: string, text: string, submit = true): Promise<void> {
+    this.assertEnabled();
+    this.assertLiveTerminal(terminalId);
+    const worker = this.workers.get(terminalId);
+    if (worker) {
+      await this.send({ taskId: worker.commanderTaskId }, { id: terminalId, text, submit });
+      return;
+    }
+    const held = this.heldRuntimeInput.get(terminalId);
+    if (held) {
+      held.push({ text, submit });
+      return;
+    }
+    this.writeInjection(terminalId, text, submit);
+  }
+
+  /** Queue a control-plane doorbell until the current model turn has settled. */
+  async notifyRuntime(terminalId: string, text: string, submit = true): Promise<void> {
+    this.assertEnabled();
+    this.assertLiveTerminal(terminalId);
+    if (this.workers.has(terminalId)) {
+      await this.sendRuntime(terminalId, text, submit);
+      return;
+    }
+    if (this.heldRuntimeInput.has(terminalId) || this.stateFor(terminalId).turnPending) {
+      const queued = this.queuedRuntimeNotifications.get(terminalId) ?? [];
+      queued.push({ text, submit });
+      this.queuedRuntimeNotifications.set(terminalId, queued);
+      return;
+    }
+    this.writeInjection(terminalId, text, submit);
+  }
+
+  /**
+   * Idempotently retire an exact Mission terminal. Reassignment and
+   * cancellation must work for adopted Leads as well as created workers.
+   */
+  closeRuntime(terminalId: string): void {
+    this.assertEnabled();
+    const worker = this.workers.get(terminalId);
+    if (worker) {
+      this.kill({ taskId: worker.commanderTaskId }, { id: terminalId });
+      return;
+    }
+    if (!this.terminals.list().some((terminal) => terminal.id === terminalId)) return;
+    this.heldRuntimeInput.delete(terminalId);
+    this.queuedRuntimeNotifications.delete(terminalId);
+    this.terminals.kill(terminalId);
+    const state = this.stateFor(terminalId);
+    state.exited = true;
+    this.rejectWaitersForTerminal(terminalId, 'TERMINAL_EXITED', 'The terminal was closed.');
+  }
+
   pauseFleet(taskId: string, paused: boolean): OrchestrationSnapshot {
     this.assertEnabled();
     if (paused) this.fleetPaused.add(taskId);
@@ -735,6 +849,7 @@ export class TerminalControlService implements TerminalControlPort {
         launch: relation.launch,
         title: relation.title,
         projectName: terminal.projectName,
+        idempotencyKey: relation.idempotencyKey ?? null,
         closeRequested: false,
         starting: false,
         startupTimer: null,
@@ -863,6 +978,7 @@ export class TerminalControlService implements TerminalControlPort {
       });
       this.changed();
     }
+    this.flushRuntimeNotifications(terminalId);
   }
 
   directorCut(taskId: string, terminalId: string, reason: string): { recorded: boolean } {
@@ -909,6 +1025,8 @@ export class TerminalControlService implements TerminalControlPort {
     for (const worker of this.workers.values()) {
       if (worker.startupTimer) clearTimeout(worker.startupTimer);
     }
+    this.heldRuntimeInput.clear();
+    this.queuedRuntimeNotifications.clear();
     this.externalCallers.clear();
   }
 
@@ -961,6 +1079,7 @@ export class TerminalControlService implements TerminalControlPort {
         launch: member.launch,
         title: member.title,
         projectName: terminal.projectName,
+        idempotencyKey: member.idempotencyKey ?? null,
         closeRequested: false,
         starting: false,
         startupTimer: null,
@@ -973,6 +1092,7 @@ export class TerminalControlService implements TerminalControlPort {
       relation.commanderTaskId = input.targetTaskId;
       relation.commanderTerminalId = input.commanderTerminalId;
       relation.taskId = member.workerTaskId;
+      relation.idempotencyKey = member.idempotencyKey ?? relation.idempotencyKey;
       relation.paused = false;
       relation.takeover = false;
     }
@@ -986,6 +1106,7 @@ export class TerminalControlService implements TerminalControlPort {
         launch: member.launch,
         root: member.root,
         title: member.title,
+        idempotencyKey: member.idempotencyKey ?? null,
         commanderTerminalId: input.commanderTerminalId,
         restoredFromTerminalId: member.terminalId,
       });
@@ -1207,6 +1328,15 @@ export class TerminalControlService implements TerminalControlPort {
     }
   }
 
+  private flushRuntimeNotifications(terminalId: string): void {
+    if (this.heldRuntimeInput.has(terminalId) || this.stateFor(terminalId).turnPending) return;
+    const queued = this.queuedRuntimeNotifications.get(terminalId);
+    if (!queued?.length) return;
+    this.queuedRuntimeNotifications.delete(terminalId);
+    const submit = queued.some((item) => item.submit);
+    this.writeInjection(terminalId, queued.map((item) => item.text).join('\n\n'), submit);
+  }
+
   private workerSnapshot(worker: WorkerRelation): OrchestrationWorkerSnapshot {
     const terminal = this.terminals.list().find((item) => item.id === worker.terminalId);
     const state = this.stateFor(worker.terminalId);
@@ -1318,6 +1448,11 @@ export class TerminalControlService implements TerminalControlPort {
         userMessage: `Terminal ${id} is no longer available.`,
       }),
     );
+  }
+
+  private assertLiveTerminal(id: string): void {
+    if (this.terminals.list().some((terminal) => terminal.id === id)) return;
+    this.unknown(id);
   }
 
   private assertTopLevel(caller: TerminalToolCaller): void {
