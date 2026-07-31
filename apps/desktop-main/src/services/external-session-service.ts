@@ -57,6 +57,22 @@ const PROMPT_ENTER_BASE_DELAY_MS = 250;
 const PROMPT_ENTER_MAX_DELAY_MS = 3_000;
 const PROMPT_ENTER_BYTES_PER_MS = 4;
 
+interface ObservedTurnPresence {
+  structuredStream: boolean;
+  presenceTimer: ReturnType<typeof setTimeout> | null;
+  presenceAwaitingReply: boolean;
+  presenceSawOutput: boolean;
+}
+
+/** Arm the completion edge for both PTY-submitted and argv-submitted turns. */
+export function beginObservedTurnPresence(state: ObservedTurnPresence): void {
+  if (state.structuredStream) return;
+  if (state.presenceTimer) clearTimeout(state.presenceTimer);
+  state.presenceTimer = null;
+  state.presenceAwaitingReply = true;
+  state.presenceSawOutput = false;
+}
+
 export function externalPromptEnterDelayMs(prompt: string): number {
   return Math.min(
     PROMPT_ENTER_MAX_DELAY_MS,
@@ -620,11 +636,6 @@ export class ExternalSessionService {
     // pastes are still unsent input and must not make the Session look busy.
     if (!isExternalPromptSubmit(data)) return;
     this.startTurn(session, 'input');
-    if (session.structuredStream) return;
-    if (session.presenceTimer) clearTimeout(session.presenceTimer);
-    session.presenceTimer = null;
-    session.presenceAwaitingReply = true;
-    session.presenceSawOutput = false;
   }
 
   /** PTY write from the product itself — invisible to typed-line capture. */
@@ -689,6 +700,12 @@ export class ExternalSessionService {
 
   private startTurn(session: LiveSession, source: ExternalTurnStartedEvent['source']): void {
     this.markFileAttributionActive(session);
+    // Product-created workers can submit their first prompt through argv before
+    // process detection binds the ExternalSession. In that path no PTY input
+    // event exists to arm the observed-TUI quiet edge. Start every real turn
+    // here (both input and launch) so an argv-first Claude/Codex worker can
+    // settle and receive a queued Mission continuation at its safe boundary.
+    beginObservedTurnPresence(session);
     broadcast('external.activityStarted', {
       terminalId: session.terminalId,
       taskId: session.taskId,

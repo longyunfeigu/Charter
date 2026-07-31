@@ -7,6 +7,10 @@ import {
   type Assignment,
   type AssignmentArtifact,
   type AssignmentWorkMode,
+  type AssignmentState,
+  type ContinuationBundle,
+  type ContinuationCondition,
+  type ContinuationMode,
   type ExecutionAttempt,
   type Mission,
   type MissionExecutionPolicy,
@@ -16,6 +20,9 @@ import {
   type OrchestrationMessagePriority,
   type OrchestrationMessageType,
   type OrchestrationPrincipal,
+  type OrchestrationContinuation,
+  type OrchestrationContinuationTarget,
+  type OrchestrationResumeIntent,
   type OrchestrationRuntimeEvent,
   type OrchestrationRuntimeSession,
   type PrincipalKind,
@@ -25,6 +32,9 @@ import {
 import type { SqlDatabase } from './database.js';
 
 type JsonObject = Record<string, unknown>;
+
+const SNAPSHOT_RUNTIME_EVENT_LIMIT = 100;
+const SNAPSHOT_RUNTIME_EVENT_PAYLOAD_MAX_BYTES = 16 * 1024;
 
 interface MissionRow {
   id: string;
@@ -170,6 +180,59 @@ interface MessageDeliveryRow {
   updated_at: string;
 }
 
+interface ContinuationRow {
+  id: string;
+  mission_id: string;
+  owner_assignment_id: string;
+  owner_attempt_id: string;
+  mode: ContinuationMode;
+  state: OrchestrationContinuation['state'];
+  reason: string;
+  cursor_sequence: number;
+  deadline_at: string | null;
+  idempotency_key: string;
+  ready_at: string | null;
+  delivered_at: string | null;
+  consumed_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ContinuationTargetRow {
+  id: string;
+  continuation_id: string;
+  kind: OrchestrationContinuationTarget['kind'];
+  target_assignment_id: string | null;
+  from_assignment_id: string | null;
+  message_types_json: string | null;
+  thread_id: string | null;
+  terminal_states_json: string | null;
+  satisfied_by: string | null;
+  satisfied_payload_json: string | null;
+  satisfied_at: string | null;
+  created_at: string;
+}
+
+interface ResumeIntentRow {
+  id: string;
+  continuation_id: string;
+  mission_id: string;
+  owner_assignment_id: string;
+  owner_attempt_id: string;
+  runtime_session_id: string | null;
+  state: OrchestrationResumeIntent['state'];
+  idempotency_key: string;
+  payload_json: string;
+  attempts: number;
+  available_at: string;
+  last_error: string | null;
+  delivered_at: string | null;
+  acknowledged_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MissionSnapshot {
   mission: Mission;
   principals: OrchestrationPrincipal[];
@@ -182,6 +245,31 @@ export interface MissionSnapshot {
   runtimeSessions: OrchestrationRuntimeSession[];
   runtimeEvents: OrchestrationRuntimeEvent[];
   messageDeliveries: OrchestrationMessageDelivery[];
+  continuations: OrchestrationContinuation[];
+  continuationTargets: OrchestrationContinuationTarget[];
+  resumeIntents: OrchestrationResumeIntent[];
+}
+
+export interface ArmContinuationInput {
+  missionId: string;
+  ownerAssignmentId: string;
+  ownerAttemptId: string;
+  mode: ContinuationMode;
+  conditions: ContinuationCondition[];
+  reason: string;
+  cursorSequence?: number;
+  deadlineAt?: string | null;
+  idempotencyKey: string;
+}
+
+export interface ArmContinuationResult extends ContinuationBundle {
+  reused: boolean;
+}
+
+export interface ConsumeContinuationResult extends ContinuationBundle {
+  reused: boolean;
+  messages: OrchestrationMessage[];
+  assignments: Assignment[];
 }
 
 export interface CreateMissionInput {
@@ -461,6 +549,61 @@ const messageDeliveryFromRow = (row: MessageDeliveryRow): OrchestrationMessageDe
   lastError: row.last_error,
   deliveredAt: row.delivered_at,
   observedAt: row.observed_at,
+  updatedAt: row.updated_at,
+});
+
+const continuationFromRow = (row: ContinuationRow): OrchestrationContinuation => ({
+  id: row.id,
+  missionId: row.mission_id,
+  ownerAssignmentId: row.owner_assignment_id,
+  ownerAttemptId: row.owner_attempt_id,
+  mode: row.mode,
+  state: row.state,
+  reason: row.reason,
+  cursorSequence: row.cursor_sequence,
+  deadlineAt: row.deadline_at,
+  idempotencyKey: row.idempotency_key,
+  readyAt: row.ready_at,
+  deliveredAt: row.delivered_at,
+  consumedAt: row.consumed_at,
+  cancelledAt: row.cancelled_at,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const continuationTargetFromRow = (
+  row: ContinuationTargetRow,
+): OrchestrationContinuationTarget => ({
+  id: row.id,
+  continuationId: row.continuation_id,
+  kind: row.kind,
+  targetAssignmentId: row.target_assignment_id,
+  fromAssignmentId: row.from_assignment_id,
+  messageTypes: parseJson(row.message_types_json, null),
+  threadId: row.thread_id,
+  terminalStates: parseJson(row.terminal_states_json, null),
+  satisfiedBy: row.satisfied_by,
+  satisfiedPayload: parseJson(row.satisfied_payload_json, null),
+  satisfiedAt: row.satisfied_at,
+  createdAt: row.created_at,
+});
+
+const resumeIntentFromRow = (row: ResumeIntentRow): OrchestrationResumeIntent => ({
+  id: row.id,
+  continuationId: row.continuation_id,
+  missionId: row.mission_id,
+  ownerAssignmentId: row.owner_assignment_id,
+  ownerAttemptId: row.owner_attempt_id,
+  runtimeSessionId: row.runtime_session_id,
+  state: row.state,
+  idempotencyKey: row.idempotency_key,
+  payload: parseJson(row.payload_json, {}),
+  attempts: row.attempts,
+  availableAt: row.available_at,
+  lastError: row.last_error,
+  deliveredAt: row.delivered_at,
+  acknowledgedAt: row.acknowledged_at,
+  createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
 
@@ -865,11 +1008,14 @@ export class MissionRepository {
           input.leaseExpiresAt ?? attempt.leaseExpiresAt,
           attempt.id,
         );
+      const preserveDurableWait = this.hasActiveContinuationForOwner(assignment.id);
       this.db
         .prepare(
-          "UPDATE assignments SET state = 'ACTIVE', completed_at = NULL, updated_at = ? WHERE id = ? AND state IN ('PENDING','WAITING','ORPHANED','FAILED')",
+          `UPDATE assignments
+           SET state = ?, completed_at = NULL, updated_at = ?
+           WHERE id = ? AND state IN ('PENDING','WAITING','ORPHANED','FAILED')`,
         )
-        .run(at, assignment.id);
+        .run(preserveDurableWait ? 'WAITING' : 'ACTIVE', at, assignment.id);
       this.db
         .prepare(
           "UPDATE mission_tasks SET state = 'RUNNING', completed_at = NULL, updated_at = ?, version = version + 1 WHERE id = ? AND state IN ('READY','FAILED')",
@@ -928,6 +1074,7 @@ export class MissionRepository {
           'The Assignment already has an active Attempt.',
         );
       }
+      this.cancelOwnedContinuations(assignment.id, active?.id ?? null, 'attempt_retry_planned');
       const row = this.db
         .prepare(
           'SELECT COALESCE(MAX(ordinal), 0) AS ordinal FROM execution_attempts WHERE assignment_id = ?',
@@ -1027,6 +1174,11 @@ export class MissionRepository {
       const previousAttempt = assignment.activeAttemptId
         ? this.requireAttempt(assignment.activeAttemptId)
         : null;
+      this.cancelOwnedContinuations(
+        assignment.id,
+        previousAttempt?.id ?? null,
+        'mission_revision_requested',
+      );
       const ordinalRow = this.db
         .prepare(
           'SELECT COALESCE(MAX(ordinal), 0) AS ordinal FROM execution_attempts WHERE assignment_id = ?',
@@ -1280,6 +1432,471 @@ export class MissionRepository {
       .run(error, this.timestamp(), assignmentId, ...messageIds);
   }
 
+  armContinuation(input: ArmContinuationInput): ArmContinuationResult {
+    return this.db.transaction(() => {
+      const existing = this.db
+        .prepare(
+          `SELECT * FROM orchestration_continuations
+           WHERE mission_id = ? AND owner_assignment_id = ? AND idempotency_key = ?`,
+        )
+        .get(input.missionId, input.ownerAssignmentId, input.idempotencyKey) as
+        ContinuationRow | undefined;
+      if (existing) {
+        if (existing.owner_attempt_id !== input.ownerAttemptId) {
+          throw this.failure(
+            'ORCHESTRATION_CONTINUATION_STALE_KEY',
+            'This continuation idempotency key belongs to an older Attempt.',
+          );
+        }
+        return { ...this.continuationBundle(existing.id), reused: true };
+      }
+
+      const mission = this.requireMission(input.missionId);
+      const owner = this.requireAssignment(input.ownerAssignmentId);
+      const attempt = this.requireAttempt(input.ownerAttemptId);
+      if (
+        owner.missionId !== mission.id ||
+        attempt.assignmentId !== owner.id ||
+        owner.activeAttemptId !== attempt.id
+      ) {
+        throw this.failure(
+          'ORCHESTRATION_CONTINUATION_OWNER_MISMATCH',
+          'The continuation must belong to the caller active Attempt.',
+        );
+      }
+      if (
+        !['ACTIVE', 'WAITING'].includes(owner.state) ||
+        !['RUNNING', 'WAITING'].includes(attempt.state)
+      ) {
+        throw this.failure(
+          'ORCHESTRATION_CONTINUATION_OWNER_INACTIVE',
+          'Only an active Assignment Attempt can park for continuation.',
+        );
+      }
+      if (input.conditions.length === 0) {
+        throw this.failure(
+          'ORCHESTRATION_CONTINUATION_CONDITION_REQUIRED',
+          'At least one continuation condition is required.',
+        );
+      }
+      const active = this.db
+        .prepare(
+          `SELECT id FROM orchestration_continuations
+           WHERE owner_attempt_id = ? AND state IN ('ARMED','READY','DELIVERING','DELIVERED')`,
+        )
+        .get(attempt.id) as { id: string } | undefined;
+      if (active) {
+        throw this.failure(
+          'ORCHESTRATION_CONTINUATION_ALREADY_ACTIVE',
+          'This Attempt already has an active continuation.',
+        );
+      }
+
+      for (const condition of input.conditions) {
+        if (condition.kind === 'assignment_terminal') {
+          this.assertAssignmentMission(condition.assignmentId, mission.id);
+        } else if (condition.fromAssignmentId) {
+          this.assertAssignmentMission(condition.fromAssignmentId, mission.id);
+        }
+      }
+
+      const at = this.timestamp();
+      const id = newId('continuation');
+      const cursorSequence = Math.max(0, Math.trunc(input.cursorSequence ?? 0));
+      this.db
+        .prepare(
+          `INSERT INTO orchestration_continuations
+           (id, mission_id, owner_assignment_id, owner_attempt_id, mode, state, reason,
+            cursor_sequence, deadline_at, idempotency_key, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'ARMED', ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          mission.id,
+          owner.id,
+          attempt.id,
+          input.mode,
+          input.reason,
+          cursorSequence,
+          input.deadlineAt ?? null,
+          input.idempotencyKey,
+          at,
+          at,
+        );
+      for (const condition of input.conditions) {
+        const targetId = newId('continuation_target');
+        if (condition.kind === 'assignment_terminal') {
+          const terminalStates = condition.states?.length
+            ? [...new Set(condition.states)]
+            : (['COMPLETED', 'FAILED', 'CANCELLED', 'ORPHANED'] satisfies AssignmentState[]);
+          this.db
+            .prepare(
+              `INSERT INTO orchestration_continuation_targets
+               (id, continuation_id, kind, target_assignment_id, terminal_states_json, created_at)
+               VALUES (?, ?, 'assignment_terminal', ?, ?, ?)`,
+            )
+            .run(targetId, id, condition.assignmentId, JSON.stringify(terminalStates), at);
+        } else {
+          this.db
+            .prepare(
+              `INSERT INTO orchestration_continuation_targets
+               (id, continuation_id, kind, from_assignment_id, message_types_json, thread_id,
+                created_at)
+               VALUES (?, ?, 'message', ?, ?, ?, ?)`,
+            )
+            .run(
+              targetId,
+              id,
+              condition.fromAssignmentId ?? null,
+              condition.types?.length ? JSON.stringify([...new Set(condition.types)]) : null,
+              condition.threadId ?? null,
+              at,
+            );
+        }
+      }
+
+      this.db
+        .prepare(
+          "UPDATE assignments SET state = 'WAITING', updated_at = ? WHERE id = ? AND state = 'ACTIVE'",
+        )
+        .run(at, owner.id);
+      this.db
+        .prepare(
+          "UPDATE execution_attempts SET state = 'WAITING' WHERE id = ? AND state = 'RUNNING'",
+        )
+        .run(attempt.id);
+      this.db
+        .prepare(
+          "UPDATE orchestration_runtime_sessions SET state = 'WAITING', updated_at = ? WHERE attempt_id = ? AND state IN ('READY','RUNNING')",
+        )
+        .run(at, attempt.id);
+      this.appendEvent(
+        mission.id,
+        'continuation.armed',
+        owner.assigneePrincipalId,
+        owner.id,
+        attempt.id,
+        {
+          continuationId: id,
+          mode: input.mode,
+          conditionCount: input.conditions.length,
+          cursorSequence,
+          deadlineAt: input.deadlineAt ?? null,
+        },
+      );
+      this.reconcileContinuation(id);
+      return { ...this.continuationBundle(id), reused: false };
+    });
+  }
+
+  consumeContinuation(
+    continuationId: string,
+    ownerAssignmentId: string,
+    ownerAttemptId: string,
+  ): ConsumeContinuationResult {
+    return this.db.transaction(() => {
+      const continuation = this.requireContinuation(continuationId);
+      if (
+        continuation.ownerAssignmentId !== ownerAssignmentId ||
+        continuation.ownerAttemptId !== ownerAttemptId
+      ) {
+        throw this.failure(
+          'ORCHESTRATION_CONTINUATION_CALLER_MISMATCH',
+          'This continuation belongs to a different Assignment Attempt.',
+        );
+      }
+      const owner = this.requireAssignment(ownerAssignmentId);
+      if (owner.activeAttemptId !== ownerAttemptId) {
+        this.cancelContinuation(continuation.id, 'owner_attempt_replaced');
+        throw this.failure(
+          'ORCHESTRATION_CONTINUATION_STALE',
+          'The continuation owner Attempt is no longer active.',
+        );
+      }
+      if (continuation.state === 'ARMED') {
+        throw this.failure(
+          'ORCHESTRATION_CONTINUATION_NOT_READY',
+          'The continuation conditions have not been satisfied.',
+        );
+      }
+      if (continuation.state === 'CANCELLED') {
+        throw this.failure(
+          'ORCHESTRATION_CONTINUATION_CANCELLED',
+          'The continuation was cancelled before it could resume.',
+        );
+      }
+
+      const reused = continuation.state === 'CONSUMED';
+      if (!reused) {
+        const at = this.timestamp();
+        this.db
+          .prepare(
+            `UPDATE orchestration_continuations
+             SET state = 'CONSUMED', consumed_at = COALESCE(consumed_at, ?), updated_at = ?
+             WHERE id = ? AND state IN ('READY','DELIVERING','DELIVERED')`,
+          )
+          .run(at, at, continuation.id);
+        this.db
+          .prepare(
+            `UPDATE orchestration_resume_intents
+             SET state = 'ACKNOWLEDGED', acknowledged_at = COALESCE(acknowledged_at, ?),
+                 updated_at = ?, last_error = NULL
+             WHERE continuation_id = ? AND state <> 'CANCELLED'`,
+          )
+          .run(at, at, continuation.id);
+        this.db
+          .prepare(
+            "UPDATE assignments SET state = 'ACTIVE', updated_at = ? WHERE id = ? AND state = 'WAITING'",
+          )
+          .run(at, owner.id);
+        this.db
+          .prepare(
+            "UPDATE execution_attempts SET state = 'RUNNING' WHERE id = ? AND state = 'WAITING'",
+          )
+          .run(ownerAttemptId);
+        this.db
+          .prepare(
+            "UPDATE orchestration_runtime_sessions SET state = 'RUNNING', updated_at = ? WHERE attempt_id = ? AND state = 'WAITING'",
+          )
+          .run(at, ownerAttemptId);
+        this.appendEvent(
+          continuation.missionId,
+          'continuation.consumed',
+          owner.assigneePrincipalId,
+          owner.id,
+          ownerAttemptId,
+          { continuationId: continuation.id },
+        );
+      }
+
+      const bundle = this.continuationBundle(continuation.id);
+      const assignmentIds = [
+        ...new Set(
+          bundle.targets
+            .map((target) => target.targetAssignmentId)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      const continuationMessages = this.listInbox(owner.id, {
+        unreadOnly: false,
+        afterSequence: bundle.continuation.cursorSequence,
+        limit: 200,
+      });
+      this.markMessagesRead(
+        owner.id,
+        continuationMessages.map((message) => message.id),
+      );
+      return {
+        ...bundle,
+        reused,
+        messages: this.listInbox(owner.id, {
+          unreadOnly: false,
+          afterSequence: bundle.continuation.cursorSequence,
+          limit: 200,
+        }),
+        assignments: assignmentIds.map((id) => this.requireAssignment(id)),
+      };
+    });
+  }
+
+  getContinuation(id: string): OrchestrationContinuation | null {
+    const row = this.db
+      .prepare('SELECT * FROM orchestration_continuations WHERE id = ?')
+      .get(id) as ContinuationRow | undefined;
+    return row ? continuationFromRow(row) : null;
+  }
+
+  listContinuations(missionId: string): OrchestrationContinuation[] {
+    return (
+      this.db
+        .prepare(
+          'SELECT * FROM orchestration_continuations WHERE mission_id = ? ORDER BY created_at, rowid',
+        )
+        .all(missionId) as unknown as ContinuationRow[]
+    ).map(continuationFromRow);
+  }
+
+  listContinuationTargets(missionId: string): OrchestrationContinuationTarget[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT t.* FROM orchestration_continuation_targets t
+           JOIN orchestration_continuations c ON c.id = t.continuation_id
+           WHERE c.mission_id = ? ORDER BY c.created_at, t.rowid`,
+        )
+        .all(missionId) as unknown as ContinuationTargetRow[]
+    ).map(continuationTargetFromRow);
+  }
+
+  getResumeIntent(id: string): OrchestrationResumeIntent | null {
+    const row = this.db
+      .prepare('SELECT * FROM orchestration_resume_intents WHERE id = ?')
+      .get(id) as ResumeIntentRow | undefined;
+    return row ? resumeIntentFromRow(row) : null;
+  }
+
+  listResumeIntents(missionId: string): OrchestrationResumeIntent[] {
+    return (
+      this.db
+        .prepare(
+          'SELECT * FROM orchestration_resume_intents WHERE mission_id = ? ORDER BY created_at, rowid',
+        )
+        .all(missionId) as unknown as ResumeIntentRow[]
+    ).map(resumeIntentFromRow);
+  }
+
+  listPendingResumeIntents(limit = 20): OrchestrationResumeIntent[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM orchestration_resume_intents
+           WHERE state = 'PENDING' AND available_at <= ? ORDER BY created_at, rowid LIMIT ?`,
+        )
+        .all(this.timestamp(), limit) as unknown as ResumeIntentRow[]
+    ).map(resumeIntentFromRow);
+  }
+
+  nextResumeIntentAvailableAt(): string | null {
+    const row = this.db
+      .prepare(
+        "SELECT MIN(available_at) AS available_at FROM orchestration_resume_intents WHERE state = 'PENDING'",
+      )
+      .get() as { available_at: string | null };
+    return row.available_at;
+  }
+
+  markResumeIntentProcessing(id: string, runtimeSessionId: string | null): boolean {
+    return this.db.transaction(() => {
+      const at = this.timestamp();
+      const result = this.db
+        .prepare(
+          `UPDATE orchestration_resume_intents
+           SET state = 'PROCESSING', runtime_session_id = ?, attempts = attempts + 1,
+               updated_at = ?, last_error = NULL
+           WHERE id = ? AND state = 'PENDING'`,
+        )
+        .run(runtimeSessionId, at, id);
+      if (Number(result.changes) !== 1) return false;
+      this.db
+        .prepare(
+          `UPDATE orchestration_continuations SET state = 'DELIVERING', updated_at = ?
+           WHERE id = (SELECT continuation_id FROM orchestration_resume_intents WHERE id = ?)
+             AND state = 'READY'`,
+        )
+        .run(at, id);
+      return true;
+    });
+  }
+
+  markResumeIntentDelivered(id: string): OrchestrationResumeIntent | null {
+    return this.db.transaction(() => {
+      const at = this.timestamp();
+      this.db
+        .prepare(
+          `UPDATE orchestration_resume_intents
+           SET state = 'DELIVERED', delivered_at = COALESCE(delivered_at, ?), updated_at = ?,
+               last_error = NULL WHERE id = ? AND state = 'PROCESSING'`,
+        )
+        .run(at, at, id);
+      this.db
+        .prepare(
+          `UPDATE orchestration_continuations
+           SET state = 'DELIVERED', delivered_at = COALESCE(delivered_at, ?), updated_at = ?
+           WHERE id = (SELECT continuation_id FROM orchestration_resume_intents WHERE id = ?)
+             AND state = 'DELIVERING'`,
+        )
+        .run(at, at, id);
+      return this.getResumeIntent(id);
+    });
+  }
+
+  retryResumeIntent(id: string, error: string, availableAt: string): void {
+    this.db.transaction(() => {
+      const at = this.timestamp();
+      this.db
+        .prepare(
+          `UPDATE orchestration_resume_intents
+           SET state = 'PENDING', available_at = ?, last_error = ?, updated_at = ?
+           WHERE id = ? AND state = 'PROCESSING'`,
+        )
+        .run(availableAt, error, at, id);
+      this.db
+        .prepare(
+          `UPDATE orchestration_continuations SET state = 'READY', updated_at = ?
+           WHERE id = (SELECT continuation_id FROM orchestration_resume_intents WHERE id = ?)
+             AND state = 'DELIVERING'`,
+        )
+        .run(at, id);
+    });
+  }
+
+  recoverAndReconcileContinuations(): { recovered: number; ready: number; cancelled: number } {
+    return this.db.transaction(() => {
+      const at = this.timestamp();
+      const recovered = this.db
+        .prepare(
+          `UPDATE orchestration_resume_intents SET state = 'PENDING', available_at = ?, updated_at = ?
+           WHERE state = 'PROCESSING'`,
+        )
+        .run(at, at);
+      this.db
+        .prepare(
+          "UPDATE orchestration_continuations SET state = 'READY', updated_at = ? WHERE state = 'DELIVERING'",
+        )
+        .run(at);
+
+      let ready = 0;
+      let cancelled = 0;
+      const rows = this.db
+        .prepare(
+          `SELECT * FROM orchestration_continuations
+           WHERE state IN ('ARMED','READY','DELIVERING','DELIVERED') ORDER BY created_at`,
+        )
+        .all() as unknown as ContinuationRow[];
+      for (const row of rows) {
+        const continuation = continuationFromRow(row);
+        const owner = this.getAssignment(continuation.ownerAssignmentId);
+        const attempt = this.getAttempt(continuation.ownerAttemptId);
+        if (
+          !owner ||
+          !attempt ||
+          owner.activeAttemptId !== attempt.id ||
+          ['COMPLETED', 'FAILED', 'CANCELLED', 'ORPHANED'].includes(owner.state) ||
+          ['SUCCEEDED', 'FAILED', 'TIMED_OUT', 'CANCELLED', 'STALE'].includes(attempt.state)
+        ) {
+          if (this.cancelContinuation(continuation.id, 'owner_attempt_inactive')) cancelled += 1;
+          continue;
+        }
+        const before = continuation.state;
+        const after = this.reconcileContinuation(continuation.id).continuation.state;
+        if (before === 'ARMED' && after === 'READY') ready += 1;
+      }
+      return { recovered: Number(recovered.changes), ready, cancelled };
+    });
+  }
+
+  nextContinuationDeadline(): string | null {
+    const row = this.db
+      .prepare(
+        `SELECT MIN(deadline_at) AS deadline_at FROM orchestration_continuations
+         WHERE state = 'ARMED' AND deadline_at IS NOT NULL`,
+      )
+      .get() as { deadline_at: string | null };
+    return row.deadline_at;
+  }
+
+  hasActiveContinuationForOwner(assignmentId: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1 FROM orchestration_continuations
+           WHERE owner_assignment_id = ? AND state IN ('ARMED','READY','DELIVERING','DELIVERED')
+           LIMIT 1`,
+        )
+        .get(assignmentId),
+    );
+  }
+
   recordProgress(input: {
     attemptId: string;
     principalId: string;
@@ -1467,10 +2084,13 @@ export class MissionRepository {
         attempt.id,
         { summary: input.summary },
       );
+      const completedAssignment = this.requireAssignment(assignment.id);
+      this.cancelOwnedContinuations(assignment.id, attempt.id, 'owner_attempt_completed');
+      this.satisfyContinuationsFromAssignment(completedAssignment);
       return {
         action: 'accepted',
         message,
-        assignment: this.requireAssignment(assignment.id),
+        assignment: completedAssignment,
         task: this.requireTask(assignment.taskId),
       };
     });
@@ -1513,7 +2133,10 @@ export class MissionRepository {
           failure,
         },
       );
-      return this.requireAssignment(assignment.id);
+      const failedAssignment = this.requireAssignment(assignment.id);
+      this.cancelOwnedContinuations(assignment.id, attempt.id, 'owner_runtime_failed');
+      this.satisfyContinuationsFromAssignment(failedAssignment);
+      return failedAssignment;
     });
   }
 
@@ -1524,7 +2147,13 @@ export class MissionRepository {
   ): Assignment {
     return this.db.transaction(() => {
       const assignment = this.requireAssignment(assignmentId);
-      const next = paused ? 'PAUSED' : assignment.activeAttemptId ? 'ACTIVE' : 'PENDING';
+      const next = paused
+        ? 'PAUSED'
+        : this.hasActiveContinuationForOwner(assignment.id)
+          ? 'WAITING'
+          : assignment.activeAttemptId
+            ? 'ACTIVE'
+            : 'PENDING';
       assertAssignmentTransition(assignment.state, next);
       const at = this.timestamp();
       this.db
@@ -1596,7 +2225,14 @@ export class MissionRepository {
         assignment.activeAttemptId,
         { reason },
       );
-      return this.requireAssignment(assignment.id);
+      const cancelledAssignment = this.requireAssignment(assignment.id);
+      this.cancelOwnedContinuations(
+        assignment.id,
+        assignment.activeAttemptId,
+        'owner_assignment_cancelled',
+      );
+      this.satisfyContinuationsFromAssignment(cancelledAssignment);
+      return cancelledAssignment;
     });
   }
 
@@ -1669,6 +2305,7 @@ export class MissionRepository {
       const active = assignment.activeAttemptId
         ? this.requireAttempt(assignment.activeAttemptId)
         : null;
+      this.cancelOwnedContinuations(assignment.id, active?.id ?? null, 'assignment_reassigned');
       const at = this.timestamp();
       const principalId = input.assignee.principalId ?? newId('principal');
       this.upsertPrincipal({
@@ -1833,7 +2470,10 @@ export class MissionRepository {
         code,
         failure,
       });
-      return this.requireAssignment(assignment.id);
+      const orphanedAssignment = this.requireAssignment(assignment.id);
+      this.cancelOwnedContinuations(assignment.id, attempt.id, 'owner_runtime_orphaned');
+      this.satisfyContinuationsFromAssignment(orphanedAssignment);
+      return orphanedAssignment;
     });
   }
 
@@ -2099,6 +2739,51 @@ export class MissionRepository {
       .reverse();
   }
 
+  /**
+   * Product snapshots need recent runtime state, not multi-megabyte raw ACP
+   * tool payloads. Keep the durable event log intact for audit/replay while
+   * bounding the data copied through Electron on every Mission update.
+   */
+  listRuntimeEventSummaries(
+    missionId: string,
+    limit = SNAPSHOT_RUNTIME_EVENT_LIMIT,
+  ): OrchestrationRuntimeEvent[] {
+    const boundedLimit = Math.max(0, Math.min(500, Math.trunc(limit)));
+    if (boundedLimit === 0) return [];
+    return (
+      this.db
+        .prepare(
+          `SELECT
+             e.id,
+             e.runtime_session_id,
+             e.attempt_id,
+             e.sequence,
+             e.kind,
+             CASE
+               WHEN length(CAST(e.payload_json AS BLOB)) <= ?
+                 THEN e.payload_json
+               ELSE '{"truncated":true,"originalBytes":'
+                 || length(CAST(e.payload_json AS BLOB))
+                 || '}'
+             END AS payload_json,
+             e.created_at
+           FROM orchestration_runtime_events e
+           JOIN execution_attempts x ON x.id = e.attempt_id
+           JOIN assignments a ON a.id = x.assignment_id
+           WHERE a.mission_id = ?
+           ORDER BY e.created_at DESC, e.rowid DESC
+           LIMIT ?`,
+        )
+        .all(
+          SNAPSHOT_RUNTIME_EVENT_PAYLOAD_MAX_BYTES,
+          missionId,
+          boundedLimit,
+        ) as unknown as RuntimeEventRow[]
+    )
+      .map(runtimeEventFromRow)
+      .reverse();
+  }
+
   listMessageDeliveries(missionId: string): OrchestrationMessageDelivery[] {
     return (
       this.db
@@ -2128,7 +2813,11 @@ export class MissionRepository {
     ).map(messageFromRow);
   }
 
-  snapshot(missionId: string, messageLimit = 200): MissionSnapshot {
+  snapshot(
+    missionId: string,
+    messageLimit = 200,
+    runtimeEventLimit = SNAPSHOT_RUNTIME_EVENT_LIMIT,
+  ): MissionSnapshot {
     const mission = this.requireMission(missionId);
     const assignments = (
       this.db
@@ -2166,8 +2855,11 @@ export class MissionRepository {
       messages,
       artifacts: this.listArtifacts(missionId),
       runtimeSessions: this.listRuntimeSessions(missionId),
-      runtimeEvents: this.listRuntimeEvents(missionId),
+      runtimeEvents: this.listRuntimeEventSummaries(missionId, runtimeEventLimit),
       messageDeliveries: this.listMessageDeliveries(missionId),
+      continuations: this.listContinuations(missionId),
+      continuationTargets: this.listContinuationTargets(missionId),
+      resumeIntents: this.listResumeIntents(missionId),
     };
   }
 
@@ -2398,7 +3090,310 @@ export class MissionRepository {
     const row = this.db
       .prepare('SELECT * FROM orchestration_messages WHERE id = ?')
       .get(id) as unknown as MessageRow;
-    return messageFromRow(row);
+    const message = messageFromRow(row);
+    if (!suppressionReason) this.satisfyContinuationsFromMessage(message);
+    return message;
+  }
+
+  private requireContinuation(id: string): OrchestrationContinuation {
+    const continuation = this.getContinuation(id);
+    if (!continuation) {
+      throw this.failure(
+        'ORCHESTRATION_CONTINUATION_NOT_FOUND',
+        `Continuation ${id} was not found.`,
+      );
+    }
+    return continuation;
+  }
+
+  private continuationBundle(id: string): ContinuationBundle {
+    const continuation = this.requireContinuation(id);
+    const targets = (
+      this.db
+        .prepare(
+          'SELECT * FROM orchestration_continuation_targets WHERE continuation_id = ? ORDER BY rowid',
+        )
+        .all(id) as unknown as ContinuationTargetRow[]
+    ).map(continuationTargetFromRow);
+    const intentRow = this.db
+      .prepare('SELECT * FROM orchestration_resume_intents WHERE continuation_id = ?')
+      .get(id) as ResumeIntentRow | undefined;
+    return {
+      continuation,
+      targets,
+      resumeIntent: intentRow ? resumeIntentFromRow(intentRow) : null,
+    };
+  }
+
+  private reconcileContinuation(id: string): ContinuationBundle {
+    let bundle = this.continuationBundle(id);
+    if (bundle.continuation.state !== 'ARMED') return bundle;
+
+    for (const target of bundle.targets) {
+      if (target.satisfiedAt) continue;
+      if (target.kind === 'assignment_terminal' && target.targetAssignmentId) {
+        const assignment = this.getAssignment(target.targetAssignmentId);
+        if (assignment && (target.terminalStates ?? []).includes(assignment.state)) {
+          this.satisfyContinuationTarget(target.id, assignment.id, {
+            kind: 'assignment_terminal',
+            assignmentId: assignment.id,
+            state: assignment.state,
+          });
+        }
+        continue;
+      }
+
+      if (target.kind === 'message') {
+        const clauses = [
+          'mission_id = ?',
+          'to_assignment_id = ?',
+          'suppressed_at IS NULL',
+          'sequence > ?',
+        ];
+        const params: Array<string | number> = [
+          bundle.continuation.missionId,
+          bundle.continuation.ownerAssignmentId,
+          bundle.continuation.cursorSequence,
+        ];
+        if (target.fromAssignmentId) {
+          clauses.push('from_assignment_id = ?');
+          params.push(target.fromAssignmentId);
+        }
+        if (target.threadId) {
+          clauses.push('thread_id = ?');
+          params.push(target.threadId);
+        }
+        if (target.messageTypes?.length) {
+          clauses.push(`type IN (${target.messageTypes.map(() => '?').join(',')})`);
+          params.push(...target.messageTypes);
+        }
+        const row = this.db
+          .prepare(
+            `SELECT * FROM orchestration_messages WHERE ${clauses.join(' AND ')}
+             ORDER BY sequence LIMIT 1`,
+          )
+          .get(...params) as MessageRow | undefined;
+        if (row) {
+          const message = messageFromRow(row);
+          this.satisfyContinuationTarget(target.id, message.id, {
+            kind: 'message',
+            messageId: message.id,
+            sequence: message.sequence,
+            fromAssignmentId: message.fromAssignmentId,
+            type: message.type,
+            threadId: message.threadId,
+            subject: message.subject,
+          });
+        }
+      }
+    }
+
+    bundle = this.continuationBundle(id);
+    const satisfied = bundle.targets.filter((target) => Boolean(target.satisfiedAt));
+    const conditionsReady =
+      bundle.continuation.mode === 'all'
+        ? satisfied.length === bundle.targets.length
+        : satisfied.length > 0;
+    if (conditionsReady) {
+      this.readyContinuation(id, {
+        kind: 'conditions',
+        satisfiedTargetIds: satisfied.map((target) => target.id),
+      });
+    } else if (
+      bundle.continuation.deadlineAt &&
+      Date.parse(bundle.continuation.deadlineAt) <= this.now().getTime()
+    ) {
+      this.readyContinuation(id, {
+        kind: 'deadline',
+        timedOut: true,
+        deadlineAt: bundle.continuation.deadlineAt,
+        satisfiedTargetIds: satisfied.map((target) => target.id),
+      });
+    }
+    return this.continuationBundle(id);
+  }
+
+  private satisfyContinuationTarget(
+    targetId: string,
+    satisfiedBy: string,
+    payload: JsonObject,
+  ): boolean {
+    const at = this.timestamp();
+    const result = this.db
+      .prepare(
+        `UPDATE orchestration_continuation_targets
+         SET satisfied_by = ?, satisfied_payload_json = ?, satisfied_at = ?
+         WHERE id = ? AND satisfied_at IS NULL
+           AND continuation_id IN (
+             SELECT id FROM orchestration_continuations WHERE state = 'ARMED'
+           )`,
+      )
+      .run(satisfiedBy, JSON.stringify(payload), at, targetId);
+    return Number(result.changes) === 1;
+  }
+
+  private readyContinuation(id: string, trigger: JsonObject): boolean {
+    const continuation = this.requireContinuation(id);
+    if (continuation.state !== 'ARMED') return false;
+    const at = this.timestamp();
+    const result = this.db
+      .prepare(
+        `UPDATE orchestration_continuations
+         SET state = 'READY', ready_at = COALESCE(ready_at, ?), updated_at = ?
+         WHERE id = ? AND state = 'ARMED'`,
+      )
+      .run(at, at, id);
+    if (Number(result.changes) !== 1) return false;
+    const attempt = this.requireAttempt(continuation.ownerAttemptId);
+    const intentId = newId('resume_intent');
+    const payload = {
+      continuationId: continuation.id,
+      reason: continuation.reason,
+      trigger,
+    };
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO orchestration_resume_intents
+         (id, continuation_id, mission_id, owner_assignment_id, owner_attempt_id,
+          runtime_session_id, state, idempotency_key, payload_json, available_at, created_at,
+          updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        intentId,
+        continuation.id,
+        continuation.missionId,
+        continuation.ownerAssignmentId,
+        continuation.ownerAttemptId,
+        attempt.runtimeSessionId,
+        `resume:${continuation.id}`,
+        JSON.stringify(payload),
+        at,
+        at,
+        at,
+      );
+    this.appendEvent(
+      continuation.missionId,
+      'continuation.ready',
+      null,
+      continuation.ownerAssignmentId,
+      continuation.ownerAttemptId,
+      payload,
+    );
+    return true;
+  }
+
+  private satisfyContinuationsFromMessage(message: OrchestrationMessage): void {
+    if (!message.toAssignmentId || message.suppressedAt) return;
+    const rows = this.db
+      .prepare(
+        `SELECT t.* FROM orchestration_continuation_targets t
+         JOIN orchestration_continuations c ON c.id = t.continuation_id
+         WHERE c.state = 'ARMED' AND c.owner_assignment_id = ?
+           AND c.mission_id = ? AND c.cursor_sequence < ?
+           AND t.kind = 'message' AND t.satisfied_at IS NULL`,
+      )
+      .all(
+        message.toAssignmentId,
+        message.missionId,
+        message.sequence,
+      ) as unknown as ContinuationTargetRow[];
+    const touched = new Set<string>();
+    for (const row of rows) {
+      const target = continuationTargetFromRow(row);
+      if (target.fromAssignmentId && target.fromAssignmentId !== message.fromAssignmentId) continue;
+      if (target.threadId && target.threadId !== message.threadId) continue;
+      if (target.messageTypes?.length && !target.messageTypes.includes(message.type)) continue;
+      if (
+        this.satisfyContinuationTarget(target.id, message.id, {
+          kind: 'message',
+          messageId: message.id,
+          sequence: message.sequence,
+          fromAssignmentId: message.fromAssignmentId,
+          type: message.type,
+          threadId: message.threadId,
+          subject: message.subject,
+        })
+      ) {
+        touched.add(target.continuationId);
+      }
+    }
+    for (const continuationId of touched) this.reconcileContinuation(continuationId);
+  }
+
+  private satisfyContinuationsFromAssignment(assignment: Assignment): void {
+    const rows = this.db
+      .prepare(
+        `SELECT t.* FROM orchestration_continuation_targets t
+         JOIN orchestration_continuations c ON c.id = t.continuation_id
+         WHERE c.state = 'ARMED' AND c.mission_id = ?
+           AND t.kind = 'assignment_terminal' AND t.target_assignment_id = ?
+           AND t.satisfied_at IS NULL`,
+      )
+      .all(assignment.missionId, assignment.id) as unknown as ContinuationTargetRow[];
+    const touched = new Set<string>();
+    for (const row of rows) {
+      const target = continuationTargetFromRow(row);
+      if (!(target.terminalStates ?? []).includes(assignment.state)) continue;
+      if (
+        this.satisfyContinuationTarget(target.id, assignment.id, {
+          kind: 'assignment_terminal',
+          assignmentId: assignment.id,
+          state: assignment.state,
+        })
+      ) {
+        touched.add(target.continuationId);
+      }
+    }
+    for (const continuationId of touched) this.reconcileContinuation(continuationId);
+  }
+
+  private cancelOwnedContinuations(
+    ownerAssignmentId: string,
+    ownerAttemptId: string | null,
+    reason: string,
+  ): number {
+    const rows = this.db
+      .prepare(
+        `SELECT id FROM orchestration_continuations
+         WHERE owner_assignment_id = ?
+           AND (? IS NULL OR owner_attempt_id = ?)
+           AND state IN ('ARMED','READY','DELIVERING','DELIVERED')`,
+      )
+      .all(ownerAssignmentId, ownerAttemptId, ownerAttemptId) as unknown as Array<{ id: string }>;
+    let cancelled = 0;
+    for (const row of rows) if (this.cancelContinuation(row.id, reason)) cancelled += 1;
+    return cancelled;
+  }
+
+  private cancelContinuation(id: string, reason: string): boolean {
+    const continuation = this.getContinuation(id);
+    if (!continuation || ['CONSUMED', 'CANCELLED'].includes(continuation.state)) return false;
+    const at = this.timestamp();
+    const result = this.db
+      .prepare(
+        `UPDATE orchestration_continuations
+         SET state = 'CANCELLED', cancelled_at = COALESCE(cancelled_at, ?), updated_at = ?
+         WHERE id = ? AND state IN ('ARMED','READY','DELIVERING','DELIVERED')`,
+      )
+      .run(at, at, id);
+    if (Number(result.changes) !== 1) return false;
+    this.db
+      .prepare(
+        `UPDATE orchestration_resume_intents
+         SET state = 'CANCELLED', last_error = ?, updated_at = ?
+         WHERE continuation_id = ? AND state <> 'ACKNOWLEDGED'`,
+      )
+      .run(reason, at, id);
+    this.appendEvent(
+      continuation.missionId,
+      'continuation.cancelled',
+      null,
+      continuation.ownerAssignmentId,
+      continuation.ownerAttemptId,
+      { continuationId: id, reason },
+    );
+    return true;
   }
 
   private lifecycleAuthority(

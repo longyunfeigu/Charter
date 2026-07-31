@@ -5,6 +5,8 @@ import type {
   EventChannelName,
   EventPayload,
   IpcResponse,
+  SendChannelName,
+  SendPayload,
 } from '@pi-ide/ipc-contracts';
 import { errorMessage, productError, ProductFailure, type ProductError } from '@pi-ide/foundation';
 
@@ -12,6 +14,7 @@ interface ProductBridgeShape {
   protocolVersion: number;
   platform: string;
   rpc: Record<string, (payload: unknown, workspaceId?: string) => Promise<IpcResponse>>;
+  send?: Record<string, (payload: unknown, workspaceId?: string) => void>;
   events: { on(channel: string, listener: (payload: unknown) => void): () => void };
   pathForFile?: (file: File) => string;
 }
@@ -61,6 +64,21 @@ export async function rpc<N extends ChannelName>(
     throw new ProductFailure(response.error as ProductError);
   }
   return response.data as ChannelResponse<N>;
+}
+
+/**
+ * Dispatch a validated one-way notification. False means the running preload
+ * predates this bridge, allowing callers to retain an RPC compatibility path.
+ */
+export function send<N extends SendChannelName>(
+  channel: N,
+  payload: SendPayload<N>,
+  workspaceId?: string,
+): boolean {
+  const fn = window.product?.send?.[channel];
+  if (!fn) return false;
+  fn(payload, workspaceId);
+  return true;
 }
 
 /** Non-throwing variant for flows that render errors inline. */

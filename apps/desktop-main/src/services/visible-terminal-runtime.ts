@@ -30,9 +30,13 @@ export function missionWorkerPrompt(input: RuntimeStartRequest): string {
     input.task.goal,
     criteria,
     '',
-    'Use the charter-orchestration Skill and `charter orchestration` commands for structured coordination.',
+    'Your terminal is the live execution surface; Mission coordination uses small structured CLI calls, never terminal-output polling.',
+    'Load the charter-orchestration Skill when available, then begin with `charter orchestration inspect --json`.',
+    'When a Charter inbox notice arrives, run `charter orchestration sync --json` before continuing.',
     'You may delegate a bounded subproblem directly; do not ask your supervisor to proxy it.',
-    `Before finishing, report with orchestration.complete for Attempt ${input.attempt.id}.`,
+    'When delegated work will outlive this turn, use `charter orchestration park --request-file <continuation.json> --json`, then end the turn. Charter will resume this same Session when the durable conditions match.',
+    'When Charter injects a continuation-ready prompt, run its exact `charter orchestration continue ...` command before proceeding. Never poll with repeated wait/join calls.',
+    `Before finishing, report exactly once with \`charter orchestration complete --request-file <result.json> --json\` for Attempt ${input.attempt.id}.`,
   ].join('\n');
 }
 
@@ -70,8 +74,8 @@ export class VisibleTerminalRuntime implements OrchestrationRuntimeAdapter {
     };
   }
 
-  async deliver(runtimeSessionId: string, message: string): Promise<void> {
-    await this.control.notifyRuntime(this.terminalId(runtimeSessionId), message);
+  async deliver(runtimeSessionId: string, message: string, signal: AbortSignal): Promise<void> {
+    await this.control.notifyRuntime(this.terminalId(runtimeSessionId), message, true, signal);
   }
 
   async steer(runtimeSessionId: string, text: string): Promise<void> {

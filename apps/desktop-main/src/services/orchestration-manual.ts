@@ -36,14 +36,18 @@ yourself with \`orchestration.delegate\`; never ask A to proxy the operation.
 
 1. Inspect Mission state, then use \`sync\` whenever a durable inbox doorbell arrives.
 2. Perform your Assignment and report meaningful phases with \`orchestration.progress\`.
-3. Coordinate using \`message\`, \`reply\`, \`ask\`, \`join\`, and event-driven \`wait\`, not terminal-output polling.
+3. Coordinate using \`message\`, \`reply\`, \`ask\`, and durable \`park\`, not terminal-output polling.
 4. Escalate blockers rather than silently failing or inventing a decision.
 5. Finish exactly once with \`orchestration.complete\` and concrete artifacts/evidence. After completion,
    stop mutating the Assignment until a new Attempt or follow-up is issued.
 
 Use \`delegate_many\` for independent siblings so Charter can start them concurrently. Use \`ask\`
-for a request/answer exchange and \`join\` when work cannot continue until several Assignments reach
-terminal states.
+only for a short request/answer exchange. For delegated work that may outlive this agent turn, call
+\`park\` with Assignment/message conditions and the latest \`sync\` cursor, then end the turn
+immediately. Charter persists the condition, matches committed events, and resumes the same
+Claude Code/Codex/ACP Session at a safe idle boundary. The injected resume prompt calls
+\`continue\` idempotently before work proceeds. \`wait\` and \`join\` remain compatibility tools for
+short bounded waits; never repeat them in a polling loop.
 
 ## Command surface
 
@@ -70,8 +74,8 @@ charter orchestration inspect --json
 charter orchestration delegate_many --request-file children.json --json
 charter orchestration message --to assign_123 --subject "API ready" --body-file note.md --json
 charter orchestration sync --request-json '{"afterSequence":42}' --json
-charter orchestration join --request-file join.json --json
-charter orchestration wait --types question,completion --timeout-ms 600000 --json
+charter orchestration park --request-file continuation.json --json
+charter orchestration continue --continuation continuation_123 --json
 charter orchestration complete --request-file result.json --json
 \`\`\`
 
@@ -84,5 +88,6 @@ export const CHARTER_ORCHESTRATION_PREAMBLE = `## Charter Mission orchestration
 When a bounded subproblem is independently verifiable, parallelizable, suited to another runtime,
 or needs independent review, load the charter-orchestration Skill. Every Mission member may call
 orchestration.delegate recursively; a child does not ask its parent to proxy delegation. Use
-structured message/wait/progress/complete operations, and never infer completion from terminal
-quiet or process exit.`;
+structured message/park/progress/complete operations, and never infer completion from terminal
+quiet or process exit. After a successful park call, end the current turn; Charter resumes the same
+Session when committed conditions match.`;

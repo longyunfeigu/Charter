@@ -24,6 +24,7 @@ import {
   externalTerminalLifecycle,
   isExternalCli,
 } from './external-terminal-lifecycle.js';
+import { canResumeExternal } from './labels.js';
 
 function launchName(launch: 'shell' | 'claude' | 'codex'): string {
   if (launch === 'claude') return 'Claude Code';
@@ -152,6 +153,7 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
           shellTitle: item.title,
         })
       : null;
+  const terminalReadOnly = item !== undefined && (item.exited || lifecycle?.interactive === false);
   const changedFiles = relatedSession?.files.length ?? relatedTask?.changedFiles ?? 0;
   const defaultTools = defaultExternalTerminalTools(lifecycle?.agent ?? 'active', changedFiles);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -169,9 +171,9 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
   useEffect(() => {
     const host = hostRef.current;
     if (!host || !item) return;
-    mountTerminal(host, item);
+    mountTerminal(host, item, 'normal', terminalReadOnly);
     return observeTerminalFit(host, item);
-  }, [item, toolOpen]);
+  }, [item, terminalReadOnly, toolOpen]);
 
   if (!item) {
     return (
@@ -402,6 +404,26 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
             <span>{item.projectName} · main</span>
           </div>
           <div ref={hostRef} className="stv-terminal-host" data-testid="session-terminal-host" />
+          {terminalReadOnly ? (
+            <div
+              className="stv-terminal-readonly"
+              data-testid="session-terminal-readonly"
+              role="status"
+            >
+              <span>
+                <strong>Session stopped</strong>
+                Transcript is read-only.
+              </span>
+              {relatedTask && canResumeExternal(relatedTask) ? (
+                <button
+                  type="button"
+                  onClick={() => void useExternalStore.getState().resumeTask(relatedTask)}
+                >
+                  Resume Session
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         {toolOpen ? (

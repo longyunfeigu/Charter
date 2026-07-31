@@ -12,6 +12,8 @@ async function openMission(page: Page, missionId: string): Promise<void> {
   await page.getByTestId('rail-view-missions').click();
   await expect(page.getByTestId(`mission-center-card-${missionId}`)).toBeVisible();
   await page.getByTestId(`mission-center-card-${missionId}`).click();
+  await expect(page.getByTestId('mission-work-map')).toBeVisible();
+  await page.getByTestId('mission-work-map').locator('.mission-graph-node').first().click();
   await expect(page.getByTestId('mission-work-detail')).toBeVisible();
 }
 
@@ -108,6 +110,28 @@ test('Runtime Inspector buttons open, guide, pause, resume, and change a managed
 
     await details.getByRole('button', { name: 'Open working session' }).click();
     await expect(second.page.getByTestId('task-room')).toHaveAttribute('data-task-id', taskId);
+    await expect(second.page.getByTestId('rail-session-search')).toBeVisible();
+    await expect(second.page.getByTestId('mission-rail-panel')).not.toBeVisible();
+    await expect(second.page.getByTestId('task-room-back')).toHaveAttribute(
+      'aria-label',
+      'Back to Sessions',
+    );
+    await expect(second.page.getByTestId('task-room-back')).not.toContainText('Sessions');
+    await expect(second.page.getByTestId('session-agent-chip')).not.toBeAttached();
+    await second.page.setViewportSize({ width: 1440, height: 900 });
+    await second.page.screenshot({ path: '/tmp/charter-session-header-clean-wide.png' });
+    await second.page.setViewportSize({ width: 900, height: 760 });
+    await expect(second.page.getByTestId('task-room-back')).toBeVisible();
+    const compactClose = second.page.getByTestId('rail-compact-close');
+    if (await compactClose.isVisible()) await compactClose.click();
+    await second.page.waitForTimeout(250);
+    await second.page.screenshot({ path: '/tmp/charter-session-header-clean-narrow.png' });
+    await second.page.setViewportSize({ width: 1440, height: 900 });
+    await second.page.getByTestId('session-more').click();
+    await second.page.getByTestId('session-more-details').click();
+    await expect(second.page.getByTestId('session-agent-chip')).toContainText('Charter');
+    await expect(second.page.getByTestId('task-room-external-chip')).toHaveText('Charter managed');
+    await second.page.getByTestId('session-more').click();
     await second.page.getByTestId('task-room-back').click();
     await openMission(second.page, missionId);
 
@@ -173,6 +197,8 @@ test('Runtime Inspector buttons open, guide, pause, resume, and change a managed
       });
 
     await details.getByRole('button', { name: 'Open working session' }).click();
+    await expect(second.page.getByTestId('rail-session-search')).toBeVisible();
+    await expect(second.page.getByTestId('mission-rail-panel')).not.toBeVisible();
     const replacementTaskId =
       (await second.page.getByTestId('task-room').getAttribute('data-task-id')) ?? '';
     expect(replacementTaskId).not.toBe('');

@@ -14,11 +14,11 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 describe('splitTerminalInput', () => {
-  it('preserves input exactly and emits complete pasted lines separately', () => {
+  it('preserves input exactly across byte-bounded chunks', () => {
     const input = `${'a'.repeat(7)}\n${'b'.repeat(7)}\n${'c'.repeat(7)}`;
     const chunks = splitTerminalInput(input, 10);
 
-    expect(chunks).toEqual([`${'a'.repeat(7)}\n`, `${'b'.repeat(7)}\n`, 'c'.repeat(7)]);
+    expect(chunks).toEqual([`${'a'.repeat(7)}\n${'b'.repeat(2)}`, `${'b'.repeat(5)}\ncccc`, 'ccc']);
     expect(chunks.join('')).toBe(input);
     expect(chunks.every((chunk) => Buffer.byteLength(chunk) <= 10)).toBe(true);
   });
@@ -27,9 +27,9 @@ describe('splitTerminalInput', () => {
     expect(splitTerminalInput('abc😀def', 4)).toEqual(['abc', '😀', 'def']);
   });
 
-  it('treats xterm-normalized carriage returns as pasted-line boundaries', () => {
+  it('does not turn pasted line endings into transport boundaries', () => {
     const input = 'first\rsecond\rthird';
-    expect(splitTerminalInput(input, 256)).toEqual(['first\r', 'second\r', 'third']);
+    expect(splitTerminalInput(input, 256)).toEqual([input]);
   });
 
   it('rejects invalid chunk limits', () => {
@@ -41,13 +41,16 @@ describe('TerminalInputWriter', () => {
   it('serializes a large paste and a following Enter while retaining provenance', async () => {
     const firstSend = deferred();
     const writes: TerminalInputWrite[] = [];
-    const send = vi.fn(async (input: TerminalInputWrite) => {
+    const sendFast = vi.fn((input: TerminalInputWrite) => {
+      writes.push(input);
+    });
+    const sendAccepted = vi.fn(async (input: TerminalInputWrite) => {
       writes.push(input);
       if (writes.length === 1) await firstSend.promise;
     });
     const wait = vi.fn(async () => undefined);
-    const writer = new TerminalInputWriter(send, { wait });
-    const paste = `${'x'.repeat(256)}\n${'y'.repeat(256)}`;
+    const writer = new TerminalInputWriter(sendFast, { sendAccepted, wait });
+    const paste = `${'x'.repeat(16 * 1024)}\n${'y'.repeat(16 * 1024)}`;
 
     writer.enqueue({ id: 'term-1', data: paste, userInitiated: true });
     writer.enqueue({ id: 'term-1', data: '\r', userInitiated: true });
@@ -64,33 +67,42 @@ describe('TerminalInputWriter', () => {
     ).toBe(paste);
     expect(writes.every((write) => write.userInitiated)).toBe(true);
     expect(wait).toHaveBeenCalled();
+    expect(sendAccepted).toHaveBeenCalledTimes(3);
+    expect(sendFast).toHaveBeenCalledOnce();
   });
 
-  it('paces complete pasted lines instead of flooding the PTY', async () => {
-    const pause = deferred();
+  it('waits for host acceptance and yields only between 16 KiB paste chunks', async () => {
+    const acceptance = deferred();
     const writes: string[] = [];
-    const writer = new TerminalInputWriter(
-      async (input) => {
+    const writer = new TerminalInputWriter(() => undefined, {
+      sendAccepted: async (input) => {
         writes.push(input.data);
+        if (writes.length === 1) await acceptance.promise;
       },
-      { wait: () => pause.promise },
-    );
+      wait: async () => undefined,
+    });
 
-    writer.enqueue({ id: 'term-1', data: 'first\nsecond\n', userInitiated: true });
-    await vi.waitFor(() => expect(writes).toEqual(['first\n']));
+    const paste = 'x'.repeat(16 * 1024 + 1);
+    writer.enqueue({ id: 'term-1', data: paste, userInitiated: true, paste: true });
+    await vi.waitFor(() => expect(writes).toEqual(['x'.repeat(16 * 1024)]));
 
-    pause.resolve();
-    await vi.waitFor(() => expect(writes).toEqual(['first\n', 'second\n']));
+    acceptance.resolve();
+    await vi.waitFor(() => expect(writes).toEqual(['x'.repeat(16 * 1024), 'x']));
   });
 
-  it('paces a single-chunk paste without leaking internal provenance', async () => {
-    const pause = deferred();
+  it('confirms a single-chunk paste before dispatching a following Enter', async () => {
+    const acceptance = deferred();
     const writes: TerminalInputWrite[] = [];
     const writer = new TerminalInputWriter(
-      async (input) => {
+      (input) => {
         writes.push(input);
       },
-      { wait: () => pause.promise },
+      {
+        sendAccepted: async (input) => {
+          writes.push(input);
+          await acceptance.promise;
+        },
+      },
     );
 
     writer.enqueue({
@@ -103,18 +115,23 @@ describe('TerminalInputWriter', () => {
     await vi.waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]).toEqual({ id: 'term-1', data: 'pasted text', userInitiated: true });
 
-    pause.resolve();
+    acceptance.resolve();
     await vi.waitFor(() => expect(writes).toHaveLength(2));
   });
 
-  it('does not delay ordinary single-chunk keystrokes', async () => {
-    const send = vi.fn(async () => undefined);
+  it('coalesces consecutive ordinary keystrokes without awaiting a response', async () => {
+    const send = vi.fn(() => undefined);
     const writer = new TerminalInputWriter(send, { wait: () => new Promise(() => undefined) });
 
     writer.enqueue({ id: 'term-1', data: 'a', userInitiated: true });
-    writer.enqueue({ id: 'term-1', data: '\r', userInitiated: true });
+    writer.enqueue({ id: 'term-1', data: 'b', userInitiated: true });
 
-    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    expect(send).toHaveBeenCalledWith({
+      id: 'term-1',
+      data: 'ab',
+      userInitiated: true,
+    });
   });
 
   it('settles queued input before a caller checks terminal state', async () => {
@@ -123,10 +140,10 @@ describe('TerminalInputWriter', () => {
       if (milliseconds === 500) await new Promise<void>(() => undefined);
     });
     const send = vi.fn(async () => firstSend.promise);
-    const writer = new TerminalInputWriter(send, { wait });
+    const writer = new TerminalInputWriter(() => undefined, { sendAccepted: send, wait });
     let settled = false;
 
-    writer.enqueue({ id: 'term-1', data: 'sleep 30\r', userInitiated: true });
+    writer.enqueue({ id: 'term-1', data: 'sleep 30\r', userInitiated: true, paste: true });
     void writer.settle().then(() => {
       settled = true;
     });
@@ -143,7 +160,7 @@ describe('TerminalInputWriter', () => {
 
   it('continues with later input after a failed IPC write', async () => {
     const writes: string[] = [];
-    const send = vi.fn(async (input: TerminalInputWrite) => {
+    const send = vi.fn((input: TerminalInputWrite) => {
       writes.push(input.data);
       if (input.data === 'first') throw new Error('bridge closed');
     });

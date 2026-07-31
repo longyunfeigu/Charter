@@ -155,6 +155,15 @@ interface WorkerRelation {
   queued: Array<{ callerTaskId: string; text: string; submit: boolean }>;
 }
 
+interface QueuedRuntimeNotification {
+  text: string;
+  submit: boolean;
+  resolve: () => void;
+  reject: (error: Error) => void;
+  signal?: AbortSignal;
+  onAbort?: () => void;
+}
+
 interface TerminalState {
   buffer: string;
   rawTail: string;
@@ -201,7 +210,7 @@ export interface TerminalControlServiceOptions {
   recordEvent?: (taskId: string, type: string, payload: Record<string, unknown>) => void;
   now?: () => number;
   settleMs?: number;
-  /** Absolute host-owned MCP wrapper for visible agent runtimes. */
+  /** Absolute host-owned executable for visible agent runtimes. */
   resolveAgentExecutable?: (launch: 'claude' | 'codex') => string | null;
 }
 
@@ -217,10 +226,7 @@ export class TerminalControlService implements TerminalControlPort {
    * not necessarily present in the legacy worker graph. Keep their held input
    * here instead of pretending that every Mission member is a V1 worker. */
   private readonly heldRuntimeInput = new Map<string, Array<{ text: string; submit: boolean }>>();
-  private readonly queuedRuntimeNotifications = new Map<
-    string,
-    Array<{ text: string; submit: boolean }>
-  >();
+  private readonly queuedRuntimeNotifications = new Map<string, QueuedRuntimeNotification[]>();
   private readonly waiters = new Map<number, Waiter>();
   private readonly externalCallers = new Map<string, string>();
   private waiterSequence = 0;
@@ -264,6 +270,7 @@ export class TerminalControlService implements TerminalControlPort {
       state.exited = true;
       state.processExitCode = exitCode;
       this.heldRuntimeInput.delete(id);
+      this.rejectRuntimeNotifications(id, 'The terminal process exited before inbox delivery.');
       const worker = this.workers.get(id);
       if (worker) {
         if (worker.startupTimer) clearTimeout(worker.startupTimer);
@@ -536,6 +543,7 @@ export class TerminalControlService implements TerminalControlPort {
         if (input.initialText) this.writeInjection(info.id, input.initialText, input.submit);
         relation.starting = false;
         this.releaseQueue(relation);
+        this.flushRuntimeNotifications(info.id);
         this.changed();
       }, this.settleMs);
       relation.startupTimer.unref?.();
@@ -702,6 +710,7 @@ export class TerminalControlService implements TerminalControlPort {
       paused,
     });
     if (!paused) this.releaseQueue(worker!);
+    if (!paused) this.flushRuntimeNotifications(terminalId);
     this.changed();
     return this.snapshot();
   }
@@ -750,18 +759,42 @@ export class TerminalControlService implements TerminalControlPort {
     this.writeInjection(terminalId, text, submit);
   }
 
-  /** Queue a control-plane doorbell until the current model turn has settled. */
-  async notifyRuntime(terminalId: string, text: string, submit = true): Promise<void> {
+  /**
+   * Deliver a control-plane doorbell at a safe turn boundary. The returned
+   * promise resolves only after bytes have actually been handed to the PTY,
+   * so the durable delivery row never claims that a merely queued message was
+   * delivered.
+   */
+  async notifyRuntime(
+    terminalId: string,
+    text: string,
+    submit = true,
+    signal?: AbortSignal,
+  ): Promise<void> {
     this.assertEnabled();
     this.assertLiveTerminal(terminalId);
-    if (this.workers.has(terminalId)) {
-      await this.sendRuntime(terminalId, text, submit);
-      return;
-    }
-    if (this.heldRuntimeInput.has(terminalId) || this.stateFor(terminalId).turnPending) {
-      const queued = this.queuedRuntimeNotifications.get(terminalId) ?? [];
-      queued.push({ text, submit });
-      this.queuedRuntimeNotifications.set(terminalId, queued);
+    if (signal?.aborted) throw this.cancelledNotification();
+    if (this.runtimeNotificationBlocked(terminalId)) {
+      await new Promise<void>((resolve, reject) => {
+        const queued = this.queuedRuntimeNotifications.get(terminalId) ?? [];
+        const item: QueuedRuntimeNotification = { text, submit, resolve, reject };
+        if (signal) {
+          const onAbort = (): void => {
+            const current = this.queuedRuntimeNotifications.get(terminalId);
+            if (current) {
+              const index = current.indexOf(item);
+              if (index >= 0) current.splice(index, 1);
+              if (current.length === 0) this.queuedRuntimeNotifications.delete(terminalId);
+            }
+            reject(this.cancelledNotification());
+          };
+          item.signal = signal;
+          item.onAbort = onAbort;
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+        queued.push(item);
+        this.queuedRuntimeNotifications.set(terminalId, queued);
+      });
       return;
     }
     this.writeInjection(terminalId, text, submit);
@@ -780,7 +813,7 @@ export class TerminalControlService implements TerminalControlPort {
     }
     if (!this.terminals.list().some((terminal) => terminal.id === terminalId)) return;
     this.heldRuntimeInput.delete(terminalId);
-    this.queuedRuntimeNotifications.delete(terminalId);
+    this.rejectRuntimeNotifications(terminalId, 'The Mission runtime was closed before delivery.');
     this.terminals.kill(terminalId);
     const state = this.stateFor(terminalId);
     state.exited = true;
@@ -793,7 +826,10 @@ export class TerminalControlService implements TerminalControlPort {
     else {
       this.fleetPaused.delete(taskId);
       for (const worker of this.workers.values()) {
-        if (worker.commanderTaskId === taskId) this.releaseQueue(worker);
+        if (worker.commanderTaskId === taskId) {
+          this.releaseQueue(worker);
+          this.flushRuntimeNotifications(worker.terminalId);
+        }
       }
     }
     this.record(taskId, 'orchestration.pauseChanged', { scope: 'fleet', paused });
@@ -811,6 +847,7 @@ export class TerminalControlService implements TerminalControlPort {
       state: 'handed_back',
     });
     this.releaseQueue(worker!);
+    this.flushRuntimeNotifications(terminalId);
     this.changed();
     return this.snapshot();
   }
@@ -1026,7 +1063,9 @@ export class TerminalControlService implements TerminalControlPort {
       if (worker.startupTimer) clearTimeout(worker.startupTimer);
     }
     this.heldRuntimeInput.clear();
-    this.queuedRuntimeNotifications.clear();
+    for (const terminalId of this.queuedRuntimeNotifications.keys()) {
+      this.rejectRuntimeNotifications(terminalId, 'Terminal orchestration is shutting down.');
+    }
     this.externalCallers.clear();
   }
 
@@ -1329,12 +1368,55 @@ export class TerminalControlService implements TerminalControlPort {
   }
 
   private flushRuntimeNotifications(terminalId: string): void {
-    if (this.heldRuntimeInput.has(terminalId) || this.stateFor(terminalId).turnPending) return;
+    if (this.runtimeNotificationBlocked(terminalId)) return;
     const queued = this.queuedRuntimeNotifications.get(terminalId);
     if (!queued?.length) return;
     this.queuedRuntimeNotifications.delete(terminalId);
-    const submit = queued.some((item) => item.submit);
-    this.writeInjection(terminalId, queued.map((item) => item.text).join('\n\n'), submit);
+    const active = queued.filter((item) => !item.signal?.aborted);
+    if (active.length === 0) return;
+    try {
+      const submit = active.some((item) => item.submit);
+      this.writeInjection(terminalId, active.map((item) => item.text).join('\n\n'), submit);
+      for (const item of active) {
+        if (item.signal && item.onAbort) item.signal.removeEventListener('abort', item.onAbort);
+        item.resolve();
+      }
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      for (const item of active) {
+        if (item.signal && item.onAbort) item.signal.removeEventListener('abort', item.onAbort);
+        item.reject(failure);
+      }
+    }
+  }
+
+  private runtimeNotificationBlocked(terminalId: string): boolean {
+    if (this.heldRuntimeInput.has(terminalId) || this.stateFor(terminalId).turnPending) return true;
+    const worker = this.workers.get(terminalId);
+    return Boolean(
+      worker &&
+      (worker.starting ||
+        worker.paused ||
+        worker.takeover ||
+        this.fleetPaused.has(worker.commanderTaskId)),
+    );
+  }
+
+  private rejectRuntimeNotifications(terminalId: string, message: string): void {
+    const queued = this.queuedRuntimeNotifications.get(terminalId);
+    if (!queued) return;
+    this.queuedRuntimeNotifications.delete(terminalId);
+    const error = new Error(message);
+    for (const item of queued) {
+      if (item.signal && item.onAbort) item.signal.removeEventListener('abort', item.onAbort);
+      item.reject(error);
+    }
+  }
+
+  private cancelledNotification(): Error {
+    return new ProductFailure(
+      productError('CANCELLED', { userMessage: 'Mission inbox delivery was cancelled.' }),
+    );
   }
 
   private workerSnapshot(worker: WorkerRelation): OrchestrationWorkerSnapshot {

@@ -5,6 +5,8 @@ import { useAppStore } from '../store/appStore.js';
 import { useTaskStore } from '../store/taskStore.js';
 import { RuntimeInspector } from './mission/RuntimeInspector.js';
 import { MissionWorkMap } from './mission/MissionWorkMap.js';
+import { MissionGraph, type MissionGraphSelection } from './mission/MissionGraph.js';
+import { MissionCollaborationInspector } from './mission/MissionCollaborationInspector.js';
 import { MissionDecisionPanel } from './mission/MissionDecisionPanel.js';
 import { MissionActivity } from './mission/MissionActivity.js';
 import { MissionResults } from './mission/MissionResults.js';
@@ -16,6 +18,7 @@ import {
 } from './mission/mission-view-model.js';
 import { ConfirmDangerButton } from './ui.js';
 import { Ic } from './home-icons.js';
+import { useTerminalStore } from './TerminalPanel.js';
 
 function initialSection(snapshot: MissionSnapshotDto): MissionSection {
   return ['VERIFYING', 'COMPLETED'].includes(snapshot.mission.state) ? 'results' : 'work';
@@ -23,13 +26,35 @@ function initialSection(snapshot: MissionSnapshotDto): MissionSection {
 
 export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): React.JSX.Element {
   const missionId = snapshot.mission.id;
+  const requestedDestination = useAppStore((state) =>
+    state.missionCenter?.missionId === missionId ? state.missionCenter : null,
+  );
+  const requestedAssignment = snapshot.assignments.find(
+    (assignment) => assignment.id === requestedDestination?.assignmentId,
+  );
   const leadTaskId = snapshot.assignments.find(
     (assignment) => assignment.id === snapshot.mission.leadAssignmentId,
   )?.taskId;
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(
-    leadTaskId ?? snapshot.tasks[0]?.id ?? null,
+    requestedAssignment?.taskId ?? leadTaskId ?? snapshot.tasks[0]?.id ?? null,
   );
   const [section, setSection] = useState<MissionSection>(() => initialSection(snapshot));
+  const [workView, setWorkView] = useState<'graph' | 'outline'>(() => {
+    try {
+      return window.localStorage.getItem('charter.mission.workView') === 'outline'
+        ? 'outline'
+        : 'graph';
+    } catch {
+      return 'graph';
+    }
+  });
+  const [graphSelection, setGraphSelection] = useState<MissionGraphSelection>(
+    requestedAssignment ? { kind: 'task', taskId: requestedAssignment.taskId } : null,
+  );
+  const [graphDetailExpanded, setGraphDetailExpanded] = useState(
+    requestedDestination?.inspectorTab === 'session',
+  );
+  const [replayAt, setReplayAt] = useState<number | null>(null);
   const selectedAssignment = useMemo(
     () => (selectedTaskId ? assignmentForTask(snapshot, selectedTaskId) : null),
     [selectedTaskId, snapshot],
@@ -46,8 +71,41 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
   }, [leadTaskId, selectedTaskId, snapshot.tasks]);
 
   useEffect(() => {
-    if (snapshot.mission.state === 'VERIFYING') setSection('results');
-  }, [snapshot.mission.state]);
+    if (!requestedAssignment) return;
+    setSection('work');
+    setWorkView('graph');
+    setSelectedTaskId(requestedAssignment.taskId);
+    setGraphSelection({ kind: 'task', taskId: requestedAssignment.taskId });
+    setGraphDetailExpanded(requestedDestination?.inspectorTab === 'session');
+  }, [requestedAssignment?.id, requestedAssignment?.taskId, requestedDestination?.inspectorTab]);
+
+  useEffect(() => {
+    if (snapshot.mission.state === 'VERIFYING' && !requestedAssignment) setSection('results');
+  }, [requestedAssignment, snapshot.mission.state]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('charter.mission.workView', workView);
+    } catch {
+      // The view still works when persistent browser storage is unavailable.
+    }
+  }, [workView]);
+
+  useEffect(() => {
+    if (workView !== 'graph' || !graphSelection) return;
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      setGraphSelection(null);
+      setGraphDetailExpanded(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [graphSelection, workView]);
+
+  const selectTask = (taskId: string): void => {
+    setSelectedTaskId(taskId);
+    setGraphSelection({ kind: 'task', taskId });
+  };
 
   const openConversation = (): void => {
     if (!originTaskId) return;
@@ -65,7 +123,19 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
       return;
     }
     if (attempt?.terminalId) {
-      useAppStore.getState().openTerminalSession(attempt.terminalId);
+      void useTerminalStore
+        .getState()
+        .adopt(attempt.terminalId)
+        .then((adopted) => {
+          if (!adopted) {
+            useAppStore
+              .getState()
+              .pushToast('warning', 'The working terminal is no longer available.');
+            return;
+          }
+          useTerminalStore.getState().setActive(attempt.terminalId!);
+          useAppStore.getState().openTerminalSession(attempt.terminalId!);
+        });
       return;
     }
     useAppStore.getState().pushToast('warning', 'This work has no session that can be opened.');
@@ -74,7 +144,7 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
   const selectAssignment = (assignmentId: string): void => {
     const assignment = snapshot.assignments.find((item) => item.id === assignmentId);
     if (!assignment) return;
-    setSelectedTaskId(assignment.taskId);
+    selectTask(assignment.taskId);
     setSection('work');
   };
 
@@ -199,54 +269,197 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
               }
               onSelectAssignment={selectAssignment}
             />
-            <div className="mission-work-layout">
+            <div
+              className={[
+                'mission-work-layout',
+                workView === 'graph' ? 'mission-work-layout-graph' : '',
+                graphSelection ? 'has-graph-detail' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
               <section className="mission-work-canvas">
                 <header className="mission-section-heading">
                   <span>
-                    <small>Plan and ownership</small>
-                    <h2>Work map</h2>
+                    <small>Live orchestration</small>
+                    <h2>{workView === 'graph' ? 'Mission graph' : 'Work outline'}</h2>
                   </span>
+                  <nav className="mission-work-view-switch" aria-label="Work presentation">
+                    <button
+                      className={workView === 'graph' ? 'active' : ''}
+                      data-testid="mission-view-graph"
+                      onClick={() => setWorkView('graph')}
+                    >
+                      <Ic name="branch" size={11} /> Graph
+                    </button>
+                    <button
+                      className={workView === 'outline' ? 'active' : ''}
+                      data-testid="mission-view-outline"
+                      onClick={() => setWorkView('outline')}
+                    >
+                      <Ic name="layout" size={11} /> Outline
+                    </button>
+                  </nav>
                   <p>
-                    Delegated work is nested below its owner. Dependencies are shown on each item.
+                    {workView === 'graph'
+                      ? 'Execution, delegation and real Agent communication — grounded in recorded Mission events.'
+                      : 'Read goals, ownership and durable progress as a nested delegation outline.'}
                   </p>
                 </header>
-                <MissionWorkMap
-                  snapshot={snapshot}
-                  selectedTaskId={selectedTaskId}
-                  onSelect={setSelectedTaskId}
-                />
+                {workView === 'graph' ? (
+                  <MissionGraph
+                    snapshot={snapshot}
+                    selection={graphSelection}
+                    replayAt={replayAt}
+                    detailOpen={Boolean(graphSelection) && !graphDetailExpanded}
+                    onSelection={(selection) => {
+                      setGraphSelection(selection);
+                      if (selection?.kind === 'task') setSelectedTaskId(selection.taskId);
+                      if (!selection) setGraphDetailExpanded(false);
+                    }}
+                    onReplayAt={setReplayAt}
+                  />
+                ) : (
+                  <MissionWorkMap
+                    snapshot={snapshot}
+                    selectedTaskId={selectedTaskId}
+                    onSelect={selectTask}
+                  />
+                )}
               </section>
-              <aside className="mission-detail-pane">
-                <RuntimeInspector
-                  snapshot={snapshot}
-                  assignment={selectedAssignment}
-                  missionId={missionId}
-                  onPause={(m, a, paused) =>
-                    void useOrchestrationStore.getState().pauseAssignment(m, a, paused)
+              {workView === 'outline' || graphSelection ? (
+                <aside
+                  className={[
+                    'mission-detail-pane',
+                    workView === 'graph' ? 'mission-graph-detail-drawer' : '',
+                    graphDetailExpanded ? 'expanded' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  data-testid={
+                    workView === 'graph' ? 'mission-graph-detail-drawer' : 'mission-outline-detail'
                   }
-                  onCancel={(m, a) =>
-                    void useOrchestrationStore
-                      .getState()
-                      .cancelAssignment(m, a, 'Cancelled by user')
-                  }
-                  onRetry={(m, a) => void useOrchestrationStore.getState().retryAssignment(m, a)}
-                  onSteer={(m, a, text) =>
-                    void useOrchestrationStore.getState().steerAssignment(m, a, text)
-                  }
-                  onReassign={(m, a, runtime, name) =>
-                    void useOrchestrationStore.getState().reassignAssignment(m, a, runtime, name)
-                  }
-                  onPromoteLead={(m, a) => void useOrchestrationStore.getState().promoteLead(m, a)}
-                  onCloseRuntime={(m, a) =>
-                    void useOrchestrationStore.getState().closeRuntime(m, a)
-                  }
-                  onOpenRuntime={openRuntime}
-                />
-              </aside>
+                  aria-live={workView === 'graph' ? 'polite' : undefined}
+                >
+                  {workView === 'graph' ? (
+                    <nav className="mission-graph-drawer-actions" aria-label="Work detail controls">
+                      <label>
+                        <span>Selected work</span>
+                        <select
+                          aria-label="Select work detail"
+                          value={
+                            graphSelection?.kind === 'task'
+                              ? graphSelection.taskId
+                              : '__collaboration'
+                          }
+                          onChange={(event) => {
+                            const taskId = event.currentTarget.value;
+                            if (taskId === '__collaboration') return;
+                            selectTask(taskId);
+                          }}
+                        >
+                          {graphSelection?.kind !== 'task' ? (
+                            <option value="__collaboration">Collaboration</option>
+                          ) : null}
+                          {snapshot.tasks.map((task) => (
+                            <option key={task.id} value={task.id}>
+                              {task.title}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        data-testid="mission-graph-detail-expand"
+                        aria-pressed={graphDetailExpanded}
+                        title={graphDetailExpanded ? 'Restore detail width' : 'Expand detail'}
+                        onClick={() => setGraphDetailExpanded((value) => !value)}
+                      >
+                        <Ic name="layout" size={13} />
+                        <span>{graphDetailExpanded ? 'Restore' : 'Expand'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="mission-graph-detail-close"
+                        title="Close detail"
+                        onClick={() => {
+                          setGraphSelection(null);
+                          setGraphDetailExpanded(false);
+                        }}
+                      >
+                        <Ic name="x" size={13} />
+                        <span>Close</span>
+                      </button>
+                    </nav>
+                  ) : null}
+                  {workView === 'graph' && graphSelection && graphSelection.kind !== 'task' ? (
+                    <MissionCollaborationInspector
+                      snapshot={snapshot}
+                      selection={graphSelection}
+                      replayAt={replayAt}
+                      onReply={(messageId, body) =>
+                        void useOrchestrationStore
+                          .getState()
+                          .replyToMessage(missionId, messageId, body)
+                      }
+                      onSelectTask={selectTask}
+                    />
+                  ) : (
+                    <RuntimeInspector
+                      snapshot={snapshot}
+                      assignment={selectedAssignment}
+                      missionId={missionId}
+                      onPause={(m, a, paused) =>
+                        void useOrchestrationStore.getState().pauseAssignment(m, a, paused)
+                      }
+                      onCancel={(m, a) =>
+                        void useOrchestrationStore
+                          .getState()
+                          .cancelAssignment(m, a, 'Cancelled by user')
+                      }
+                      onRetry={(m, a) =>
+                        void useOrchestrationStore.getState().retryAssignment(m, a)
+                      }
+                      onSteer={(m, a, text) =>
+                        void useOrchestrationStore.getState().steerAssignment(m, a, text)
+                      }
+                      onReassign={(m, a, runtime, name) =>
+                        void useOrchestrationStore
+                          .getState()
+                          .reassignAssignment(m, a, runtime, name)
+                      }
+                      onPromoteLead={(m, a) =>
+                        void useOrchestrationStore.getState().promoteLead(m, a)
+                      }
+                      onCloseRuntime={(m, a) =>
+                        void useOrchestrationStore.getState().closeRuntime(m, a)
+                      }
+                      onOpenRuntime={openRuntime}
+                      onOpenAgentSession={() => setGraphDetailExpanded(true)}
+                      requestedTab={
+                        requestedAssignment?.id === selectedAssignment?.id
+                          ? requestedDestination?.inspectorTab
+                          : 'details'
+                      }
+                    />
+                  )}
+                </aside>
+              ) : null}
             </div>
           </>
         ) : section === 'activity' ? (
-          <MissionActivity snapshot={snapshot} />
+          <MissionActivity
+            snapshot={snapshot}
+            onInspect={(message) => {
+              const assignment = snapshot.assignments.find(
+                (item) => item.id === message.fromAssignmentId,
+              );
+              if (assignment) selectTask(assignment.taskId);
+              setReplayAt(Date.parse(message.createdAt));
+              setWorkView('graph');
+              setSection('work');
+            }}
+          />
         ) : (
           <MissionResults
             snapshot={snapshot}

@@ -2,10 +2,13 @@ import { ipcMain } from 'electron';
 import {
   CHANNELS,
   IpcRequestSchema,
+  SEND_CHANNELS,
   type ChannelName,
   type ChannelRequest,
   type ChannelResponse,
   type IpcResponse,
+  type SendChannelName,
+  type SendPayload,
 } from '@pi-ide/ipc-contracts';
 import { productError, toProductError, ProductFailure, type Logger } from '@pi-ide/foundation';
 
@@ -23,6 +26,14 @@ export type ChannelHandler<N extends ChannelName> = (
 export type HandlerMap = { [N in ChannelName]?: ChannelHandler<N> };
 
 const registered = new Set<string>();
+const registeredSends = new Set<string>();
+
+export type SendHandler<N extends SendChannelName> = (
+  payload: SendPayload<N>,
+  meta: HandlerMeta,
+) => void | Promise<void>;
+
+export type SendHandlerMap = { [N in SendChannelName]?: SendHandler<N> };
 
 /**
  * Registers one ipcMain handler per fixed channel (spec §9.3). The OS-level channel
@@ -93,6 +104,56 @@ export function registerHandlers(handlers: HandlerMap, logger: Logger): void {
           });
         }
         return { requestId, ok: false, error: err };
+      }
+    });
+  }
+}
+
+/**
+ * Registers validated one-way notifications for latency-sensitive traffic.
+ * Failures are diagnostic only because the renderer intentionally has no
+ * response promise on this path.
+ */
+export function registerSendHandlers(handlers: SendHandlerMap, logger: Logger): void {
+  for (const name of Object.keys(handlers) as SendChannelName[]) {
+    const handler = handlers[name];
+    if (!handler || registeredSends.has(name)) continue;
+    registeredSends.add(name);
+    const def = SEND_CHANNELS[name];
+    ipcMain.on(`send:${name}`, (event, raw) => {
+      const envelope = IpcRequestSchema.safeParse(raw);
+      if (!envelope.success) {
+        logger.warn('ipc send envelope rejected', { channel: name });
+        return;
+      }
+      const { requestId, workspaceId, payload } = envelope.data;
+      const parsed = def.payload.safeParse(payload);
+      if (!parsed.success) {
+        logger.warn('ipc send payload rejected', {
+          channel: name,
+          detail: parsed.error.message.slice(0, 1000),
+        });
+        return;
+      }
+      try {
+        const work = (handler as SendHandler<SendChannelName>)(parsed.data as never, {
+          requestId,
+          workspaceId,
+          senderId: event.sender.id,
+        });
+        void Promise.resolve(work).catch((error) => {
+          const failure = toProductError(error, 'APP_UNEXPECTED');
+          logger.error(`ipc send handler failed: ${name}`, {
+            code: failure.code,
+            tech: failure.technicalMessage,
+          });
+        });
+      } catch (error) {
+        const failure = toProductError(error, 'APP_UNEXPECTED');
+        logger.error(`ipc send handler failed: ${name}`, {
+          code: failure.code,
+          tech: failure.technicalMessage,
+        });
       }
     });
   }

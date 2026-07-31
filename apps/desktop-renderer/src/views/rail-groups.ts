@@ -1,10 +1,25 @@
-import type { TaskDto } from '@pi-ide/ipc-contracts';
+import type { AssignmentDto, MissionSnapshotDto, TaskDto } from '@pi-ide/ipc-contracts';
 import { isHistoryTask, needsAttention } from './labels.js';
+
+export interface MissionSessionLink {
+  missionId: string;
+  assignmentId: string;
+  parentKey: string | null;
+  depth: number;
+  agentName: string;
+  taskTitle: string;
+  provider: 'pi' | 'shell' | 'claude' | 'codex';
+  assignmentState: AssignmentDto['state'];
+  missionState: MissionSnapshotDto['mission']['state'];
+  runtimeSessionId: string | null;
+  terminalId: string | null;
+  transport: 'native' | 'acp' | 'terminal' | null;
+}
 
 /** One Sessions-rail row: a Charter task, or a bare composer-launched CLI
  * terminal that no task has claimed yet. */
 export type SessionEntry =
-  | { key: string; kind: 'task'; task: TaskDto }
+  | { key: string; kind: 'task'; task: TaskDto; mission?: MissionSessionLink }
   | {
       key: string;
       kind: 'terminal';
@@ -15,6 +30,15 @@ export type SessionEntry =
       /** ADR-0047: true when this terminal runs on a remote SSH host. The host
        * label is already the projectName, so grouping puts it under the host. */
       remote?: boolean;
+      mission?: MissionSessionLink;
+    }
+  | {
+      key: string;
+      kind: 'mission';
+      projectName: string;
+      projectPath: string;
+      updatedAt: string;
+      mission: MissionSessionLink;
     };
 
 export interface RailGroup {
@@ -57,7 +81,7 @@ function localCalendarDay(value: number): number {
 
 function entryUpdatedAt(entry: SessionEntry, now: number): number {
   if (entry.kind === 'terminal') return now;
-  const parsed = Date.parse(entry.task.updatedAt);
+  const parsed = Date.parse(entry.kind === 'task' ? entry.task.updatedAt : entry.updatedAt);
   return Number.isFinite(parsed) ? parsed : now;
 }
 
@@ -113,7 +137,22 @@ export function visibleRailGroupEntries(
   options: { expanded: boolean; filtering: boolean },
 ): SessionEntry[] {
   if (group.history || options.expanded || options.filtering) return group.entries;
-  return group.entries.slice(0, ACTIVE_SESSION_GROUP_LIMIT);
+  const present = new Set(group.entries.map((entry) => entry.key));
+  const roots = group.entries.filter(
+    (entry) => !entry.mission?.parentKey || !present.has(entry.mission.parentKey),
+  );
+  const visible = new Set(roots.slice(0, ACTIVE_SESSION_GROUP_LIMIT).map((entry) => entry.key));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const entry of group.entries) {
+      const parentKey = entry.mission?.parentKey;
+      if (!parentKey || !visible.has(parentKey) || visible.has(entry.key)) continue;
+      visible.add(entry.key);
+      changed = true;
+    }
+  }
+  return group.entries.filter((entry) => visible.has(entry.key));
 }
 
 /**
@@ -122,6 +161,10 @@ export function visibleRailGroupEntries(
  * count as over; a live process never lands here.
  */
 export function isHistoryEntry(entry: SessionEntry): boolean {
+  if (entry.mission) {
+    return ['COMPLETED', 'FAILED', 'CANCELLED'].includes(entry.mission.missionState);
+  }
+  if (entry.kind === 'mission') return false;
   return entry.kind === 'terminal' ? entry.exited : isHistoryTask(entry.task);
 }
 
@@ -156,6 +199,8 @@ export function buildRailGroups(entries: readonly SessionEntry[]): RailGroup[] {
     if (entry.kind === 'task') {
       group.path ??= entry.task.projectPath;
       if (needsAttention(entry.task)) group.needs += 1;
+    } else if (entry.kind === 'mission') {
+      group.path ??= entry.projectPath;
     }
     group.entries.push(entry);
   }

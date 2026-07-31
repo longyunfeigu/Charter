@@ -246,6 +246,70 @@ export const MessageDeliveryDtoSchema = z.object({
   observedAt: z.string().nullable(),
   updatedAt: z.string(),
 });
+export const ContinuationDtoSchema = z.object({
+  id: z.string(),
+  missionId: z.string(),
+  ownerAssignmentId: z.string(),
+  ownerAttemptId: z.string(),
+  mode: z.enum(['all', 'any']),
+  state: z.enum(['ARMED', 'READY', 'DELIVERING', 'DELIVERED', 'CONSUMED', 'CANCELLED']),
+  reason: z.string(),
+  cursorSequence: z.number().int().nonnegative(),
+  deadlineAt: z.string().nullable(),
+  idempotencyKey: z.string(),
+  readyAt: z.string().nullable(),
+  deliveredAt: z.string().nullable(),
+  consumedAt: z.string().nullable(),
+  cancelledAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export const ContinuationTargetDtoSchema = z.object({
+  id: z.string(),
+  continuationId: z.string(),
+  kind: z.enum(['assignment_terminal', 'message']),
+  targetAssignmentId: z.string().nullable(),
+  fromAssignmentId: z.string().nullable(),
+  messageTypes: z
+    .array(
+      z.enum([
+        'assignment',
+        'progress',
+        'question',
+        'answer',
+        'escalation',
+        'completion',
+        'cancellation',
+        'handoff',
+        'heartbeat',
+      ]),
+    )
+    .nullable(),
+  threadId: z.string().nullable(),
+  terminalStates: z.array(AssignmentStateSchema).nullable(),
+  satisfiedBy: z.string().nullable(),
+  satisfiedPayload: z.record(z.string(), z.unknown()).nullable(),
+  satisfiedAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export const ResumeIntentDtoSchema = z.object({
+  id: z.string(),
+  continuationId: z.string(),
+  missionId: z.string(),
+  ownerAssignmentId: z.string(),
+  ownerAttemptId: z.string(),
+  runtimeSessionId: z.string().nullable(),
+  state: z.enum(['PENDING', 'PROCESSING', 'DELIVERED', 'ACKNOWLEDGED', 'CANCELLED']),
+  idempotencyKey: z.string(),
+  payload: z.record(z.string(), z.unknown()),
+  attempts: z.number().int().nonnegative(),
+  availableAt: z.string(),
+  lastError: z.string().nullable(),
+  deliveredAt: z.string().nullable(),
+  acknowledgedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
 export const MissionSnapshotSchema = z.object({
   mission: MissionDtoSchema,
   principals: z.array(PrincipalDtoSchema),
@@ -260,6 +324,9 @@ export const MissionSnapshotSchema = z.object({
   runtimeSessions: z.array(RuntimeSessionDtoSchema).optional(),
   runtimeEvents: z.array(RuntimeEventDtoSchema).optional(),
   messageDeliveries: z.array(MessageDeliveryDtoSchema).optional(),
+  continuations: z.array(ContinuationDtoSchema).optional(),
+  continuationTargets: z.array(ContinuationTargetDtoSchema).optional(),
+  resumeIntents: z.array(ResumeIntentDtoSchema).optional(),
 });
 
 export type MissionSnapshotDto = z.infer<typeof MissionSnapshotSchema>;
@@ -269,3 +336,6 @@ export type AssignmentArtifactDto = z.infer<typeof AssignmentArtifactDtoSchema>;
 export type RuntimeSessionDto = z.infer<typeof RuntimeSessionDtoSchema>;
 export type RuntimeEventDto = z.infer<typeof RuntimeEventDtoSchema>;
 export type MessageDeliveryDto = z.infer<typeof MessageDeliveryDtoSchema>;
+export type ContinuationDto = z.infer<typeof ContinuationDtoSchema>;
+export type ContinuationTargetDto = z.infer<typeof ContinuationTargetDtoSchema>;
+export type ResumeIntentDto = z.infer<typeof ResumeIntentDtoSchema>;

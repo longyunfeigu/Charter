@@ -41,37 +41,37 @@ test('real Claude A recursively delegates to real Codex B which delegates to rea
   const dGoal = [
     `You are the leaf verifier D in real acceptance run ${marker}.`,
     'Do not edit files and do not create another child.',
-    'Use the Charter orchestration MCP tools, whose names start with orchestration_.',
-    'Call orchestration_inspect, then orchestration_progress with phase "live-leaf".',
-    `Finally call orchestration_complete with outcome success and summary "${marker} D COMPLETE".`,
+    'Use native `charter orchestration ... --json` CLI commands.',
+    'Run `charter orchestration inspect --json`, then progress with phase "live-leaf" using request JSON.',
+    `Finally use \`charter orchestration complete --request-json <JSON> --json\` with outcome success and summary "${marker} D COMPLETE".`,
   ].join(' ');
   const bGoal = [
     `You are coordinator B in real acceptance run ${marker}. Do not edit files.`,
-    'Use Charter orchestration MCP tools, whose names start with orchestration_.',
-    'First call orchestration_inspect.',
-    'Then you, B, must directly call orchestration_delegate exactly once; do not ask A to proxy it.',
+    'Use native `charter orchestration ... --json` CLI commands.',
+    'First run `charter orchestration inspect --json`.',
+    'Then you, B, must directly run `charter orchestration delegate --request-json <JSON> --json` exactly once; do not ask A to proxy it.',
     `Create title "${dTitle}", requestedRuntime "claude", workMode "read-only",`,
     `goal ${JSON.stringify(dGoal)}, acceptanceCriteria ["D reports ${marker} D COMPLETE"],`,
     `expectedArtifacts ["structured completion"], reason "prove recursive B to D delegation", and idempotencyKey "${marker}-b-to-d".`,
-    'Call orchestration_progress with phase "live-recursion" after delegating.',
-    'Wait event-first for a completion message using orchestration_wait with types ["completion"] and timeoutMs 600000.',
+    'Report phase "live-recursion" with `charter orchestration progress --request-json <JSON> --json` after delegating.',
+    'Wait event-first using `charter orchestration wait --types completion --timeout-ms 600000 --json`.',
     'Inspect again and confirm D succeeded.',
-    `Then call orchestration_complete with outcome success and summary "${marker} B COMPLETE AFTER D".`,
+    `Then use \`charter orchestration complete --request-json <JSON> --json\` with outcome success and summary "${marker} B COMPLETE AFTER D".`,
   ].join(' ');
   const leadPrompt = [
     `Run the real Charter recursive Mission acceptance scenario ${marker}.`,
     'This is read-only: do not edit files, do not run implementation work, and do not use terminal_create.',
-    'Use Charter MCP tools whose names start with orchestration_.',
-    'First call orchestration_inspect. If the external Session is still attaching, retry that tool.',
-    'Then call orchestration_delegate exactly once with:',
+    'Use native `charter orchestration ... --json` CLI commands.',
+    'First run `charter orchestration inspect --json`. If the external Session is still attaching, retry it.',
+    'Then run `charter orchestration delegate --request-json <JSON> --json` exactly once with:',
     `title "${bTitle}", requestedRuntime "codex", workMode "read-only",`,
     `goal ${JSON.stringify(bGoal)}, acceptanceCriteria ["B creates D itself", "B completes only after D"],`,
     `expectedArtifacts ["recursive Mission history"], reason "prove real Claude to Codex recursive delegation", and idempotencyKey "${marker}-a-to-b".`,
-    'Call orchestration_progress with phase "live-lead".',
-    'Wait event-first for a completion message using orchestration_wait with types ["completion"] and timeoutMs 600000.',
+    'Report phase "live-lead" with `charter orchestration progress --request-json <JSON> --json`.',
+    'Wait event-first using `charter orchestration wait --types completion --timeout-ms 600000 --json`.',
     'Inspect again and verify that both B and D succeeded.',
-    `Finally call orchestration_complete with outcome success and summary "${marker} A COMPLETE AFTER B AND D".`,
-    'Do not merely describe these actions: execute every orchestration tool call.',
+    `Finally use \`charter orchestration complete --request-json <JSON> --json\` with outcome success and summary "${marker} A COMPLETE AFTER B AND D".`,
+    'Do not merely describe these actions: execute every CLI command.',
   ].join(' ');
 
   const launched = await launchApp({
@@ -229,14 +229,14 @@ test('Runtime Inspector controls a real user-started Claude Lead and replaces it
   const initialPrompt = [
     `Join a Charter Mission for the live Runtime Inspector acceptance ${marker}.`,
     'Do not edit files and do not delegate.',
-    'Use the Charter MCP tools whose names start with orchestration_.',
-    'Call orchestration_inspect, retrying once if the external Session is still attaching.',
-    `Then call orchestration_progress with phase "ready-for-guidance" and summary "${initialSummary}".`,
-    'Do not call orchestration_complete. End this turn after reporting progress and wait for a user follow-up.',
+    'Use native `charter orchestration ... --json` CLI commands.',
+    'Run `charter orchestration inspect --json`, retrying once if the external Session is still attaching.',
+    `Then use \`charter orchestration progress --request-json <JSON> --json\` with phase "ready-for-guidance" and summary "${initialSummary}".`,
+    'Do not complete the Assignment. End this turn after reporting progress and wait for a user follow-up.',
   ].join(' ');
   const guidance = [
     `This is the held UI guidance for ${marker}.`,
-    `Call orchestration_progress with phase "guided-by-user" and summary "${guidedSummary}".`,
+    `Use \`charter orchestration progress --request-json <JSON> --json\` with phase "guided-by-user" and summary "${guidedSummary}".`,
     'Do not edit files, delegate, or complete the Assignment. End the turn after reporting progress.',
   ].join(' ');
 

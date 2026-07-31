@@ -10,14 +10,14 @@
 .mission-strip {
   position: relative;
   width: calc(100% - 24px);
-  min-height: 70px;
+  min-height: 52px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 12px;
   flex: none;
-  margin: 10px 12px 0;
-  padding: 10px 12px;
+  margin: 8px 12px 0;
+  padding: 8px 12px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
   border-radius: 11px;
@@ -48,8 +48,8 @@
   border-color: color-mix(in srgb, var(--warning) 50%, var(--border));
 }
 .mission-strip-mark {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   border-radius: 10px;
@@ -60,7 +60,7 @@
 .mission-strip-copy {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: 5px;
 }
 .mission-strip-kicker {
   display: flex;
@@ -75,16 +75,8 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-.mission-strip-title {
-  overflow: hidden;
-  font-family: var(--font-display);
-  font-size: 12.5px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .mission-strip-progress {
-  width: min(320px, 80%);
+  width: min(260px, 78%);
   height: 3px;
   overflow: hidden;
   border-radius: 999px;
@@ -583,6 +575,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  container-name: mission-workbench;
+  container-type: inline-size;
 }
 .mission-workbench-head {
   flex: none;
@@ -1795,6 +1789,1378 @@
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+/* Mission live graph */
+.mission-work-canvas:has(.mission-graph-shell) {
+  padding: 0;
+  overflow: hidden;
+}
+.mission-work-canvas:has(.mission-graph-shell) > .mission-section-heading {
+  min-height: 65px;
+  margin: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.mission-work-view-switch {
+  align-self: center;
+}
+.mission-section-heading > .mission-work-view-switch {
+  margin-left: auto;
+}
+.mission-section-heading:has(.mission-work-view-switch) > p {
+  max-width: 330px;
+}
+.mission-graph-shell {
+  min-width: 0;
+  background: color-mix(in srgb, var(--bg-editor) 93%, transparent);
+}
+.mission-graph-toolbar {
+  min-height: 43px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+}
+.mission-graph-search {
+  width: clamp(145px, 18vw, 190px);
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-editor);
+  color: var(--fg-faint);
+}
+.mission-graph-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  font: 9px var(--font-ui);
+}
+.mission-graph-toolbar > select {
+  min-height: 28px;
+  padding: 0 23px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  font: 8.5px var(--font-ui);
+}
+.mission-graph-layers {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.mission-graph-layers::-webkit-scrollbar {
+  display: none;
+}
+.mission-graph-layers button {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-faint);
+  font: 600 8px var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mission-graph-layers button:hover,
+.mission-graph-layers button.active {
+  border-color: var(--border-soft);
+  background: var(--bg-hover);
+  color: var(--fg-muted);
+}
+.mission-graph-layers button > i {
+  width: 14px;
+  height: 0;
+  border-top: 2px solid var(--fg-faint);
+}
+.mission-graph-layers button.delegation > i {
+  border-top-style: dashed;
+}
+.mission-graph-layers button.communication > i {
+  border-top-color: #7767d8;
+  border-radius: 50%;
+  transform: rotate(-8deg);
+}
+.mission-graph-layers button.dependency.active > i {
+  border-color: var(--fg-muted);
+}
+.mission-graph-layers button.communication.active,
+.mission-graph-layers button.communication.has-active {
+  color: #7767d8;
+}
+.mission-graph-layers button.critical.active {
+  color: var(--warning);
+}
+.mission-graph-viewport {
+  position: relative;
+  height: clamp(470px, 56vh, 710px);
+  min-height: 470px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--fg) 11%, transparent) 0.7px, transparent 0.8px)
+      0 0 / 18px 18px,
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 3%, transparent), transparent 46%),
+    var(--bg-editor);
+  cursor: grab;
+  touch-action: none;
+}
+.mission-graph-viewport.panning {
+  cursor: grabbing;
+}
+.mission-graph-viewport[data-replay='true'] {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--warning) 28%, transparent);
+}
+.mission-graph-scene {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  transition: transform 120ms ease-out;
+}
+.mission-graph-viewport.panning .mission-graph-scene {
+  transition: none;
+}
+.mission-graph-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.mission-graph-edge .line {
+  fill: none;
+  stroke: color-mix(in srgb, var(--fg-muted) 60%, var(--border));
+  stroke-width: 1.4px;
+}
+.mission-graph-edge .hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16px;
+}
+.mission-graph-edge.delegation .line {
+  stroke: color-mix(in srgb, var(--fg-faint) 74%, var(--border));
+  stroke-dasharray: 5 5;
+}
+.mission-graph-edge.communication,
+.mission-graph-edge.human {
+  pointer-events: all;
+  cursor: pointer;
+}
+.mission-graph-edge.communication .line {
+  stroke: #7767d8;
+  stroke-width: 1.7px;
+}
+.mission-graph-edge.communication.pending .line,
+.mission-graph-edge.human .line {
+  stroke: var(--warning);
+  stroke-width: 2px;
+}
+.mission-graph-edge.communication.failed .line,
+.mission-graph-edge.human.failed .line {
+  stroke: var(--danger);
+  stroke-dasharray: 4 4;
+}
+.mission-graph-edge.selected .line {
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, #7767d8 45%, transparent));
+}
+.mission-graph-edge.critical .line {
+  stroke: var(--warning);
+  stroke-width: 2.5px;
+}
+.mission-arrow-head.dependency {
+  fill: color-mix(in srgb, var(--fg-muted) 65%, var(--border));
+}
+.mission-arrow-head.delegation {
+  fill: var(--fg-faint);
+}
+.mission-arrow-head.communication {
+  fill: #7767d8;
+}
+.mission-arrow-head.human {
+  fill: var(--warning);
+}
+.mission-edge-count rect {
+  fill: var(--bg-card);
+  stroke: color-mix(in srgb, #7767d8 55%, var(--border));
+}
+.mission-graph-edge.pending .mission-edge-count rect {
+  stroke: var(--warning);
+}
+.mission-edge-count text {
+  fill: var(--fg-muted);
+  font: 700 8px var(--font-mono);
+  text-anchor: middle;
+}
+.mission-graph-node {
+  position: absolute;
+  width: 236px;
+  height: 94px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: linear-gradient(
+    110deg,
+    color-mix(in srgb, var(--bg-card) 98%, transparent),
+    color-mix(in srgb, var(--bg-card) 92%, var(--accent))
+  );
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  box-shadow: 0 7px 18px color-mix(in srgb, var(--fg) 7%, transparent);
+  cursor: pointer;
+  user-select: none;
+}
+.mission-graph-node:hover {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  box-shadow: 0 9px 24px color-mix(in srgb, var(--fg) 10%, transparent);
+}
+.mission-graph-node.selected {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent),
+    0 10px 24px color-mix(in srgb, var(--fg) 9%, transparent);
+}
+.mission-graph-node.tone-attention,
+.mission-graph-node.blocked-by-failure {
+  border-color: color-mix(in srgb, var(--danger) 52%, var(--border));
+}
+.mission-graph-node.critical {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--warning) 28%, transparent),
+    0 8px 22px color-mix(in srgb, var(--warning) 10%, transparent);
+}
+.mission-graph-node-state {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--bg-hover);
+  color: var(--fg-faint);
+}
+.mission-graph-node-state.tone-active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.mission-graph-node-state.tone-waiting {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+}
+.mission-graph-node-state.tone-attention {
+  background: color-mix(in srgb, var(--danger) 11%, transparent);
+  color: var(--danger);
+}
+.mission-graph-node-state.tone-success {
+  background: color-mix(in srgb, var(--success) 11%, transparent);
+  color: var(--success);
+}
+.mission-graph-node-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.mission-graph-node-title,
+.mission-graph-node-owner,
+.mission-graph-node-meta,
+.mission-graph-node-foot {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.mission-graph-node-title strong {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 10.5px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mission-graph-node-title > em {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font: 700 9px var(--font-mono);
+  font-style: normal;
+}
+.mission-graph-node-owner {
+  color: var(--fg-faint);
+  font-size: 8px;
+}
+.mission-graph-node-owner b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mission-graph-node-owner em {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  color: var(--accent);
+  font: 700 7px var(--font-mono);
+  font-style: normal;
+  text-transform: uppercase;
+}
+.mission-graph-node-meta {
+  color: var(--fg-faint);
+  font: 7.5px var(--font-mono);
+}
+.mission-graph-node-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.mission-graph-node-meta span + span::before {
+  content: '·';
+  margin-right: 1px;
+}
+.mission-graph-node-foot {
+  margin-top: 1px;
+}
+.mission-graph-node-foot > span:not(.mission-state-pill) {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--fg-faint);
+  font-size: 7.2px;
+  white-space: nowrap;
+}
+.mission-graph-node-foot .coverage {
+  max-width: 58px;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+}
+.mission-graph-node-foot .coverage.partial,
+.mission-graph-node-foot .coverage.external {
+  color: var(--warning);
+}
+.mission-graph-node-foot .coverage.disconnected {
+  color: var(--danger);
+}
+.mission-graph-collapse {
+  width: 25px;
+  min-height: 24px;
+  display: grid;
+  grid-template-columns: auto auto;
+  place-items: center;
+  gap: 1px;
+  padding: 0 3px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  color: var(--fg-faint);
+  font: 700 7px var(--font-mono);
+}
+.mission-graph-collapse .app-icon {
+  transform: rotate(0deg);
+}
+.mission-graph-human {
+  position: absolute;
+  width: 162px;
+  height: 74px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: 1fr 1fr;
+  align-items: center;
+  gap: 0 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 52%, var(--border));
+  border-radius: 13px;
+  background:
+    radial-gradient(
+      circle at 0 0,
+      color-mix(in srgb, var(--warning) 14%, transparent),
+      transparent 55%
+    ),
+    var(--bg-card);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--warning) 12%, transparent);
+  cursor: pointer;
+}
+.mission-graph-human.selected {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--warning) 18%, transparent),
+    0 10px 26px color-mix(in srgb, var(--warning) 15%, transparent);
+}
+.mission-graph-human > span {
+  grid-row: 1 / 3;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--warning);
+  color: #fff;
+}
+.mission-graph-human strong {
+  align-self: end;
+  font-size: 11px;
+}
+.mission-graph-human small {
+  align-self: start;
+  color: var(--warning);
+  font-size: 7.5px;
+}
+.mission-graph-human > b {
+  grid-row: 1 / 3;
+  min-width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 99px;
+  background: var(--warning);
+  color: #fff;
+  font: 700 8px var(--font-mono);
+}
+.mission-graph-zoom {
+  position: absolute;
+  right: 11px;
+  bottom: 11px;
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+  box-shadow: var(--shadow-card);
+}
+.mission-graph-zoom button {
+  width: 29px;
+  height: 29px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-right: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.mission-graph-zoom button:last-child {
+  border-right: 0;
+}
+.mission-graph-zoom button:hover {
+  background: var(--bg-hover);
+}
+.mission-graph-minimap {
+  position: absolute;
+  right: 11px;
+  bottom: 50px;
+  width: 116px;
+  height: 76px;
+  overflow: hidden;
+  padding: 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  opacity: 0.82;
+}
+.mission-graph-minimap svg {
+  width: 100%;
+  height: 100%;
+}
+.mission-graph-minimap rect {
+  fill: color-mix(in srgb, var(--fg-muted) 22%, transparent);
+  stroke: var(--border);
+  stroke-width: 2;
+}
+.mission-graph-minimap rect.tone-active {
+  fill: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.mission-graph-minimap rect.tone-attention {
+  fill: color-mix(in srgb, var(--danger) 38%, transparent);
+}
+.mission-graph-minimap rect.tone-success {
+  fill: color-mix(in srgb, var(--success) 35%, transparent);
+}
+.mission-graph-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--fg-faint);
+  pointer-events: none;
+}
+.mission-graph-empty strong {
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+.mission-graph-empty span {
+  font-size: 8.5px;
+}
+.mission-graph-timeline {
+  min-height: 49px;
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) minmax(150px, auto) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--bg-card) 90%, transparent);
+}
+.mission-graph-timeline > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg-muted);
+  font: 700 8px var(--font-mono);
+  text-transform: uppercase;
+}
+.mission-graph-timeline > span:first-child i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+.mission-graph-timeline > span:first-child.live i {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 13%, transparent);
+}
+.mission-graph-timeline input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.mission-graph-timeline-event {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.mission-graph-timeline-event strong,
+.mission-graph-timeline-event small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mission-graph-timeline-event strong {
+  font-size: 8.5px;
+}
+.mission-graph-timeline-event small {
+  color: var(--fg-faint);
+  font-size: 7.5px;
+}
+.mission-graph-timeline > button {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  font: 600 8px var(--font-ui);
+  cursor: pointer;
+}
+
+/* Graph and task inspectors */
+.mission-inspector-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
+  margin: 10px 0 3px;
+  padding: 3px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: var(--bg-hover);
+}
+.mission-inspector-tabs button {
+  min-width: 0;
+  min-height: 25px;
+  overflow: hidden;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-faint);
+  font: 600 7.5px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mission-inspector-tabs button.active {
+  background: var(--bg-card);
+  color: var(--fg);
+  box-shadow: var(--shadow-card);
+}
+.mission-inspector-empty,
+.mission-collaboration-empty {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--fg-faint);
+  text-align: center;
+}
+.mission-inspector-empty strong,
+.mission-collaboration-empty strong {
+  color: var(--fg-muted);
+  font-size: 10px;
+}
+.mission-inspector-empty span,
+.mission-collaboration-empty span {
+  max-width: 220px;
+  font-size: 8.5px;
+  line-height: 1.4;
+}
+.mission-expected-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+.mission-expected-artifacts h3 {
+  width: 100%;
+}
+.mission-expected-artifacts > span {
+  padding: 4px 6px;
+  border: 1px dashed var(--border);
+  border-radius: 5px;
+  color: var(--fg-muted);
+  font-size: 8px;
+}
+.mission-inspector-conversation {
+  margin-top: 10px;
+}
+.mission-inspector-conversation ol,
+.mission-conversation-thread {
+  list-style: none;
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+}
+.mission-inspector-conversation li,
+.mission-conversation-thread li {
+  padding: 8px 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-editor) 62%, transparent);
+}
+.mission-inspector-conversation li header,
+.mission-conversation-thread li header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--fg-faint);
+  font-size: 7.5px;
+}
+.mission-inspector-conversation li h3,
+.mission-conversation-thread li h3 {
+  margin: 4px 0 2px;
+  font-size: 9.5px;
+}
+.mission-inspector-conversation li p,
+.mission-conversation-thread li p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 8.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.mission-inspector-conversation li > small,
+.mission-conversation-thread li > small {
+  display: block;
+  margin-top: 4px;
+  color: var(--fg-faint);
+  font-size: 7.5px;
+}
+.mission-runtime-session {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+.mission-runtime-session > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-editor) 76%, transparent);
+}
+.mission-runtime-session > header > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.mission-runtime-session > header strong {
+  font-size: 11px;
+}
+.mission-runtime-session > header small,
+.mission-runtime-session > header code {
+  color: var(--fg-faint);
+  font-size: 8px;
+}
+.mission-runtime-session > header code {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mission-runtime-session ol {
+  list-style: none;
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+}
+.mission-runtime-session li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-editor) 62%, transparent);
+}
+.mission-runtime-event-mark {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+.mission-runtime-session li > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.mission-runtime-session li strong {
+  color: var(--fg-muted);
+  font-size: 9px;
+  text-transform: capitalize;
+}
+.mission-runtime-session li p {
+  max-height: 18rem;
+  overflow: auto;
+  margin: 0;
+  color: var(--fg);
+  font: 10px/1.55 var(--font-mono);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.mission-runtime-session li small {
+  color: var(--fg-faint);
+  font-size: 7.5px;
+}
+.mission-attempt-history {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+.mission-attempt-card {
+  padding: 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-editor) 64%, transparent);
+}
+.mission-attempt-card.state-failed,
+.mission-attempt-card.state-timed_out {
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+}
+.mission-attempt-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+}
+.mission-attempt-card > header strong {
+  font-size: 9.5px;
+}
+.mission-attempt-card > header span {
+  color: var(--fg-faint);
+  font: 700 7.5px var(--font-mono);
+}
+.mission-attempt-card dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 8px;
+  margin: 0;
+}
+.mission-attempt-card dl > div {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.mission-attempt-card dt {
+  color: var(--fg-faint);
+  font-size: 7px;
+}
+.mission-attempt-card dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mission-attempt-failure {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 7px 0 0;
+  color: var(--danger);
+  font-size: 8px;
+}
+.mission-collaboration-detail {
+  min-height: 100%;
+  padding: 14px;
+}
+.mission-collaboration-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.mission-collaboration-head > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: color-mix(in srgb, #7767d8 11%, var(--bg-card));
+  color: #7767d8;
+}
+.mission-collaboration-head.human > span {
+  background: color-mix(in srgb, var(--warning) 12%, var(--bg-card));
+  color: var(--warning);
+}
+.mission-collaboration-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.mission-collaboration-head small {
+  color: var(--fg-faint);
+  font-size: 7.5px;
+}
+.mission-collaboration-head strong {
+  overflow: hidden;
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mission-collaboration-head > b {
+  min-width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  border-radius: 99px;
+  background: color-mix(in srgb, #7767d8 13%, transparent);
+  color: #7767d8;
+  font: 700 8px var(--font-mono);
+}
+.mission-collaboration-head.human > b {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
+}
+.mission-communication-avatars {
+  position: relative;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+.mission-communication-avatars > span + span {
+  margin-left: -4px;
+}
+.mission-collaboration-intro {
+  padding: 13px 0 10px;
+}
+.mission-collaboration-intro h2 {
+  margin: 0 0 4px;
+  font: 650 14px var(--font-display);
+}
+.mission-collaboration-intro p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 8.5px;
+  line-height: 1.45;
+}
+.mission-communication-participants {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 11px;
+  padding: 7px;
+  border-radius: 7px;
+  background: var(--bg-hover);
+}
+.mission-communication-participants button {
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: #7767d8;
+  font: 600 8px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mission-conversation-thread {
+  max-height: 520px;
+  overflow: auto;
+}
+.mission-conversation-thread li > span {
+  display: inline-flex;
+  margin-top: 5px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, #7767d8 10%, transparent);
+  color: #7767d8;
+  font: 700 7px var(--font-mono);
+  text-transform: uppercase;
+}
+.mission-conversation-thread li.type-question,
+.mission-conversation-thread li.type-escalation {
+  border-color: color-mix(in srgb, var(--warning) 32%, var(--border));
+}
+.mission-human-queue {
+  display: grid;
+  gap: 7px;
+}
+.mission-human-item {
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 4%, var(--bg-card));
+}
+.mission-human-item > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.mission-human-item > header span {
+  color: var(--warning);
+  font: 700 7px var(--font-mono);
+  text-transform: uppercase;
+}
+.mission-human-item time,
+.mission-human-item > small {
+  color: var(--fg-faint);
+  font-size: 7.5px;
+}
+.mission-human-item h3 {
+  margin: 5px 0 2px;
+  font-size: 9.5px;
+}
+.mission-human-item p {
+  margin: 0 0 4px;
+  color: var(--fg-muted);
+  font-size: 8.5px;
+  line-height: 1.45;
+}
+.mission-human-item form {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.mission-human-item form textarea {
+  min-height: 65px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-editor);
+  color: var(--fg);
+  font: 8.5px/1.45 var(--font-ui);
+  resize: vertical;
+}
+.mission-human-item form > span,
+.mission-human-item-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-top: 7px;
+}
+.mission-human-item form button,
+.mission-human-item-actions button {
+  min-height: 25px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  font: 600 8px var(--font-ui);
+  cursor: pointer;
+}
+.mission-human-item-actions .mission-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg, #fff);
+}
+.mission-human-recovery {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 4%, var(--bg-card));
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.mission-human-recovery > span:first-child {
+  width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+.mission-human-recovery > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.mission-human-recovery strong,
+.mission-human-recovery small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mission-human-recovery strong {
+  font-size: 9px;
+}
+.mission-human-recovery small {
+  color: var(--fg-faint);
+  font-size: 7.5px;
+}
+.mission-activity-inspect {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: 600 8px var(--font-ui);
+  cursor: pointer;
+}
+
+/* Graph-first detail interaction: the graph keeps its full canvas while a readable
+   inspector floats above it. The user can expand the inspector for long-form reading. */
+.mission-work-layout-graph {
+  position: relative;
+  display: block;
+  max-width: 1680px;
+}
+.mission-work-layout-graph > .mission-work-canvas {
+  min-height: 660px;
+}
+.mission-graph-detail-drawer {
+  position: absolute;
+  z-index: 12;
+  top: 18px;
+  right: 18px;
+  bottom: 18px;
+  width: clamp(620px, 48%, 820px);
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--border-soft));
+  background: color-mix(in srgb, var(--bg-card) 97%, var(--bg-editor));
+  box-shadow:
+    -20px 0 45px color-mix(in srgb, var(--shadow-color, #000) 16%, transparent),
+    var(--shadow-card);
+  animation: mission-detail-enter 150ms ease-out;
+}
+.mission-graph-detail-drawer.expanded {
+  left: 18px;
+  width: auto;
+}
+@keyframes mission-detail-enter {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.mission-graph-drawer-actions {
+  position: sticky;
+  z-index: 4;
+  top: 0;
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--bg-card) 96%, transparent);
+  backdrop-filter: blur(14px);
+}
+.mission-graph-drawer-actions label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+}
+.mission-graph-drawer-actions label > span {
+  color: var(--fg-faint);
+  font: 650 9px var(--font-ui);
+  white-space: nowrap;
+}
+.mission-graph-drawer-actions select {
+  width: min(330px, 32vw);
+  min-height: 32px;
+  overflow: hidden;
+  padding: 0 28px 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-editor);
+  color: var(--fg);
+  font: 650 10px var(--font-ui);
+  text-overflow: ellipsis;
+}
+.mission-graph-drawer-actions button {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  font: 650 10px var(--font-ui);
+  cursor: pointer;
+}
+.mission-graph-drawer-actions button:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  color: var(--fg);
+}
+.mission-graph-detail-drawer .mission-work-detail,
+.mission-graph-detail-drawer .mission-collaboration-detail {
+  min-height: auto;
+  flex: 1;
+  overflow: auto;
+  padding: 20px 24px 34px;
+}
+.mission-graph-detail-drawer .mission-detail-owner-mark,
+.mission-graph-detail-drawer .mission-collaboration-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+}
+.mission-graph-detail-drawer .mission-detail-head small,
+.mission-graph-detail-drawer .mission-collaboration-head small {
+  font-size: 10px;
+}
+.mission-graph-detail-drawer .mission-detail-head strong,
+.mission-graph-detail-drawer .mission-collaboration-head strong {
+  font-size: 14px;
+}
+.mission-graph-detail-drawer .mission-inspector-tabs {
+  gap: 4px;
+  margin: 16px 0 8px;
+  padding: 4px;
+  border-radius: 9px;
+}
+.mission-graph-detail-drawer .mission-inspector-tabs button {
+  min-height: 36px;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+.mission-graph-detail-drawer .mission-detail-intent {
+  padding: 22px 0 14px;
+}
+.mission-graph-detail-drawer .mission-detail-intent h2 {
+  margin-bottom: 8px;
+  font-size: 22px;
+  line-height: 1.25;
+}
+.mission-graph-detail-drawer .mission-detail-intent p,
+.mission-graph-detail-drawer .mission-detail-update p,
+.mission-graph-detail-drawer .mission-check-list li,
+.mission-graph-detail-drawer .mission-inspector-conversation li p,
+.mission-graph-detail-drawer .mission-conversation-thread li p {
+  font-size: 13px;
+  line-height: 1.65;
+}
+.mission-graph-detail-drawer .mission-detail-update {
+  padding: 13px 15px;
+  border-left-width: 3px;
+}
+.mission-graph-detail-drawer .mission-detail-update small,
+.mission-graph-detail-drawer .mission-detail-section h3 {
+  font-size: 10px;
+}
+.mission-graph-detail-drawer .mission-detail-section {
+  margin-top: 22px;
+}
+.mission-graph-detail-drawer .mission-check-list {
+  gap: 10px;
+}
+.mission-graph-detail-drawer .mission-inspector-conversation,
+.mission-graph-detail-drawer .mission-runtime-session,
+.mission-graph-detail-drawer .mission-attempt-history {
+  margin-top: 16px;
+}
+.mission-graph-detail-drawer .mission-inspector-conversation ol,
+.mission-graph-detail-drawer .mission-runtime-session ol,
+.mission-graph-detail-drawer .mission-conversation-thread,
+.mission-graph-detail-drawer .mission-attempt-history {
+  gap: 12px;
+}
+.mission-graph-detail-drawer .mission-inspector-conversation li,
+.mission-graph-detail-drawer .mission-runtime-session li,
+.mission-graph-detail-drawer .mission-conversation-thread li,
+.mission-graph-detail-drawer .mission-attempt-card {
+  padding: 14px 16px;
+  border-radius: 10px;
+}
+.mission-graph-detail-drawer .mission-runtime-session li p {
+  font-size: 12px;
+  line-height: 1.65;
+}
+.mission-graph-detail-drawer .mission-inspector-conversation li header,
+.mission-graph-detail-drawer .mission-conversation-thread li header,
+.mission-graph-detail-drawer .mission-inspector-conversation li > small,
+.mission-graph-detail-drawer .mission-conversation-thread li > small {
+  font-size: 10px;
+}
+.mission-graph-detail-drawer .mission-inspector-conversation li h3,
+.mission-graph-detail-drawer .mission-conversation-thread li h3,
+.mission-graph-detail-drawer .mission-attempt-card > header strong {
+  font-size: 14px;
+}
+.mission-graph-detail-drawer .mission-attempt-card dt,
+.mission-graph-detail-drawer .mission-attempt-card > header span {
+  font-size: 10px;
+}
+.mission-graph-detail-drawer .mission-attempt-card dd,
+.mission-graph-detail-drawer .mission-attempt-failure,
+.mission-graph-detail-drawer .mission-expected-artifacts > span {
+  font-size: 12px;
+}
+.mission-graph-detail-drawer .mission-guidance label {
+  font-size: 12px;
+}
+.mission-graph-detail-drawer .mission-guidance textarea {
+  min-height: 110px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+@container mission-workbench (max-width: 900px) {
+  .mission-work-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mission-detail-pane {
+    min-height: 360px;
+  }
+  .mission-section-heading:has(.mission-work-view-switch) > p {
+    display: none;
+  }
+  .mission-graph-toolbar {
+    flex-wrap: wrap;
+  }
+  .mission-graph-layers {
+    width: 100%;
+    margin-left: 0;
+  }
+  .mission-graph-layers button {
+    flex: 1;
+  }
+  .mission-graph-viewport {
+    height: 520px;
+  }
+  .mission-graph-detail-drawer {
+    left: 18px;
+    width: auto;
+  }
+  .mission-graph-drawer-actions label > span,
+  .mission-graph-drawer-actions button > span {
+    display: none;
+  }
+  .mission-graph-drawer-actions select {
+    width: min(360px, 60vw);
+  }
+}
+
+@container mission-workbench (max-width: 620px) {
+  .mission-head-main {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 8px 0;
+  }
+  .mission-head-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+  .mission-overview-row > span:not(.mission-overview-progress) {
+    min-width: 54px;
+    padding: 0 7px;
+  }
+  .mission-overview-progress {
+    width: 34%;
+  }
+  .mission-graph-layers button {
+    font-size: 0;
+  }
+  .mission-graph-layers button > i,
+  .mission-graph-layers button > .app-icon {
+    margin: 0 auto;
+  }
+}
+
 @media (max-width: 1050px) {
   .mission-strip {
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1807,6 +3173,16 @@
   }
   .mission-head-eyebrow small {
     display: none;
+  }
+  .mission-section-heading:has(.mission-work-view-switch) > p {
+    display: none;
+  }
+  .mission-graph-layers button {
+    font-size: 0;
+  }
+  .mission-graph-layers button > i,
+  .mission-graph-layers button > .app-icon {
+    margin: 0;
   }
 }
 
@@ -1850,6 +3226,40 @@
   .mission-strip-open .app-icon {
     display: block;
   }
+  .mission-work-canvas:has(.mission-graph-shell) > .mission-section-heading {
+    flex-wrap: wrap;
+  }
+  .mission-graph-toolbar {
+    flex-wrap: wrap;
+  }
+  .mission-graph-search {
+    flex: 1;
+  }
+  .mission-graph-layers {
+    width: 100%;
+    margin-left: 0;
+  }
+  .mission-graph-layers button {
+    flex: 1;
+    font-size: 7.5px;
+  }
+  .mission-graph-viewport {
+    height: 490px;
+  }
+  .mission-graph-minimap {
+    display: none;
+  }
+  .mission-graph-timeline {
+    grid-template-columns: auto minmax(80px, 1fr) auto;
+  }
+  .mission-graph-timeline-event {
+    display: none;
+  }
+  .mission-inspector-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1858,5 +3268,8 @@
   }
   .mission-center-card:hover {
     transform: none;
+  }
+  .mission-graph-scene {
+    transition: none;
   }
 }

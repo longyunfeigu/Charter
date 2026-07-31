@@ -1,5 +1,6 @@
 export * from './envelope.js';
 export * from './channels.js';
+export * from './sends.js';
 export * from './events.js';
 export * from './dto.js';
 export * from './settings.js';

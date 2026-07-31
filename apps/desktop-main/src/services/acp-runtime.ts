@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { Buffer } from 'node:buffer';
 import { Readable, Writable } from 'node:stream';
 import * as acp from '@agentclientprotocol/sdk';
 import type { Logger } from '@pi-ide/foundation';
@@ -50,7 +51,15 @@ interface AcpSession {
   busy: boolean;
   paused: boolean;
   ended: boolean;
-  queued: string[];
+  queued: QueuedAcpPrompt[];
+}
+
+interface QueuedAcpPrompt {
+  text: string;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+  signal?: AbortSignal;
+  abortListener?: () => void;
 }
 
 interface AcpProcess {
@@ -65,6 +74,72 @@ interface AcpProcess {
 function jsonObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+function abortError(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason;
+  const error = new Error('The ACP delivery was aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
+const ACP_RUNTIME_EVENT_MAX_BYTES = 16 * 1024;
+const ACP_SUMMARY_KEYS = [
+  'sessionUpdate',
+  'toolCallId',
+  'title',
+  'kind',
+  'status',
+  'name',
+  'path',
+  'locations',
+  'content',
+] as const;
+
+function compactAcpMetadata(value: unknown, depth = 0): unknown {
+  if (value === null || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    return value.length <= 512
+      ? value
+      : { preview: value.slice(0, 512), truncated: true, originalChars: value.length };
+  }
+  if (depth >= 2) return { truncated: true };
+  if (Array.isArray(value)) {
+    return value.slice(0, 8).map((item) => compactAcpMetadata(item, depth + 1));
+  }
+  if (!value || typeof value !== 'object') return String(value);
+  return Object.fromEntries(
+    Object.entries(value)
+      .slice(0, 12)
+      .map(([key, item]) => [key, compactAcpMetadata(item, depth + 1)]),
+  );
+}
+
+/**
+ * ACP tool updates can contain complete command output and base64 images.
+ * Persist useful lifecycle metadata, but never let one protocol notification
+ * turn into a multi-megabyte SQLite write and Mission IPC payload.
+ */
+export function compactAcpRuntimeEvent(value: unknown): Record<string, unknown> {
+  const payload = jsonObject(value);
+  const serialized = JSON.stringify(payload);
+  const originalBytes = Buffer.byteLength(serialized);
+  if (originalBytes <= ACP_RUNTIME_EVENT_MAX_BYTES) return payload;
+
+  const compact = Object.fromEntries(
+    ACP_SUMMARY_KEYS.flatMap((key) =>
+      key in payload ? [[key, compactAcpMetadata(payload[key])] as const] : [],
+    ),
+  ) as Record<string, unknown>;
+  compact.truncated = true;
+  compact.originalBytes = originalBytes;
+  if (Buffer.byteLength(JSON.stringify(compact)) <= ACP_RUNTIME_EVENT_MAX_BYTES) return compact;
+  return {
+    sessionUpdate:
+      typeof payload.sessionUpdate === 'string' ? payload.sessionUpdate : 'unknown_update',
+    truncated: true,
+    originalBytes,
+  };
 }
 
 /** One long-lived ACP process per provider, with multiple independent sessions. */
@@ -302,14 +377,14 @@ export class AcpRuntimeAdapter implements OrchestrationRuntimeAdapter {
     this.runPrompt(session, prompt);
   }
 
-  async deliver(runtimeSessionId: string, message: string): Promise<void> {
+  async deliver(runtimeSessionId: string, message: string, signal?: AbortSignal): Promise<void> {
     const session = this.requireSession(runtimeSessionId);
-    this.enqueueOrPrompt(session, message);
+    await this.enqueueOrPrompt(session, message, signal);
   }
 
-  async steer(runtimeSessionId: string, text: string): Promise<void> {
+  async steer(runtimeSessionId: string, text: string, signal?: AbortSignal): Promise<void> {
     const session = this.requireSession(runtimeSessionId);
-    this.enqueueOrPrompt(session, text);
+    await this.enqueueOrPrompt(session, text, signal);
   }
 
   async pause(runtimeSessionId: string): Promise<void> {
@@ -325,7 +400,7 @@ export class AcpRuntimeAdapter implements OrchestrationRuntimeAdapter {
   async cancel(runtimeSessionId: string, reason: string): Promise<void> {
     const session = this.requireSession(runtimeSessionId);
     session.ended = true;
-    session.queued.length = 0;
+    this.rejectQueued(session, new Error(`The ACP session was cancelled: ${reason}`));
     await this.pool.cancel(session.provider, session.sessionId);
     await this.pool.close(session.provider, session.sessionId);
     this.options.releaseVirtualIdentity(`acp:${session.attemptId}`);
@@ -431,13 +506,29 @@ export class AcpRuntimeAdapter implements OrchestrationRuntimeAdapter {
     };
   }
 
-  private enqueueOrPrompt(session: AcpSession, text: string): void {
-    if (session.ended) throw new Error('The ACP session has ended.');
+  private enqueueOrPrompt(session: AcpSession, text: string, signal?: AbortSignal): Promise<void> {
+    if (session.ended) return Promise.reject(new Error('The ACP session has ended.'));
+    if (signal?.aborted) return Promise.reject(abortError(signal));
     if (session.busy || session.paused) {
-      session.queued.push(text);
-      return;
+      return new Promise<void>((resolve, reject) => {
+        const queued: QueuedAcpPrompt = { text, resolve, reject, signal };
+        if (signal) {
+          queued.abortListener = () => {
+            const index = session.queued.indexOf(queued);
+            if (index >= 0) session.queued.splice(index, 1);
+            reject(abortError(signal));
+          };
+          signal.addEventListener('abort', queued.abortListener, { once: true });
+        }
+        session.queued.push(queued);
+      });
     }
-    this.runPrompt(session, text);
+    try {
+      this.runPrompt(session, text);
+      return Promise.resolve();
+    } catch (error) {
+      return Promise.reject(error);
+    }
   }
 
   private runPrompt(session: AcpSession, text: string): void {
@@ -462,6 +553,8 @@ export class AcpRuntimeAdapter implements OrchestrationRuntimeAdapter {
       })
       .catch((error: unknown) => {
         session.busy = false;
+        session.ended = true;
+        this.rejectQueued(session, error);
         this.repository.updateRuntimeSessionState(session.attemptId, 'FAILED');
         this.repository.appendRuntimeEvent(
           session.runtimeRecordId,
@@ -481,8 +574,29 @@ export class AcpRuntimeAdapter implements OrchestrationRuntimeAdapter {
 
   private flush(session: AcpSession): void {
     if (session.busy || session.paused || session.ended || session.queued.length === 0) return;
-    const text = session.queued.splice(0).join('\n\n');
-    this.runPrompt(session, text);
+    const queued = session.queued.splice(0);
+    for (const item of queued) {
+      if (item.abortListener) item.signal?.removeEventListener('abort', item.abortListener);
+    }
+    const active = queued.filter((item) => !item.signal?.aborted);
+    for (const item of queued) {
+      if (item.signal?.aborted) item.reject(abortError(item.signal));
+    }
+    if (active.length === 0) return;
+    try {
+      this.runPrompt(session, active.map((item) => item.text).join('\n\n'));
+      for (const item of active) item.resolve();
+    } catch (error) {
+      for (const item of active) item.reject(error);
+    }
+  }
+
+  private rejectQueued(session: AcpSession, error: unknown): void {
+    const queued = session.queued.splice(0);
+    for (const item of queued) {
+      if (item.abortListener) item.signal?.removeEventListener('abort', item.abortListener);
+      item.reject(error);
+    }
   }
 
   private onUpdate(input: RuntimeStartRequest, notification: SessionNotification): void {
@@ -491,7 +605,7 @@ export class AcpRuntimeAdapter implements OrchestrationRuntimeAdapter {
       runtimeRecordId,
       input.attempt.id,
       `acp.${notification.update.sessionUpdate}`,
-      jsonObject(notification.update),
+      compactAcpRuntimeEvent(notification.update),
     );
   }
 
@@ -502,20 +616,33 @@ export class AcpRuntimeAdapter implements OrchestrationRuntimeAdapter {
   }
 }
 
-/** Routes existing bindings correctly and falls back to PTY only when ACP startup fails. */
+export interface FallbackRuntimeAdapterOptions {
+  startWith?: 'primary' | 'fallback';
+  fallbackOnStartFailure?: boolean;
+}
+
+/**
+ * Routes existing bindings by their durable runtime id while allowing new
+ * sessions to prefer either adapter. Charter uses this to keep legacy ACP
+ * sessions recoverable without putting new Claude/Codex Missions on ACP.
+ */
 export class FallbackRuntimeAdapter implements OrchestrationRuntimeAdapter {
   readonly kind = 'external-cli' as const;
 
   constructor(
     private readonly primary: OrchestrationRuntimeAdapter,
     private readonly fallback: OrchestrationRuntimeAdapter,
+    private readonly options: FallbackRuntimeAdapterOptions = {},
   ) {}
 
   async start(input: RuntimeStartRequest, signal: AbortSignal): Promise<RuntimeSessionBinding> {
+    const preferred = this.options.startWith === 'fallback' ? this.fallback : this.primary;
+    const secondary = preferred === this.primary ? this.fallback : this.primary;
     try {
-      return await this.primary.start(input, signal);
-    } catch {
-      return await this.fallback.start(input, signal);
+      return await preferred.start(input, signal);
+    } catch (error) {
+      if (this.options.fallbackOnStartFailure === false) throw error;
+      return await secondary.start(input, signal);
     }
   }
 

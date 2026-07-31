@@ -51,7 +51,10 @@ export function registerMissionHandlers(
       'mission.list': async ({ limit }) => ({
         missions: missions.repository
           .listMissions(limit)
-          .map((mission) => missions.repository.snapshot(mission.id)),
+          // The rail needs lifecycle and recent activity, not every historical
+          // runtime chunk. Detailed/live snapshots continue to use the normal
+          // bounded snapshot size.
+          .map((mission) => missions.repository.snapshot(mission.id, 50, 10)),
       }),
       'mission.pauseAssignment': async ({ missionId, assignmentId, paused }) => {
         missions.pause(userCaller(missionId), assignmentId, paused);

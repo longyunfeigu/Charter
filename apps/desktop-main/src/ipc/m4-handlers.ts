@@ -15,13 +15,14 @@ import {
   type PythonLspStatus,
 } from '@pi-ide/language-service';
 import { randomUUID } from 'node:crypto';
-import { registerHandlers } from './router.js';
+import { registerHandlers, registerSendHandlers } from './router.js';
 import type { WorkspaceHost } from '../services/workspace-host.js';
 import type { SettingsService } from '../services/settings-service.js';
 import type { ExternalLaunchIntents } from '../services/external-launch-intents.js';
 import { isSafeCliSessionId } from '../services/cli-session-locator.js';
 import { broadcast } from '../broadcast.js';
 import type { TerminalDaemonClient } from '../services/terminal-daemon-client.js';
+import { TerminalOutputDispatcher } from '../services/terminal-output-dispatcher.js';
 
 interface ActiveSearch {
   controller: AbortController;
@@ -84,6 +85,7 @@ export class M4Services {
     hint: PYTHON_INSTALL_HINT,
   };
   private pythonRestarts = 0;
+  private readonly terminalOutput: TerminalOutputDispatcher;
 
   constructor(
     private readonly host: WorkspaceHost,
@@ -93,10 +95,19 @@ export class M4Services {
     terminalEnvironment?: (id: string) => Record<string, string>,
     private readonly terminalDaemon: TerminalDaemonClient | null = null,
   ) {
+    this.terminalOutput = new TerminalOutputDispatcher((delivery) => {
+      if (broadcast('terminal.data', delivery) === 0) {
+        this.terminalOutput.acknowledge(delivery.id, delivery.deliveryId);
+      }
+    });
     this.terminals = new TerminalManager(
-      (id, data, sequence) =>
-        broadcast('terminal.data', { id, data, ...(sequence === undefined ? {} : { sequence }) }),
-      (id, exitCode) => broadcast('terminal.exit', { id, exitCode }),
+      (id, data, sequence) => this.terminalOutput.push(id, data, sequence),
+      (id, exitCode) => {
+        this.terminalOutput.flush(id);
+        broadcast('terminal.exit', { id, exitCode });
+        const release = setTimeout(() => this.terminalOutput.reset(id), 10_000);
+        release.unref();
+      },
       {
         // ADR-0021: resolved per spawn so a settings flip applies to the next terminal.
         shellIntegration: () => ({
@@ -107,7 +118,10 @@ export class M4Services {
         ...(terminalDaemon
           ? { createLocalBackend: (request) => terminalDaemon.createBackend(request) }
           : {}),
-        onResync: (id, replay, sequence) => broadcast('terminal.resync', { id, replay, sequence }),
+        onResync: (id, replay, sequence) => {
+          this.terminalOutput.reset(id);
+          broadcast('terminal.resync', { id, replay, sequence });
+        },
       },
     );
 
@@ -301,9 +315,22 @@ export class M4Services {
   }
 
   dispose(): void {
+    this.terminalOutput.dispose();
     this.terminals.dispose();
     this.terminalDaemon?.close();
     void this.python?.dispose();
+  }
+
+  noteTerminalInput(id: string): void {
+    this.terminalOutput.noteInput(id);
+  }
+
+  setActiveTerminal(id: string | null): void {
+    this.terminalOutput.setActive(id);
+  }
+
+  acknowledgeTerminalOutput(id: string, deliveryId: number): void {
+    this.terminalOutput.acknowledge(id, deliveryId);
   }
 }
 
@@ -323,7 +350,7 @@ export function registerM4Handlers(
   externalLaunches?: ExternalLaunchIntents,
   /** ADR-0047: present once SshService is assembled; enables ssh targets. */
   remoteTerminals?: RemoteTerminalLauncher,
-  /** Host-resolved MCP wrapper. Never rely on user shell PATH ordering for product launches. */
+  /** Host-resolved executable. Never rely on user shell PATH ordering for product launches. */
   localAgentExecutable?: (launch: 'claude' | 'codex') => string | null,
 ): void {
   const resolveTerminalContext = async (
@@ -380,6 +407,19 @@ export function registerM4Handlers(
       }),
     );
   };
+
+  registerSendHandlers(
+    {
+      'terminal.write': ({ id, data, userInitiated }) => {
+        services.noteTerminalInput(id);
+        services.terminals.write(id, data, userInitiated === false ? 'terminal' : 'user');
+      },
+      'terminal.resize': ({ id, cols, rows }) => services.terminals.resize(id, cols, rows),
+      'terminal.active': ({ id }) => services.setActiveTerminal(id),
+      'terminal.ack': ({ id, deliveryId }) => services.acknowledgeTerminalOutput(id, deliveryId),
+    },
+    logger,
+  );
 
   registerHandlers(
     {
@@ -482,8 +522,13 @@ export function registerM4Handlers(
         return info;
       },
       'terminal.write': async ({ id, data, userInitiated }) => {
-        services.terminals.write(id, data, userInitiated === false ? 'terminal' : 'user');
-        return { ok: true };
+        services.noteTerminalInput(id);
+        const ok = await services.terminals.writeAccepted(
+          id,
+          data,
+          userInitiated === false ? 'terminal' : 'user',
+        );
+        return { ok };
       },
       'terminal.resize': async ({ id, cols, rows }) => {
         services.terminals.resize(id, cols, rows);
@@ -498,20 +543,16 @@ export function registerM4Handlers(
       },
       'terminal.list': async () => {
         const items = services.terminals.list();
-        const persistent = await services.persistentSnapshots();
         return {
           items,
           restoredIds: items
             .filter((item) => services.restoredTerminalIds.has(item.id))
             .map((item) => item.id),
           recentData: Object.fromEntries(
-            items.map((item) => [
-              item.id,
-              persistent.get(item.id)?.replay ?? services.terminals.recentData(item.id),
-            ]),
+            items.map((item) => [item.id, services.terminals.recentData(item.id)]),
           ),
           sequences: Object.fromEntries(
-            [...persistent].map(([id, snapshot]) => [id, snapshot.sequence]),
+            items.map((item) => [item.id, services.terminals.sequence(item.id)]),
           ),
         };
       },

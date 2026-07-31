@@ -706,6 +706,15 @@ if (!gotLock) {
         appPath: app.getAppPath(),
         logger: logger.child('terminal-mcp'),
       });
+      const resolveVisibleAgentExecutable = (launch: 'claude' | 'codex'): string | null => {
+        const explicitMcpCompatibility =
+          process.env.PI_IDE_VISIBLE_MCP === '1' || process.env.PI_IDE_ACP === '1';
+        return (
+          (explicitMcpCompatibility
+            ? terminalIntegration?.mcpExecutableFor(launch)
+            : terminalIntegration?.executableFor(launch)) ?? null
+        );
+      };
       const missionVirtualTasks = new Map<string, string>();
       m4 = new M4Services(
         workspaceHost,
@@ -729,7 +738,7 @@ if (!gotLock) {
         maxWorkers: () => settings.effective.orchestration.maxWorkers,
         maxSendsPerMinute: () => settings.effective.orchestration.maxSendsPerMinute,
         launchIntents: externalLaunchIntents,
-        resolveAgentExecutable: (launch) => terminalIntegration?.executableFor(launch) ?? null,
+        resolveAgentExecutable: resolveVisibleAgentExecutable,
         taskForTerminal: (id) => externalSessionsRef?.taskIdForTerminal(id) ?? null,
         taskTitleForTerminal: (id) => {
           const taskId = externalSessionsRef?.taskIdForTerminal(id);
@@ -857,7 +866,7 @@ if (!gotLock) {
         {
           create: (options) => sshServiceRef!.createRemoteTerminal(options),
         },
-        (launch) => terminalIntegration?.executableFor(launch) ?? null,
+        resolveVisibleAgentExecutable,
       );
       registerTerminalOpenHandlers(m4, workspaceHost, logger.child('ipc'));
       m5Ref = new M5Services(workspaceHost, state, paths, logger.child('m5'));
@@ -921,11 +930,11 @@ if (!gotLock) {
       missionRuntimes.register(visibleMissionRuntime);
       missionRuntimes.register(new ShellRuntime(terminalControlRef));
       missionRuntimes.register(new ManagedAgentRuntime(taskService, settings));
-      const acpEnabled =
+      const acpCompatibilityEnabled =
         Boolean(terminalIntegration) &&
         process.env.PI_IDE_ACP !== '0' &&
         (!process.env.PI_IDE_E2E || process.env.PI_IDE_ACP === '1');
-      if (acpEnabled && terminalIntegration) {
+      if (acpCompatibilityEnabled && terminalIntegration) {
         const runtimeAppPath = app.getAppPath().endsWith('app.asar')
           ? `${app.getAppPath()}.unpacked`
           : app.getAppPath();
@@ -977,6 +986,7 @@ if (!gotLock) {
             terminalIdentitiesRef!.revokeTerminal(identity);
           },
         };
+        const useAcpForNewMissions = process.env.PI_IDE_ACP === '1';
         for (const provider of ['claude', 'codex'] as const) {
           const acpRuntime = new AcpRuntimeAdapter(
             provider,
@@ -987,7 +997,13 @@ if (!gotLock) {
           );
           missionRuntimes.registerForRuntime(
             provider,
-            new FallbackRuntimeAdapter(acpRuntime, visibleMissionRuntime),
+            new FallbackRuntimeAdapter(acpRuntime, visibleMissionRuntime, {
+              startWith: useAcpForNewMissions ? 'primary' : 'fallback',
+              // Native PTY is the product path. If it cannot start, surface the
+              // real launch error instead of silently changing interaction
+              // semantics to the experimental ACP transport.
+              fallbackOnStartFailure: useAcpForNewMissions,
+            }),
           );
         }
       }

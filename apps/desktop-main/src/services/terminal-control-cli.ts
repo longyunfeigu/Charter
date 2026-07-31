@@ -47,6 +47,8 @@ function orchestrationInvocation(args: string[]): TerminalControlCliInvocation {
   if (subject) input.subject = subject;
   const messageId = option(args, '--message');
   if (messageId) input.messageId = messageId;
+  const continuationId = option(args, '--continuation');
+  if (continuationId) input.continuationId = continuationId;
   const reason = option(args, '--reason');
   if (reason) input.reason = reason;
   const text = option(args, '--text');

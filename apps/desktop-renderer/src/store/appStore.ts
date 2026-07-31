@@ -163,7 +163,11 @@ interface AppStore {
   /** The managed task selected as the active user-facing Session. */
   taskRoomTaskId: string | null;
   /** Global Mission Center selection. A null id renders the portfolio overview. */
-  missionCenter: { missionId: string | null } | null;
+  missionCenter: {
+    missionId: string | null;
+    assignmentId?: string | null;
+    inspectorTab?: 'details' | 'session';
+  } | null;
   sessionRoomView: SessionRoomView;
   /**
    * Session-first shell: a terminal can be selected before external-agent
@@ -250,7 +254,11 @@ interface AppStore {
   init(): Promise<void>;
   setSurface(surface: 'home' | 'workspace'): void;
   openTaskRoom(taskId: string): void;
-  openMission(missionId?: string | null): void;
+  openMission(
+    missionId?: string | null,
+    assignmentId?: string | null,
+    inspectorTab?: 'details' | 'session',
+  ): void;
   closeMission(): void;
   setSessionRoomView(view: SessionRoomView): void;
   openTerminalSession(terminalId: string): void;
@@ -420,12 +428,19 @@ async function followTaskProject(taskId: string): Promise<void> {
 }
 
 export const useAppStore = create<AppStore>((set, get) => {
-  /** ADR-0042 — openers of group-owned surfaces keep the rail in step: when
-   * the surface belongs to a different nav group than the rail shows, flip the
-   * rail and remember what the group we're leaving displayed. */
+  /** ADR-0042 — explicit surface openers keep the contextual rail in step when
+   * moving between nav groups.  Workbench's Sessions/Inbox/Files views are
+   * deliberately sticky, except when leaving Mission: Mission owns its entire
+   * surface, so keeping its rail beside an opened Session produces a
+   * split-brain navigation state. */
   const crossRailPatch = (target: RailView): Partial<AppStore> => {
     const prev = get().railView;
-    if (railGroupOf(prev) === railGroupOf(target)) return {};
+    if (prev === target) return {};
+    if (railGroupOf(prev) === railGroupOf(target)) {
+      if (prev !== 'missions') return {};
+      saveRailView(target);
+      return { railView: target };
+    }
     saveRailView(target);
     return {
       railView: target,
@@ -816,10 +831,13 @@ export const useAppStore = create<AppStore>((set, get) => {
       void followTaskProject(taskId);
     },
 
-    openMission(missionId = null) {
+    openMission(missionId = null, assignmentId = null, inspectorTab = 'details') {
       saveRailView('missions');
       set({
-        missionCenter: { missionId },
+        missionCenter: {
+          missionId,
+          ...(assignmentId ? { assignmentId, inspectorTab } : {}),
+        },
         taskRoomTaskId: null,
         sessionTerminalId: null,
         sessionRoomView: 'conversation',

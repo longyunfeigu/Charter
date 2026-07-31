@@ -3,8 +3,8 @@
 - Status: Implemented, pending product-owner acceptance
 - Date: 2026-07-31
 - Supersedes: `mission-orchestration-v2.md`
-- Scope: recursive delegation, direct peer communication, durable delivery, ACP runtimes, recovery,
-  runtime-aware UI, CLI/Skill/MCP/native tool parity
+- Scope: recursive delegation, direct peer communication, durable delivery, native PTY runtimes,
+  recovery, runtime-aware UI, CLI/Skill/MCP/native tool parity
 
 ## 1. Product decision
 
@@ -43,21 +43,22 @@ Skill/manual
           │
           ▼
 One command contract
-  inspect/delegate/message/ask/join/complete/...
+  inspect/delegate/message/park/continue/complete/...
           │
     ┌─────┼──────────────┐
     ▼     ▼              ▼
  native  CLI/socket RPC  MCP compatibility adapter
     └─────┴──────┬───────┘
                  ▼
-      MissionOrchestrationService
+     MissionOrchestrationService
                  │
-     SQLite + event-first message bus
+       SQLite + event-first message bus
                  │
       runtime adapter + outbox
-          ┌──────┴────────┐
-          ▼               ▼
-      ACP session     visible PTY fallback
+       ┌─────────┼──────────┐
+       ▼         ▼          ▼
+ native PTY   managed    ACP compatibility
+ (default)    runtime      (opt-in)
 ```
 
 - Skill is instruction and discoverability. It cannot own state, wake a waiting process, make a
@@ -65,8 +66,10 @@ One command contract
 - Local RPC is the host control path used by the CLI.
 - MCP is a generated compatibility projection for external sessions already able to call MCP
   tools. It is not the source of truth.
-- ACP is the process/session protocol between Charter and a Claude/Codex runtime. It replaces one
-  terminal per background worker with structured, multiplexed sessions.
+- Native PTY is the default Claude/Codex execution data plane. Raw terminal bytes travel directly
+  to xterm and never enter Mission persistence or Mission snapshots.
+- ACP remains an explicit compatibility/diagnostic adapter (`PI_IDE_ACP=1`). It is not the default
+  worker transport and cannot become the Mission state owner.
 
 All four surfaces are generated from or route into the same command registry. Adding a Mission
 command in only one surface is treated as a defect.
@@ -87,6 +90,8 @@ The canonical registry is
 | `ask` | Send a question and wait event-first for its threaded answer |
 | `wait` | Wait event-first for matching inbox messages |
 | `join` | Wait event-first for a set of Assignments to reach terminal states |
+| `park` | Persist Assignment/message conditions, end the current turn, and resume the same Session when they match |
+| `continue` | Idempotently acknowledge the injected resume intent and return its committed context |
 | `progress` | Record structured progress and renew the active Attempt heartbeat |
 | `complete` | Finish the current Attempt with outcome, summary, and evidence |
 | `escalate` | Route a blocker or decision to supervisor, Lead, or user |
@@ -102,28 +107,34 @@ started in parallel; events for the same aggregate preserve order.
 
 ## 4. Runtime architecture
 
-### 4.1 ACP pool
+### 4.1 One product, two traffic planes
 
-`AcpProcessPool` starts at most one long-lived adapter process per provider and creates multiple
-independent ACP sessions inside it. Two Codex children therefore use:
+Mission execution has a hard traffic boundary:
 
 ```text
-one codex-acp process
-├── ACP session B
-└── ACP session C
+Data plane (high frequency)
+native Claude/Codex process → node-pty → daemon socket → Electron IPC → xterm
+
+Control plane (low frequency)
+Skill → charter CLI/local RPC → Mission service → SQLite → bounded Mission snapshot
 ```
 
-Each session receives:
+The data plane owns keystrokes, redraws, alternate-screen state and live tool UI. It uses bounded
+batching, renderer acknowledgements, active-terminal reserve, fair background scheduling and lazy
+per-terminal replay recovery. `terminal.list` carries descriptors only; full VT state is fetched
+for the terminal being restored.
 
-- its own Mission identity and active Attempt;
-- its own initial prompt and working directory;
-- a session-scoped Charter MCP bridge;
-- streamed runtime events;
-- a durable inbox and safe delivery queue.
+The control plane owns Task, Assignment, Attempt, message, progress, completion and recovery state.
+It persists small structured records and evidence references, never raw token streams, screen bytes,
+base64 images or complete provider tool updates.
 
-Claude and Codex use official ACP adapters. If ACP cannot start or negotiate, the
-`FallbackRuntimeAdapter` starts the existing visible PTY runtime so Mission execution remains
-available.
+Claude and Codex are resolved to the real user-installed executable and launched directly in a
+visible PTY. The PATH contains `charter`, but no same-name `claude` or `codex` wrapper. Optional
+`charter-claude-mcp` and `charter-codex-mcp` compatibility launchers remain explicit and do not tax
+normal startup.
+
+`AcpProcessPool` is retained only for existing sessions and opt-in compatibility tests. Its events
+are size-bounded before persistence and Mission snapshots expose only bounded summaries.
 
 ### 4.2 Turn-safe delivery
 
@@ -147,13 +158,41 @@ provider's `allow_always` option when offered, otherwise `allow_once`.
 Mission membership still scopes coordination: a caller may only address Assignments in its own
 Mission, and Attempt identity prevents a replaced runtime from completing current work.
 
+### 4.4 Durable continuation instead of a sleeping Agent turn
+
+Long fan-in no longer keeps Claude Code/Codex inside a blocking `wait` call. The Agent calls
+`park`, Charter commits a Continuation bound to the exact active Attempt, and the Agent ends its
+turn. Assignment-terminal and typed/threaded-message events satisfy targets in the same SQLite
+transaction that commits the event. `all` and `any` modes are supported, as is a durable deadline.
+
+When the condition becomes ready, Charter creates one idempotent ResumeIntent. The runtime runner
+delivers a compact prompt through the existing adapter:
+
+```text
+committed event
+  → satisfy Continuation target
+  → READY + durable ResumeIntent
+  → native PTY safe-turn queue / ACP prompt queue
+  → same Session receives `charter orchestration continue ...`
+  → exact Attempt acknowledges and returns to RUNNING
+```
+
+Delivery is at-least-once because process failure can occur after PTY bytes are written but before
+the database acknowledgement. Both the ResumeIntent idempotency key and `continue` command make a
+duplicate harmless. A retry or reassignment cancels the old Attempt's continuation, so a stale
+Session cannot steal the new Attempt. `wait` and `join` remain useful for short bounded calls and
+backward compatibility; repeating them as a polling loop is not a supported coordination pattern.
+
 ## 5. Durable state and recovery
 
-Migration `mission-fabric-runtime-and-delivery` adds:
+Migrations `mission-fabric-runtime-and-delivery` and
+`mission-continuations-and-resume-intents` add:
 
 - `orchestration_runtime_sessions`;
 - `orchestration_runtime_events`;
 - `orchestration_message_deliveries`.
+- `orchestration_continuations` and condition targets;
+- `orchestration_resume_intents`.
 
 The Mission snapshot exposes those records to the renderer and tests. Runtime bindings persist
 provider, transport, external session id, process key, capabilities, and state.
@@ -161,11 +200,14 @@ provider, transport, external session id, process key, capabilities, and state.
 On application restart:
 
 - undelivered messages are scheduled again;
+- interrupted ResumeIntents return from `PROCESSING` to `PENDING`, current conditions and deadlines
+  are reconciled, and the next deadline gets one host timer;
 - a provider supporting ACP `session/load` is reattached to its prior external session;
 - a missing or unsupported runtime follows the existing orphan/retry reconciliation path;
 - an Attempt already replaced by retry or reassign cannot publish a successful completion;
-- `ask`, `wait`, and `join` use in-process events while running and durable state as the recovery
-  source, never terminal-output polling.
+- `park` uses durable conditions and safe Session resumption; short `ask`, `wait`, and `join` use
+  in-process events while running and durable state as the recovery source, never terminal-output
+  polling.
 
 ## 6. User stories
 
@@ -174,10 +216,11 @@ On application restart:
 1. The user opens Claude in Charter and describes a large goal.
 2. Claude calls `delegate_many` for independent B and C work.
 3. Charter promotes Claude to Mission Lead without restarting the conversation.
-4. Codex B and C run as parallel ACP sessions without adding terminal tabs.
+4. Codex B and C run as parallel native PTY sessions with inspectable terminal tabs.
 5. B discovers it needs C's judgment and calls `ask` directly.
 6. C receives a durable doorbell, calls `sync`, and replies on the same thread.
-7. B finishes after the answer; A calls `join`, reviews both results, and completes.
+7. A parks on B and C; Charter ends A's turn, resumes the same Session after both complete, and A
+   acknowledges with `continue` before reviewing both results.
 8. The user sees one Mission with an auditable work map, messages, evidence, and runtime details.
 
 ### Recursive delegation
@@ -205,7 +248,11 @@ Mission Center and Mission Workbench are the canonical product surfaces:
 - Results shows completion summaries and evidence.
 - Runtime details show requested runtime, actual transport, process/session identity, lifecycle
   state, last streamed event, and inbox delivery counts.
-- ACP background work shows `ACP event stream`; it does not offer a fake terminal-opening action.
+- A parked Assignment shows its reason, matched/total conditions, deadline, and ResumeIntent
+  delivery state in both the work map and inspector.
+- Native Claude/Codex work opens its real terminal; Mission completion state overrides process
+  presence so a resident CLI does not leave a completed Assignment spinning.
+- Opt-in ACP work shows `ACP event stream`; it does not offer a fake terminal-opening action.
 - terminal-backed work exposes its real working session.
 - terminal Assignment states render a terminal icon/state, never a spinner derived from an
   unrelated terminal process.
@@ -218,14 +265,16 @@ result rather than watching an indefinitely busy Lead process.
 | Concern | Source |
 | --- | --- |
 | Domain state machines and dependency graph | `packages/orchestration-domain/src/` |
+| Continuation and ResumeIntent domain contract | `packages/orchestration-domain/src/continuation.ts` |
 | SQLite repository and atomic operations | `packages/persistence/src/mission-repository.ts` |
 | Runtime/delivery migration | `packages/persistence/src/migrations.ts` |
 | Command schemas and generated tool surfaces | `packages/tool-gateway/src/orchestration-command-registry.ts` |
 | Mission application service | `apps/desktop-main/src/services/mission-orchestration-service.ts` |
 | Event-first waits and subscriptions | `apps/desktop-main/src/services/orchestration-message-bus.ts` |
-| Parallel outbox and durable doorbells | `apps/desktop-main/src/services/orchestration-outbox-runner.ts` |
-| ACP pool and fallback adapter | `apps/desktop-main/src/services/acp-runtime.ts` |
-| Visible terminal adapter | `apps/desktop-main/src/services/visible-terminal-runtime.ts` |
+| Parallel runtime outbox, durable doorbells, and ResumeIntent delivery | `apps/desktop-main/src/services/orchestration-outbox-runner.ts` |
+| Native PTY Mission adapter | `apps/desktop-main/src/services/visible-terminal-runtime.ts` |
+| PTY daemon compact-list/lazy-replay transport | `terminal-daemon-*.ts` |
+| ACP compatibility adapter | `apps/desktop-main/src/services/acp-runtime.ts` |
 | Restart reconciliation | `apps/desktop-main/src/services/orchestration-recovery-service.ts` |
 | CLI and MCP bridge | `terminal-control-cli.ts`, `terminal-control-mcp.ts` |
 | Agent manual/Skill content | `apps/desktop-main/src/services/orchestration-manual.ts` |
@@ -237,20 +286,20 @@ The default automated suite covers schema parity, state transitions, authorizati
 atomic delegation, parallel scheduling, retry safety, recovery, message delivery, turn boundaries,
 IPC, CLI, MCP, renderer state, and Electron UI.
 
-Provider tests are opt-in so ordinary CI does not consume live credentials:
+ACP compatibility tests are opt-in so ordinary CI does not consume live credentials:
 
 ```bash
-RUN_REAL_ACP=codex npx vitest run \
+PI_IDE_ACP=1 RUN_REAL_ACP=codex npx vitest run \
   apps/desktop-main/src/services/acp-runtime.real.test.ts
 
-RUN_REAL_ACP=claude npx vitest run \
+PI_IDE_ACP=1 RUN_REAL_ACP=claude npx vitest run \
   apps/desktop-main/src/services/acp-runtime.real.test.ts
 ```
 
-The complete product path is:
+The legacy ACP compatibility path is:
 
 ```bash
-CHARTER_LIVE_FABRIC=1 \
+PI_IDE_ACP=1 CHARTER_LIVE_FABRIC=1 \
 CHARTER_LIVE_WORKSPACE=/path/to/workspace \
 npx playwright test \
   --config tests/e2e/playwright.config.ts \
@@ -308,5 +357,5 @@ the optional Codex update prompt is skipped without modifying the installed CLI.
 - no unbounded autonomous agent creation outside configured Mission limits;
 - no terminal output scraping as a source of lifecycle truth;
 - no replacement of Skills with MCP or MCP with Skills;
-- no requirement that every background ACP session be rendered as a terminal;
+- no requirement that opt-in ACP compatibility sessions be rendered as a terminal;
 - no silent commit, push, merge, or destructive workspace action.

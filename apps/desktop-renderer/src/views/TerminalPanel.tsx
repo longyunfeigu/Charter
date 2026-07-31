@@ -15,7 +15,7 @@ import { Terminal, type IMarker, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { onEvent, rpcResult } from '../bridge.js';
+import { onEvent, rpcResult, send } from '../bridge.js';
 import { okOrToast, useAppStore } from '../store/appStore.js';
 import { useEditorStore } from '../store/editorStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
@@ -40,6 +40,10 @@ import { TerminalBlocks, type BlocksHost, type TermBlock } from './terminal-bloc
 import { TerminalUserInputTracker } from './terminal-input-provenance.js';
 import { TerminalInputWriter } from './terminal-input-writer.js';
 import { TerminalFileLinkColorizer } from './terminal-output-links.js';
+import {
+  TerminalOutputScheduler,
+  type ScheduledTerminalOutput,
+} from './terminal-output-scheduler.js';
 import {
   installTerminalUnicode,
   repaintTerminalRenderer,
@@ -175,8 +179,36 @@ const quickCloseTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const adoptingTerminalIds = new Set<string>();
 const terminalDataBeforeAdoption = new Map<
   string,
-  Array<{ data: string; sequence: number | undefined }>
+  Array<{ data: string; sequence: number | undefined; deliveryId: number | undefined }>
 >();
+
+function acknowledgeTerminalOutput(id: string, deliveryId: number | undefined): void {
+  if (deliveryId !== undefined) send('terminal.ack', { id, deliveryId });
+}
+
+const terminalOutputScheduler = new TerminalOutputScheduler(
+  (output: ScheduledTerminalOutput, done) => {
+    const item = useTerminalStore.getState().items.find((candidate) => candidate.id === output.id);
+    if (!item) return false;
+    try {
+      // Keep live bytes behind the restored tail until the first real fit.
+      // Reversing that order leaves full-screen TUI cursor state corrupted.
+      if (item.pendingReplay !== null) {
+        item.pendingReplay += output.data;
+        item.blocks.feedOutput(output.data);
+        done();
+        return true;
+      }
+      item.blocks.feedOutput(output.data);
+      item.term.write(item.outputColorizer.write(output.data), done);
+      return true;
+    } catch {
+      done();
+      return true;
+    }
+  },
+  acknowledgeTerminalOutput,
+);
 
 const terminalInputTrackers = new WeakMap<Terminal, TerminalUserInputTracker>();
 const terminalPasteDeadlines = new WeakMap<Terminal, number>();
@@ -612,8 +644,10 @@ export function mountTerminal(
     | 'restoreRepaintPending'
     | 'fontSizeOverride'
     | 'outputColorizer'
+    | 'exited'
   >,
   appearance: 'normal' | 'quick' = 'normal',
+  readOnly = item.exited,
 ): void {
   applyTerminalAppearance(item, appearance);
   const bottomPanelBody = host.closest<HTMLElement>('.bp-body');
@@ -638,7 +672,16 @@ export function mountTerminal(
   } catch {
     // fit/refresh races during teardown are harmless
   }
-  item.term.focus();
+  // A stopped/exited transcript must not retain xterm's blinking prompt. The
+  // terminal buffer stays selectable and scrollable, but xterm itself rejects
+  // stdin until the owning Session is resumed.
+  item.term.options.disableStdin = readOnly;
+  item.term.options.cursorBlink = !readOnly;
+  item.term.options.cursorInactiveStyle = readOnly ? 'none' : 'outline';
+  host.dataset.terminalReadonly = String(readOnly);
+  host.setAttribute('aria-readonly', String(readOnly));
+  if (readOnly) item.term.blur();
+  else item.term.focus();
   // Start the backend repaint from the first settled fit. Waiting for replay
   // completion can lose the request if React adopts the terminal between frames.
   requestRestoredTerminalRepaint(item);
@@ -717,6 +760,7 @@ export function applyTerminalAppearance(
   );
   const appDark = document.documentElement.dataset.theme === 'dark';
   const minimumContrastRatio = resolveTerminalMinimumContrastRatio(appearance.theme, appDark);
+  const surfaceColor = appearance.theme.background ?? (appDark ? '#282c34' : '#ffffff');
 
   item.term.options.fontSize = fontSize;
   item.term.options.fontFamily = fontFamily;
@@ -737,9 +781,14 @@ export function applyTerminalAppearance(
   if (host) {
     host.style.padding = `${paddingY}px ${paddingX}px`;
     host.style.boxSizing = 'border-box';
+    // xterm only paints complete character cells.  Without a matching host
+    // surface, the unused edge of a light terminal exposes xterm's default
+    // black layer as a heavy frame around the session.
+    host.style.setProperty('--terminal-surface', surfaceColor);
     host.dataset.terminalPadding = `${paddingX}x${paddingY}`;
   }
   if (element) {
+    element.style.backgroundColor = surfaceColor;
     element.dataset.terminalFontSize = String(fontSize);
     element.dataset.terminalFontWeight = String(fontWeight);
     element.dataset.terminalFontWeightBold = String(fontWeightBold);
@@ -985,10 +1034,16 @@ function createTermInstance(
   const inputTracker = new TerminalUserInputTracker();
   const outputColorizer = new TerminalFileLinkColorizer();
   const inputWriter = new TerminalInputWriter(
-    async (input) => {
-      await rpcResult('terminal.write', input);
+    (input) => {
+      if (!send('terminal.write', input)) void rpcResult('terminal.write', input);
     },
-    { startupDelayMs: 500 },
+    {
+      sendAccepted: async (input) => {
+        const result = await rpcResult('terminal.write', input);
+        if (!result.ok || !result.data.ok) throw new Error('Terminal input was not accepted.');
+      },
+      startupDelayMs: 500,
+    },
   );
   terminalInputTrackers.set(term, inputTracker);
   const blocks = new TerminalBlocks(xtermBlocksHost(term), {
@@ -1013,7 +1068,8 @@ function createTermInstance(
     });
   });
   term.onResize(({ cols, rows }) => {
-    void rpcResult('terminal.resize', { id: info.id, cols, rows });
+    const input = { id: info.id, cols, rows };
+    if (!send('terminal.resize', input)) void rpcResult('terminal.resize', input);
   });
   const item: TermInstance = {
     ...info,
@@ -1088,6 +1144,13 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   init() {
     if (get().initialized) return;
     set({ initialized: true });
+    terminalOutputScheduler.setForeground(get().active);
+    send('terminal.active', { id: get().active });
+    useTerminalStore.subscribe((state, previous) => {
+      if (state.active === previous.active) return;
+      terminalOutputScheduler.setForeground(state.active);
+      send('terminal.active', { id: state.active });
+    });
     const appearanceObserver = new MutationObserver(() => {
       for (const item of get().items) {
         applyTerminalAppearance(item, item.quick ? 'quick' : 'normal');
@@ -1117,79 +1180,92 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
         refitAndRefreshTerminal(item);
       }
     });
-    onEvent('terminal.data', ({ id, data, sequence }) => {
+    onEvent('terminal.data', ({ id, data, sequence, deliveryId }) => {
       const item = get().items.find((t) => t.id === id);
       if (!item) {
         const queued = terminalDataBeforeAdoption.get(id) ?? [];
-        queued.push({ data, sequence });
+        queued.push({ data, sequence, deliveryId });
         while (queued.reduce((bytes, entry) => bytes + entry.data.length, 0) > 1024 * 1024) {
-          queued.shift();
+          const dropped = queued.shift();
+          acknowledgeTerminalOutput(id, dropped?.deliveryId);
         }
         terminalDataBeforeAdoption.set(id, queued);
         return;
       }
-      if (sequence !== undefined && sequence <= item.replaySequence) return;
+      if (sequence !== undefined && sequence <= item.replaySequence) {
+        acknowledgeTerminalOutput(id, deliveryId);
+        return;
+      }
       if (sequence !== undefined) item.replaySequence = sequence;
-      // Keep live bytes behind the restored tail until the first real fit.
-      // Reversing that order leaves full-screen TUI cursor state corrupted.
-      if (item.pendingReplay !== null) item.pendingReplay += data;
-      else item.term.write(item.outputColorizer.write(data));
-      // ADR-0021: plain-output progress fallback (OSC 9;4 always wins).
-      item.blocks.feedOutput(data);
+      terminalOutputScheduler.setForeground(get().active);
+      terminalOutputScheduler.enqueue({
+        id,
+        data,
+        ...(sequence === undefined ? {} : { sequence }),
+        ...(deliveryId === undefined ? {} : { deliveryId }),
+      });
     });
     onEvent('terminal.resync', ({ id, replay, sequence }) => {
       const item = get().items.find((terminal) => terminal.id === id);
       if (!item || sequence <= item.replaySequence) return;
       item.replaySequence = sequence;
-      item.pendingReplay = null;
-      item.restoreRepaintPending = true;
-      item.blocks.reset();
-      item.term.reset();
-      item.outputColorizer.reset();
-      item.term.write(item.outputColorizer.write(replay), () => {
-        item.term.refresh(0, item.term.rows - 1);
-        // A resync can race terminal adoption, so do not depend on DOM state.
-        // A later fit will restore the viewport if the terminal is still hidden.
-        requestRestoredTerminalRepaint(item);
+      terminalOutputScheduler.replace(id, (done) => {
+        item.pendingReplay = null;
+        item.restoreRepaintPending = true;
+        item.blocks.reset();
+        item.term.reset();
+        item.outputColorizer.reset();
+        item.term.write(item.outputColorizer.write(replay), () => {
+          item.term.refresh(0, item.term.rows - 1);
+          // A resync can race terminal adoption, so do not depend on DOM state.
+          // A later fit will restore the viewport if the terminal is still hidden.
+          requestRestoredTerminalRepaint(item);
+          done();
+        });
       });
     });
     onEvent('terminal.exit', ({ id, exitCode }) => {
-      const item = get().items.find((t) => t.id === id);
-      if (!item) return;
+      terminalOutputScheduler.after(id, () => {
+        const item = get().items.find((t) => t.id === id);
+        if (!item) return;
 
-      if (item.remote) {
-        const remaining = get().items.filter((entry) => entry.id !== id);
-        const nextRemote = remaining
-          .filter(
-            (entry) =>
-              entry.remote?.hostId === item.remote?.hostId && !entry.hidden && !entry.exited,
-          )
-          .at(-1);
-        item.term.dispose();
-        set({
-          items: remaining,
-          active:
-            get().active === id
-              ? (nextRemote?.id ?? remaining.filter((entry) => !entry.hidden).at(-1)?.id ?? null)
-              : get().active,
-        });
-        useExternalStore.getState().handleTerminalClosed(id);
+        if (item.remote) {
+          const remaining = get().items.filter((entry) => entry.id !== id);
+          const nextRemote = remaining
+            .filter(
+              (entry) =>
+                entry.remote?.hostId === item.remote?.hostId && !entry.hidden && !entry.exited,
+            )
+            .at(-1);
+          terminalOutputScheduler.discard(id);
+          item.term.dispose();
+          set({
+            items: remaining,
+            active:
+              get().active === id
+                ? (nextRemote?.id ?? remaining.filter((entry) => !entry.hidden).at(-1)?.id ?? null)
+                : get().active,
+          });
+          useExternalStore.getState().handleTerminalClosed(id);
 
-        const app = useAppStore.getState();
-        if (app.remotesOpen && app.sessionTerminalId === id) {
-          if (nextRemote) app.openRemoteTerminalSession(nextRemote.id, item.remote.hostId);
-          else app.selectRemoteHost(item.remote.hostId);
+          const app = useAppStore.getState();
+          if (app.remotesOpen && app.sessionTerminalId === id) {
+            if (nextRemote) app.openRemoteTerminalSession(nextRemote.id, item.remote.hostId);
+            else app.selectRemoteHost(item.remote.hostId);
+          }
+          return;
         }
-        return;
-      }
 
-      item.term.write(
-        item.outputColorizer.write(`\r\n\x1b[90m[process exited with code ${exitCode}]\x1b[0m\r\n`),
-      );
-      // Replace the item so selectors watching this terminal re-render its
-      // status; mutating the existing object left the header stuck on Live.
-      set({
-        items: get().items.map((entry) => (entry.id === id ? { ...entry, exited: true } : entry)),
+        item.term.write(
+          item.outputColorizer.write(
+            `\r\n\x1b[90m[process exited with code ${exitCode}]\x1b[0m\r\n`,
+          ),
+        );
+        // Replace the item so selectors watching this terminal re-render its
+        // status; mutating the existing object left the header stuck on Live.
+        set({
+          items: get().items.map((entry) => (entry.id === id ? { ...entry, exited: true } : entry)),
+        });
       });
     });
     // ADR-0017: closing summary line when an external agent session ends —
@@ -1263,7 +1339,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
             .filter((entry) => entry.sequence === undefined || entry.sequence > replaySequence)
             .map((entry) => entry.data)
             .join('');
-          return createTermInstance(info, {
+          const item = createTermInstance(info, {
             outputTail: `${result.data.recentData?.[info.id] ?? ''}${afterSnapshot}`,
             restored: restoredIds.has(info.id),
             replaySequence: Math.max(
@@ -1271,12 +1347,20 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
               ...queued.flatMap((entry) => (entry.sequence === undefined ? [] : [entry.sequence])),
             ),
           });
+          acknowledgeTerminalOutput(
+            info.id,
+            queued
+              .flatMap((entry) => (entry.deliveryId === undefined ? [] : [entry.deliveryId]))
+              .at(-1),
+          );
+          return item;
         });
       if (additions.length === 0) return;
       set({
         items: [...get().items, ...additions],
         active: get().active ?? additions.at(-1)?.id ?? null,
       });
+      for (const item of additions) terminalOutputScheduler.wake(item.id);
       const restoredCount = additions.filter((item) => item.restored).length;
       if (restoredCount > 0) {
         useAppStore
@@ -1324,12 +1408,29 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       // During a main/renderer version straddle, repaint an empty xterm rather
       // than rendering DEC line-drawing bytes as literal q/x/l/k characters.
       const recentData = result.data.recentData ?? {};
+      const replaySequence = result.data.sequences?.[id] ?? 0;
+      const queued = terminalDataBeforeAdoption.get(id) ?? [];
+      terminalDataBeforeAdoption.delete(id);
+      const afterSnapshot = queued
+        .filter((entry) => entry.sequence === undefined || entry.sequence > replaySequence)
+        .map((entry) => entry.data)
+        .join('');
       const item = createTermInstance(info, {
-        outputTail: recentData[id] ?? '',
+        outputTail: `${recentData[id] ?? ''}${afterSnapshot}`,
         restored: result.data.restoredIds?.includes(id) ?? false,
-        replaySequence: result.data.sequences?.[id] ?? 0,
+        replaySequence: Math.max(
+          replaySequence,
+          ...queued.flatMap((entry) => (entry.sequence === undefined ? [] : [entry.sequence])),
+        ),
       });
       set({ items: [...get().items, item] });
+      acknowledgeTerminalOutput(
+        id,
+        queued
+          .flatMap((entry) => (entry.deliveryId === undefined ? [] : [entry.deliveryId]))
+          .at(-1),
+      );
+      terminalOutputScheduler.wake(id);
       return true;
     } finally {
       adoptingTerminalIds.delete(id);
@@ -1403,6 +1504,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       set({ pendingKill: id });
       return;
     }
+    terminalOutputScheduler.discard(id);
     get()
       .items.find((t) => t.id === id)
       ?.term.dispose();
@@ -1430,6 +1532,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       useAppStore.getState().showBottomTab('terminal');
       return;
     }
+    terminalOutputScheduler.discard(id);
     item.term.dispose();
     useExternalStore.getState().handleTerminalClosed(id);
     set({
@@ -1466,6 +1569,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       return;
     }
     await rpcResult('terminal.kill', { id, force: true });
+    terminalOutputScheduler.discard(id);
     get()
       .items.find((t) => t.id === id)
       ?.term.dispose();

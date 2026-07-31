@@ -5,6 +5,8 @@ import {
   buildHistoryPeriods,
   historyPeriodKey,
   visibleHistoryPeriodEntries,
+  visibleRailGroupEntries,
+  type RailGroup,
   type SessionEntry,
 } from './rail-groups.js';
 
@@ -80,5 +82,77 @@ describe('History periods', () => {
         filtering: true,
       }),
     ).toHaveLength(12);
+  });
+});
+
+describe('Mission hierarchy pagination', () => {
+  it('keeps descendants visible when their root is within the compact limit', () => {
+    const root = taskEntry('root', daysAgo(0));
+    root.mission = {
+      missionId: 'mission-1',
+      assignmentId: 'assignment-a',
+      parentKey: null,
+      depth: 0,
+      agentName: 'Lead A',
+      taskTitle: 'Lead work',
+      provider: 'codex',
+      assignmentState: 'ACTIVE',
+      missionState: 'RUNNING',
+      runtimeSessionId: 'runtime-a',
+      terminalId: null,
+      transport: 'acp',
+    };
+    const child: SessionEntry = {
+      key: 'mission:mission-1:assignment-b',
+      kind: 'mission',
+      projectName: 'Project',
+      projectPath: '/tmp/project',
+      updatedAt: new Date(daysAgo(0)).toISOString(),
+      mission: {
+        missionId: 'mission-1',
+        assignmentId: 'assignment-b',
+        parentKey: root.key,
+        depth: 1,
+        agentName: 'Agent B',
+        taskTitle: 'Build the feature',
+        provider: 'codex',
+        assignmentState: 'ACTIVE',
+        missionState: 'RUNNING',
+        runtimeSessionId: 'runtime-b',
+        terminalId: 'acp:attempt-b',
+        transport: 'acp',
+      },
+    };
+    const grandchild: SessionEntry = {
+      ...child,
+      key: 'mission:mission-1:assignment-d',
+      mission: {
+        ...child.mission,
+        assignmentId: 'assignment-d',
+        parentKey: child.key,
+        depth: 2,
+        agentName: 'Agent D',
+      },
+    };
+    const group: RailGroup = {
+      key: 'proj:Project',
+      name: 'Project',
+      path: '/tmp/project',
+      entries: [
+        root,
+        child,
+        grandchild,
+        taskEntry('other-1', daysAgo(0)),
+        taskEntry('other-2', daysAgo(0)),
+        taskEntry('other-3', daysAgo(0)),
+      ],
+      needs: 0,
+    };
+
+    expect(
+      visibleRailGroupEntries(group, { expanded: false, filtering: false }).map(
+        (entry) => entry.key,
+      ),
+    ).toEqual([root.key, child.key, grandchild.key, 'task:other-1', 'task:other-2']);
   });
 });

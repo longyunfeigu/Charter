@@ -69,6 +69,7 @@ export function taskStateCopy(
   assignmentState?: MissionSnapshotDto['assignments'][number]['state'],
 ) {
   if (assignmentState === 'PAUSED') return { label: 'Paused', tone: 'waiting' as const };
+  if (assignmentState === 'WAITING') return { label: 'Waiting', tone: 'waiting' as const };
   return TASK_COPY[state];
 }
 

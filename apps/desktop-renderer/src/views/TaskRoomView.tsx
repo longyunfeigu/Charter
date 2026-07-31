@@ -166,9 +166,14 @@ export function TaskRoomView(): React.JSX.Element {
     return (
       <div className="tr-root" data-testid="task-room">
         <div className="tr-head">
-          <button className="tr-back" data-testid="task-room-back" onClick={app.closeTaskRoom}>
+          <button
+            className="tr-back"
+            data-testid="task-room-back"
+            aria-label="Back to Sessions"
+            title="Back to Sessions"
+            onClick={app.closeTaskRoom}
+          >
             <Ic name="chevron" size={13} className="tr-back-ic" />
-            Sessions
           </button>
         </div>
         <div className="empty-state">
@@ -268,9 +273,14 @@ export function TaskRoomView(): React.JSX.Element {
       ) : null}
       <div className="tr-head session-identity-head">
         <div className="tr-head-drag" />
-        <button className="tr-back" data-testid="task-room-back" onClick={app.closeTaskRoom}>
+        <button
+          className="tr-back"
+          data-testid="task-room-back"
+          aria-label="Back to Sessions"
+          title="Back to Sessions"
+          onClick={app.closeTaskRoom}
+        >
           <Ic name="chevron" size={13} className="tr-back-ic" />
-          All Sessions
         </button>
         <div className="session-identity">
           <div className="session-identity-title">
@@ -306,19 +316,6 @@ export function TaskRoomView(): React.JSX.Element {
                   <span className="mono">main</span>
                 </span>
               )}
-              <span className="session-agent-chip" data-testid="session-agent-chip">
-                <Ic name={task.external ? 'terminal' : 'bot'} size={11} />
-                {sessionAgentLabel(task)}
-              </span>
-              {task.external ? (
-                <span
-                  className="tr-extchip"
-                  data-testid="task-room-external-chip"
-                  title="External CLI session — process state and file evidence stay attached to this Session."
-                >
-                  external
-                </span>
-              ) : null}
             </div>
             <div className="session-header-actions">
               {legacyFleetAvailable && sessionRoomView === 'fleet' ? (
@@ -378,6 +375,29 @@ export function TaskRoomView(): React.JSX.Element {
                 </button>
                 {moreOpen ? (
                   <div className="session-more-menu" role="menu">
+                    <details className="session-more-details" data-testid="session-more-details">
+                      <summary>
+                        <Ic name="info" size={12} /> Session details
+                      </summary>
+                      <div>
+                        <span>
+                          Agent
+                          <strong data-testid="session-agent-chip">
+                            {sessionAgentLabel(task)}
+                          </strong>
+                        </span>
+                        <span>
+                          Source
+                          <strong data-testid="task-room-external-chip">
+                            {task.external ? 'External CLI' : 'Charter managed'}
+                          </strong>
+                        </span>
+                        <span>
+                          Project
+                          <strong title={task.projectPath}>{task.projectName}</strong>
+                        </span>
+                      </div>
+                    </details>
                     <button
                       data-testid="task-rename"
                       onClick={() => {

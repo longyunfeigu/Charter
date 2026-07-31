@@ -167,6 +167,16 @@ describe('surface openers keep the rail in step (reverse direction)', () => {
     useAppStore.getState().openTaskRoom('t-origin');
     expect(useAppStore.getState().missionCenter).toBeNull();
     expect(useAppStore.getState().taskRoomTaskId).toBe('t-origin');
+    expect(useAppStore.getState().railView).toBe('sessions');
+  });
+
+  it('opening a terminal from Mission replaces the Mission rail with Sessions', () => {
+    useAppStore.getState().openMission('mission-1');
+    useAppStore.getState().openTerminalSession('term-mission-worker');
+    const state = useAppStore.getState();
+    expect(state.railView).toBe('sessions');
+    expect(state.missionCenter).toBeNull();
+    expect(state.sessionTerminalId).toBe('term-mission-worker');
   });
 
   it('opening Session Archive from Project Center flips to Sessions and remembers the project', () => {

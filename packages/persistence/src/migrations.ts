@@ -584,4 +584,76 @@ FROM orchestration_messages
 WHERE to_assignment_id IS NOT NULL AND suppressed_at IS NULL;
 `,
   },
+  {
+    version: 11,
+    name: 'mission-continuations-and-resume-intents',
+    up: `
+CREATE TABLE orchestration_continuations (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  owner_assignment_id TEXT NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+  owner_attempt_id TEXT NOT NULL REFERENCES execution_attempts(id) ON DELETE CASCADE,
+  mode TEXT NOT NULL,
+  state TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  cursor_sequence INTEGER NOT NULL DEFAULT 0,
+  deadline_at TEXT,
+  idempotency_key TEXT NOT NULL,
+  ready_at TEXT,
+  delivered_at TEXT,
+  consumed_at TEXT,
+  cancelled_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(mission_id, owner_assignment_id, idempotency_key)
+);
+CREATE INDEX idx_orchestration_continuations_mission
+  ON orchestration_continuations(mission_id, created_at);
+CREATE INDEX idx_orchestration_continuations_deadline
+  ON orchestration_continuations(state, deadline_at);
+CREATE UNIQUE INDEX idx_orchestration_continuations_active_owner
+  ON orchestration_continuations(owner_attempt_id)
+  WHERE state IN ('ARMED','READY','DELIVERING','DELIVERED');
+
+CREATE TABLE orchestration_continuation_targets (
+  id TEXT PRIMARY KEY,
+  continuation_id TEXT NOT NULL REFERENCES orchestration_continuations(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  target_assignment_id TEXT REFERENCES assignments(id) ON DELETE CASCADE,
+  from_assignment_id TEXT REFERENCES assignments(id) ON DELETE CASCADE,
+  message_types_json TEXT,
+  thread_id TEXT,
+  terminal_states_json TEXT,
+  satisfied_by TEXT,
+  satisfied_payload_json TEXT,
+  satisfied_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_orchestration_continuation_targets_assignment
+  ON orchestration_continuation_targets(target_assignment_id, satisfied_at);
+CREATE INDEX idx_orchestration_continuation_targets_message
+  ON orchestration_continuation_targets(from_assignment_id, thread_id, satisfied_at);
+
+CREATE TABLE orchestration_resume_intents (
+  id TEXT PRIMARY KEY,
+  continuation_id TEXT NOT NULL UNIQUE REFERENCES orchestration_continuations(id) ON DELETE CASCADE,
+  mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  owner_assignment_id TEXT NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+  owner_attempt_id TEXT NOT NULL REFERENCES execution_attempts(id) ON DELETE CASCADE,
+  runtime_session_id TEXT,
+  state TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  available_at TEXT NOT NULL,
+  last_error TEXT,
+  delivered_at TEXT,
+  acknowledged_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_orchestration_resume_intents_pending
+  ON orchestration_resume_intents(state, available_at, created_at);
+`,
+  },
 ];

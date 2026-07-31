@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { newId } from '@pi-ide/foundation';
 import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import type { IPty } from 'node-pty';
@@ -46,6 +46,11 @@ export interface TerminalInfo {
  */
 export interface TerminalBackend {
   write(data: string): void;
+  /** Accepted/backpressured write path for large input. Ordinary keystrokes
+   * intentionally use write() and never wait for a transport round trip. */
+  writeAccepted?(data: string): Promise<boolean>;
+  /** Monotonic daemon output cursor used to deduplicate restored streams. */
+  sequence?(): number;
   resize(cols: number, rows: number): void;
   /** Idempotent: safe to call more than once, or on an already-dead session. */
   kill(): void;
@@ -609,16 +614,36 @@ export function readProcessTable(): ProcessTableEntry[] | null {
   try {
     const result = spawnSync('ps', ['-ax', '-o', 'pid=,ppid=,command='], { timeout: 2000 });
     if (result.status !== 0) return null;
-    const entries: ProcessTableEntry[] = [];
-    for (const line of result.stdout.toString().split('\n')) {
-      const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
-      if (!m) continue;
-      entries.push({ pid: Number(m[1]), ppid: Number(m[2]), command: m[3] ?? '' });
-    }
-    return entries;
+    return parseProcessTable(result.stdout.toString());
   } catch {
     return null;
   }
+}
+
+function parseProcessTable(stdout: string): ProcessTableEntry[] {
+  const entries: ProcessTableEntry[] = [];
+  for (const line of stdout.split('\n')) {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+    if (!match) continue;
+    entries.push({
+      pid: Number(match[1]),
+      ppid: Number(match[2]),
+      command: match[3] ?? '',
+    });
+  }
+  return entries;
+}
+
+async function readProcessTableAsync(): Promise<ProcessTableEntry[] | null> {
+  if (process.platform === 'win32') return null;
+  return await new Promise((resolve) => {
+    execFile(
+      'ps',
+      ['-ax', '-o', 'pid=,ppid=,command='],
+      { timeout: 2000, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' },
+      (error, stdout) => resolve(error ? null : parseProcessTable(stdout)),
+    );
+  });
 }
 
 /** Walks a process table below `rootPid` looking for an agent CLI (argv basenames). */
@@ -686,11 +711,37 @@ export function hasChildProcesses(pid: number): boolean {
 }
 
 /**
+ * A PTY leader can exit before helper processes in its Unix process group
+ * (notably stdio MCP servers). Once the terminal lifecycle ends those helpers
+ * have no owner or useful transport, so ask the group to hang up and reap any
+ * stubborn survivors after a short grace period.
+ */
+export function reapTerminalProcessGroup(pid: number, graceMs = 1500): void {
+  if (process.platform === 'win32' || !Number.isInteger(pid) || pid <= 0) return;
+  try {
+    process.kill(-pid, 'SIGHUP');
+  } catch {
+    // No process group remains, so avoid arming a timer against a reusable pid.
+    return;
+  }
+  const timer = setTimeout(() => {
+    try {
+      process.kill(-pid, 'SIGKILL');
+    } catch {
+      // The process group exited during the grace period.
+    }
+  }, graceMs);
+  timer.unref();
+}
+
+/**
  * Default backend: a node-pty child process. Owns the graceful-kill with
  * process-group escalation (CMD-004/TERM-004) so the manager stays transport
  * agnostic across local and SSH remote sessions (ADR-0047).
  */
 class PtyBackend implements TerminalBackend {
+  private reaping = false;
+
   constructor(private readonly pty: IPty) {}
 
   write(data: string): void {
@@ -706,22 +757,12 @@ class PtyBackend implements TerminalBackend {
   }
 
   kill(): void {
-    const pid = this.pty.pid;
     try {
       this.pty.kill();
     } catch {
       // already dead
     }
-    if (process.platform !== 'win32') {
-      // Escalate to the whole process group if anything survives the HUP.
-      setTimeout(() => {
-        try {
-          process.kill(-pid, 'SIGKILL');
-        } catch {
-          // group already gone — expected on the happy path
-        }
-      }, 1500).unref();
-    }
+    this.reapProcessGroup();
   }
 
   hasChildren(): boolean {
@@ -737,7 +778,16 @@ class PtyBackend implements TerminalBackend {
   }
 
   onExit(cb: (exitCode: number) => void): void {
-    this.pty.onExit(({ exitCode }) => cb(exitCode));
+    this.pty.onExit(({ exitCode }) => {
+      this.reapProcessGroup();
+      cb(exitCode);
+    });
+  }
+
+  private reapProcessGroup(): void {
+    if (this.reaping) return;
+    this.reaping = true;
+    reapTerminalProcessGroup(this.pty.pid);
   }
 }
 
@@ -761,6 +811,10 @@ export class TerminalManager {
   private readonly createLocalBackend:
     ((request: LocalTerminalBackendRequest) => { backend: TerminalBackend; pid: number }) | null;
   private readonly onResync: ((id: string, replay: string, sequence: number) => void) | null;
+  private readonly asyncProcessTable: boolean;
+  private cachedProcessTable: ProcessTableEntry[] | null = null;
+  private processTableCachedAt = 0;
+  private processTableRefresh: Promise<void> | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
@@ -776,7 +830,8 @@ export class TerminalManager {
             .filter(Boolean)
         : DEFAULT_AGENT_CLIS);
     this.readTitle = options.readTitle ?? ((s) => s.backend.processTitle() ?? '');
-    this.readTable = options.readProcessTable ?? readProcessTable;
+    this.asyncProcessTable = options.readProcessTable === undefined;
+    this.readTable = options.readProcessTable ?? (() => this.cachedProcessTable);
     this.shellIntegration = options.shellIntegration ?? null;
     this.envForTerminal = options.envForTerminal ?? null;
     this.createLocalBackend = options.createLocalBackend ?? null;
@@ -851,6 +906,10 @@ export class TerminalManager {
     return this.sessions.get(id)?.recentData.replay() ?? '';
   }
 
+  sequence(id: string): number {
+    return this.sessions.get(id)?.backend.sequence?.() ?? 0;
+  }
+
   /** Plain text from the live VT model. Unlike ANSI stripping, this applies
    * cursor movement, erasure, alternate-screen and DEC line-drawing state. */
   async screenText(
@@ -885,6 +944,20 @@ export class TerminalManager {
           // version-named installer binary, a wrapper script… the argv of
           // the tree below the shell is the reliable signal.
           if (table === undefined) table = this.readTable();
+          if (
+            this.asyncProcessTable &&
+            Date.now() - this.processTableCachedAt > 1000 &&
+            !this.processTableRefresh
+          ) {
+            const refresh = readProcessTableAsync().then((next) => {
+              this.cachedProcessTable = next;
+              this.processTableCachedAt = Date.now();
+            });
+            this.processTableRefresh = refresh;
+            void refresh.finally(() => {
+              if (this.processTableRefresh === refresh) this.processTableRefresh = null;
+            });
+          }
           const pid = session.backend.processId?.() ?? session.info.pid;
           if (table && pid > 0) match = findAgentInTable(table, pid, this.agentClis);
         }
@@ -1083,6 +1156,20 @@ export class TerminalManager {
     for (const listener of this.inputListeners) listener({ id, data });
     for (const listener of this.sourcedInputListeners) listener({ id, data, source });
     session.backend.write(data);
+  }
+
+  async writeAccepted(
+    id: string,
+    data: string,
+    source: TerminalInputSource = 'host',
+  ): Promise<boolean> {
+    const session = this.sessions.get(id);
+    if (!session) return false;
+    for (const listener of this.inputListeners) listener({ id, data });
+    for (const listener of this.sourcedInputListeners) listener({ id, data, source });
+    if (session.backend.writeAccepted) return await session.backend.writeAccepted(data);
+    session.backend.write(data);
+    return true;
   }
 
   /**

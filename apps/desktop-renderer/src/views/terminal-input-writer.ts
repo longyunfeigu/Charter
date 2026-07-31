@@ -8,21 +8,21 @@ interface TerminalInputEnqueue extends TerminalInputWrite {
   paste?: boolean;
 }
 
-export type SendTerminalInput = (input: TerminalInputWrite) => Promise<unknown>;
+export type SendTerminalInput = (input: TerminalInputWrite) => void | Promise<unknown>;
+
 interface TerminalInputWriterOptions {
+  /** Confirmed transport path used only for large/pasted input. */
+  sendAccepted?: SendTerminalInput;
   wait?: (milliseconds: number) => Promise<void>;
   startupDelayMs?: number;
 }
 
-const MAX_CHUNK_BYTES = 256;
-const PASTE_CHUNK_PAUSE_MS = 100;
+const MAX_CHUNK_BYTES = 16 * 1024;
+const MAX_COALESCED_CODE_UNITS = 4096;
 const TERMINAL_SETTLE_MS = 50;
 const COMMAND_START_TIMEOUT_MS = 500;
 
-/**
- * Keep native paste below macOS PTY input-buffer limits while retaining exact
- * ordering with the Enter event that xterm emits immediately after the paste.
- */
+/** Split UTF-8 input without cutting a surrogate pair. */
 export function splitTerminalInput(data: string, maxChunkBytes = MAX_CHUNK_BYTES): string[] {
   if (data.length === 0) return [];
   if (!Number.isInteger(maxChunkBytes) || maxChunkBytes < 1) {
@@ -42,9 +42,6 @@ export function splitTerminalInput(data: string, maxChunkBytes = MAX_CHUNK_BYTES
       if (bytes + nextBytes > maxChunkBytes && end > start) break;
       bytes += nextBytes;
       end += units;
-      // xterm normalizes native-paste newlines to carriage returns. Treat
-      // both terminal line endings as pacing boundaries.
-      if (codePoint === 0x0a || codePoint === 0x0d) break;
       // A byte limit smaller than one code point still emits that point whole.
       if (bytes > maxChunkBytes) break;
     }
@@ -58,21 +55,29 @@ function pause(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+/**
+ * Ordered terminal input queue with two transport lanes:
+ * - ordinary xterm input is coalesced and dispatched without an RPC round trip;
+ * - paste/large input is chunked and waits for host acceptance between chunks.
+ */
 export class TerminalInputWriter {
-  private tail: Promise<void> = Promise.resolve();
+  private readonly pending: TerminalInputEnqueue[] = [];
+  private drainPromise: Promise<void> | null = null;
   private readonly ready: Promise<void>;
   private resolveReady: (() => void) | null = null;
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly wait: (milliseconds: number) => Promise<void>;
+  private readonly sendAccepted: SendTerminalInput;
   private submittedLineVersion = 0;
   private commandStartVersion = 0;
   private commandStartSignal: Promise<void>;
   private resolveCommandStart: () => void = () => undefined;
 
   constructor(
-    private readonly send: SendTerminalInput,
+    private readonly sendFast: SendTerminalInput,
     options: TerminalInputWriterOptions = {},
   ) {
+    this.sendAccepted = options.sendAccepted ?? sendFast;
     this.wait = options.wait ?? pause;
     this.commandStartSignal = this.newCommandStartSignal();
     const startupDelayMs = options.startupDelayMs ?? 0;
@@ -112,28 +117,23 @@ export class TerminalInputWriter {
   }
 
   enqueue(input: TerminalInputEnqueue): void {
-    const deliver = async (): Promise<void> => {
-      await this.ready;
-      const chunks = splitTerminalInput(input.data);
-      const pacedPaste = input.paste === true || chunks.length > 1;
-      for (const chunk of chunks) {
-        if (input.userInitiated && /[\r\n]/.test(chunk)) this.submittedLineVersion += 1;
-        await this.send({
-          id: input.id,
-          data: chunk,
-          userInitiated: input.userInitiated,
-        });
-        if (pacedPaste) await this.wait(PASTE_CHUNK_PAUSE_MS);
-      }
-    };
-
-    // A failed IPC call must not strand later keystrokes behind a rejected tail.
-    this.tail = this.tail.then(deliver, deliver);
-    void this.tail.catch(() => undefined);
+    const previous = this.pending.at(-1);
+    if (
+      input.paste !== true &&
+      previous?.paste !== true &&
+      previous?.id === input.id &&
+      previous.userInitiated === input.userInitiated &&
+      previous.data.length + input.data.length <= MAX_COALESCED_CODE_UNITS
+    ) {
+      previous.data += input.data;
+    } else {
+      this.pending.push({ ...input });
+    }
+    this.startDrain();
   }
 
   async settle(): Promise<void> {
-    await this.tail.catch(() => undefined);
+    await this.drainPromise?.catch(() => undefined);
     if (this.commandStartVersion < this.submittedLineVersion) {
       // Shell integration reports command start just before the shell spawns
       // an external child. Unknown shells retain a bounded fallback.
@@ -142,5 +142,44 @@ export class TerminalInputWriter {
     // Give the shell a turn to spawn a just-submitted child before close asks
     // the host whether confirmation is required.
     await this.wait(TERMINAL_SETTLE_MS);
+  }
+
+  private startDrain(): void {
+    if (this.drainPromise) return;
+    const work = this.drain();
+    this.drainPromise = work;
+    void work.finally(() => {
+      if (this.drainPromise === work) this.drainPromise = null;
+      if (this.pending.length > 0) this.startDrain();
+    });
+  }
+
+  private async drain(): Promise<void> {
+    await this.ready;
+    while (this.pending.length > 0) {
+      const input = this.pending.shift()!;
+      const chunks = splitTerminalInput(input.data);
+      const accepted = input.paste === true || chunks.length > 1;
+      for (let index = 0; index < chunks.length; index += 1) {
+        const chunk = chunks[index]!;
+        if (input.userInitiated && /[\r\n]/.test(chunk)) this.submittedLineVersion += 1;
+        const write = {
+          id: input.id,
+          data: chunk,
+          userInitiated: input.userInitiated,
+        };
+        try {
+          if (accepted) {
+            await this.sendAccepted(write);
+            if (index + 1 < chunks.length) await this.wait(0);
+          } else {
+            const result = this.sendFast(write);
+            if (result instanceof Promise) void result.catch(() => undefined);
+          }
+        } catch {
+          // A failed bridge call must not strand later keystrokes.
+        }
+      }
+    }
   }
 }

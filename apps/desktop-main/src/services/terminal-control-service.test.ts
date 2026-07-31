@@ -311,8 +311,8 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
   it('coalesces Mission doorbells until an adopted Agent turn settles', async () => {
     const adopted = terminals.create({ cwd: '/repo', launch: 'codex' });
     service.notifyTurnStarted(adopted.id, { taskId: 'task', source: 'input' });
-    await service.notifyRuntime(adopted.id, 'message 1');
-    await service.notifyRuntime(adopted.id, 'message 2');
+    const first = service.notifyRuntime(adopted.id, 'message 1');
+    const second = service.notifyRuntime(adopted.id, 'message 2');
     expect(terminals.writes).toHaveLength(0);
 
     service.notifyTurnSettled(adopted.id, {
@@ -320,7 +320,49 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
       status: 'ok',
       source: 'structured',
     });
+    await Promise.all([first, second]);
     expect(terminals.writes.map((entry) => entry.data)).toEqual(['message 1\r\rmessage 2', '\r']);
+  });
+
+  it('does not paste a Mission doorbell into a recursively-created worker mid-turn', async () => {
+    const created = (await service.create(
+      { taskId: 'task_1' },
+      {
+        root: '/repo',
+        launch: 'codex',
+        initialText: 'work on the child assignment',
+        submit: true,
+      },
+    )) as { terminal: TerminalInfo };
+
+    const delivery = service.notifyRuntime(created.terminal.id, 'sync your Mission inbox');
+    expect(terminals.writes).toHaveLength(0);
+
+    service.notifyTurnSettled(created.terminal.id, {
+      taskId: 'child-task',
+      status: 'ok',
+      source: 'structured',
+    });
+    await delivery;
+    expect(terminals.writes.map((entry) => entry.data)).toEqual(['sync your Mission inbox', '\r']);
+  });
+
+  it('cancels a queued Mission doorbell without injecting stale text', async () => {
+    const adopted = terminals.create({ cwd: '/repo', launch: 'claude' });
+    service.notifyTurnStarted(adopted.id, { taskId: 'task', source: 'input' });
+    const controller = new AbortController();
+    const delivery = service.notifyRuntime(adopted.id, 'stale doorbell', true, controller.signal);
+
+    controller.abort();
+    await expect(delivery).rejects.toMatchObject({
+      error: expect.objectContaining({ code: 'CANCELLED' }),
+    });
+    service.notifyTurnSettled(adopted.id, {
+      taskId: 'task',
+      status: 'ok',
+      source: 'structured',
+    });
+    expect(terminals.writes).toHaveLength(0);
   });
 
   it('ignores terminal focus reports but treats real user input as takeover', async () => {

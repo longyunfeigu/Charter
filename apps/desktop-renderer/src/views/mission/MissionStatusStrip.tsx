@@ -22,6 +22,7 @@ export function MissionStatusStrip({
       type="button"
       className={`mission-strip tone-${state.tone}`}
       data-testid="mission-status-strip"
+      aria-label={`${state.label}: ${snapshot.mission.title}. ${summary.completed} of ${summary.total} work items done. ${nextLabel}`}
       onClick={() => useAppStore.getState().openMission(snapshot.mission.id)}
     >
       <span className="mission-strip-mark" aria-hidden>
@@ -34,7 +35,6 @@ export function MissionStatusStrip({
             {summary.completed} of {summary.total} work items done
           </span>
         </span>
-        <span className="mission-strip-title">{snapshot.mission.title}</span>
         <span className="mission-strip-progress" aria-label={`${summary.percent}% complete`}>
           <i style={{ width: `${summary.percent}%` }} />
         </span>

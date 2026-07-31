@@ -54,6 +54,20 @@ export function MissionWorkMap({
     );
     const state = taskStateCopy(task.state, assignment?.state);
     const latest = assignment ? latestProgressForAssignment(snapshot, assignment.id) : null;
+    const continuation = assignment
+      ? (snapshot.continuations
+          ?.filter(
+            (item) =>
+              item.ownerAssignmentId === assignment.id &&
+              ['ARMED', 'READY', 'DELIVERING', 'DELIVERED'].includes(item.state),
+          )
+          .at(-1) ?? null)
+      : null;
+    const continuationTargets = continuation
+      ? (snapshot.continuationTargets ?? []).filter(
+          (target) => target.continuationId === continuation.id,
+        )
+      : [];
     const taskDependencies = (dependencies.get(task.id) ?? [])
       .map((id) => taskById.get(id))
       .filter((item): item is MissionSnapshotDto['tasks'][number] => Boolean(item));
@@ -93,6 +107,16 @@ export function MissionWorkMap({
               ) : null}
             </span>
             <span className="mission-work-goal">{task.goal}</span>
+            {continuation ? (
+              <span className="mission-work-latest" data-testid={`mission-wait-${assignment?.id}`}>
+                <Ic name="clock" size={11} />
+                {continuation.state === 'ARMED'
+                  ? `Waiting: ${continuationTargets.filter((target) => target.satisfiedAt).length}/${continuationTargets.length} conditions`
+                  : continuation.state === 'DELIVERED'
+                    ? 'Resume delivered to Agent'
+                    : 'Resume queued for safe idle'}
+              </span>
+            ) : null}
             {latest ? (
               <span className="mission-work-latest">
                 <Ic name={latest.type === 'completion' ? 'checkCircle' : 'zap'} size={11} />

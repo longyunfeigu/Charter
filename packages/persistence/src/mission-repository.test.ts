@@ -143,6 +143,45 @@ describe('MissionRepository', () => {
     opened.db.close();
   });
 
+  it('keeps raw runtime events for audit while bounding Mission snapshots', () => {
+    const opened = open();
+    seedWorkspace(opened.db);
+    const repository = new MissionRepository(opened.db);
+    const created = repository.createMission({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Bounded events',
+      goal: 'Keep the renderer responsive',
+      lead: {
+        principalId: 'lead',
+        kind: 'managed_agent',
+        displayName: 'Lead',
+        runtimeSessionId: 'lead-runtime',
+        requestedRuntime: 'managed',
+      },
+    });
+    const attempt = created.attempts[0]!;
+    const runtime = repository.upsertRuntimeSession({
+      id: `runtime:${attempt.id}`,
+      attemptId: attempt.id,
+      provider: 'claude',
+      transport: 'acp',
+      state: 'RUNNING',
+      cwd: '/repo',
+    });
+    const rawOutput = 'x'.repeat(256 * 1024);
+    repository.appendRuntimeEvent(runtime.id, attempt.id, 'acp.tool_call_update', { rawOutput });
+
+    expect(repository.listRuntimeEvents(created.mission.id)[0]?.payload.rawOutput).toBe(rawOutput);
+    const snapshot = repository.snapshot(created.mission.id);
+    expect(snapshot.runtimeEvents[0]?.payload).toMatchObject({
+      truncated: true,
+      originalBytes: expect.any(Number),
+    });
+    expect(Buffer.byteLength(JSON.stringify(snapshot.runtimeEvents))).toBeLessThan(16 * 1024);
+    opened.db.close();
+  });
+
   it('persists A → B → D recursive delegation without per-Agent grants', () => {
     const opened = open();
     seedWorkspace(opened.db);
@@ -598,5 +637,225 @@ describe('MissionRepository', () => {
         ?.state,
     ).toBe('READY');
     opened.db.close();
+  });
+
+  it('arms an all-condition continuation atomically across event-before-park and later completion', () => {
+    const opened = open();
+    seedWorkspace(opened.db);
+    const repository = new MissionRepository(opened.db);
+    const mission = repository.createMission({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Durable continuation',
+      goal: 'Wait for both reviewers without polling',
+      lead: {
+        principalId: 'lead',
+        kind: 'managed_agent',
+        displayName: 'Lead',
+        runtimeSessionId: 'runtime-lead',
+        requestedRuntime: 'managed',
+      },
+    });
+    const lead = mission.assignments[0]!;
+    const [first, second] = repository.delegateMany(
+      ['first', 'second'].map((name) => ({
+        missionId: mission.mission.id,
+        supervisorAssignmentId: lead.id,
+        actorPrincipalId: lead.assigneePrincipalId,
+        goal: name,
+        acceptanceCriteria: [],
+        requestedRuntime: 'managed' as const,
+        workMode: 'read-only' as const,
+        reason: 'parallel review',
+        idempotencyKey: `continuation-${name}`,
+      })),
+    );
+    repository.bindRuntime(first!.assignment.id, first!.attempt.id, {
+      runtimeSessionId: 'runtime-first',
+    });
+    repository.bindRuntime(second!.assignment.id, second!.attempt.id, {
+      runtimeSessionId: 'runtime-second',
+    });
+
+    // The first event commits before the Lead parks. Registration reconciles
+    // current durable state in the same transaction, so this edge is not lost.
+    repository.completeAttempt({
+      attemptId: first!.attempt.id,
+      principalId: first!.assignment.assigneePrincipalId,
+      outcome: 'success',
+      summary: 'first done',
+    });
+    const armed = repository.armContinuation({
+      missionId: mission.mission.id,
+      ownerAssignmentId: lead.id,
+      ownerAttemptId: mission.attempts[0]!.id,
+      mode: 'all',
+      conditions: [first!, second!].map((child) => ({
+        kind: 'assignment_terminal' as const,
+        assignmentId: child.assignment.id,
+      })),
+      reason: 'Both reviews must finish',
+      idempotencyKey: 'lead-waits-for-reviews',
+    });
+    expect(armed.continuation.state).toBe('ARMED');
+    expect(armed.targets.map((target) => Boolean(target.satisfiedAt))).toEqual([true, false]);
+    expect(repository.getAssignment(lead.id)?.state).toBe('WAITING');
+    expect(repository.getAttempt(mission.attempts[0]!.id)?.state).toBe('WAITING');
+
+    repository.rebindActiveRuntime(lead.id, { runtimeSessionId: 'runtime-lead-rebound' });
+    expect(repository.getAssignment(lead.id)?.state).toBe('WAITING');
+    expect(repository.getAttempt(mission.attempts[0]!.id)?.state).toBe('WAITING');
+
+    const duplicate = repository.armContinuation({
+      missionId: mission.mission.id,
+      ownerAssignmentId: lead.id,
+      ownerAttemptId: mission.attempts[0]!.id,
+      mode: 'all',
+      conditions: [
+        { kind: 'assignment_terminal', assignmentId: first!.assignment.id },
+        { kind: 'assignment_terminal', assignmentId: second!.assignment.id },
+      ],
+      reason: 'Both reviews must finish',
+      idempotencyKey: 'lead-waits-for-reviews',
+    });
+    expect(duplicate.reused).toBe(true);
+
+    repository.completeAttempt({
+      attemptId: second!.attempt.id,
+      principalId: second!.assignment.assigneePrincipalId,
+      outcome: 'failure',
+      summary: 'second reported a finding',
+    });
+    const ready = repository.snapshot(mission.mission.id);
+    expect(ready.continuations).toContainEqual(
+      expect.objectContaining({ id: armed.continuation.id, state: 'READY' }),
+    );
+    expect(ready.resumeIntents).toHaveLength(1);
+    repository.recoverAndReconcileContinuations();
+    expect(repository.listResumeIntents(mission.mission.id)).toHaveLength(1);
+
+    const consumed = repository.consumeContinuation(
+      armed.continuation.id,
+      lead.id,
+      mission.attempts[0]!.id,
+    );
+    expect(consumed.continuation.state).toBe('CONSUMED');
+    expect(consumed.resumeIntent?.state).toBe('ACKNOWLEDGED');
+    expect(repository.getAssignment(lead.id)?.state).toBe('ACTIVE');
+    expect(repository.getAttempt(mission.attempts[0]!.id)?.state).toBe('RUNNING');
+    expect(
+      repository.consumeContinuation(armed.continuation.id, lead.id, mission.attempts[0]!.id)
+        .reused,
+    ).toBe(true);
+    opened.db.close();
+  });
+
+  it('matches threaded messages after a cursor and resumes on a durable deadline after reopen', () => {
+    let now = Date.parse('2026-07-30T12:00:00.000Z');
+    const opened = open();
+    seedWorkspace(opened.db);
+    let repository = new MissionRepository(opened.db, () => new Date(now));
+    const mission = repository.createMission({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Message continuation',
+      goal: 'Match only the intended answer',
+      lead: {
+        principalId: 'lead',
+        kind: 'managed_agent',
+        displayName: 'Lead',
+        runtimeSessionId: 'runtime-lead',
+        requestedRuntime: 'managed',
+      },
+    });
+    const lead = mission.assignments[0]!;
+    const child = repository.delegate({
+      missionId: mission.mission.id,
+      supervisorAssignmentId: lead.id,
+      actorPrincipalId: lead.assigneePrincipalId,
+      goal: 'Answer later',
+      acceptanceCriteria: [],
+      requestedRuntime: 'managed',
+      workMode: 'read-only',
+      reason: 'thread test',
+      idempotencyKey: 'message-child',
+    });
+    const old = repository.createMessage({
+      missionId: mission.mission.id,
+      fromAssignmentId: child.assignment.id,
+      toAssignmentId: lead.id,
+      threadId: 'decision-1',
+      type: 'answer',
+      subject: 'old answer',
+    });
+    const messageWait = repository.armContinuation({
+      missionId: mission.mission.id,
+      ownerAssignmentId: lead.id,
+      ownerAttemptId: mission.attempts[0]!.id,
+      mode: 'any',
+      conditions: [
+        {
+          kind: 'message',
+          fromAssignmentId: child.assignment.id,
+          types: ['answer'],
+          threadId: 'decision-1',
+        },
+      ],
+      cursorSequence: old.sequence,
+      reason: 'Wait for a fresh decision answer',
+      idempotencyKey: 'fresh-answer',
+    });
+    expect(messageWait.continuation.state).toBe('ARMED');
+    repository.createMessage({
+      missionId: mission.mission.id,
+      fromAssignmentId: child.assignment.id,
+      toAssignmentId: lead.id,
+      threadId: 'other-thread',
+      type: 'answer',
+      subject: 'irrelevant answer',
+    });
+    expect(repository.getContinuation(messageWait.continuation.id)?.state).toBe('ARMED');
+    repository.createMessage({
+      missionId: mission.mission.id,
+      fromAssignmentId: child.assignment.id,
+      toAssignmentId: lead.id,
+      threadId: 'decision-1',
+      type: 'answer',
+      subject: 'fresh answer',
+    });
+    expect(repository.getContinuation(messageWait.continuation.id)?.state).toBe('READY');
+    repository.consumeContinuation(messageWait.continuation.id, lead.id, mission.attempts[0]!.id);
+
+    const deadlineAt = new Date(now + 5_000).toISOString();
+    const deadlineWait = repository.armContinuation({
+      missionId: mission.mission.id,
+      ownerAssignmentId: lead.id,
+      ownerAttemptId: mission.attempts[0]!.id,
+      mode: 'all',
+      conditions: [
+        {
+          kind: 'assignment_terminal',
+          assignmentId: child.assignment.id,
+          states: ['COMPLETED'],
+        },
+      ],
+      deadlineAt,
+      reason: 'Do not wait forever for the child',
+      idempotencyKey: 'deadline-wait',
+    });
+    expect(deadlineWait.continuation.state).toBe('ARMED');
+    opened.db.close();
+
+    now += 10_000;
+    const reopened = open();
+    repository = new MissionRepository(reopened.db, () => new Date(now));
+    const recovery = repository.recoverAndReconcileContinuations();
+    expect(recovery.ready).toBe(1);
+    const resumed = repository.getContinuation(deadlineWait.continuation.id);
+    expect(resumed?.state).toBe('READY');
+    expect(repository.listResumeIntents(mission.mission.id).at(-1)?.payload).toMatchObject({
+      trigger: { kind: 'deadline', timedOut: true },
+    });
+    reopened.db.close();
   });
 });

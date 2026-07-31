@@ -113,12 +113,21 @@ describe.skipIf(process.platform === 'win32')('terminal daemon session survival'
     const [restored] = second.restoredSessions();
     expect(restored?.info.id).toBe(info.id);
     expect(restored?.pid).toBeGreaterThan(0);
-    expect(restored?.replay).toContain('DAEMON_SURVIVED_ONE');
+    // Connect lists only cheap descriptors. Full VT state is restored lazily
+    // per adopted terminal so many dormant sessions cannot block startup.
+    expect(restored?.replay).toBe('');
 
     const secondBackend = second.backendForRestored(restored!);
     let secondOutput = '';
+    let restoredReplay = '';
     secondBackend.onData((data) => {
       secondOutput += data;
+    });
+    secondBackend.onResync?.((replay) => {
+      restoredReplay = replay;
+    });
+    await vi.waitFor(() => expect(restoredReplay).toContain('DAEMON_SURVIVED_ONE'), {
+      timeout: 5000,
     });
     secondBackend.write("printf 'DAEMON_SURVIVED_TWO\\n'\r");
     await vi.waitFor(() => expect(secondOutput).toContain('DAEMON_SURVIVED_TWO'), {

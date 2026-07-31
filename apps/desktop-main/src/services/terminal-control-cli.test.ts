@@ -60,6 +60,13 @@ describe('terminal-control CLI parser', () => {
       name: 'orchestration_cancel',
       input: { assignmentId: 'assign-b', reason: 'superseded' },
     });
+    expect(
+      parseTerminalControlCli(['orchestration', 'continue', '--continuation', 'continuation-1']),
+    ).toEqual({
+      kind: 'call',
+      name: 'orchestration_continue',
+      input: { continuationId: 'continuation-1' },
+    });
   });
 
   it('fails before contacting Charter when required arguments are missing', () => {

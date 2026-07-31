@@ -21,6 +21,7 @@ describe('externalTerminalLifecycle', () => {
       ).toMatchObject({
         agentLabel: 'Agent running',
         terminalLabel: 'Terminal live',
+        interactive: true,
         summary: `${provider} running · Terminal live`,
       });
     });
@@ -36,6 +37,7 @@ describe('externalTerminalLifecycle', () => {
       ).toMatchObject({
         agentLabel: 'Agent ended',
         terminalLabel: 'Shell available',
+        interactive: true,
         summary: `${provider} ended · Shell available`,
         terminalHeadline: `Shell after ${provider}`,
         terminalDetail: 'zsh ready · process preserved',
@@ -49,7 +51,25 @@ describe('externalTerminalLifecycle', () => {
       ).toMatchObject({
         agentLabel: 'Agent ended',
         terminalLabel: 'Terminal ended',
+        interactive: false,
         summary: `${provider} ended · Terminal ended`,
+      });
+    });
+
+    it(`${cli}: makes an explicitly stopped Agent transcript read-only`, () => {
+      expect(
+        externalTerminalLifecycle({
+          cli,
+          agent: 'interrupted',
+          terminalExited: false,
+          shellTitle: 'zsh',
+        }),
+      ).toMatchObject({
+        agentLabel: 'Agent interrupted',
+        terminalLabel: 'Terminal preserved',
+        interactive: false,
+        terminalHeadline: `Stopped ${provider} transcript`,
+        terminalDetail: 'read-only · resume the Session to continue',
       });
     });
   }

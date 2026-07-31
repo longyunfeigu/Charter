@@ -1,4 +1,5 @@
 import { errorMessage } from '@pi-ide/foundation';
+import type { OrchestrationResumeIntent } from '@pi-ide/orchestration-domain';
 import type { MissionRepository, OutboxRecord } from '@pi-ide/persistence';
 import { OrchestrationRuntimeRegistry } from './orchestration-runtime-registry.js';
 
@@ -11,7 +12,10 @@ export interface OrchestrationOutboxRunnerOptions {
 export class OrchestrationOutboxRunner {
   private running: Promise<void> | null = null;
   private wakeTimer: ReturnType<typeof setTimeout> | null = null;
+  private wakeAt: number | null = null;
+  private continuationDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly doorbellTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly deliveringAssignments = new Set<string>();
   private stopped = false;
 
   constructor(
@@ -23,13 +27,19 @@ export class OrchestrationOutboxRunner {
   start(): void {
     this.stopped = false;
     this.repository.recoverInterruptedOutbox();
+    this.repository.recoverAndReconcileContinuations();
     const assignments = new Set(
       this.repository
         .listUndeliveredMessages()
         .map((message) => message.toAssignmentId)
         .filter((id): id is string => Boolean(id)),
     );
-    for (const assignmentId of assignments) this.signalAssignment(assignmentId);
+    for (const assignmentId of assignments) {
+      if (!this.repository.hasActiveContinuationForOwner(assignmentId)) {
+        this.signalAssignment(assignmentId);
+      }
+    }
+    this.scheduleContinuationDeadline();
     this.wake();
   }
 
@@ -38,10 +48,29 @@ export class OrchestrationOutboxRunner {
     const timer = setTimeout(() => {
       this.doorbellTimers.delete(assignmentId);
       if (this.stopped) return;
-      void this.deliverInbox(assignmentId).catch(() => {
-        // Teardown may close persistence immediately after stop(); delivery
-        // remains durable and is retried on the next application start.
-      });
+      if (this.deliveringAssignments.has(assignmentId)) return;
+      this.deliveringAssignments.add(assignmentId);
+      void this.deliverInbox(assignmentId)
+        .catch(() => {
+          // Teardown may close persistence immediately after stop(); delivery
+          // remains durable and is retried on the next application start.
+        })
+        .finally(() => {
+          this.deliveringAssignments.delete(assignmentId);
+          if (this.stopped) return;
+          try {
+            const pending = this.repository.listUndeliveredMessages(assignmentId);
+            const urgent = pending.some((message) => message.priority === 'urgent');
+            if (
+              pending.length > 0 &&
+              (!this.repository.hasActiveContinuationForOwner(assignmentId) || urgent)
+            ) {
+              this.signalAssignment(assignmentId, 0);
+            }
+          } catch {
+            // Persistence may already be closing during application teardown.
+          }
+        });
     }, delayMs);
     timer.unref?.();
     this.doorbellTimers.set(assignmentId, timer);
@@ -49,11 +78,18 @@ export class OrchestrationOutboxRunner {
 
   wake(delayMs = 0): void {
     if (this.stopped) return;
+    const target = Date.now() + Math.max(0, delayMs);
+    if (this.wakeTimer && this.wakeAt !== null && this.wakeAt <= target) return;
     if (this.wakeTimer) clearTimeout(this.wakeTimer);
-    this.wakeTimer = setTimeout(() => {
-      this.wakeTimer = null;
-      void this.drain();
-    }, delayMs);
+    this.wakeAt = target;
+    this.wakeTimer = setTimeout(
+      () => {
+        this.wakeTimer = null;
+        this.wakeAt = null;
+        void this.drain();
+      },
+      Math.max(0, target - Date.now()),
+    );
   }
 
   async drain(): Promise<void> {
@@ -75,7 +111,13 @@ export class OrchestrationOutboxRunner {
     const attempt = this.repository.getAttempt(attemptId);
     if (!attempt?.runtimeSessionId) return;
     await this.runtimes.forRuntime(attempt.requestedRuntime).resume?.(attempt.runtimeSessionId);
-    this.repository.updateRuntimeSessionState(attemptId, 'RUNNING');
+    const assignment = this.repository.getAssignment(attempt.assignmentId);
+    this.repository.updateRuntimeSessionState(
+      attemptId,
+      assignment && this.repository.hasActiveContinuationForOwner(assignment.id)
+        ? 'WAITING'
+        : 'RUNNING',
+    );
   }
 
   async steerRuntime(
@@ -104,14 +146,18 @@ export class OrchestrationOutboxRunner {
     this.stopped = true;
     if (this.wakeTimer) clearTimeout(this.wakeTimer);
     this.wakeTimer = null;
+    this.wakeAt = null;
+    if (this.continuationDeadlineTimer) clearTimeout(this.continuationDeadlineTimer);
+    this.continuationDeadlineTimer = null;
     for (const timer of this.doorbellTimers.values()) clearTimeout(timer);
     this.doorbellTimers.clear();
   }
 
   private async doDrain(): Promise<void> {
+    this.repository.recoverAndReconcileContinuations();
     for (;;) {
       const records = this.repository.listPendingOutbox();
-      if (records.length === 0 || this.stopped) return;
+      if (records.length === 0 || this.stopped) break;
       const orderedByAggregate = new Map<string, OutboxRecord[]>();
       for (const record of records) {
         const group = orderedByAggregate.get(record.aggregateId) ?? [];
@@ -126,8 +172,100 @@ export class OrchestrationOutboxRunner {
           }
         }),
       );
-      if (records.length < 20) return;
+      if (records.length < 20) break;
     }
+    if (!this.stopped) await this.drainResumeIntents();
+    if (!this.stopped) this.scheduleContinuationDeadline();
+    const nextResume = this.repository.nextResumeIntentAvailableAt();
+    if (!this.stopped && nextResume) {
+      this.wake(Math.max(0, Date.parse(nextResume) - Date.now()));
+    }
+  }
+
+  private async drainResumeIntents(): Promise<void> {
+    for (;;) {
+      const intents = this.repository.listPendingResumeIntents();
+      if (intents.length === 0 || this.stopped) return;
+      await Promise.all(intents.map((intent) => this.processResumeIntent(intent)));
+      if (intents.length < 20) return;
+    }
+  }
+
+  private async processResumeIntent(intent: OrchestrationResumeIntent): Promise<void> {
+    const continuation = this.repository.getContinuation(intent.continuationId);
+    const assignment = this.repository.getAssignment(intent.ownerAssignmentId);
+    const attempt = this.repository.getAttempt(intent.ownerAttemptId);
+    if (
+      !continuation ||
+      !assignment ||
+      !attempt ||
+      assignment.activeAttemptId !== attempt.id ||
+      continuation.state !== 'READY'
+    ) {
+      this.repository.recoverAndReconcileContinuations();
+      return;
+    }
+
+    const runtimeSessionId = attempt.runtimeSessionId;
+    if (!this.repository.markResumeIntentProcessing(intent.id, runtimeSessionId)) return;
+    try {
+      if (!runtimeSessionId) throw new Error('The parked Attempt has no online runtime session.');
+      const adapter = this.runtimes.forRuntime(attempt.requestedRuntime);
+      if (!adapter.deliver) {
+        throw new Error(`Runtime ${attempt.requestedRuntime} cannot receive continuation prompts.`);
+      }
+      await adapter.deliver(
+        runtimeSessionId,
+        this.resumePrompt(intent, continuation.reason),
+        new AbortController().signal,
+      );
+      this.repository.markResumeIntentDelivered(intent.id);
+      const runtime = this.repository.getRuntimeSessionForAttempt(attempt.id);
+      if (runtime) {
+        this.repository.appendRuntimeEvent(runtime.id, attempt.id, 'continuation.delivered', {
+          continuationId: continuation.id,
+          resumeIntentId: intent.id,
+          attempts: intent.attempts + 1,
+        });
+      }
+      this.options.onChanged?.(intent.missionId);
+    } catch (error) {
+      const retryBase = Math.max(25, this.options.retryBaseMs ?? 250);
+      const retryMs = Math.min(30_000, retryBase * 2 ** Math.min(intent.attempts, 8));
+      this.repository.retryResumeIntent(
+        intent.id,
+        errorMessage(error),
+        new Date(Date.now() + retryMs).toISOString(),
+      );
+      this.options.onChanged?.(intent.missionId);
+      this.wake(retryMs);
+    }
+  }
+
+  private resumePrompt(intent: OrchestrationResumeIntent, reason: string): string {
+    const request = JSON.stringify({ continuationId: intent.continuationId });
+    const trigger = intent.payload.trigger as Record<string, unknown> | undefined;
+    const timedOut = trigger?.timedOut === true;
+    return [
+      `[Charter continuation ${timedOut ? 'deadline reached' : 'ready'}]`,
+      `The durable wait for "${reason}" is ready. Resume intent ${intent.id}.`,
+      `First run: charter orchestration continue --request-json '${request}' --json`,
+      'That idempotent command acknowledges this exact Attempt and returns the committed conditions, Assignment states, and messages.',
+      'Then continue the original work. Do not start a wait/poll loop for this continuation.',
+    ].join('\n');
+  }
+
+  private scheduleContinuationDeadline(): void {
+    if (this.continuationDeadlineTimer) clearTimeout(this.continuationDeadlineTimer);
+    this.continuationDeadlineTimer = null;
+    const deadline = this.repository.nextContinuationDeadline();
+    if (!deadline || this.stopped) return;
+    const delay = Math.max(0, Math.min(2_147_000_000, Date.parse(deadline) - Date.now()));
+    this.continuationDeadlineTimer = setTimeout(() => {
+      this.continuationDeadlineTimer = null;
+      this.wake();
+    }, delay);
+    this.continuationDeadlineTimer.unref?.();
   }
 
   private async process(record: OutboxRecord): Promise<void> {
@@ -244,6 +382,12 @@ export class OrchestrationOutboxRunner {
     if (this.stopped) return;
     const messages = this.repository.listUndeliveredMessages(assignmentId);
     if (messages.length === 0) return;
+    if (
+      this.repository.hasActiveContinuationForOwner(assignmentId) &&
+      !messages.some((message) => message.priority === 'urgent')
+    ) {
+      return;
+    }
     const assignment = this.repository.getAssignment(assignmentId);
     if (!assignment?.activeAttemptId) return;
     const attempt = this.repository.getAttempt(assignment.activeAttemptId);

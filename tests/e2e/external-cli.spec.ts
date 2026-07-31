@@ -1254,6 +1254,13 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await endSession.click();
 
       await expect(page.getByTestId('external-ended')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByTestId('external-terminal-readonly')).toContainText('Session stopped');
+      await expect(page.getByTestId('external-terminal-host')).toHaveAttribute(
+        'data-terminal-readonly',
+        'true',
+      );
+      await expect(page.getByTestId('external-terminal-readonly-resume')).toBeVisible();
+      await page.screenshot({ path: '/tmp/charter-stopped-session-readonly.png' });
       await row.hover();
       await expect(page.getByTestId(`home-end-${taskId!}`)).toHaveCount(0);
       const resume = page.getByTestId(`home-resume-${taskId!}`);
@@ -1425,7 +1432,12 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       // follows the instance), rail row, review entry; rail row click peeks.
       await page.getByTestId('session-bar-review').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
+      await expect(page.getByTestId('session-agent-chip')).not.toBeAttached();
+      await page.getByTestId('session-more').click();
+      await page.getByTestId('session-more-details').click();
       await expect(page.getByTestId('session-agent-chip')).toContainText('fakeagent');
+      await expect(page.getByTestId('task-room-external-chip')).toHaveText('External CLI');
+      await page.getByTestId('session-more').click();
       await expect(page.getByTestId('external-terminal-column')).toBeVisible();
       await expect(page.getByTestId('external-terminal-host')).toHaveAttribute(
         'data-terminal-id',

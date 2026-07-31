@@ -62,6 +62,22 @@ test.describe('terminal renderer and character widths', () => {
           return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft];
         }),
       ).toEqual(['10px', '12px', '10px', '12px']);
+      expect(
+        await page.getByTestId('terminal-host').evaluate((host) => {
+          const parts = [
+            host,
+            host.querySelector('.xterm'),
+            host.querySelector('.xterm-screen'),
+            host.querySelector('.xterm-viewport'),
+          ].filter((part): part is Element => part instanceof Element);
+          return parts.map((part) => getComputedStyle(part).backgroundColor);
+        }),
+      ).toEqual([
+        'rgb(255, 255, 255)',
+        'rgb(255, 255, 255)',
+        'rgb(255, 255, 255)',
+        'rgb(255, 255, 255)',
+      ]);
       const originalTerminalId = (await terminalPtySnapshot(page)).items[0]!.id;
 
       // Default typography should stay readable for the mixed Chinese, Latin,

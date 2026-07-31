@@ -13,11 +13,13 @@ import {
   OrchestrationAskSchema,
   OrchestrationCancelSchema,
   OrchestrationCompleteSchema,
+  OrchestrationContinueSchema,
   OrchestrationDelegateManySchema,
   OrchestrationDelegateSchema,
   OrchestrationEscalateSchema,
   OrchestrationJoinSchema,
   OrchestrationMessageSchema,
+  OrchestrationParkSchema,
   OrchestrationProgressSchema,
   OrchestrationReassignSchema,
   OrchestrationReplySchema,
@@ -89,6 +91,11 @@ export interface OrchestrationControlPort {
     caller: OrchestrationCallerContext,
     input: z.infer<typeof OrchestrationJoinSchema> & { signal?: AbortSignal },
   ): Promise<unknown>;
+  park(caller: OrchestrationCallerContext, input: z.infer<typeof OrchestrationParkSchema>): unknown;
+  continue(
+    caller: OrchestrationCallerContext,
+    input: z.infer<typeof OrchestrationContinueSchema>,
+  ): unknown;
   progress(
     caller: OrchestrationCallerContext,
     input: {
@@ -300,6 +307,42 @@ export function registerOrchestrationTools(
       code: 'OK',
       summary: 'Mission join finished.',
       data: await services.control.join(caller(call), { ...input, signal }),
+    }),
+  });
+  register({
+    name: 'orchestration.park',
+    version: 1,
+    permissionPolicy: AutoAllow,
+    description:
+      'Persist continuation conditions, end this turn, and let Charter resume this exact Session when they match.',
+    promptGuidance:
+      'Use for work that will take longer than a single blocking tool call. Pass the latest sync cursor as afterSequence, then stop the current turn immediately after success. Do not wrap park in a wait loop.',
+    inputSchema: OrchestrationParkSchema,
+    risk: () => ({ level: 'R0', reasons: ['parks only the caller active Attempt'] }),
+    preview: async (input) => ({
+      summary: `Park until ${input.mode === 'all' ? 'all' : 'any'} of ${input.conditions.length} conditions`,
+    }),
+    execute: async (input, _signal, call) => ({
+      code: 'OK',
+      summary: 'Continuation armed. End this agent turn now.',
+      data: services.control.park(caller(call), input),
+    }),
+  });
+  register({
+    name: 'orchestration.continue',
+    version: 1,
+    permissionPolicy: AutoAllow,
+    description:
+      'Acknowledge the exact Charter resume intent and return its committed context idempotently.',
+    promptGuidance:
+      'Call only when Charter injects a continuation-ready prompt. Continue the original task using the returned conditions, Assignment states, and messages.',
+    inputSchema: OrchestrationContinueSchema,
+    risk: () => ({ level: 'R0', reasons: ['resumes only the caller parked Attempt'] }),
+    preview: async (input) => ({ summary: `Continue ${input.continuationId}` }),
+    execute: async (input, _signal, call) => ({
+      code: 'OK',
+      summary: 'Continuation acknowledged.',
+      data: services.control.continue(caller(call), input),
     }),
   });
   register({

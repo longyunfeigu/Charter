@@ -575,7 +575,26 @@ html.xp-resizing * {
   min-height: 0;
   padding: 10px 12px;
   overflow: hidden;
-  background: var(--bg-card);
+  background: var(--terminal-surface, var(--bg-card));
+}
+
+/* xterm paints only whole character cells.  Keep every exposed compositor
+   layer on the terminal palette so a light session has the same calm,
+   borderless canvas as Orca instead of a black frame at its unused edges. */
+[data-terminal-padding] {
+  background-color: var(--terminal-surface, var(--bg-card)) !important;
+}
+[data-terminal-padding] :is(.xterm, .xterm-screen, .xterm-viewport) {
+  background-color: var(--terminal-surface, var(--bg-card)) !important;
+}
+[data-terminal-padding] .xterm {
+  height: 100%;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+[data-terminal-padding] .xterm-viewport {
+  scrollbar-color: color-mix(in srgb, var(--fg-muted) 32%, transparent) transparent;
+  scrollbar-width: thin;
 }
 .terminal-dock-empty {
   position: absolute;

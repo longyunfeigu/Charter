@@ -30,7 +30,8 @@ export interface DaemonTerminalSnapshot {
 
 export type TerminalDaemonRequest =
   | { requestId: string; type: 'hello'; token: string; version: number }
-  | { requestId: string; type: 'list' }
+  | { requestId: string; type: 'list'; includeReplay?: boolean }
+  | { requestId: string; type: 'snapshot'; id: string }
   | {
       requestId: string;
       type: 'spawn';

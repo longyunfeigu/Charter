@@ -20,7 +20,13 @@ const MESSAGE_META: Record<
   heartbeat: { label: 'Heartbeat', icon: 'clock' },
 };
 
-export function MissionActivity({ snapshot }: { snapshot: MissionSnapshotDto }): React.JSX.Element {
+export function MissionActivity({
+  snapshot,
+  onInspect,
+}: {
+  snapshot: MissionSnapshotDto;
+  onInspect?: (message: MissionSnapshotDto['messages'][number]) => void;
+}): React.JSX.Element {
   const [filter, setFilter] = useState<Filter>('all');
   const messages = useMemo(
     () =>
@@ -93,6 +99,15 @@ export function MissionActivity({ snapshot }: { snapshot: MissionSnapshotDto }):
                     {message.suppressedAt ? ' · superseded by a newer attempt' : ''}
                     {delivery ? ` · ${delivery.state}` : ''}
                   </small>
+                  {onInspect ? (
+                    <button
+                      type="button"
+                      className="mission-activity-inspect"
+                      onClick={() => onInspect(message)}
+                    >
+                      Inspect in graph <Ic name="arrowRight" size={10} />
+                    </button>
+                  ) : null}
                 </article>
               </li>
             );

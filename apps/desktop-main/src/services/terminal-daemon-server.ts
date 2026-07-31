@@ -1,6 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
 import {
-  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -10,13 +9,15 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { appendFile, rename, writeFile } from 'node:fs/promises';
 import { createServer, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import * as nodePty from 'node-pty';
 import type { IPty } from 'node-pty';
 import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import { SerializeAddon } from '@xterm/addon-serialize';
+import { reapTerminalProcessGroup } from '@pi-ide/terminal-service';
 import {
   DaemonMessageDecoder,
   encodeDaemonMessage,
@@ -32,6 +33,10 @@ interface DaemonConnection {
   decoder: DaemonMessageDecoder<TerminalDaemonRequest>;
   authenticated: boolean;
   work: Promise<void>;
+  blocked: boolean;
+  drainListening: boolean;
+  outbound: string[];
+  outboundBytes: number;
 }
 
 function safeEqual(left: string, right: string): boolean {
@@ -40,20 +45,30 @@ function safeEqual(left: string, right: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function hasChildProcesses(pid: number): boolean {
+async function hasChildProcesses(pid: number): Promise<boolean> {
   if (process.platform === 'win32') return false;
-  try {
-    const result = spawnSync('pgrep', ['-P', String(pid)], { timeout: 1500 });
-    return result.status === 0 && result.stdout.toString().trim().length > 0;
-  } catch {
-    return false;
-  }
+  return await new Promise((resolve) => {
+    execFile('pgrep', ['-P', String(pid)], { timeout: 1500 }, (error, stdout) => {
+      resolve(!error && stdout.trim().length > 0);
+    });
+  });
 }
 
 function writeJsonAtomic(path: string, value: unknown): void {
   const temporary = `${path}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(value)}\n`, { mode: 0o600 });
   renameSync(temporary, path);
+}
+
+async function writeJsonAtomicAsync(path: string, value: unknown): Promise<void> {
+  const temporary = `${path}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(value)}\n`, { mode: 0o600 });
+  await rename(temporary, path);
+}
+
+interface PendingOutput {
+  data: string;
+  sequence: number;
 }
 
 class HostedTerminal {
@@ -65,6 +80,16 @@ class HostedTerminal {
   private exited = false;
   private pendingLog: string[] = [];
   private logTimer: ReturnType<typeof setTimeout> | null = null;
+  private logWrite: Promise<void> = Promise.resolve();
+  private pendingOutput: PendingOutput[] = [];
+  private pendingOutputIndex = 0;
+  private pendingOutputSize = 0;
+  private outputTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastInputAt = -Infinity;
+  private interactiveWindowStartedAt = 0;
+  private interactiveBytes = 0;
+  private cachedHasChildren = false;
+  private refreshingChildren: Promise<void> | null = null;
 
   constructor(
     readonly info: DaemonTerminalMetadata,
@@ -87,6 +112,8 @@ class HostedTerminal {
     pty.onExit(({ exitCode }) => {
       if (this.exited) return;
       this.exited = true;
+      reapTerminalProcessGroup(pty.pid);
+      this.flushOutput();
       this.publish({ type: 'exit', id: info.id, exitCode });
       this.onExit();
     });
@@ -105,11 +132,27 @@ class HostedTerminal {
   }
 
   get hasChildren(): boolean {
-    return hasChildProcesses(this.pty.pid);
+    return this.cachedHasChildren;
   }
 
   write(data: string): void {
-    if (!this.exited) this.pty.write(data);
+    if (this.exited) return;
+    this.lastInputAt = Date.now();
+    this.pty.write(data);
+  }
+
+  async refreshHasChildren(): Promise<void> {
+    if (this.exited) return;
+    if (this.refreshingChildren) return await this.refreshingChildren;
+    const work = hasChildProcesses(this.pty.pid).then((value) => {
+      this.cachedHasChildren = value;
+    });
+    this.refreshingChildren = work;
+    try {
+      await work;
+    } finally {
+      if (this.refreshingChildren === work) this.refreshingChildren = null;
+    }
   }
 
   resize(cols: number, rows: number): void {
@@ -131,21 +174,12 @@ class HostedTerminal {
   kill(): void {
     if (this.exited) return;
     this.exited = true;
-    const pid = this.pty.pid;
     try {
       this.pty.kill();
     } catch {
       // Already dead.
     }
-    if (process.platform !== 'win32') {
-      setTimeout(() => {
-        try {
-          process.kill(-pid, 'SIGKILL');
-        } catch {
-          // The process group already exited.
-        }
-      }, 1500).unref();
-    }
+    reapTerminalProcessGroup(this.pty.pid);
     this.onExit();
   }
 
@@ -163,6 +197,20 @@ class HostedTerminal {
     };
   }
 
+  /** Cheap control-plane descriptor. Full VT replay is fetched per terminal. */
+  describe(): DaemonTerminalSnapshot {
+    return {
+      info: { ...this.info },
+      pid: this.pid,
+      processTitle: this.processTitle,
+      hasChildren: this.hasChildren,
+      sequence: this.sequence,
+      replay: '',
+      cols: this.emulator.cols,
+      rows: this.emulator.rows,
+    };
+  }
+
   async checkpoint(): Promise<void> {
     if (!this.dirty || this.checkpointing || this.exited) return;
     this.checkpointing = true;
@@ -170,15 +218,15 @@ class HostedTerminal {
       const snapshot = await this.snapshot();
       if (this.exited) return;
       this.flushLog();
-      writeJsonAtomic(join(this.dir, 'checkpoint.json'), {
+      await this.logWrite;
+      await writeJsonAtomicAsync(join(this.dir, 'checkpoint.json'), {
         sequence: snapshot.sequence,
         cols: this.emulator.cols,
         rows: this.emulator.rows,
         replay: snapshot.replay,
         checkpointedAt: new Date().toISOString(),
       });
-      writeFileSync(join(this.dir, 'output.log'), '', { mode: 0o600 });
-      this.dirty = false;
+      this.dirty = this.sequence !== snapshot.sequence;
     } finally {
       this.checkpointing = false;
     }
@@ -186,7 +234,10 @@ class HostedTerminal {
 
   dispose(): void {
     if (this.logTimer) clearTimeout(this.logTimer);
+    if (this.outputTimer) clearTimeout(this.outputTimer);
     this.logTimer = null;
+    this.outputTimer = null;
+    this.flushOutput();
     this.flushLog();
     this.emulator.dispose();
   }
@@ -204,14 +255,89 @@ class HostedTerminal {
       }, 50);
       this.logTimer.unref();
     }
-    this.publish({ type: 'data', id: this.info.id, sequence: this.sequence, data });
+    const output = { data, sequence: this.sequence };
+    if (this.isInteractive(data)) {
+      this.flushOutput();
+      this.publish({ type: 'data', id: this.info.id, ...output });
+      return;
+    }
+    this.pendingOutput.push(output);
+    this.pendingOutputSize += data.length;
+    if (this.pendingOutputSize >= 16 * 1024) {
+      this.flushOutput(1);
+    }
+    if (!this.outputTimer && this.hasPendingOutput()) {
+      this.outputTimer = setTimeout(() => {
+        this.outputTimer = null;
+        this.flushOutput();
+      }, 2);
+      this.outputTimer.unref();
+    }
   }
 
   private flushLog(): void {
     if (this.pendingLog.length === 0) return;
     const batch = this.pendingLog.join('');
     this.pendingLog = [];
-    appendFileSync(join(this.dir, 'output.log'), batch, { mode: 0o600 });
+    this.logWrite = this.logWrite
+      .then(() => appendFile(join(this.dir, 'output.log'), batch, { mode: 0o600 }))
+      .catch(() => undefined);
+  }
+
+  private isInteractive(data: string): boolean {
+    const now = Date.now();
+    if (now - this.lastInputAt > 100) return false;
+    if (data.length > 1024 && (data.length > 16 * 1024 || !/(?:\u001b\[|\u001b\]|\r)/.test(data))) {
+      return false;
+    }
+    if (now - this.interactiveWindowStartedAt > 100) {
+      this.interactiveWindowStartedAt = now;
+      this.interactiveBytes = 0;
+    }
+    if (this.interactiveBytes + data.length > 32 * 1024) return false;
+    this.interactiveBytes += data.length;
+    return true;
+  }
+
+  private flushOutput(limit = Number.POSITIVE_INFINITY): void {
+    if (this.outputTimer) clearTimeout(this.outputTimer);
+    this.outputTimer = null;
+    let published = 0;
+    while (this.hasPendingOutput() && published < limit) {
+      let data = '';
+      let sequence = this.pendingOutput[this.pendingOutputIndex]!.sequence;
+      while (this.pendingOutput[this.pendingOutputIndex]) {
+        const next = this.pendingOutput[this.pendingOutputIndex]!;
+        // Preserve each PTY emission whole so sequence-based reconnect
+        // deduplication remains exact.
+        if (data && data.length + next.data.length > 16 * 1024) break;
+        this.pendingOutputIndex += 1;
+        this.pendingOutputSize -= next.data.length;
+        data += next.data;
+        sequence = next.sequence;
+        if (data.length >= 16 * 1024) break;
+      }
+      this.publish({ type: 'data', id: this.info.id, sequence, data });
+      published += 1;
+    }
+    if (
+      this.pendingOutputIndex > 1024 &&
+      this.pendingOutputIndex * 2 >= this.pendingOutput.length
+    ) {
+      this.pendingOutput = this.pendingOutput.slice(this.pendingOutputIndex);
+      this.pendingOutputIndex = 0;
+    }
+    if (this.hasPendingOutput() && !this.outputTimer) {
+      this.outputTimer = setTimeout(() => {
+        this.outputTimer = null;
+        this.flushOutput();
+      }, 0);
+      this.outputTimer.unref();
+    }
+  }
+
+  private hasPendingOutput(): boolean {
+    return this.pendingOutputIndex < this.pendingOutput.length;
   }
 }
 
@@ -232,6 +358,7 @@ export class TerminalDaemonServer {
   private checkpointTimer: ReturnType<typeof setInterval> | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private closing = false;
+  private publishingStatuses = false;
 
   constructor(private readonly options: TerminalDaemonServerOptions) {
     this.token = readFileSync(options.tokenFile, 'utf8').trim();
@@ -258,7 +385,7 @@ export class TerminalDaemonServer {
       });
     });
     if (process.platform !== 'win32') chmodSync(this.options.socketPath, 0o600);
-    this.statusTimer = setInterval(() => this.publishStatuses(), 700);
+    this.statusTimer = setInterval(() => void this.publishStatuses(), 700);
     this.checkpointTimer = setInterval(() => {
       for (const session of this.sessions.values())
         void session.checkpoint().catch(() => undefined);
@@ -287,6 +414,10 @@ export class TerminalDaemonServer {
       decoder: new DaemonMessageDecoder<TerminalDaemonRequest>(),
       authenticated: false,
       work: Promise.resolve(),
+      blocked: false,
+      drainListening: false,
+      outbound: [],
+      outboundBytes: 0,
     };
     this.connections.add(connection);
     if (this.idleTimer) {
@@ -359,15 +490,35 @@ export class TerminalDaemonServer {
 
     const cached = this.responseCache.get(request.requestId);
     if (cached) {
-      connection.socket.write(cached);
+      this.send(connection, cached);
       return;
     }
 
     if (request.type === 'list') {
-      const sessions = await Promise.all(
-        [...this.sessions.values()].map((session) => session.snapshot()),
+      const sessions =
+        request.includeReplay === false
+          ? [...this.sessions.values()].map((session) => session.describe())
+          : await Promise.all([...this.sessions.values()].map((session) => session.snapshot()));
+      this.respond(
+        connection,
+        request.requestId,
+        true,
+        {
+          sessions,
+          hostKind: 'run-as-node',
+          capabilities: { compactList: true, snapshotById: true },
+        },
+        undefined,
+        false,
       );
-      this.respond(connection, request.requestId, true, { sessions, hostKind: 'run-as-node' });
+      return;
+    }
+    if (request.type === 'snapshot') {
+      const session = await this.mustSession(request.id).snapshot();
+      // A VT snapshot can be megabytes. It is reconstructible and every
+      // request id is unique, so retaining it in the idempotency cache would
+      // turn terminal history into an unbounded daemon heap.
+      this.respond(connection, request.requestId, true, { session }, undefined, false);
       return;
     }
     if (request.type === 'spawn') {
@@ -439,20 +590,28 @@ export class TerminalDaemonServer {
   private publish(event: TerminalDaemonEvent): void {
     const encoded = encodeDaemonMessage(event);
     for (const connection of this.connections) {
-      if (connection.authenticated && !connection.socket.destroyed)
-        connection.socket.write(encoded);
+      if (connection.authenticated && !connection.socket.destroyed) this.send(connection, encoded);
     }
   }
 
-  private publishStatuses(): void {
-    for (const session of this.sessions.values()) {
-      this.publish({
-        type: 'status',
-        id: session.info.id,
-        pid: session.pid,
-        processTitle: session.processTitle,
-        hasChildren: session.hasChildren,
-      });
+  private async publishStatuses(): Promise<void> {
+    if (this.publishingStatuses) return;
+    this.publishingStatuses = true;
+    try {
+      const sessions = [...this.sessions.values()];
+      await Promise.all(sessions.map((session) => session.refreshHasChildren()));
+      for (const session of sessions) {
+        if (!this.sessions.has(session.info.id)) continue;
+        this.publish({
+          type: 'status',
+          id: session.info.id,
+          pid: session.pid,
+          processTitle: session.processTitle,
+          hasChildren: session.hasChildren,
+        });
+      }
+    } finally {
+      this.publishingStatuses = false;
     }
   }
 
@@ -480,7 +639,47 @@ export class TerminalDaemonServer {
         if (oldest) this.responseCache.delete(oldest);
       }
     }
-    connection.socket.write(encoded);
+    this.send(connection, encoded);
+  }
+
+  private send(connection: DaemonConnection, encoded: string): void {
+    if (connection.socket.destroyed) return;
+    if (!connection.blocked && connection.outbound.length === 0) {
+      connection.blocked = !connection.socket.write(encoded);
+      if (connection.blocked) this.armDrain(connection);
+      return;
+    }
+    connection.outbound.push(encoded);
+    connection.outboundBytes += Buffer.byteLength(encoded);
+    // Reconnect reconstructs the exact VT state. Prefer that bounded recovery
+    // path over unbounded memory when a renderer has stopped reading.
+    if (connection.outboundBytes > 8 * 1024 * 1024) {
+      connection.socket.destroy();
+      return;
+    }
+    if (connection.blocked) this.armDrain(connection);
+    else this.flushConnection(connection);
+  }
+
+  private flushConnection(connection: DaemonConnection): void {
+    if (connection.socket.destroyed) return;
+    connection.drainListening = false;
+    connection.blocked = false;
+    while (connection.outbound[0]) {
+      const encoded = connection.outbound.shift()!;
+      connection.outboundBytes -= Buffer.byteLength(encoded);
+      if (!connection.socket.write(encoded)) {
+        connection.blocked = true;
+        this.armDrain(connection);
+        return;
+      }
+    }
+  }
+
+  private armDrain(connection: DaemonConnection): void {
+    if (connection.drainListening || connection.socket.destroyed) return;
+    connection.drainListening = true;
+    connection.socket.once('drain', () => this.flushConnection(connection));
   }
 
   private armIdleExit(): void {
@@ -511,15 +710,11 @@ export async function startTerminalDaemonFromArgs(): Promise<void> {
   }
   const log = logFile
     ? (event: string, context: Record<string, unknown> = {}): void => {
-        try {
-          appendFileSync(
-            logFile,
-            `${JSON.stringify({ at: new Date().toISOString(), event, ...context })}\n`,
-            { mode: 0o600 },
-          );
-        } catch {
-          // Diagnostics must never take down the PTY owner.
-        }
+        void appendFile(
+          logFile,
+          `${JSON.stringify({ at: new Date().toISOString(), event, ...context })}\n`,
+          { mode: 0o600 },
+        ).catch(() => undefined);
       }
     : undefined;
   const server = new TerminalDaemonServer({

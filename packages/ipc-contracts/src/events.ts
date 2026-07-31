@@ -129,8 +129,14 @@ export const EVENT_CHANNELS = {
   ),
   'terminal.data': ev(
     'terminal.data',
-    2,
-    z.object({ id: z.string(), data: z.string(), sequence: z.number().int().optional() }),
+    3,
+    z.object({
+      id: z.string(),
+      data: z.string(),
+      sequence: z.number().int().optional(),
+      /** Main→renderer flow-control identity; acknowledged after xterm parses it. */
+      deliveryId: z.number().int().nonnegative().optional(),
+    }),
   ),
   'terminal.resync': ev(
     'terminal.resync',

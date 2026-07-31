@@ -6,6 +6,7 @@ import { useExternalStore, type ExternalSessionFile } from '../store/externalSto
 import { useTerminalStore, mountTerminal, observeTerminalFit } from './TerminalPanel.js';
 import { hasDragRef, readDragRef } from './dragRefs.js';
 import { Ic } from './home-icons.js';
+import { canResumeExternal } from './labels.js';
 import {
   externalAgentLifecycle,
   externalCliLabel,
@@ -50,6 +51,7 @@ export function ExternalTerminalColumn({
         shellTitle: item?.title,
       })
     : null;
+  const terminalReadOnly = item !== null && (item.exited || lifecycle?.interactive === false);
   const hostRef = useRef<HTMLDivElement>(null);
   const follow = useExternalStore((s) => s.follow[task.id] ?? true);
   const lastDelta = useExternalStore((s) => s.lastDelta);
@@ -104,9 +106,9 @@ export function ExternalTerminalColumn({
   useEffect(() => {
     const host = hostRef.current;
     if (!host || !item) return;
-    mountTerminal(host, item);
+    mountTerminal(host, item, 'normal', terminalReadOnly);
     return observeTerminalFit(host, item);
-  }, [item]);
+  }, [item, terminalReadOnly]);
 
   const acceptsDrag = (e: React.DragEvent): boolean =>
     hasDragRef(e) || e.dataTransfer.types.includes('Files');
@@ -221,6 +223,23 @@ export function ExternalTerminalColumn({
             ) : null}
           </div>
         )}
+        {terminalReadOnly && item ? (
+          <div className="tr-extreadonly" data-testid="external-terminal-readonly" role="status">
+            <span>
+              <strong>Session stopped</strong>
+              Transcript is read-only. Resume the Session to continue.
+            </span>
+            {canResumeExternal(task) ? (
+              <button
+                type="button"
+                data-testid="external-terminal-readonly-resume"
+                onClick={() => void useExternalStore.getState().resumeTask(task)}
+              >
+                Resume Session
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {dragOver && live ? (
           <div className="tr-extdropveil" data-testid="external-drop-veil" aria-hidden>
             <span>

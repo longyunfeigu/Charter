@@ -14,50 +14,90 @@ export const OrchestrationMessageTypeSchema = z.enum([
   'heartbeat',
 ]);
 export const OrchestrationPrioritySchema = z.enum(['normal', 'high', 'urgent']);
-export const OrchestrationJsonObjectSchema = z.record(z.string(), z.unknown());
+export const ORCHESTRATION_CONTROL_JSON_MAX_BYTES = 64 * 1024;
+export const ORCHESTRATION_CONTROL_RECORD_MAX_BYTES = 128 * 1024;
+export const ORCHESTRATION_CONTROL_BATCH_MAX_BYTES = 512 * 1024;
 
-export const OrchestrationDelegateSchema = z
-  .object({
-    goal: z.string().min(1).max(100_000),
-    title: z.string().min(1).max(300).optional(),
-    acceptanceCriteria: z.array(z.string().min(1).max(4_000)).max(100).default([]),
-    dependencies: z.array(z.string().min(1)).max(100).optional(),
-    expectedArtifacts: z.array(z.string().min(1).max(1_000)).max(100).optional(),
-    requestedRuntime: OrchestrationRuntimeSchema.default('managed'),
-    requestedModel: z.string().min(1).max(300).optional(),
-    workMode: OrchestrationWorkModeSchema.default('isolated-write'),
-    writeScope: z.array(z.string().min(1).max(2_000)).max(500).optional(),
-    reason: z.string().min(1).max(4_000),
-    idempotencyKey: z.string().min(1).max(300),
-  })
-  .strict();
+function jsonBytes(value: unknown): number {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined
+      ? Number.POSITIVE_INFINITY
+      : new TextEncoder().encode(serialized).byteLength;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
 
-export const OrchestrationDelegateManySchema = z
-  .object({
-    children: z.array(OrchestrationDelegateSchema).min(1).max(50),
-  })
-  .strict();
+function boundedControlInput<T extends z.ZodType>(schema: T, maxBytes: number): T {
+  return schema.superRefine((value, context) => {
+    if (jsonBytes(value) <= maxBytes) return;
+    context.addIssue({
+      code: 'custom',
+      message: `Control-plane input exceeds ${maxBytes} UTF-8 bytes. Store large content in a workspace artifact and send its reference instead.`,
+    });
+  }) as T;
+}
 
-export const OrchestrationMessageSchema = z
-  .object({
-    toAssignmentId: z.string().min(1),
-    type: OrchestrationMessageTypeSchema.default('assignment'),
-    priority: OrchestrationPrioritySchema.default('normal'),
-    subject: z.string().min(1).max(1_000),
-    body: z.string().max(100_000).default(''),
-    payload: OrchestrationJsonObjectSchema.nullable().optional(),
-    threadId: z.string().min(1).nullable().optional(),
-  })
-  .strict();
+export const OrchestrationJsonObjectSchema = boundedControlInput(
+  z.record(z.string(), z.json()),
+  ORCHESTRATION_CONTROL_JSON_MAX_BYTES,
+);
 
-export const OrchestrationReplySchema = z
-  .object({
-    messageId: z.string().min(1),
-    subject: z.string().min(1).max(1_000).optional(),
-    body: z.string().max(100_000),
-    payload: OrchestrationJsonObjectSchema.optional(),
-  })
-  .strict();
+export const OrchestrationDelegateSchema = boundedControlInput(
+  z
+    .object({
+      goal: z.string().min(1).max(100_000),
+      title: z.string().min(1).max(300).optional(),
+      acceptanceCriteria: z.array(z.string().min(1).max(4_000)).max(100).default([]),
+      dependencies: z.array(z.string().min(1)).max(100).optional(),
+      expectedArtifacts: z.array(z.string().min(1).max(1_000)).max(100).optional(),
+      requestedRuntime: OrchestrationRuntimeSchema.default('managed'),
+      requestedModel: z.string().min(1).max(300).optional(),
+      workMode: OrchestrationWorkModeSchema.default('isolated-write'),
+      writeScope: z.array(z.string().min(1).max(2_000)).max(500).optional(),
+      reason: z.string().min(1).max(4_000),
+      idempotencyKey: z.string().min(1).max(300),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
+);
+
+export const OrchestrationDelegateManySchema = boundedControlInput(
+  z
+    .object({
+      children: z.array(OrchestrationDelegateSchema).min(1).max(50),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_BATCH_MAX_BYTES,
+);
+
+export const OrchestrationMessageSchema = boundedControlInput(
+  z
+    .object({
+      toAssignmentId: z.string().min(1),
+      type: OrchestrationMessageTypeSchema.default('assignment'),
+      priority: OrchestrationPrioritySchema.default('normal'),
+      subject: z.string().min(1).max(1_000),
+      body: z.string().max(100_000).default(''),
+      payload: OrchestrationJsonObjectSchema.nullable().optional(),
+      threadId: z.string().min(1).nullable().optional(),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
+);
+
+export const OrchestrationReplySchema = boundedControlInput(
+  z
+    .object({
+      messageId: z.string().min(1),
+      subject: z.string().min(1).max(1_000).optional(),
+      body: z.string().max(100_000),
+      payload: OrchestrationJsonObjectSchema.optional(),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
+);
 
 export const OrchestrationWaitSchema = z
   .object({
@@ -67,7 +107,10 @@ export const OrchestrationWaitSchema = z
     unreadOnly: z.boolean().default(true),
     limit: z.number().int().min(1).max(100).default(100),
     timeoutMs: z.number().int().min(1).max(3_600_000).default(600_000),
-    markRead: z.boolean().default(false),
+    // A blocking wait hands the messages to the caller, so observation is the
+    // safe default. Diagnostics may still opt into a non-consuming peek with
+    // markRead:false.
+    markRead: z.boolean().default(true),
   })
   .strict();
 
@@ -79,16 +122,19 @@ export const OrchestrationSyncSchema = z
   })
   .strict();
 
-export const OrchestrationAskSchema = z
-  .object({
-    toAssignmentId: z.string().min(1),
-    subject: z.string().min(1).max(1_000),
-    body: z.string().min(1).max(100_000),
-    payload: OrchestrationJsonObjectSchema.nullable().optional(),
-    priority: OrchestrationPrioritySchema.default('normal'),
-    timeoutMs: z.number().int().min(1).max(3_600_000).default(600_000),
-  })
-  .strict();
+export const OrchestrationAskSchema = boundedControlInput(
+  z
+    .object({
+      toAssignmentId: z.string().min(1),
+      subject: z.string().min(1).max(1_000),
+      body: z.string().min(1).max(100_000),
+      payload: OrchestrationJsonObjectSchema.nullable().optional(),
+      priority: OrchestrationPrioritySchema.default('normal'),
+      timeoutMs: z.number().int().min(1).max(3_600_000).default(600_000),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
+);
 
 export const OrchestrationJoinSchema = z
   .object({
@@ -97,56 +143,115 @@ export const OrchestrationJoinSchema = z
   })
   .strict();
 
-export const OrchestrationProgressSchema = z
+const OrchestrationTerminalAssignmentStateSchema = z.enum([
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
+  'ORPHANED',
+]);
+
+export const OrchestrationContinuationConditionSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('assignment_terminal'),
+      assignmentId: z.string().min(1),
+      states: z.array(OrchestrationTerminalAssignmentStateSchema).min(1).max(4).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('message'),
+      fromAssignmentId: z.string().min(1).nullable().optional(),
+      types: z.array(OrchestrationMessageTypeSchema).min(1).max(9).optional(),
+      threadId: z.string().min(1).nullable().optional(),
+    })
+    .strict(),
+]);
+
+export const OrchestrationParkSchema = boundedControlInput(
+  z
+    .object({
+      mode: z.enum(['all', 'any']).default('all'),
+      conditions: z.array(OrchestrationContinuationConditionSchema).min(1).max(100),
+      afterSequence: z.number().int().min(0).default(0),
+      timeoutMs: z
+        .number()
+        .int()
+        .min(1_000)
+        .max(30 * 24 * 60 * 60 * 1_000)
+        .optional(),
+      reason: z.string().min(1).max(4_000),
+      idempotencyKey: z.string().min(1).max(300),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
+);
+
+export const OrchestrationContinueSchema = z
   .object({
-    phase: z.string().min(1).max(300),
-    summary: z.string().min(1).max(100_000),
-    completed: z.array(z.string()).optional(),
-    remaining: z.array(z.string()).optional(),
-    blockers: z.array(z.string()).optional(),
+    continuationId: z.string().min(1),
   })
   .strict();
 
-export const OrchestrationCompleteSchema = z
-  .object({
-    outcome: z.enum(['success', 'failure']),
-    summary: z.string().min(1).max(100_000),
-    result: OrchestrationJsonObjectSchema.optional(),
-    artifacts: z
-      .array(
-        z
-          .object({
-            kind: z.string().min(1),
-            label: z.string().min(1),
-            reference: OrchestrationJsonObjectSchema,
-          })
-          .strict(),
-      )
-      .max(100)
-      .optional(),
-    verification: z
-      .array(
-        z
-          .object({
-            id: z.string().min(1).optional(),
-            label: z.string().min(1).max(1_000),
-            state: z.string().min(1).max(100),
-          })
-          .catchall(z.unknown()),
-      )
-      .max(100)
-      .optional(),
-    filesModified: z.array(z.string().min(1).max(4_000)).max(2_000).optional(),
-  })
-  .strict();
+export const OrchestrationProgressSchema = boundedControlInput(
+  z
+    .object({
+      phase: z.string().min(1).max(300),
+      summary: z.string().min(1).max(100_000),
+      completed: z.array(z.string()).optional(),
+      remaining: z.array(z.string()).optional(),
+      blockers: z.array(z.string()).optional(),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
+);
 
-export const OrchestrationEscalateSchema = z
-  .object({
-    subject: z.string().min(1).max(1_000),
-    body: z.string().min(1).max(100_000),
-    priority: OrchestrationPrioritySchema.default('high'),
-  })
-  .strict();
+export const OrchestrationCompleteSchema = boundedControlInput(
+  z
+    .object({
+      outcome: z.enum(['success', 'failure']),
+      summary: z.string().min(1).max(100_000),
+      result: OrchestrationJsonObjectSchema.optional(),
+      artifacts: z
+        .array(
+          z
+            .object({
+              kind: z.string().min(1),
+              label: z.string().min(1),
+              reference: OrchestrationJsonObjectSchema,
+            })
+            .strict(),
+        )
+        .max(100)
+        .optional(),
+      verification: z
+        .array(
+          z
+            .object({
+              id: z.string().min(1).optional(),
+              label: z.string().min(1).max(1_000),
+              state: z.string().min(1).max(100),
+            })
+            .catchall(z.unknown()),
+        )
+        .max(100)
+        .optional(),
+      filesModified: z.array(z.string().min(1).max(4_000)).max(2_000).optional(),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_BATCH_MAX_BYTES,
+);
+
+export const OrchestrationEscalateSchema = boundedControlInput(
+  z
+    .object({
+      subject: z.string().min(1).max(1_000),
+      body: z.string().min(1).max(100_000),
+      priority: OrchestrationPrioritySchema.default('high'),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
+);
 
 export const OrchestrationTargetSchema = z.object({ assignmentId: z.string().min(1) }).strict();
 
@@ -164,12 +269,15 @@ export const OrchestrationRetrySchema = z
   })
   .strict();
 
-export const OrchestrationSteerSchema = z
-  .object({
-    assignmentId: z.string().min(1),
-    text: z.string().min(1).max(100_000),
-  })
-  .strict();
+export const OrchestrationSteerSchema = boundedControlInput(
+  z
+    .object({
+      assignmentId: z.string().min(1),
+      text: z.string().min(1).max(100_000),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
+);
 
 export const OrchestrationReassignSchema = z
   .object({
@@ -238,6 +346,18 @@ export const ORCHESTRATION_COMMAND_REGISTRY = [
     command: 'join',
     description: 'Wait event-first until a set of Assignments reaches terminal states.',
     schema: OrchestrationJoinSchema,
+  },
+  {
+    command: 'park',
+    description:
+      'Persist continuation conditions, end the current turn, and let Charter resume this exact Session when they match.',
+    schema: OrchestrationParkSchema,
+  },
+  {
+    command: 'continue',
+    description:
+      'Acknowledge a Charter resume intent idempotently and return the committed continuation context.',
+    schema: OrchestrationContinueSchema,
   },
   {
     command: 'progress',

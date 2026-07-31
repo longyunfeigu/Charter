@@ -5,9 +5,18 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLogger } from '@pi-ide/foundation';
 import { MIGRATIONS, MissionRepository, openDatabase, type SqlDatabase } from '@pi-ide/persistence';
-import { AcpProcessPool, AcpRuntimeAdapter } from './acp-runtime.js';
+import {
+  AcpProcessPool,
+  AcpRuntimeAdapter,
+  compactAcpRuntimeEvent,
+  FallbackRuntimeAdapter,
+} from './acp-runtime.js';
 import { OrchestrationOutboxRunner } from './orchestration-outbox-runner.js';
-import { OrchestrationRuntimeRegistry } from './orchestration-runtime-registry.js';
+import {
+  OrchestrationRuntimeRegistry,
+  type OrchestrationRuntimeAdapter,
+  type RuntimeStartRequest,
+} from './orchestration-runtime-registry.js';
 
 describe('ACP Mission runtime', () => {
   let dir: string;
@@ -118,6 +127,122 @@ describe('ACP Mission runtime', () => {
           ).length,
       ).toBe(2);
     });
+
+    await adapter.deliver(first.runtimeSessionId!, '[hold-turn]');
+    let accepted = false;
+    const queuedDelivery = adapter
+      .deliver(first.runtimeSessionId!, 'queued-until-next-turn', new AbortController().signal)
+      .then(() => {
+        accepted = true;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    expect(accepted).toBe(false);
+    await queuedDelivery;
+    expect(accepted).toBe(true);
+    await vi.waitFor(() => {
+      expect(
+        repository
+          .snapshot(mission.mission.id)
+          .runtimeEvents.filter(
+            (event) => event.attemptId === first.id && event.kind === 'turn.stopped',
+          ).length,
+      ).toBe(4);
+    });
+
+    await adapter.deliver(first.runtimeSessionId!, '[hold-turn]');
+    const abortController = new AbortController();
+    const abortedDelivery = adapter.deliver(
+      first.runtimeSessionId!,
+      'stale-doorbell',
+      abortController.signal,
+    );
+    abortController.abort(new Error('assignment completed'));
+    await expect(abortedDelivery).rejects.toThrow('assignment completed');
+    await vi.waitFor(() => {
+      expect(
+        repository
+          .snapshot(mission.mission.id)
+          .runtimeEvents.filter(
+            (event) => event.attemptId === first.id && event.kind === 'turn.stopped',
+          ).length,
+      ).toBe(5);
+    });
     runner.stop();
+  });
+});
+
+describe('Mission runtime routing', () => {
+  it('starts new sessions on native PTY while preserving ACP routing for legacy bindings', async () => {
+    const primary = {
+      kind: 'external-cli',
+      start: vi.fn(async () => ({ runtimeSessionId: 'acp:claude:new' })),
+      deliver: vi.fn(async () => undefined),
+      cancel: vi.fn(async () => undefined),
+    } satisfies OrchestrationRuntimeAdapter;
+    const native = {
+      kind: 'visible-terminal',
+      start: vi.fn(async () => ({ runtimeSessionId: 'terminal:native' })),
+      deliver: vi.fn(async () => undefined),
+      cancel: vi.fn(async () => undefined),
+    } satisfies OrchestrationRuntimeAdapter;
+    const adapter = new FallbackRuntimeAdapter(primary, native, {
+      startWith: 'fallback',
+      fallbackOnStartFailure: false,
+    });
+    const signal = new AbortController().signal;
+
+    await expect(adapter.start({} as RuntimeStartRequest, signal)).resolves.toEqual({
+      runtimeSessionId: 'terminal:native',
+    });
+    expect(primary.start).not.toHaveBeenCalled();
+    await adapter.deliver('acp:claude:legacy', 'legacy guidance', signal);
+    await adapter.deliver('terminal:native', 'native guidance', signal);
+    expect(primary.deliver).toHaveBeenCalledWith('acp:claude:legacy', 'legacy guidance', signal);
+    expect(native.deliver).toHaveBeenCalledWith('terminal:native', 'native guidance', signal);
+  });
+
+  it('does not silently switch a failed native launch to ACP', async () => {
+    const primary = {
+      kind: 'external-cli',
+      start: vi.fn(async () => ({ runtimeSessionId: 'acp:claude:new' })),
+      cancel: vi.fn(async () => undefined),
+    } satisfies OrchestrationRuntimeAdapter;
+    const native = {
+      kind: 'visible-terminal',
+      start: vi.fn(async () => {
+        throw new Error('claude executable is unavailable');
+      }),
+      cancel: vi.fn(async () => undefined),
+    } satisfies OrchestrationRuntimeAdapter;
+    const adapter = new FallbackRuntimeAdapter(primary, native, {
+      startWith: 'fallback',
+      fallbackOnStartFailure: false,
+    });
+
+    await expect(
+      adapter.start({} as RuntimeStartRequest, new AbortController().signal),
+    ).rejects.toThrow('claude executable is unavailable');
+    expect(primary.start).not.toHaveBeenCalled();
+  });
+
+  it('bounds oversized ACP tool updates before persistence', () => {
+    const compact = compactAcpRuntimeEvent({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tool-1',
+      title: 'Capture screenshot',
+      status: 'completed',
+      rawInput: { path: '/tmp/screenshot.png' },
+      rawOutput: 'x'.repeat(1_000_000),
+      content: [{ type: 'image', data: 'a'.repeat(1_000_000) }],
+    });
+
+    expect(compact).toMatchObject({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tool-1',
+      truncated: true,
+    });
+    expect(compact.originalBytes).toEqual(expect.any(Number));
+    expect(compact).not.toHaveProperty('rawOutput');
+    expect(Buffer.byteLength(JSON.stringify(compact))).toBeLessThanOrEqual(16 * 1024);
   });
 });

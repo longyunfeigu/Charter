@@ -190,7 +190,7 @@ html.sr-resizing * {
 }
 .sr-search-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(0, 1fr) 34px 34px;
   gap: 6px;
 }
 .sr-search-box {
@@ -222,7 +222,8 @@ html.sr-resizing * {
 .sr-search-box input::placeholder {
   color: var(--fg-faint);
 }
-.sr-filter {
+.sr-filter,
+.sr-new-compact {
   width: var(--control-height-md);
   height: var(--control-height-md);
   display: grid;
@@ -235,49 +236,20 @@ html.sr-resizing * {
   cursor: pointer;
 }
 .sr-filter:hover,
-.sr-filter.active {
+.sr-filter.active,
+.sr-new-compact:hover {
   border-color: var(--border-strong);
   background: var(--bg-hover);
   color: var(--accent);
 }
-.sr-new-wrap {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(72px, auto);
-}
-.sr-new,
-.sr-new-menu {
-  min-height: var(--control-height-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--fg);
+.sr-new-compact {
+  border-color: var(--fg);
   background: var(--fg);
   color: var(--fg-inverse);
-  cursor: pointer;
 }
-.sr-new {
-  gap: 7px;
-  border-radius: var(--radius-control) 0 0 var(--radius-control);
-  font: 650 12px var(--font-ui);
-}
-.sr-new-menu {
-  min-width: 0;
-  gap: 4px;
-  padding: 0 8px;
-  border-left-color: color-mix(in srgb, var(--fg-inverse) 24%, transparent);
-  border-radius: 0 var(--radius-control) var(--radius-control) 0;
-  color: color-mix(in srgb, var(--fg-inverse) 84%, transparent);
-  font: 10.5px var(--font-ui);
-}
-.sr-new-menu span {
-  max-width: 70px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sr-new:hover,
-.sr-new-menu:hover {
+.sr-new-compact:hover {
   background: color-mix(in srgb, var(--fg) 92%, var(--accent));
+  color: var(--fg-inverse);
 }
 
 .sr-scroll {
@@ -464,7 +436,7 @@ html.sr-resizing * {
   position: relative;
 }
 .sr-row-wrap.sr-orch-worker {
-  margin-left: 18px;
+  margin-left: calc(var(--sr-depth, 1) * 18px);
 }
 .sr-row-wrap.sr-orch-worker::before {
   position: absolute;
@@ -475,6 +447,14 @@ html.sr-resizing * {
   background: color-mix(in srgb, var(--info) 28%, var(--border));
   content: '';
 }
+.sr-row-wrap.sr-orch-worker::after {
+  position: absolute;
+  left: -10px;
+  top: 22px;
+  width: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--info) 34%, var(--border));
+  content: '';
+}
 .sr-row-wrap.sr-orch-worker .sr-session {
   min-height: 44px;
   padding-block: 5px;
@@ -482,6 +462,11 @@ html.sr-resizing * {
 .sr-row-wrap.sr-orch-worker .sr-session.has-detail {
   min-height: 58px;
   padding-block: 7px;
+}
+.sr-row-wrap.sr-mission-runtime .sr-session-detail > span::before {
+  margin-right: 4px;
+  color: var(--info);
+  content: '↳';
 }
 .sr-row-wrap.has-fleet .sr-session {
   padding-right: 54px;
@@ -1738,6 +1723,43 @@ html.sr-resizing * {
 .stv-terminal-host .xterm {
   height: 100%;
 }
+.stv-terminal-host[data-terminal-readonly='true'] .xterm-helper-textarea {
+  caret-color: transparent;
+}
+.stv-terminal-readonly {
+  flex: none;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 6px 12px;
+  border-top: 1px solid #303631;
+  background: #1d211e;
+  color: #9ca69f;
+  font-size: 11px;
+}
+.stv-terminal-readonly > span {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.stv-terminal-readonly strong {
+  color: #e5ebe6;
+}
+.stv-terminal-readonly button {
+  flex: none;
+  margin-left: auto;
+  padding: 5px 10px;
+  border: 1px solid #3a433d;
+  border-radius: 6px;
+  background: #252b27;
+  color: #e5ebe6;
+  font: 650 10.5px var(--font-ui);
+}
+.stv-terminal-readonly button:hover {
+  border-color: #718579;
+  background: #2b332e;
+}
 .stv-tools {
   min-width: 0;
   min-height: 0;
@@ -1992,48 +2014,66 @@ html.sr-resizing * {
 /* Sessions owns the cross-project archive. It is a secondary retrieval path,
    deliberately quieter than New Session but stable even when no hits exist. */
 .sr-session-archive {
-  width: 100%;
-  min-height: 43px;
+  min-width: 0;
+  min-height: 24px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--bg-card) 62%, transparent);
+  gap: 6px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
   color: var(--fg-muted);
   text-align: left;
   cursor: pointer;
 }
 .sr-session-archive:hover,
 .sr-session-archive.active {
-  border-color: var(--border-strong);
   background: var(--bg-hover);
   color: var(--fg);
 }
-.sr-session-archive > span {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-  flex: 1;
-}
-.sr-session-archive strong,
+.sr-session-archive span,
 .sr-session-archive small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sr-session-archive strong {
-  font-size: 10.5px;
+.sr-session-archive span {
+  font: 500 10.5px var(--font-ui);
 }
 .sr-session-archive small {
   color: var(--fg-faint);
-  font-size: 8.5px;
+  font: 9px var(--font-mono);
 }
-.sr-session-archive-chevron {
-  flex: none;
-  transform: rotate(-90deg);
+.sr-session-shortcuts {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 2px;
+}
+.sr-context-link {
+  min-width: 0;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: 500 10.5px var(--font-ui);
+  cursor: pointer;
+}
+.sr-context-link:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.sr-context-link span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Session Archive — one retrieval surface for Charter records and read-only

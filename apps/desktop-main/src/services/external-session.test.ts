@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CodeContextRefDto } from '@pi-ide/ipc-contracts';
 import {
+  beginObservedTurnPresence,
   codexStartupComposerReady,
   codexStartupTrustGateActive,
   codexStartupUpdateGateActive,
@@ -280,6 +281,39 @@ describe('externalPromptEnterDelayMs', () => {
 
   it('scales by UTF-8 bytes instead of JavaScript code units', () => {
     expect(externalPromptEnterDelayMs('你'.repeat(1_000))).toBe(1_000);
+  });
+});
+
+describe('beginObservedTurnPresence', () => {
+  it('arms quiet settlement for an argv-submitted first turn', () => {
+    const timer = setTimeout(() => undefined, 60_000);
+    const state = {
+      structuredStream: false,
+      presenceTimer: timer,
+      presenceAwaitingReply: false,
+      presenceSawOutput: true,
+    };
+
+    beginObservedTurnPresence(state);
+
+    expect(state).toMatchObject({
+      presenceTimer: null,
+      presenceAwaitingReply: true,
+      presenceSawOutput: false,
+    });
+  });
+
+  it('leaves protocol-owned structured turns alone', () => {
+    const state = {
+      structuredStream: true,
+      presenceTimer: null,
+      presenceAwaitingReply: false,
+      presenceSawOutput: false,
+    };
+
+    beginObservedTurnPresence(state);
+
+    expect(state.presenceAwaitingReply).toBe(false);
   });
 });
 

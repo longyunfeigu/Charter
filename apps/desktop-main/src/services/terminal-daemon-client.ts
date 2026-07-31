@@ -24,6 +24,15 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface DaemonListResult {
+  sessions: DaemonTerminalSnapshot[];
+  hostKind?: string;
+  capabilities?: {
+    compactList?: boolean;
+    snapshotById?: boolean;
+  };
+}
+
 class DaemonConnectionError extends Error {}
 
 export interface TerminalDaemonClientOptions {
@@ -65,20 +74,32 @@ class DaemonTerminalBackend implements TerminalBackend {
   private currentTitle: string;
   private currentHasChildren: boolean;
   private currentSequence = 0;
+  private replayPending: boolean;
 
   constructor(
     private readonly client: TerminalDaemonClient,
     readonly id: string,
     status: { pid: number; processTitle: string; hasChildren: boolean; sequence?: number },
+    replayPending = false,
   ) {
     this.currentPid = status.pid;
     this.currentTitle = status.processTitle;
     this.currentHasChildren = status.hasChildren;
     this.currentSequence = status.sequence ?? 0;
+    this.replayPending = replayPending;
   }
 
   write(data: string): void {
     void this.client.request({ type: 'write', id: this.id, data }).catch(() => undefined);
+  }
+
+  async writeAccepted(data: string): Promise<boolean> {
+    try {
+      await this.client.request({ type: 'write', id: this.id, data });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   resize(cols: number, rows: number): void {
@@ -143,6 +164,18 @@ class DaemonTerminalBackend implements TerminalBackend {
     this.currentHasChildren = status.hasChildren;
   }
 
+  markReplayPending(): void {
+    this.replayPending = true;
+  }
+
+  applySnapshot(snapshot: DaemonTerminalSnapshot): void {
+    this.updateStatus(snapshot);
+    if (this.replayPending || snapshot.sequence > this.currentSequence) {
+      this.emitResync(snapshot.replay, snapshot.sequence);
+    }
+    this.replayPending = false;
+  }
+
   sequence(): number {
     return this.currentSequence;
   }
@@ -158,6 +191,9 @@ export class TerminalDaemonClient {
   private reconnecting: Promise<void> | null = null;
   private synchronizing = false;
   private queuedEvents: TerminalDaemonEvent[] = [];
+  private snapshotById = false;
+  private readonly snapshotRefreshQueue: string[] = [];
+  private snapshotRefreshRunning = false;
 
   private constructor(
     socket: Socket,
@@ -200,10 +236,11 @@ export class TerminalDaemonClient {
       throw lastError instanceof Error ? lastError : new Error('Terminal daemon did not start.');
 
     const bootstrap = new TerminalDaemonClient(socket, [], options, token);
-    let result = (await bootstrap.request({ type: 'list' }, 8000)) as {
-      sessions: DaemonTerminalSnapshot[];
-      hostKind?: string;
-    };
+    let result = (await bootstrap.request(
+      { type: 'list', includeReplay: false },
+      8000,
+    )) as DaemonListResult;
+    bootstrap.applyCapabilities(result);
     // Early builds hosted the daemon in a second Electron application. Replace
     // that host only when it owns no PTYs; live legacy sessions remain adopted
     // until their next natural restart instead of being interrupted by upgrade.
@@ -229,10 +266,11 @@ export class TerminalDaemonClient {
           : new Error('Replacement terminal daemon did not start.');
       }
       const replacement = new TerminalDaemonClient(replacementSocket, [], options, token);
-      result = (await replacement.request({ type: 'list' }, 8000)) as {
-        sessions: DaemonTerminalSnapshot[];
-        hostKind?: string;
-      };
+      result = (await replacement.request(
+        { type: 'list', includeReplay: false },
+        8000,
+      )) as DaemonListResult;
+      replacement.applyCapabilities(result);
       for (const snapshot of result.sessions) replacement.snapshots.set(snapshot.info.id, snapshot);
       return replacement;
     }
@@ -245,19 +283,27 @@ export class TerminalDaemonClient {
   }
 
   async currentSnapshots(): Promise<DaemonTerminalSnapshot[]> {
-    const result = (await this.request({ type: 'list' }, 8000)) as {
-      sessions: DaemonTerminalSnapshot[];
-    };
-    return result.sessions;
+    const result = (await this.request(
+      { type: 'list', includeReplay: false },
+      8000,
+    )) as DaemonListResult;
+    this.applyCapabilities(result);
+    if (!this.snapshotById) return result.sessions;
+    const snapshots: DaemonTerminalSnapshot[] = [];
+    for (const descriptor of result.sessions) {
+      snapshots.push(await this.fetchSnapshot(descriptor.info.id));
+    }
+    return snapshots;
   }
 
   backendForRestored(snapshot: DaemonTerminalSnapshot): TerminalBackend {
-    const backend = new DaemonTerminalBackend(this, snapshot.info.id, snapshot);
+    const needsReplay = this.snapshotById && snapshot.replay.length === 0;
+    const backend = new DaemonTerminalBackend(this, snapshot.info.id, snapshot, needsReplay);
     this.backends.set(snapshot.info.id, backend);
     // Close the small startup window between the bootstrap snapshot and the
     // backend being adopted by TerminalManager. Resync is registered before
     // this request can resolve, so output produced during app startup is kept.
-    void this.refreshBackend(snapshot.info.id).catch(() => undefined);
+    if (needsReplay) this.enqueueSnapshotRefresh(snapshot.info.id);
     return backend;
   }
 
@@ -394,14 +440,18 @@ export class TerminalDaemonClient {
         this.attachSocket(socket);
         const result = (await this.sendRequest(
           socket,
-          { type: 'list', requestId: randomUUID() },
+          { type: 'list', includeReplay: false, requestId: randomUUID() },
           2000,
-        )) as {
-          sessions: DaemonTerminalSnapshot[];
-        };
-        this.reconcileBackends(result.sessions);
+        )) as DaemonListResult;
+        this.applyCapabilities(result);
+        this.reconcileBackends(result.sessions, !this.snapshotById);
         this.synchronizing = false;
         this.flushQueuedEvents();
+        if (this.snapshotById) {
+          for (const snapshot of result.sessions) {
+            if (this.backends.has(snapshot.info.id)) this.enqueueSnapshotRefresh(snapshot.info.id);
+          }
+        }
         return;
       } catch (error) {
         lastError = error;
@@ -432,7 +482,7 @@ export class TerminalDaemonClient {
         );
   }
 
-  private reconcileBackends(sessions: DaemonTerminalSnapshot[]): void {
+  private reconcileBackends(sessions: DaemonTerminalSnapshot[], completeReplay: boolean): void {
     const live = new Map(sessions.map((snapshot) => [snapshot.info.id, snapshot]));
     const queuedExits = new Set(
       this.queuedEvents
@@ -448,9 +498,9 @@ export class TerminalDaemonClient {
         continue;
       }
       backend.updateStatus(snapshot);
-      if (snapshot.sequence > backend.sequence()) {
-        backend.emitResync(snapshot.replay, snapshot.sequence);
-      }
+      if (completeReplay && snapshot.sequence > backend.sequence()) backend.applySnapshot(snapshot);
+      else if (!completeReplay && snapshot.sequence > backend.sequence())
+        backend.markReplayPending();
     }
     this.snapshots.clear();
     for (const snapshot of sessions) this.snapshots.set(snapshot.info.id, snapshot);
@@ -463,10 +513,11 @@ export class TerminalDaemonClient {
   }
 
   private async refreshBackend(id: string): Promise<void> {
-    const result = (await this.request({ type: 'list' }, 8000)) as {
-      sessions: DaemonTerminalSnapshot[];
-    };
-    const snapshot = result.sessions.find((candidate) => candidate.info.id === id);
+    const snapshot = this.snapshotById
+      ? await this.fetchSnapshot(id)
+      : ((await this.request({ type: 'list' }, 8000)) as DaemonListResult).sessions.find(
+          (candidate) => candidate.info.id === id,
+        );
     const backend = this.backends.get(id);
     if (!backend) return;
     if (!snapshot) {
@@ -476,9 +527,40 @@ export class TerminalDaemonClient {
       return;
     }
     this.snapshots.set(id, snapshot);
-    backend.updateStatus(snapshot);
-    if (snapshot.sequence > backend.sequence()) {
-      backend.emitResync(snapshot.replay, snapshot.sequence);
+    backend.applySnapshot(snapshot);
+  }
+
+  private applyCapabilities(result: DaemonListResult): void {
+    this.snapshotById = result.capabilities?.snapshotById === true;
+  }
+
+  private async fetchSnapshot(id: string): Promise<DaemonTerminalSnapshot> {
+    const result = (await this.request({ type: 'snapshot', id }, 8000)) as {
+      session: DaemonTerminalSnapshot;
+    };
+    return result.session;
+  }
+
+  private enqueueSnapshotRefresh(id: string): void {
+    if (!this.snapshotById || this.snapshotRefreshQueue.includes(id)) return;
+    this.snapshotRefreshQueue.push(id);
+    if (this.snapshotRefreshRunning) return;
+    this.snapshotRefreshRunning = true;
+    void this.drainSnapshotRefreshes();
+  }
+
+  private async drainSnapshotRefreshes(): Promise<void> {
+    try {
+      for (;;) {
+        const id = this.snapshotRefreshQueue.shift();
+        if (!id || this.explicitlyClosed) return;
+        await this.refreshBackend(id).catch(() => undefined);
+      }
+    } finally {
+      this.snapshotRefreshRunning = false;
+      if (this.snapshotRefreshQueue.length > 0 && !this.explicitlyClosed) {
+        this.enqueueSnapshotRefresh(this.snapshotRefreshQueue.shift()!);
+      }
     }
   }
 

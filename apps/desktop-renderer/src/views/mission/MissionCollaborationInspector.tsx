@@ -1,0 +1,249 @@
+import React, { useMemo, useState } from 'react';
+import type { MissionSnapshotDto } from '@pi-ide/ipc-contracts';
+import { Ic, ProviderMark, type ProviderMarkKind } from '../home-icons.js';
+import { buildMissionGraph } from './mission-graph-model.js';
+import type { MissionGraphSelection } from './MissionGraph.js';
+import {
+  formatMissionTime,
+  principalName,
+  unresolvedDecisionMessages,
+} from './mission-view-model.js';
+
+function providerMark(provider: string | null, kind: string | undefined): ProviderMarkKind {
+  if (provider === 'claude') return 'claude';
+  if (provider === 'codex') return 'codex';
+  if (provider === 'shell' || kind === 'shell_agent') return 'shell';
+  return 'pi';
+}
+
+function visibleMessages(snapshot: MissionSnapshotDto, replayAt: number | null) {
+  if (replayAt === null) return snapshot.messages;
+  return snapshot.messages.filter((message) => Date.parse(message.createdAt) <= replayAt);
+}
+
+export function MissionCollaborationInspector({
+  snapshot,
+  selection,
+  replayAt,
+  onReply,
+  onSelectTask,
+}: {
+  snapshot: MissionSnapshotDto;
+  selection: Exclude<MissionGraphSelection, { kind: 'task' } | null>;
+  replayAt: number | null;
+  onReply: (messageId: string, body: string) => void;
+  onSelectTask: (taskId: string) => void;
+}): React.JSX.Element {
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [reply, setReply] = useState('');
+  const messagesAtTime = useMemo(() => visibleMessages(snapshot, replayAt), [replayAt, snapshot]);
+  const graph = useMemo(
+    () => buildMissionGraph({ ...snapshot, messages: messagesAtTime }, { at: replayAt }),
+    [messagesAtTime, replayAt, snapshot],
+  );
+  const assignmentTask = useMemo(
+    () => new Map(snapshot.assignments.map((assignment) => [assignment.id, assignment.taskId])),
+    [snapshot.assignments],
+  );
+
+  if (selection.kind === 'human') {
+    const replaySnapshot = { ...snapshot, messages: messagesAtTime };
+    const unresolved = unresolvedDecisionMessages(replaySnapshot);
+    const failed = graph.nodes.filter((node) => node.state.tone === 'attention');
+    return (
+      <article className="mission-collaboration-detail" data-testid="mission-human-detail">
+        <header className="mission-collaboration-head human">
+          <span>
+            <Ic name="user" size={17} />
+          </span>
+          <div>
+            <small>Mission participant</small>
+            <strong>You</strong>
+          </div>
+          <b>{unresolved.length + failed.length}</b>
+        </header>
+        <section className="mission-collaboration-intro">
+          <h2>Needs your attention</h2>
+          <p>Decisions and recovery actions that can move this Mission forward.</p>
+        </section>
+        <div className="mission-human-queue">
+          {unresolved.map((message) => {
+            const sourceTask = message.fromAssignmentId
+              ? assignmentTask.get(message.fromAssignmentId)
+              : null;
+            return (
+              <article
+                key={message.id}
+                className={`mission-human-item priority-${message.priority}`}
+              >
+                <header>
+                  <span>{message.type === 'question' ? 'Decision' : 'Escalation'}</span>
+                  <time>{formatMissionTime(message.createdAt)}</time>
+                </header>
+                <h3>{message.subject}</h3>
+                {message.body ? <p>{message.body}</p> : null}
+                <small>From {principalName(snapshot, message.fromAssignmentId)}</small>
+                {replyingTo === message.id ? (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const body = reply.trim();
+                      if (!body) return;
+                      onReply(message.id, body);
+                      setReply('');
+                      setReplyingTo(null);
+                    }}
+                  >
+                    <textarea
+                      autoFocus
+                      value={reply}
+                      onChange={(event) => setReply(event.currentTarget.value)}
+                      placeholder="Give the team a clear decision…"
+                    />
+                    <span>
+                      <button type="button" onClick={() => setReplyingTo(null)}>
+                        Cancel
+                      </button>
+                      <button className="mission-primary" type="submit" disabled={!reply.trim()}>
+                        Send decision
+                      </button>
+                    </span>
+                  </form>
+                ) : (
+                  <span className="mission-human-item-actions">
+                    {sourceTask ? (
+                      <button onClick={() => onSelectTask(sourceTask)}>
+                        View work <Ic name="arrowRight" size={10} />
+                      </button>
+                    ) : null}
+                    {replayAt === null ? (
+                      <button
+                        className="mission-primary"
+                        onClick={() => {
+                          setReply('');
+                          setReplyingTo(message.id);
+                        }}
+                      >
+                        Respond
+                      </button>
+                    ) : null}
+                  </span>
+                )}
+              </article>
+            );
+          })}
+          {failed.map((node) => (
+            <button
+              key={node.id}
+              className="mission-human-recovery"
+              onClick={() => onSelectTask(node.id)}
+            >
+              <span>
+                <Ic name="wrench" size={13} />
+              </span>
+              <span>
+                <strong>{node.task.title}</strong>
+                <small>
+                  {node.state.label} · {node.principal?.displayName ?? 'Agent'} · Review recovery
+                </small>
+              </span>
+              <Ic name="chevron" size={11} />
+            </button>
+          ))}
+          {unresolved.length === 0 && failed.length === 0 ? (
+            <div className="mission-collaboration-empty">
+              <Ic name="checkCircle" size={22} />
+              <strong>Nothing needs you here</strong>
+              <span>Return to Live to see current decisions and recovery actions.</span>
+            </div>
+          ) : null}
+        </div>
+      </article>
+    );
+  }
+
+  const edge = graph.edges.find((item) => item.id === selection.edgeId);
+  const messages = edge
+    ? messagesAtTime.filter((message) => edge.messageIds.includes(message.id))
+    : [];
+  const sourceNode = edge ? graph.nodes.find((node) => node.id === edge.sourceId) : null;
+  const targetNode = edge ? graph.nodes.find((node) => node.id === edge.targetId) : null;
+  if (!edge || edge.kind !== 'communication') {
+    return (
+      <div className="mission-detail-empty">
+        <Ic name="at" size={24} />
+        <strong>Conversation unavailable</strong>
+        <span>The selected communication is outside this replay position or filter.</span>
+      </div>
+    );
+  }
+
+  return (
+    <article className="mission-collaboration-detail" data-testid="mission-communication-detail">
+      <header className="mission-collaboration-head">
+        <span className="mission-communication-avatars">
+          <ProviderMark
+            provider={providerMark(
+              sourceNode?.principal?.provider ?? null,
+              sourceNode?.principal?.kind,
+            )}
+            size={14}
+          />
+          <ProviderMark
+            provider={providerMark(
+              targetNode?.principal?.provider ?? null,
+              targetNode?.principal?.kind,
+            )}
+            size={14}
+          />
+        </span>
+        <div>
+          <small>{edge.bidirectional ? 'Two-way communication' : 'Agent communication'}</small>
+          <strong>
+            {sourceNode?.principal?.displayName ?? 'Agent'} {edge.bidirectional ? '↔' : '→'}{' '}
+            {targetNode?.principal?.displayName ?? 'Agent'}
+          </strong>
+        </div>
+        <b>{edge.count}</b>
+      </header>
+      <section className="mission-collaboration-intro">
+        <h2>{edge.label}</h2>
+        <p>
+          {messages.length} structured {messages.length === 1 ? 'message' : 'messages'} across{' '}
+          {edge.count} {edge.count === 1 ? 'thread' : 'threads'}.
+        </p>
+      </section>
+      <span className="mission-communication-participants">
+        {sourceNode ? (
+          <button onClick={() => onSelectTask(sourceNode.id)}>{sourceNode.task.title}</button>
+        ) : null}
+        <Ic name={edge.bidirectional ? 'at' : 'arrowRight'} size={11} />
+        {targetNode ? (
+          <button onClick={() => onSelectTask(targetNode.id)}>{targetNode.task.title}</button>
+        ) : null}
+      </span>
+      <ol className="mission-conversation-thread">
+        {messages.map((message) => {
+          const delivery = (snapshot.messageDeliveries ?? []).find(
+            (item) => item.messageId === message.id && item.assignmentId === message.toAssignmentId,
+          );
+          return (
+            <li key={message.id} className={`type-${message.type} priority-${message.priority}`}>
+              <header>
+                <strong>{principalName(snapshot, message.fromAssignmentId)}</strong>
+                <time>{formatMissionTime(message.createdAt)}</time>
+              </header>
+              <span>{message.type}</span>
+              <h3>{message.subject}</h3>
+              {message.body ? <p>{message.body}</p> : null}
+              <small>
+                {delivery?.state ?? (message.deliveredAt ? 'delivered' : 'recorded')}
+                {message.threadId ? ` · thread ${message.threadId.slice(0, 8)}` : ''}
+              </small>
+            </li>
+          );
+        })}
+      </ol>
+    </article>
+  );
+}

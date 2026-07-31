@@ -3,9 +3,11 @@ import {
   CHANNELS,
   EVENT_CHANNELS,
   PROTOCOL_VERSION,
+  SEND_CHANNELS,
   type ChannelName,
   type EventChannelName,
   type IpcResponse,
+  type SendChannelName,
 } from '@pi-ide/ipc-contracts';
 
 /**
@@ -35,6 +37,20 @@ for (const name of Object.keys(CHANNELS) as ChannelName[]) {
     }) as Promise<IpcResponse>;
 }
 
+type SendFunctions = Record<string, (payload: unknown, workspaceId?: string) => void>;
+
+const send: SendFunctions = {};
+for (const name of Object.keys(SEND_CHANNELS) as SendChannelName[]) {
+  send[name] = (payload: unknown, workspaceId?: string) => {
+    ipcRenderer.send(`send:${name}`, {
+      protocolVersion: PROTOCOL_VERSION,
+      requestId: nextRequestId(),
+      ...(workspaceId !== undefined ? { workspaceId } : {}),
+      payload,
+    });
+  };
+}
+
 const events = {
   on(channel: string, listener: (payload: unknown) => void): () => void {
     if (!Object.prototype.hasOwnProperty.call(EVENT_CHANNELS, channel)) {
@@ -50,6 +66,7 @@ const api = {
   protocolVersion: PROTOCOL_VERSION,
   platform: process.platform,
   rpc,
+  send,
   events,
   /**
    * Absolute path of a File dropped from the OS (PIVOT-015). Sandboxed

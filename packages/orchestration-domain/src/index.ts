@@ -7,4 +7,5 @@ export * from './assignment-artifact.js';
 export * from './execution-attempt.js';
 export * from './orchestration-message.js';
 export * from './runtime-session.js';
+export * from './continuation.js';
 export * from './state-machines.js';

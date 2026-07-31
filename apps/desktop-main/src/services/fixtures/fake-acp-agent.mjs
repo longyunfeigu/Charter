@@ -25,6 +25,13 @@ const app = acp
   })
   .onRequest(acp.methods.agent.session.prompt, async ({ params, client }) => {
     if (!sessions.has(params.sessionId)) throw new Error('unknown fake session');
+    const promptText = params.prompt
+      .filter((entry) => entry.type === 'text')
+      .map((entry) => entry.text)
+      .join('\n');
+    if (promptText.includes('[hold-turn]')) {
+      await new Promise((resolve) => setTimeout(resolve, 75));
+    }
     const permission = await client.request(acp.methods.client.session.requestPermission, {
       sessionId: params.sessionId,
       toolCall: { toolCallId: `permission-${ordinal}`, title: 'Fake write' },

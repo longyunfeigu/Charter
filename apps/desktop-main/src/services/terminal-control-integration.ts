@@ -16,7 +16,10 @@ export interface TerminalControlIntegration {
   mcpServerPath: string;
   nodeExecutable: string;
   environment(basePath?: string): Record<string, string>;
+  /** Real user-installed CLI. Product sessions never pay an MCP bootstrap tax. */
   executableFor(launch: 'claude' | 'codex'): string | null;
+  /** Explicit compatibility launcher for clients that require MCP tools. */
+  mcpExecutableFor(launch: 'claude' | 'codex'): string | null;
 }
 
 /** A Finder/dev-launched Electron process inherits a minimal PATH that misses
@@ -48,6 +51,19 @@ function executable(
   return null;
 }
 
+/** Native Agent sessions must use the user's installed client. Package-manager
+ * launchers prepend every project `node_modules/.bin` directory to PATH; this
+ * repository also carries Codex transitively for the optional ACP adapter.
+ * Treating that dependency as the desktop user's CLI causes version skew,
+ * upgrade prompts, and behavior that differs from `which claude/codex` in the
+ * user's terminal. Node itself may still come from the full process PATH. */
+function nativeAgentPath(pathValue: string): string {
+  return pathValue
+    .split(delimiter)
+    .filter((directory) => !/(^|[/\\])node_modules[/\\]\.bin[/\\]?$/.test(directory))
+    .join(delimiter);
+}
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
@@ -57,8 +73,10 @@ function writeExecutable(path: string, content: string): void {
   chmodSync(path, 0o700);
 }
 
-/** Install ephemeral wrappers in userData. They add the Charter MCP server to
- * CLI sessions without editing ~/.claude, ~/.codex or project files. */
+/** Install the lightweight `charter` CLI plus opt-in MCP compatibility
+ * launchers. Ordinary claude/codex names are deliberately never shadowed:
+ * native PTY sessions use the user's real executable and coordinate through
+ * Skill + local CLI/RPC, matching the terminal behavior outside Charter. */
 export function installTerminalControlIntegration(input: {
   userData: string;
   appPath: string;
@@ -105,21 +123,18 @@ export function installTerminalControlIntegration(input: {
     `#!/bin/sh\nexec ${shellQuote(node)} ${shellQuote(mcpServerPath)} --cli "$@"\n`,
   );
 
-  // A wrapper pins the CLI's absolute path as resolved at THIS launch. When
-  // the CLI later disappears from that path (installer migration), the stale
-  // wrapper must go too — it shadows nothing useful and breaks pty-spawned
-  // `terminal.create` launches with an exec of a nonexistent file.
-  const claude = executable('claude', pathValue, fallbackDirs);
+  const agentPathValue = nativeAgentPath(pathValue);
+  const claude = executable('claude', agentPathValue, fallbackDirs);
   if (claude) {
     writeExecutable(
-      join(binDir, 'claude'),
+      join(binDir, 'charter-claude-mcp'),
       `#!/bin/sh\nexec ${shellQuote(claude)} ${shellQuote(`--mcp-config=${claudeConfigPath}`)} "$@"\n`,
     );
   } else {
-    rmSync(join(binDir, 'claude'), { force: true });
+    rmSync(join(binDir, 'charter-claude-mcp'), { force: true });
   }
 
-  const codex = executable('codex', pathValue, fallbackDirs);
+  const codex = executable('codex', agentPathValue, fallbackDirs);
   if (codex) {
     const commandConfig = `mcp_servers.charter.command=${JSON.stringify(node)}`;
     const argsConfig = `mcp_servers.charter.args=${JSON.stringify([mcpServerPath])}`;
@@ -133,7 +148,7 @@ export function installTerminalControlIntegration(input: {
     const startupTimeoutConfig = 'mcp_servers.charter.startup_timeout_sec=120';
     const toolTimeoutConfig = 'mcp_servers.charter.tool_timeout_sec=3605';
     writeExecutable(
-      join(binDir, 'codex'),
+      join(binDir, 'charter-codex-mcp'),
       [
         '#!/bin/sh',
         `exec ${shellQuote(codex)} -c ${shellQuote(commandConfig)} -c ${shellQuote(argsConfig)} -c ${shellQuote(envVarsConfig)} -c ${shellQuote(startupTimeoutConfig)} -c ${shellQuote(toolTimeoutConfig)} "$@"`,
@@ -141,8 +156,13 @@ export function installTerminalControlIntegration(input: {
       ].join('\n'),
     );
   } else {
-    rmSync(join(binDir, 'codex'), { force: true });
+    rmSync(join(binDir, 'charter-codex-mcp'), { force: true });
   }
+
+  // Releases before the native data-plane switch wrote these two shadowing
+  // names. Remove them on upgrade so PATH cannot silently retain old behavior.
+  rmSync(join(binDir, 'claude'), { force: true });
+  rmSync(join(binDir, 'codex'), { force: true });
 
   input.logger.info('terminal MCP bridge installed', {
     claude: Boolean(claude),
@@ -153,7 +173,10 @@ export function installTerminalControlIntegration(input: {
     mcpServerPath,
     nodeExecutable: node,
     executableFor(launch) {
-      const path = join(binDir, launch);
+      return launch === 'claude' ? claude : codex;
+    },
+    mcpExecutableFor(launch) {
+      const path = join(binDir, `charter-${launch}-mcp`);
       return existsSync(path) ? path : null;
     },
     environment(basePath = pathValue) {

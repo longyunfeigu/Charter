@@ -62,7 +62,9 @@ export interface ExternalTerminalLifecycle {
   agent: ExternalAgentLifecycle;
   terminal: 'live' | 'ended';
   agentLabel: 'Agent running' | 'Agent ended' | 'Agent interrupted';
-  terminalLabel: 'Terminal live' | 'Shell available' | 'Terminal ended';
+  terminalLabel: 'Terminal live' | 'Shell available' | 'Terminal preserved' | 'Terminal ended';
+  /** Whether this surface may truthfully present a prompt and accept stdin. */
+  interactive: boolean;
   summary: string;
   terminalHeadline: string;
   terminalDetail: string;
@@ -90,7 +92,9 @@ export function externalTerminalLifecycle(input: {
       ? 'Terminal ended'
       : agent === 'active'
         ? 'Terminal live'
-        : 'Shell available';
+        : agent === 'interrupted'
+          ? 'Terminal preserved'
+          : 'Shell available';
   const agentSummary =
     agent === 'active'
       ? `${providerLabel} running`
@@ -106,19 +110,24 @@ export function externalTerminalLifecycle(input: {
     terminal,
     agentLabel,
     terminalLabel,
+    interactive: terminal === 'live' && agent !== 'interrupted',
     summary: `${agentSummary} · ${terminalLabel}`,
     terminalHeadline:
       agent === 'active'
         ? `${providerLabel} PTY`
-        : terminal === 'live'
-          ? `Shell after ${providerLabel}`
-          : `Terminal after ${providerLabel}`,
+        : agent === 'interrupted'
+          ? `Stopped ${providerLabel} transcript`
+          : terminal === 'live'
+            ? `Shell after ${providerLabel}`
+            : `Terminal after ${providerLabel}`,
     terminalDetail:
       agent === 'active'
         ? 'external · unmanaged · state preserved'
-        : terminal === 'live'
-          ? `${shellName} ready · process preserved`
-          : `${shellName} exited · session retained`,
+        : agent === 'interrupted'
+          ? 'read-only · resume the Session to continue'
+          : terminal === 'live'
+            ? `${shellName} ready · process preserved`
+            : `${shellName} exited · session retained`,
   };
 }
 

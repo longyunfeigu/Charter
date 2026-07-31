@@ -31,6 +31,8 @@ function setup() {
     ask: vi.fn(async () => ({ answer: null })),
     wait: vi.fn(async () => []),
     join: vi.fn(async () => ({ assignments: [] })),
+    park: vi.fn(() => ({ continuation: { id: 'CONT' } })),
+    continue: vi.fn(() => ({ continuation: { id: 'CONT', state: 'CONSUMED' } })),
     progress: vi.fn(),
     complete: vi.fn(),
     escalate: vi.fn(),
@@ -68,6 +70,8 @@ describe('orchestration native tools', () => {
     expect(names).toContain('orchestration.sync');
     expect(names).toContain('orchestration.ask');
     expect(names).toContain('orchestration.join');
+    expect(names).toContain('orchestration.park');
+    expect(names).toContain('orchestration.continue');
     expect(names).toContain('orchestration.complete');
   });
 
@@ -98,6 +102,62 @@ describe('orchestration native tools', () => {
     );
   });
 
+  it('marks messages observed when a blocking wait returns them by default', async () => {
+    const { gateway, control } = setup();
+    const result = await gateway.executeCall(
+      {
+        callId: 'call-wait',
+        runId: 'run',
+        taskId: 'task',
+        toolName: 'orchestration.wait',
+        input: { types: ['question'], timeoutMs: 1_000 },
+      },
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(control.wait).toHaveBeenCalledWith(
+      caller,
+      expect.objectContaining({ markRead: true, unreadOnly: true }),
+    );
+  });
+
+  it('exposes durable park and idempotent continuation resume with schema defaults', async () => {
+    const { gateway, control } = setup();
+    const parked = await gateway.executeCall(
+      {
+        callId: 'call-park',
+        runId: 'run',
+        taskId: 'task',
+        toolName: 'orchestration.park',
+        input: {
+          conditions: [{ kind: 'assignment_terminal', assignmentId: 'B' }],
+          reason: 'Wait for B',
+          idempotencyKey: 'wait-b',
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(parked.ok).toBe(true);
+    expect(control.park).toHaveBeenCalledWith(
+      caller,
+      expect.objectContaining({ mode: 'all', afterSequence: 0 }),
+    );
+
+    const resumed = await gateway.executeCall(
+      {
+        callId: 'call-continue',
+        runId: 'run',
+        taskId: 'task',
+        toolName: 'orchestration.continue',
+        input: { continuationId: 'CONT' },
+      },
+      new AbortController().signal,
+    );
+    expect(resumed.ok).toBe(true);
+    expect(control.continue).toHaveBeenCalledWith(caller, { continuationId: 'CONT' });
+  });
+
   it('rejects identity fields supplied by an untrusted model', async () => {
     const { gateway, delegate } = setup();
     const result = await gateway.executeCall(
@@ -118,5 +178,27 @@ describe('orchestration native tools', () => {
     );
     expect(result.code).toBe('TOOL_INVALID_INPUT');
     expect(delegate).not.toHaveBeenCalled();
+  });
+
+  it('keeps large artifacts out of the orchestration control plane', async () => {
+    const { gateway, control } = setup();
+    const result = await gateway.executeCall(
+      {
+        callId: 'call-large-payload',
+        runId: 'run',
+        taskId: 'task',
+        toolName: 'orchestration.message',
+        input: {
+          toAssignmentId: 'B',
+          subject: 'Large output',
+          body: 'See the workspace artifact.',
+          payload: { rawOutput: 'x'.repeat(64 * 1024) },
+        },
+      },
+      new AbortController().signal,
+    );
+
+    expect(result.code).toBe('TOOL_INVALID_INPUT');
+    expect(control.message).not.toHaveBeenCalled();
   });
 });

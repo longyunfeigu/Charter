@@ -1,6 +1,8 @@
 import { errorMessage, newId, productError, ProductFailure } from '@pi-ide/foundation';
 import type {
   AssignmentWorkMode,
+  ContinuationCondition,
+  ContinuationMode,
   OrchestrationCallerContext,
   OrchestrationMessagePriority,
   OrchestrationMessageType,
@@ -306,7 +308,13 @@ export class MissionOrchestrationService {
     });
     this.changed(caller.missionId!);
     this.messages.notifyAssignment(input.toAssignmentId);
-    this.outbox.signalAssignment(input.toAssignmentId);
+    if (
+      !this.repository.hasActiveContinuationForOwner(input.toAssignmentId) ||
+      (input.priority ?? 'normal') === 'urgent'
+    ) {
+      this.outbox.signalAssignment(input.toAssignmentId);
+    }
+    this.outbox.wake();
     return message;
   }
 
@@ -393,6 +401,63 @@ export class MissionOrchestrationService {
       assignments: assignments ?? ids.map((id) => this.repository.getAssignment(id)!),
       timedOut: assignments === null,
     };
+  }
+
+  park(
+    callerInput: OrchestrationCallerContext,
+    input: {
+      mode: ContinuationMode;
+      conditions: ContinuationCondition[];
+      afterSequence?: number;
+      timeoutMs?: number;
+      reason: string;
+      idempotencyKey: string;
+    },
+  ) {
+    const caller = this.requireActiveAttempt(callerInput);
+    for (const condition of input.conditions) {
+      if (condition.kind === 'assignment_terminal') {
+        this.requireTargetInMission(condition.assignmentId, caller.missionId!);
+      } else if (condition.fromAssignmentId) {
+        this.requireTargetInMission(condition.fromAssignmentId, caller.missionId!);
+      }
+    }
+    const result = this.repository.armContinuation({
+      missionId: caller.missionId!,
+      ownerAssignmentId: caller.assignmentId!,
+      ownerAttemptId: caller.attemptId!,
+      mode: input.mode,
+      conditions: input.conditions,
+      reason: input.reason,
+      cursorSequence: input.afterSequence ?? 0,
+      deadlineAt:
+        input.timeoutMs === undefined ? null : new Date(Date.now() + input.timeoutMs).toISOString(),
+      idempotencyKey: input.idempotencyKey,
+    });
+    this.changed(caller.missionId!);
+    this.outbox.wake();
+    return {
+      ...result,
+      nextAction:
+        'Stop this agent turn now. Charter will resume this exact Session after the durable conditions match.',
+    };
+  }
+
+  continue(callerInput: OrchestrationCallerContext, input: { continuationId: string }) {
+    const caller = this.requireMember(callerInput);
+    if (!caller.attemptId) {
+      throw this.failure(
+        'ORCHESTRATION_ATTEMPT_REQUIRED',
+        'A continuation can only resume its exact active Attempt.',
+      );
+    }
+    const result = this.repository.consumeContinuation(
+      input.continuationId,
+      caller.assignmentId!,
+      caller.attemptId,
+    );
+    this.changed(caller.missionId!);
+    return result;
   }
 
   progress(
@@ -723,8 +788,11 @@ export class MissionOrchestrationService {
     this.changed(missionId);
     if (target) {
       this.messages.notifyAssignment(target);
-      this.outbox.signalAssignment(target);
+      if (!this.repository.hasActiveContinuationForOwner(target)) {
+        this.outbox.signalAssignment(target);
+      }
     }
+    this.outbox.wake();
   }
 
   private changed(missionId: string): void {

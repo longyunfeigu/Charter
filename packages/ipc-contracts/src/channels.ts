@@ -198,6 +198,23 @@ const TerminalInfoSchema = z.object({
   remote: TerminalRemoteInfoSchema.optional(),
 });
 
+export const TerminalWriteRequestSchema = z
+  .object({
+    id: z.string(),
+    data: z.string().max(1024 * 128),
+    /** False for xterm-generated protocol replies such as focus, DA and DSR. */
+    userInitiated: z.boolean().optional(),
+  })
+  .strict();
+
+export const TerminalResizeRequestSchema = z
+  .object({
+    id: z.string(),
+    cols: z.number().int(),
+    rows: z.number().int(),
+  })
+  .strict();
+
 const ExternalSessionFileSchema = z.object({
   path: z.string(),
   status: z.enum(['created', 'modified', 'deleted', 'renamed']),
@@ -717,20 +734,13 @@ export const CHANNELS = {
   'terminal.write': ch(
     'terminal.write',
     2,
-    z
-      .object({
-        id: z.string(),
-        data: z.string().max(1024 * 128),
-        /** False for xterm-generated protocol replies such as focus, DA and DSR. */
-        userInitiated: z.boolean().optional(),
-      })
-      .strict(),
+    TerminalWriteRequestSchema,
     z.object({ ok: z.boolean() }),
   ),
   'terminal.resize': ch(
     'terminal.resize',
     1,
-    z.object({ id: z.string(), cols: z.number().int(), rows: z.number().int() }).strict(),
+    TerminalResizeRequestSchema,
     z.object({ ok: z.boolean() }),
   ),
   'terminal.kill': ch(

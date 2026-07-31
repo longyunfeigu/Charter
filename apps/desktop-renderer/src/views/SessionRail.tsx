@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { RecentWorkspaceDto, TaskDto } from '@pi-ide/ipc-contracts';
+import type { MissionSnapshotDto, RecentWorkspaceDto, TaskDto } from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
 import { useActivityStore, currentActionLine } from '../store/activityStore.js';
 import { useAppStore, type RailView } from '../store/appStore.js';
@@ -34,6 +34,7 @@ import {
   visibleHistoryPeriodEntries,
   visibleRailGroupEntries,
   type HistoryPeriodKey,
+  type MissionSessionLink,
   type RailGroup,
   type SessionEntry,
 } from './rail-groups.js';
@@ -219,6 +220,54 @@ function providerLabel(provider: 'pi' | 'shell' | 'claude' | 'codex'): string {
   return 'Charter';
 }
 
+function missionProvider(
+  snapshot: MissionSnapshotDto,
+  assignment: MissionSnapshotDto['assignments'][number],
+  attempt: MissionSnapshotDto['attempts'][number] | null,
+): MissionSessionLink['provider'] {
+  const principal = snapshot.principals.find(
+    (candidate) => candidate.id === assignment.assigneePrincipalId,
+  );
+  const provider = principal?.provider ?? attempt?.requestedRuntime ?? null;
+  if (provider === 'claude' || provider === 'codex' || provider === 'shell') return provider;
+  return 'pi';
+}
+
+function missionAssignmentDepth(
+  snapshot: MissionSnapshotDto,
+  assignment: MissionSnapshotDto['assignments'][number],
+): number {
+  const byId = new Map(snapshot.assignments.map((candidate) => [candidate.id, candidate]));
+  const visited = new Set<string>([assignment.id]);
+  let parentId = assignment.supervisorAssignmentId;
+  let depth = 0;
+  while (parentId && !visited.has(parentId)) {
+    visited.add(parentId);
+    depth += 1;
+    parentId = byId.get(parentId)?.supervisorAssignmentId ?? null;
+  }
+  return depth;
+}
+
+function missionStateBadge(state: MissionSessionLink['assignmentState']): {
+  label: string;
+  tone: string;
+  live: boolean;
+  working: boolean;
+} {
+  if (state === 'ACTIVE') return { label: 'Working', tone: 'review', live: true, working: true };
+  if (state === 'WAITING') return { label: 'Waiting', tone: 'review', live: true, working: false };
+  if (state === 'PAUSED') return { label: 'Paused', tone: 'neutral', live: true, working: false };
+  if (state === 'PENDING') return { label: 'Queued', tone: 'neutral', live: false, working: false };
+  if (state === 'COMPLETED') {
+    return { label: 'Done', tone: 'answered', live: false, working: false };
+  }
+  if (state === 'FAILED' || state === 'ORPHANED') {
+    return { label: 'Failed', tone: 'failed', live: false, working: false };
+  }
+  return { label: 'Stopped', tone: 'neutral', live: false, working: false };
+}
+
 export function timeAgo(value: string, now: number): string {
   const elapsed = Math.max(0, now - Date.parse(value));
   const minutes = Math.floor(elapsed / 60_000);
@@ -261,6 +310,8 @@ function SessionTaskRow({
   showProject = true,
   now,
   worker = false,
+  depth = 0,
+  missionSelected = false,
   workerWorking = false,
   missionRuntimeStatus = null,
 }: {
@@ -269,6 +320,8 @@ function SessionTaskRow({
   showProject?: boolean;
   now: number;
   worker?: boolean;
+  depth?: number;
+  missionSelected?: boolean;
   workerWorking?: boolean;
   missionRuntimeStatus?: MissionRuntimeStatus | null;
 }): React.JSX.Element {
@@ -279,7 +332,7 @@ function SessionTaskRow({
   const glowTasks = useGlowTasks();
   const completion = app.sessionCompletionSignals.find((signal) => signal.taskId === task.id);
   const reply = app.sessionReplySignals.find((signal) => signal.taskId === task.id);
-  const selected = app.taskRoomTaskId === task.id;
+  const selected = app.taskRoomTaskId === task.id || missionSelected;
   const provider = providerForTask(task);
   const displayTitle = sessionDisplayTitle(task);
   const running = RUNNING_TASK_STATES.has(task.state);
@@ -355,7 +408,8 @@ function SessionTaskRow({
 
   return (
     <div
-      className={`sr-row-wrap ${showProject ? 'has-detail' : ''} ${hasActions ? 'has-actions' : ''} ${worker ? 'sr-orch-worker' : ''}`}
+      className={`sr-row-wrap ${showProject ? 'has-detail' : ''} ${hasActions ? 'has-actions' : ''} ${worker || depth > 0 ? 'sr-orch-worker' : ''}`}
+      style={{ '--sr-depth': Math.max(depth, worker ? 1 : 0) } as React.CSSProperties}
     >
       <button
         className={`sr-session ${showProject ? 'has-detail' : ''} ${selected ? 'selected' : ''} ${working ? 'is-working' : ''} ${glowTasks.has(task.id) ? 'glow-pulse' : ''} ${completion ? `completion-ripple completion-${completion.tone}` : ''} ${reply ? 'reply-shake' : ''}`}
@@ -473,6 +527,8 @@ function TerminalSessionRow({
   launch,
   showProject = true,
   worker = false,
+  depth = 0,
+  missionSelected = false,
   working = false,
   missionRuntimeStatus = null,
 }: {
@@ -480,6 +536,8 @@ function TerminalSessionRow({
   launch: 'shell' | 'claude' | 'codex';
   showProject?: boolean;
   worker?: boolean;
+  depth?: number;
+  missionSelected?: boolean;
   working?: boolean;
   missionRuntimeStatus?: MissionRuntimeStatus | null;
 }): React.JSX.Element | null {
@@ -487,7 +545,7 @@ function TerminalSessionRow({
   const hoverTooltip = useSessionHoverTooltip();
   const item = useTerminalStore((state) => state.items.find((entry) => entry.id === terminalId));
   if (!item) return null;
-  const selected = app.sessionTerminalId === terminalId;
+  const selected = app.sessionTerminalId === terminalId || missionSelected;
   const provider = launch;
   const missionSettled = missionRuntimeStatus !== null && missionRuntimeStatus !== 'active';
   const visiblyWorking = missionAwareWorking(working, missionRuntimeStatus);
@@ -504,7 +562,8 @@ function TerminalSessionRow({
   const rowDescription = `${providerLabel(provider)} · ${sessionName} · ${item.contextLabel} — ${terminalState}`;
   return (
     <div
-      className={`sr-row-wrap ${showProject ? 'has-detail' : ''} ${worker ? 'sr-orch-worker' : ''}`}
+      className={`sr-row-wrap ${showProject ? 'has-detail' : ''} ${worker || depth > 0 ? 'sr-orch-worker' : ''}`}
+      style={{ '--sr-depth': Math.max(depth, worker ? 1 : 0) } as React.CSSProperties}
     >
       <button
         className={`sr-session ${showProject ? 'has-detail' : ''} ${selected ? 'selected' : ''} ${visiblyWorking ? 'is-working' : ''}`}
@@ -565,6 +624,73 @@ function TerminalSessionRow({
   );
 }
 
+function MissionRuntimeRow({
+  entry,
+  now,
+}: {
+  entry: Extract<SessionEntry, { kind: 'mission' }>;
+  now: number;
+}): React.JSX.Element {
+  const app = useAppStore();
+  const hoverTooltip = useSessionHoverTooltip();
+  const status = missionStateBadge(entry.mission.assignmentState);
+  const selected =
+    app.missionCenter?.missionId === entry.mission.missionId &&
+    app.missionCenter.assignmentId === entry.mission.assignmentId;
+  const transport =
+    entry.mission.transport === 'acp'
+      ? 'ACP session'
+      : entry.mission.transport === 'terminal'
+        ? 'Terminal session'
+        : entry.mission.transport === 'native'
+          ? 'Managed session'
+          : 'Session starting';
+  const description = `${entry.mission.agentName} · ${entry.mission.taskTitle} · ${transport}`;
+
+  return (
+    <div
+      className="sr-row-wrap sr-orch-worker sr-mission-runtime"
+      style={{ '--sr-depth': Math.max(1, entry.mission.depth) } as React.CSSProperties}
+    >
+      <button
+        type="button"
+        className={`sr-session has-detail ${selected ? 'selected' : ''} ${status.working ? 'is-working' : ''}`}
+        data-testid={`session-mission-${entry.mission.assignmentId}`}
+        data-session-key={entry.key}
+        data-working={status.working ? 'true' : 'false'}
+        aria-label={description}
+        {...hoverTooltip.triggerProps(
+          description,
+          `session-tooltip-mission-${entry.mission.assignmentId}`,
+        )}
+        onClick={() => {
+          hoverTooltip.hide();
+          app.openMission(entry.mission.missionId, entry.mission.assignmentId, 'session');
+        }}
+      >
+        <ProviderMark
+          provider={entry.mission.provider}
+          className={status.working ? 'is-working' : ''}
+        />
+        <span className="sr-session-copy">
+          <span className="sr-session-title">
+            <span className={`sr-live-dot ${status.live ? 'live' : ''}`} />
+            <b>{entry.mission.agentName}</b>
+            <span className={`sr-state ${status.tone}`}>{status.label}</span>
+          </span>
+          <span className="sr-session-detail">
+            <span>
+              {entry.mission.taskTitle} · {transport}
+            </span>
+            <time dateTime={entry.updatedAt}>{timeAgo(entry.updatedAt, now)}</time>
+          </span>
+        </span>
+      </button>
+      {hoverTooltip.tooltip}
+    </div>
+  );
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return Boolean(
@@ -589,6 +715,7 @@ export function SessionRail(): React.JSX.Element {
   const taskByTerminal = useExternalStore((state) => state.taskByTerminal);
   const orchestration = useOrchestrationStore((state) => state.snapshot);
   const missionsById = useOrchestrationStore((state) => state.missionsById);
+  const missionOrder = useOrchestrationStore((state) => state.missionOrder);
   const missionRuntimeStatuses = useMemo(
     () => missionRuntimeStatusByTerminal(Object.values(missionsById)),
     [missionsById],
@@ -765,18 +892,20 @@ export function SessionRail(): React.JSX.Element {
     const unboundWorkerTerminalIds = new Set(
       orchestration.workers.filter((worker) => !worker.taskId).map((worker) => worker.terminalId),
     );
-    const ordered: SessionEntry[] = [];
+    const legacyOrdered: SessionEntry[] = [];
     const appended = new Set<string>();
     const append = (entry: SessionEntry): void => {
       if (appended.has(entry.key)) return;
       appended.add(entry.key);
-      ordered.push(entry);
+      legacyOrdered.push(entry);
     };
     for (const entry of base) {
       const isChild =
         entry.kind === 'task'
           ? workerTaskIds.has(entry.task.id)
-          : unboundWorkerTerminalIds.has(entry.terminalId);
+          : entry.kind === 'terminal'
+            ? unboundWorkerTerminalIds.has(entry.terminalId)
+            : false;
       if (isChild) continue;
       append(entry);
       if (entry.kind !== 'task') continue;
@@ -792,8 +921,135 @@ export function SessionRail(): React.JSX.Element {
       }
     }
     for (const entry of base) append(entry);
+
+    const entryByKey = new Map(legacyOrdered.map((entry) => [entry.key, entry]));
+    const claimedEntries = new Set<string>();
+    const missionEntries: Array<Extract<SessionEntry, { kind: 'mission' }>> = [];
+    const snapshots = missionOrder
+      .map((id) => missionsById[id])
+      .filter((snapshot): snapshot is MissionSnapshotDto => Boolean(snapshot));
+
+    for (const snapshot of snapshots) {
+      const originTaskId = snapshot.mission.originConversationTaskId;
+      const originTask = originTaskId ? tasks.find((task) => task.id === originTaskId) : undefined;
+      const projectPath = originTask?.projectPath ?? snapshot.mission.executionPolicy.workspaceRoot;
+      const projectName =
+        originTask?.projectName ??
+        projectPath
+          .replace(/[\\/]+$/, '')
+          .split(/[\\/]/)
+          .at(-1) ??
+        'Mission';
+      const assignmentKeys = new Map<string, string>();
+
+      for (const assignment of snapshot.assignments) {
+        const attempt =
+          snapshot.attempts.find((candidate) => candidate.id === assignment.activeAttemptId) ??
+          null;
+        let key: string | null = null;
+        if (assignment.id === snapshot.mission.leadAssignmentId && originTaskId) {
+          const candidate = `task:${originTaskId}`;
+          if (entryByKey.has(candidate) && !claimedEntries.has(candidate)) key = candidate;
+        }
+        if (!key && attempt?.runtimeSessionId?.startsWith('managed-task:')) {
+          const taskId = attempt.runtimeSessionId.slice('managed-task:'.length);
+          const candidate = `task:${taskId}`;
+          if (entryByKey.has(candidate) && !claimedEntries.has(candidate)) key = candidate;
+        }
+        if (!key && attempt?.terminalId) {
+          const taskEntry = taskEntries.find(
+            (entry) =>
+              entry.kind === 'task' && entry.task.external?.terminalId === attempt.terminalId,
+          );
+          const candidate = taskEntry?.key ?? `terminal:${attempt.terminalId}`;
+          if (entryByKey.has(candidate) && !claimedEntries.has(candidate)) key = candidate;
+        }
+        key ??= `mission:${snapshot.mission.id}:${assignment.id}`;
+        if (entryByKey.has(key)) claimedEntries.add(key);
+        assignmentKeys.set(assignment.id, key);
+      }
+
+      for (const assignment of snapshot.assignments) {
+        const key = assignmentKeys.get(assignment.id)!;
+        const task = snapshot.tasks.find((candidate) => candidate.id === assignment.taskId);
+        if (!task) continue;
+        const attempt =
+          snapshot.attempts.find((candidate) => candidate.id === assignment.activeAttemptId) ??
+          null;
+        const runtimeSession = attempt
+          ? (snapshot.runtimeSessions?.find((candidate) => candidate.attemptId === attempt.id) ??
+            null)
+          : null;
+        const principal = snapshot.principals.find(
+          (candidate) => candidate.id === assignment.assigneePrincipalId,
+        );
+        const mission: MissionSessionLink = {
+          missionId: snapshot.mission.id,
+          assignmentId: assignment.id,
+          parentKey: assignment.supervisorAssignmentId
+            ? (assignmentKeys.get(assignment.supervisorAssignmentId) ?? null)
+            : null,
+          depth: missionAssignmentDepth(snapshot, assignment),
+          agentName: principal?.displayName ?? task.title,
+          taskTitle: task.title,
+          provider: missionProvider(snapshot, assignment, attempt),
+          assignmentState: assignment.state,
+          missionState: snapshot.mission.state,
+          runtimeSessionId: attempt?.runtimeSessionId ?? null,
+          terminalId: attempt?.terminalId ?? null,
+          transport: runtimeSession?.transport ?? null,
+        };
+        const existing = entryByKey.get(key);
+        if (existing) {
+          entryByKey.set(key, { ...existing, mission } as SessionEntry);
+        } else {
+          missionEntries.push({
+            key,
+            kind: 'mission',
+            projectName,
+            projectPath,
+            updatedAt: assignment.updatedAt,
+            mission,
+          });
+        }
+      }
+    }
+
+    const candidates = [
+      ...legacyOrdered.map((entry) => entryByKey.get(entry.key) ?? entry),
+      ...missionEntries,
+    ];
+    const candidateKeys = new Set(candidates.map((entry) => entry.key));
+    const children = new Map<string, SessionEntry[]>();
+    for (const entry of candidates) {
+      const parentKey = entry.mission?.parentKey;
+      if (!parentKey || !candidateKeys.has(parentKey)) continue;
+      const bucket = children.get(parentKey) ?? [];
+      bucket.push(entry);
+      children.set(parentKey, bucket);
+    }
+    const ordered: SessionEntry[] = [];
+    const seen = new Set<string>();
+    const appendTree = (entry: SessionEntry): void => {
+      if (seen.has(entry.key)) return;
+      seen.add(entry.key);
+      ordered.push(entry);
+      for (const child of children.get(entry.key) ?? []) appendTree(child);
+    };
+    for (const entry of candidates) {
+      const parentKey = entry.mission?.parentKey;
+      if (!parentKey || !candidateKeys.has(parentKey)) appendTree(entry);
+    }
+    for (const entry of candidates) appendTree(entry);
     return ordered;
-  }, [orchestration.workers, tasks, terminalStore.items, taskByTerminal]);
+  }, [
+    missionOrder,
+    missionsById,
+    orchestration.workers,
+    tasks,
+    terminalStore.items,
+    taskByTerminal,
+  ]);
 
   const groups = useMemo<RailGroup[]>(() => buildRailGroups(allEntries), [allEntries]);
 
@@ -857,7 +1113,15 @@ export function SessionRail(): React.JSX.Element {
                   entry.task.projectName,
                   presentedMeta(entry.task).label,
                 ].join(' ')
-              : [entry.projectName, entry.launch, 'terminal session'].join(' ');
+              : entry.kind === 'mission'
+                ? [
+                    entry.projectName,
+                    entry.mission.agentName,
+                    entry.mission.taskTitle,
+                    entry.mission.runtimeSessionId,
+                    'mission agent session',
+                  ].join(' ')
+                : [entry.projectName, entry.launch, 'terminal session'].join(' ');
           return haystack.toLowerCase().includes(normalized);
         }),
       }))
@@ -931,11 +1195,20 @@ export function SessionRail(): React.JSX.Element {
   // The open room's row is never hidden: when the selection lands in (or moves
   // into) a collapsed group — e.g. accept sends a task to History — expand it.
   // Manual collapses are respected until the selection or its group changes.
+  const selectedMission = app.missionCenter;
+  const selectedMissionKey =
+    selectedMission?.missionId && selectedMission.assignmentId
+      ? (allEntries.find(
+          (entry) =>
+            entry.mission?.missionId === selectedMission.missionId &&
+            entry.mission.assignmentId === selectedMission.assignmentId,
+        )?.key ?? null)
+      : null;
   const selectedKey = app.taskRoomTaskId
     ? `task:${app.taskRoomTaskId}`
     : app.sessionTerminalId
       ? `terminal:${app.sessionTerminalId}`
-      : null;
+      : selectedMissionKey;
   const selectedGroup = selectedKey
     ? (groups.find((group) => group.entries.some((entry) => entry.key === selectedKey)) ?? null)
     : null;
@@ -978,7 +1251,13 @@ export function SessionRail(): React.JSX.Element {
           selectedHistoryPeriodIndex + 1,
         ),
       }));
-    } else if (!selectedGroup?.history && selectedEntryIndex >= ACTIVE_SESSION_GROUP_LIMIT) {
+    } else if (
+      selectedGroup &&
+      !selectedGroup.history &&
+      !visibleRailGroupEntries(selectedGroup, { expanded: false, filtering: false }).some(
+        (entry) => entry.key === selectedKey,
+      )
+    ) {
       setExpandedGroups((previous) => {
         if (previous.has(selectedGroupKey)) return previous;
         return new Set(previous).add(selectedGroupKey);
@@ -1020,13 +1299,15 @@ export function SessionRail(): React.JSX.Element {
       if (entry.kind === 'task') {
         void useTaskStore.getState().openTask(entry.task.id);
         app.openTaskRoom(entry.task.id);
-      } else {
+      } else if (entry.kind === 'terminal') {
         // ADR-0046: keyboard navigation follows the project context too.
         const item = useTerminalStore
           .getState()
           .items.find((candidate) => candidate.id === entry.terminalId);
         void useWorkspaceStore.getState().followProject(item?.projectPath ?? null);
         app.openTerminalSession(entry.terminalId);
+      } else {
+        app.openMission(entry.mission.missionId, entry.mission.assignmentId, 'session');
       }
     };
     window.addEventListener('keydown', onKey);
@@ -1049,6 +1330,9 @@ export function SessionRail(): React.JSX.Element {
   };
 
   const renderSessionEntry = (entry: SessionEntry, showProject: boolean): React.ReactNode => {
+    if (entry.kind === 'mission') {
+      return <MissionRuntimeRow key={entry.key} entry={entry} now={now} />;
+    }
     if (entry.kind === 'task') {
       const terminalId = entry.task.external?.terminalId ?? null;
       return (
@@ -1058,6 +1342,11 @@ export function SessionRail(): React.JSX.Element {
           showProject={showProject}
           now={now}
           worker={orchestration.workers.some((worker) => worker.taskId === entry.task.id)}
+          depth={entry.mission?.depth ?? 0}
+          missionSelected={
+            entry.mission?.missionId === app.missionCenter?.missionId &&
+            entry.mission?.assignmentId === app.missionCenter?.assignmentId
+          }
           workerWorking={orchestration.workers.some(
             (worker) => worker.taskId === entry.task.id && worker.status === 'streaming',
           )}
@@ -1074,6 +1363,11 @@ export function SessionRail(): React.JSX.Element {
         launch={entry.launch}
         showProject={showProject}
         worker={orchestration.workers.some((worker) => worker.terminalId === entry.terminalId)}
+        depth={entry.mission?.depth ?? 0}
+        missionSelected={
+          entry.mission?.missionId === app.missionCenter?.missionId &&
+          entry.mission?.assignmentId === app.missionCenter?.assignmentId
+        }
         working={orchestration.workers.some(
           (worker) => worker.terminalId === entry.terminalId && worker.status === 'streaming',
         )}
@@ -1158,38 +1452,32 @@ export function SessionRail(): React.JSX.Element {
           >
             <Ic name="filter" size={13} />
           </button>
-        </div>
-        <button
-          className={`sr-session-archive ${app.archaeology ? 'active' : ''}`}
-          data-testid="rail-session-archive"
-          onClick={() => {
-            app.openArchaeology(null);
-            if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(false);
-          }}
-        >
-          <Ic name="clock" size={14} />
-          <span>
-            <strong>Session Archive</strong>
-            <small>
-              {tasks.length} tracked
-              {discovered.some((session) => !session.trackedTaskId)
-                ? ` · ${discovered.filter((session) => !session.trackedTaskId).length} external`
-                : ' · Claude & Codex discovery'}
-            </small>
-          </span>
-          <Ic name="chevron" size={11} className="sr-session-archive-chevron" />
-        </button>
-        <div className="sr-new-wrap">
           <button
-            className="sr-new"
+            className="sr-new-compact"
             data-testid="home-new-task"
-            title="Start from the shared Session Composer"
+            aria-label="New Session"
+            title="New Session"
             onClick={() => startSession()}
           >
-            <Ic name="plus" size={13} /> New Session
+            <Ic name="plus" size={15} />
+          </button>
+        </div>
+        <div className="sr-session-shortcuts">
+          <button
+            className={`sr-session-archive ${app.archaeology ? 'active' : ''}`}
+            data-testid="rail-session-archive"
+            title={`${tasks.length} tracked · ${discovered.filter((session) => !session.trackedTaskId).length} external`}
+            onClick={() => {
+              app.openArchaeology(null);
+              if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(false);
+            }}
+          >
+            <Ic name="clock" size={12} />
+            <span>Session Archive</span>
+            <small>{allEntries.length}</small>
           </button>
           <button
-            className="sr-new-menu"
+            className="sr-context-link"
             data-testid="rail-context"
             title={
               workspaceStore.workspace
@@ -1198,8 +1486,8 @@ export function SessionRail(): React.JSX.Element {
             }
             onClick={showProjects}
           >
-            <Ic name="folder" size={12} />
-            <span>{workspaceStore.workspace?.displayName ?? 'Project'}</span>
+            <Ic name="folder" size={11} />
+            <span>{workspaceStore.workspace ? 'Current project' : 'Choose project'}</span>
             <Ic name="chevron" size={10} />
           </button>
         </div>
@@ -1216,7 +1504,11 @@ export function SessionRail(): React.JSX.Element {
           displayedGroups.map(({ group, entries }) => {
             const isCollapsed = !filteringSessions && collapsed.has(group.key);
             const isExpanded = expandedGroups.has(group.key);
-            const hiddenCount = Math.max(0, group.entries.length - ACTIVE_SESSION_GROUP_LIMIT);
+            const compactEntryCount = visibleRailGroupEntries(group, {
+              expanded: false,
+              filtering: false,
+            }).length;
+            const hiddenCount = Math.max(0, group.entries.length - compactEntryCount);
             const hasOverflow = !group.history && !filteringSessions && hiddenCount > 0;
             const historyPeriods = group.history ? buildHistoryPeriods(entries, now) : [];
             return (
@@ -1337,7 +1629,7 @@ export function SessionRail(): React.JSX.Element {
                         aria-expanded={isExpanded}
                         aria-label={
                           isExpanded
-                            ? `Show only three sessions in ${group.name}`
+                            ? `Show compact sessions in ${group.name}`
                             : `Show ${hiddenCount} more sessions in ${group.name}`
                         }
                         onClick={() => toggleGroupExpanded(group.key)}

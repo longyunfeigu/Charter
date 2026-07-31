@@ -15,6 +15,8 @@ test('Mission Experience persists recursive work and supports decisions, evidenc
   });
   let taskId = '';
   let createdMissionId = '';
+  let bAssignmentId = '';
+  let dAssignmentId = '';
   try {
     await first.page.getByTestId('surface-home').click();
     await first.page.getByTestId('home-advanced-toggle').click();
@@ -76,6 +78,7 @@ test('Mission Experience persists recursive work and supports decisions, evidenc
       reason: 'Own the persistence workstream.',
       idempotencyKey: 'e2e-persistence-b',
     });
+    bAssignmentId = b.assignment.id;
     repository.bindRuntime(b.assignment.id, b.attempt.id, {
       runtimeSessionId: 'runtime-b',
       terminalId: 'terminal-b',
@@ -93,6 +96,7 @@ test('Mission Experience persists recursive work and supports decisions, evidenc
       reason: 'B needs a bounded independent schema review.',
       idempotencyKey: 'e2e-investigator-d',
     });
+    dAssignmentId = d.assignment.id;
     repository.bindRuntime(d.assignment.id, d.attempt.id, {
       runtimeSessionId: 'runtime-d',
       terminalId: 'terminal-d',
@@ -172,7 +176,22 @@ test('Mission Experience persists recursive work and supports decisions, evidenc
   second.page.on('pageerror', (error) => pageErrors.push(error.message));
   try {
     await expect(second.page.getByTestId('rail-view-missions')).toBeVisible({ timeout: 15_000 });
-    await second.page.getByTestId('rail-view-missions').click();
+    await second.page.getByTestId('rail-view-sessions').click();
+    const bSession = second.page.getByTestId(`session-mission-${bAssignmentId}`);
+    const dSession = second.page.getByTestId(`session-mission-${dAssignmentId}`);
+    await expect(second.page.getByTestId(`home-task-${taskId}`)).toBeVisible();
+    await expect(bSession).toBeVisible();
+    await expect(dSession).toBeVisible();
+    await expect(bSession.locator('..')).toHaveAttribute('style', /--sr-depth:\s*1/);
+    await expect(dSession.locator('..')).toHaveAttribute('style', /--sr-depth:\s*2/);
+    await second.page.screenshot({ path: '/tmp/charter-mission-session-hierarchy.png' });
+    await dSession.click();
+    await expect(second.page.getByTestId('mission-runtime-session')).toBeVisible();
+    await expect(second.page.getByTestId('mission-runtime-session')).toContainText(
+      'review complete',
+    );
+
+    await second.page.getByRole('button', { name: 'All Missions' }).click();
     await expect(second.page.getByTestId('mission-center')).toBeVisible();
     await expect(second.page.getByTestId(`mission-center-card-${createdMissionId}`)).toContainText(
       'Ship Mission Orchestration V2',
@@ -181,7 +200,7 @@ test('Mission Experience persists recursive work and supports decisions, evidenc
     await second.page.getByTestId(`home-task-${taskId}`).click();
     const strip = second.page.getByTestId('mission-status-strip');
     await expect(strip).toBeVisible();
-    await expect(strip).toContainText('Ship Mission Orchestration V2');
+    await expect(strip).toHaveAttribute('aria-label', /Ship Mission Orchestration V2/);
     await expect(strip).toContainText('3 of 3 work items done');
     await strip.click();
 
@@ -193,10 +212,60 @@ test('Mission Experience persists recursive work and supports decisions, evidenc
 
     await second.page.getByTestId('mission-tab-work').click();
     const workMap = second.page.getByTestId('mission-work-map');
-    await expect(workMap.locator('.mission-work-card')).toHaveCount(3);
+    await expect(workMap.locator('.mission-graph-node')).toHaveCount(3);
     await expect(workMap).toContainText('Lead agent A');
     await expect(workMap).toContainText('Persistence specialist B');
     await expect(workMap).toContainText('Migration investigator D');
+    await expect(second.page.getByTestId('mission-graph-human')).toBeVisible();
+    await expect(workMap.locator('.mission-graph-edge.communication')).toHaveCount(1);
+    await expect(second.page.getByTestId('mission-graph-timeline')).toContainText('Live');
+    await expect(second.page.getByTestId('mission-graph-detail-drawer')).not.toBeVisible();
+
+    const persistenceNode = workMap
+      .locator('.mission-graph-node')
+      .filter({ hasText: 'Persistence specialist B' });
+    const migrationNode = workMap
+      .locator('.mission-graph-node')
+      .filter({ hasText: 'Migration investigator D' });
+    await persistenceNode.click();
+    const graphDrawer = second.page.getByTestId('mission-graph-detail-drawer');
+    await expect(graphDrawer).toBeVisible();
+    await expect(graphDrawer.getByTestId('mission-work-detail')).toContainText(
+      'Persistence specialist B',
+    );
+    await migrationNode.click();
+    await expect(graphDrawer.getByTestId('mission-work-detail')).toContainText(
+      'Migration investigator D',
+    );
+    await graphDrawer.getByTestId('mission-open-agent-session').click();
+    await expect(graphDrawer.getByTestId('mission-runtime-session')).toContainText(
+      'review complete',
+    );
+    await second.page.screenshot({ path: '/tmp/charter-mission-agent-session.png' });
+    await expect(second.page.getByTestId('mission-graph-detail-expand')).toContainText('Restore');
+    await second.page.getByTestId('mission-graph-detail-expand').click();
+    await second.page.getByTestId('mission-inspector-tab-conversation').click();
+    await expect(graphDrawer).toContainText('Schema ownership check');
+    const drawerBeforeExpand = await graphDrawer.boundingBox();
+    expect(drawerBeforeExpand?.width ?? 0).toBeGreaterThan(560);
+    await second.page.screenshot({ path: '/tmp/charter-mission-graph-detail.png' });
+    await second.page.getByTestId('mission-graph-detail-expand').click();
+    const drawerAfterExpand = await graphDrawer.boundingBox();
+    expect(drawerAfterExpand?.width ?? 0).toBeGreaterThan(drawerBeforeExpand?.width ?? 0);
+    await second.page.getByTestId('mission-graph-detail-close').click();
+    await expect(graphDrawer).not.toBeVisible();
+
+    await second.page.waitForTimeout(300);
+    await second.page.screenshot({ path: '/tmp/charter-mission-graph-wide.png' });
+    const wideViewport = second.page.viewportSize();
+    await second.page.setViewportSize({ width: 900, height: 760 });
+    await expect(workMap.locator('.mission-graph-node')).toHaveCount(3);
+    await second.page.waitForTimeout(300);
+    await second.page.screenshot({ path: '/tmp/charter-mission-graph-narrow.png' });
+    if (wideViewport) await second.page.setViewportSize(wideViewport);
+
+    await second.page.getByTestId('mission-view-outline').click();
+    await expect(workMap.locator('.mission-work-card')).toHaveCount(3);
     await expect(workMap.locator('.mission-work-children .mission-work-children')).toHaveCount(1);
     await expect(workMap).toContainText('Review the schema and report migration risks to B.');
 
@@ -212,11 +281,13 @@ test('Mission Experience persists recursive work and supports decisions, evidenc
     await workMap.getByRole('button', { name: /Migration investigator D/ }).click();
     const details = second.page.getByTestId('mission-work-detail');
     await expect(details).toContainText('Schema review complete');
+    await second.page.getByTestId('mission-inspector-tab-evidence').click();
     await expect(second.page.getByTestId('mission-artifacts')).toContainText('Migration review');
     await expect(second.page.getByTestId('mission-artifacts')).toContainText('Schema checks');
     await expect(second.page.getByTestId('mission-artifacts')).toContainText(
       'packages/persistence/src/migrations.ts',
     );
+    await second.page.getByTestId('mission-inspector-tab-attempts').click();
     await details.getByText('Advanced controls and runtime details').click();
     await expect(details).toContainText('SUCCEEDED');
     await expect(details).toContainText('runtime-d');

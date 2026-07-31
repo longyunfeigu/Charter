@@ -397,4 +397,66 @@ describe('MissionOrchestrationService', () => {
     });
     expect(runtime.starts).toHaveLength(2);
   });
+
+  it('parks the Lead turn and automatically resumes the exact Session after child completion', async () => {
+    const adopted = service.adopt({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Automatic continuation',
+      goal: 'Resume without wait polling',
+      principal: { id: 'A', kind: 'managed_agent', displayName: 'A' },
+      runtimeSessionId: 'runtime-A',
+      requestedRuntime: 'managed',
+    });
+    const child = service.delegate(adopted.caller, {
+      goal: 'Finish asynchronously',
+      acceptanceCriteria: [],
+      requestedRuntime: 'managed',
+      reason: 'continuation test',
+      idempotencyKey: 'continuation-child',
+    });
+    await runner.drain();
+
+    const parked = service.park(adopted.caller, {
+      mode: 'all',
+      conditions: [{ kind: 'assignment_terminal', assignmentId: child.assignment.id }],
+      reason: 'Wait for the child result',
+      idempotencyKey: 'lead-parks-on-child',
+    });
+    expect(parked.continuation.state).toBe('ARMED');
+    expect(parked.nextAction).toMatch(/Stop this agent turn/i);
+    expect(service.repository.getAssignment(adopted.caller.assignmentId!)?.state).toBe('WAITING');
+
+    service.complete(service.contextForAssignment(child.assignment.id, 'managed-run'), {
+      outcome: 'success',
+      summary: 'child finished',
+    });
+    await runner.drain();
+
+    expect(runtime.delivered).toHaveLength(1);
+    expect(runtime.delivered[0]).toEqual(
+      expect.objectContaining({
+        runtimeSessionId: 'runtime-A',
+        text: expect.stringContaining('charter orchestration continue'),
+      }),
+    );
+    expect(runtime.delivered[0]?.text).toContain(parked.continuation.id);
+    expect(service.repository.getContinuation(parked.continuation.id)?.state).toBe('DELIVERED');
+
+    const resumed = service.continue(adopted.caller, {
+      continuationId: parked.continuation.id,
+    });
+    expect(resumed.continuation.state).toBe('CONSUMED');
+    expect(resumed.resumeIntent?.state).toBe('ACKNOWLEDGED');
+    expect(resumed.assignments).toContainEqual(
+      expect.objectContaining({ id: child.assignment.id, state: 'COMPLETED' }),
+    );
+    expect(resumed.messages).toContainEqual(
+      expect.objectContaining({ fromAssignmentId: child.assignment.id, type: 'completion' }),
+    );
+    expect(service.repository.getAssignment(adopted.caller.assignmentId!)?.state).toBe('ACTIVE');
+    expect(
+      service.continue(adopted.caller, { continuationId: parked.continuation.id }).reused,
+    ).toBe(true);
+  });
 });
