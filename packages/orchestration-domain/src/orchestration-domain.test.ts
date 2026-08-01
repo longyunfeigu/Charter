@@ -11,10 +11,10 @@ import {
 } from './index.js';
 
 describe('orchestration domain', () => {
-  it('uses one inherited Mission-wide execution policy', () => {
+  it('inherits the host tool policy while enforcing hierarchical control', () => {
     expect(defaultMissionExecutionPolicy('/repo')).toEqual({
       inheritHostPermissions: true,
-      controlScope: 'mission-wide',
+      controlScope: 'hierarchical',
       workspaceRoot: '/repo',
       toolPolicy: 'inherit',
       runtimeDefaults: { environment: {} },

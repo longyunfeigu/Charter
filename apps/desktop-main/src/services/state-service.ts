@@ -5,10 +5,24 @@ import {
   type RecentWorkspaceDto,
 } from '@pi-ide/ipc-contracts';
 import { errorMessage, newId, type Logger, type ProductError } from '@pi-ide/foundation';
-import { existsSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const APP_SCOPE = '__app__';
+
+function registeredProjectExists(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch (error) {
+    const code =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code)
+        : null;
+    // Only confirmed deletion removes a project from navigation. Permission
+    // errors and temporarily unavailable mounts remain registered.
+    return code !== 'ENOENT' && code !== 'ENOTDIR';
+  }
+}
 
 /** Main-process durable state: layout, recent workspaces, local error records. */
 export class StateService {
@@ -89,7 +103,7 @@ export class StateService {
       displayName: r.display_name,
       lastOpenedAt: r.last_opened_at,
       pinned: r.pinned === 1,
-      exists: existsSync(r.canonical_path),
+      exists: registeredProjectExists(r.canonical_path),
       kind: null, // project-type badge is detected at the IPC layer (cheap fs checks)
     }));
   }

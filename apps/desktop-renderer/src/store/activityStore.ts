@@ -96,6 +96,13 @@ export const useActivityStore = create<ActivityStore>((set, get) => ({
       void taskId;
       get().ingest(item);
     });
+    onEvent('task.deleted', ({ taskId }) => {
+      const { [taskId]: _deleted, ...perTask } = get().perTask;
+      set({
+        perTask,
+        pulses: get().pulses.filter((pulse) => pulse.taskId !== taskId),
+      });
+    });
     // ADR-0009: activity is global; switching the focused project keeps every
     // task's presence alive.
   },

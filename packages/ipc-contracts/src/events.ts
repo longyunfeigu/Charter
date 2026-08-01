@@ -276,6 +276,7 @@ export const EVENT_CHANNELS = {
     2,
     z.object({ taskId: z.string(), state: TaskStateSchema, task: TaskDtoSchema }),
   ),
+  'task.deleted': ev('task.deleted', 1, z.object({ taskId: z.string() })),
   'agent.workerStatus': ev(
     'agent.workerStatus',
     1,

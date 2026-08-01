@@ -2881,6 +2881,16 @@ export class TaskService {
     return buildExternalSessionIndex(rows);
   }
 
+  /** External transcripts explicitly removed from Charter. The source files
+   * remain owned by Claude/Codex, but archaeology must not resurrect them as
+   * new untracked Sessions after Charter's task ledger has been deleted. */
+  deletedExternalSessionKeys(): Set<string> {
+    const rows = this.db
+      .prepare('SELECT cli, session_id FROM deleted_external_sessions')
+      .all() as Array<{ cli: string; session_id: string }>;
+    return new Set(rows.map((row) => `${row.cli}:${row.session_id.toLowerCase()}`));
+  }
+
   /** Active task identity for a daemon PTY that survived an Electron restart. */
   activeExternalTaskForTerminal(terminalId: string): TaskDto | null {
     const rows = this.db
@@ -3442,6 +3452,111 @@ export class TaskService {
       .prepare('UPDATE tasks SET archived = 1, updated_at = ? WHERE id = ?')
       .run(new Date().toISOString(), taskId);
     return { status: 'archived', task: this.getTask(taskId) };
+  }
+
+  /** Permanently remove one settled Session and its complete Charter ledger.
+   * Project files are never touched. A dirty isolated worktree must first be
+   * archived (merge back) or rolled back so a compact rail action cannot
+   * silently destroy unmerged work. */
+  async deleteTask(taskId: string): Promise<void> {
+    const task = this.getTask(taskId);
+    if (isRunningState(task.state as TaskState) || task.external?.status === 'active') {
+      throw new ProductFailure(
+        productError('TASK_RUNNING', {
+          userMessage: 'Stop the running Session before deleting it.',
+        }),
+      );
+    }
+
+    let worktree: TaskWorktree | null = null;
+    let worktreeRoot: string | null = null;
+    if (task.worktree && existsSync(task.worktree.path)) {
+      const context = this.contextForTask(taskId);
+      const changes = await context.changes.changeSet(taskId);
+      if (changes.files.length > 0) {
+        throw new ProductFailure(
+          productError('TASK_DELETE_UNMERGED_CHANGES', {
+            userMessage:
+              'This Session still has unmerged worktree changes. Archive it to keep the changes, or roll them back before deleting.',
+          }),
+        );
+      }
+      worktree = task.worktree as TaskWorktree;
+      worktreeRoot = context.root;
+    }
+
+    const externalSessionId = task.external?.sessionId?.toLowerCase() ?? null;
+    const externalCli = task.external?.cli ?? null;
+    this.db.transaction(() => {
+      if (externalSessionId && (externalCli === 'claude' || externalCli === 'codex')) {
+        this.db
+          .prepare(
+            `INSERT INTO deleted_external_sessions (cli, session_id, deleted_at)
+             VALUES (?, ?, ?)
+             ON CONFLICT(cli, session_id) DO UPDATE SET deleted_at = excluded.deleted_at`,
+          )
+          .run(externalCli, externalSessionId, new Date().toISOString());
+      }
+
+      const statements: Array<{ sql: string; params?: string[] }> = [
+        {
+          sql: `DELETE FROM permission_decisions
+                WHERE task_id = ?
+                   OR request_id IN (SELECT id FROM permission_requests WHERE task_id = ?)`,
+          params: [taskId, taskId],
+        },
+        { sql: 'DELETE FROM permission_requests WHERE task_id = ?', params: [taskId] },
+        { sql: 'DELETE FROM file_changes WHERE task_id = ?', params: [taskId] },
+        { sql: 'DELETE FROM file_baselines WHERE task_id = ?', params: [taskId] },
+        { sql: 'DELETE FROM verification_runs WHERE task_id = ?', params: [taskId] },
+        { sql: 'DELETE FROM tool_calls WHERE task_id = ?', params: [taskId] },
+        { sql: 'DELETE FROM agent_runs WHERE task_id = ?', params: [taskId] },
+        { sql: 'DELETE FROM agent_sessions WHERE task_id = ?', params: [taskId] },
+        { sql: 'DELETE FROM task_events WHERE task_id = ?', params: [taskId] },
+        {
+          sql: 'DELETE FROM task_conversation_references WHERE task_id = ? OR source_task_id = ?',
+          params: [taskId, taskId],
+        },
+        { sql: 'DELETE FROM memory_rule_injections WHERE task_id = ?', params: [taskId] },
+        { sql: 'DELETE FROM skill_invocations WHERE task_id = ?', params: [taskId] },
+        {
+          sql: 'UPDATE memory_rule_stats SET source_task_id = NULL, source_label = NULL WHERE source_task_id = ?',
+          params: [taskId],
+        },
+        { sql: 'DELETE FROM tasks WHERE id = ?', params: [taskId] },
+      ];
+      for (const statement of statements) {
+        this.db.prepare(statement.sql).run(...(statement.params ?? []));
+      }
+    });
+
+    this.sessionRefs.delete(taskId);
+    this.runsByTask.delete(taskId);
+    this.orchestrationByTask.delete(taskId);
+    this.planRecords.delete(taskId);
+    for (let index = this.startQueue.length - 1; index >= 0; index -= 1) {
+      if (this.startQueue[index]?.taskId === taskId) this.startQueue.splice(index, 1);
+    }
+
+    if (worktree) {
+      try {
+        await this.worktrees.discard(task.projectPath, worktree);
+      } catch (error) {
+        // The Session is already gone. Startup orphan sweeping will retry the
+        // filesystem cleanup, so surface this only in diagnostics.
+        this.logger.warn('deleted Session left a clean worktree for orphan cleanup', {
+          taskId,
+          error: errorMessage(error),
+        });
+      }
+      if (worktreeRoot) this.contexts.drop(worktreeRoot);
+    }
+
+    broadcast('task.deleted', { taskId });
+    this.logger.info('Session permanently deleted', {
+      taskId,
+      externalTranscriptSuppressed: Boolean(externalSessionId && externalCli),
+    });
   }
 
   /** ADR-0032: the Session's turn ledger — one row per agent run with its

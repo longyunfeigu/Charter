@@ -32,6 +32,64 @@ function createIdleAgentBins(): string {
 }
 
 test.describe('Session Rail Workbench', () => {
+  test('permanently deletes a stopped Session instead of only archiving it', async () => {
+    const fixture = realpathSync(createGitFixture());
+    const { app, page } = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+      home: 'keep',
+    });
+    try {
+      await page.getByTestId('home-new-task').click();
+      await page.getByTestId('home-advanced-toggle').click();
+      await page.getByTestId('home-adv-title').fill('Delete this session');
+      await page.getByTestId('home-intent').fill('[scenario:ask-basic] disposable answer');
+      await page.getByTestId('home-mode-ask').click();
+      await page.getByTestId('home-submit').click();
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
+        timeout: 20_000,
+      });
+
+      const taskId = await page.evaluate(async () => {
+        const result = (await window.product.rpc['task.list']!({
+          filter: 'all',
+          includeArchived: true,
+          scope: 'all',
+        })) as {
+          ok: boolean;
+          data?: { tasks: Array<{ id: string; title: string }> };
+        };
+        return result.data?.tasks.find((task) => task.title === 'Delete this session')?.id ?? null;
+      });
+      expect(taskId).not.toBeNull();
+
+      const row = page.getByTestId(`home-task-${taskId!}`);
+      await row.hover();
+      const remove = page.getByTestId(`home-delete-${taskId!}`);
+      await expect(remove).toHaveAttribute('aria-label', 'Delete session');
+      await remove.click();
+      await expect(remove).toHaveAttribute('aria-label', 'Click again to permanently delete');
+      await remove.click();
+
+      await expect(page.getByText('Session permanently deleted.')).toBeVisible();
+      await expect(row).toHaveCount(0);
+      await expect(page.getByTestId('home-view')).toBeVisible();
+      const remains = await page.evaluate(async (id) => {
+        const result = (await window.product.rpc['task.list']!({
+          filter: 'all',
+          includeArchived: true,
+          scope: 'all',
+        })) as {
+          ok: boolean;
+          data?: { tasks: Array<{ id: string }> };
+        };
+        return result.data?.tasks.some((task) => task.id === id) ?? false;
+      }, taskId);
+      expect(remains).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+
   test('keeps Sessions present across Agent choice and in-room editing', async () => {
     const fixture = realpathSync(createGitFixture());
     const { app, page } = await launchApp({
@@ -84,7 +142,7 @@ test.describe('Session Rail Workbench', () => {
   });
 
   // ADR-0023 direction D: activity bar + project-grouped panel with one global
-  // Inbox badge and a resident working-context control in the new-session row.
+  // Inbox badge and a compact creation control in the Sessions header.
   test('groups sessions by project and routes attention through the inbox', async () => {
     const fixture = realpathSync(createGitFixture());
     const name = fixture.split('/').pop()!;
@@ -139,9 +197,8 @@ test.describe('Session Rail Workbench', () => {
       await group.click();
       await expect(page.locator('[data-testid^="home-task-"]').first()).toBeVisible();
 
-      // The resident working-context row routes to the Projects panel.
-      await expect(page.getByTestId('rail-context')).toContainText(name);
-      await page.getByTestId('rail-context').click();
+      // Projects remains available from its stable Activity Bar entry.
+      await page.getByTestId('rail-view-projects').click();
       await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
       await expect(page.locator('.sr-project-wrap.current')).toBeVisible();
     } finally {
@@ -178,17 +235,47 @@ test.describe('Session Rail Workbench', () => {
         await window.product.rpc['workspace.open']!({ path });
       }, fixtureB);
       await page.getByTestId('rail-tab-sessions').click();
-      await expect(page.getByTestId('rail-context')).toContainText(nameB);
+      await page.getByTestId('rail-tab-files').click();
+      await expect(page.getByTestId('session-files-pane')).toContainText(nameB);
+      await page.getByTestId('rail-tab-sessions').click();
 
       // Entering A's session pulls the context back to A while the room stays.
       await page.locator('[data-testid^="home-task-"]').first().click();
       await expect(page.getByTestId('task-room')).toBeVisible();
-      await expect(page.getByTestId('rail-context')).toContainText(nameA);
       await page.getByTestId('rail-tab-files').click();
       const filesPane = page.getByTestId('session-files-pane');
       await expect(filesPane).toContainText(nameA);
       await expect(filesPane).toContainText('README.md');
       await expect(page.getByTestId('task-room')).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('creates in the project selected before returning to Sessions', async () => {
+    const projectA = realpathSync(createGitFixture());
+    const projectB = realpathSync(createGitFixture());
+    const first = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: projectA, PI_IDE_FORCE_MOCK: '1' },
+      home: 'keep',
+    });
+    const userDataDir = first.userDataDir;
+    await first.app.close();
+
+    const { app, page } = await launchApp({
+      userDataDir,
+      env: { PI_IDE_OPEN_WORKSPACE: projectB, PI_IDE_FORCE_MOCK: '1' },
+      home: 'keep',
+    });
+    try {
+      await expect(page.getByTestId('rail-session-archive')).toBeVisible();
+      await expect(page.getByTestId('rail-context')).toHaveCount(0);
+      await page.getByTestId('rail-view-projects').click();
+      await page.getByTestId(`home-recent-${projectA}`).click();
+      await page.getByTestId('rail-view-sessions').click();
+      await page.getByTestId('home-new-task').click();
+      await expect(page.getByTestId('home-view')).toBeVisible();
+      await expect(page.getByTestId('home-project')).toContainText(projectA.split('/').pop()!);
     } finally {
       await app.close();
     }
@@ -208,7 +295,6 @@ test.describe('Session Rail Workbench', () => {
       },
       home: 'keep',
     });
-    const name = fixture.split('/').pop()!;
     const rendererErrors: string[] = [];
     page.on('pageerror', (error) => rendererErrors.push(`pageerror: ${error.message}`));
     page.on('console', (message) => {
@@ -220,8 +306,7 @@ test.describe('Session Rail Workbench', () => {
       // The boot-time workspace open swaps the shell tree and remounts the
       // rail — wait until the working context is bound before driving panel
       // state, or the Projects view resets underneath the test.
-      await expect(page.getByTestId('rail-context')).toContainText(name);
-      await page.getByTestId('rail-context').click();
+      await page.getByTestId('rail-view-projects').click();
       await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
 
       // One explicit Use action binds the project to the shared Composer.

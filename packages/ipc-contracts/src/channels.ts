@@ -1053,6 +1053,30 @@ export const CHANNELS = {
     z.object({ limit: z.number().int().min(1).max(200).default(50) }).strict(),
     z.object({ missions: z.array(MissionSnapshotSchema) }),
   ),
+  'mission.listDeleted': ch(
+    'mission.listDeleted',
+    1,
+    z.object({ limit: z.number().int().min(1).max(200).default(50) }).strict(),
+    z.object({ missions: z.array(MissionSnapshotSchema) }),
+  ),
+  'mission.trash': ch(
+    'mission.trash',
+    1,
+    z.object({ missionId: z.string().min(1) }).strict(),
+    MissionSnapshotSchema,
+  ),
+  'mission.restore': ch(
+    'mission.restore',
+    1,
+    z.object({ missionId: z.string().min(1) }).strict(),
+    MissionSnapshotSchema,
+  ),
+  'mission.deletePermanently': ch(
+    'mission.deletePermanently',
+    1,
+    z.object({ missionId: z.string().min(1) }).strict(),
+    z.object({ deleted: z.literal(true) }),
+  ),
   'mission.pauseAssignment': ch(
     'mission.pauseAssignment',
     1,
@@ -1085,6 +1109,22 @@ export const CHANNELS = {
         missionId: z.string().min(1),
         messageId: z.string().min(1),
         body: z.string().min(1).max(100_000),
+      })
+      .strict(),
+    MissionSnapshotSchema,
+  ),
+  'mission.resolveActionRequest': ch(
+    'mission.resolveActionRequest',
+    1,
+    z
+      .object({
+        missionId: z.string().min(1),
+        requestId: z.string().min(1),
+        outcome: z.string().min(1).max(300),
+        body: z.string().max(100_000).optional(),
+        payload: z.record(z.string(), z.unknown()).nullable().optional(),
+        rationale: z.string().max(10_000).nullable().optional(),
+        idempotencyKey: z.string().min(1).max(300),
       })
       .strict(),
     MissionSnapshotSchema,
@@ -1573,6 +1613,12 @@ export const CHANNELS = {
       status: z.enum(['archived', 'conflicts']).default('archived'),
       conflicts: z.array(z.object({ path: z.string(), reason: z.string() })).optional(),
     }),
+  ),
+  'task.delete': ch(
+    'task.delete',
+    1,
+    z.object({ taskId: z.string() }).strict(),
+    z.object({ deleted: z.literal(true) }),
   ),
   /** ADR-0032: the Session's turn ledger — one row per agent run with its
    * settlement, prompt excerpt and per-turn change stats. */

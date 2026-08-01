@@ -3,11 +3,7 @@ import type { MissionSnapshotDto } from '@pi-ide/ipc-contracts';
 import { Ic, ProviderMark, type ProviderMarkKind } from '../home-icons.js';
 import { buildMissionGraph } from './mission-graph-model.js';
 import type { MissionGraphSelection } from './MissionGraph.js';
-import {
-  formatMissionTime,
-  principalName,
-  unresolvedDecisionMessages,
-} from './mission-view-model.js';
+import { formatMissionTime, principalName, userActionRequests } from './mission-view-model.js';
 
 function providerMark(provider: string | null, kind: string | undefined): ProviderMarkKind {
   if (provider === 'claude') return 'claude';
@@ -25,13 +21,13 @@ export function MissionCollaborationInspector({
   snapshot,
   selection,
   replayAt,
-  onReply,
+  onResolve,
   onSelectTask,
 }: {
   snapshot: MissionSnapshotDto;
   selection: Exclude<MissionGraphSelection, { kind: 'task' } | null>;
   replayAt: number | null;
-  onReply: (messageId: string, body: string) => void;
+  onResolve: (requestId: string, outcome: string, body?: string, rationale?: string) => void;
   onSelectTask: (taskId: string) => void;
 }): React.JSX.Element {
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -47,9 +43,14 @@ export function MissionCollaborationInspector({
   );
 
   if (selection.kind === 'human') {
-    const replaySnapshot = { ...snapshot, messages: messagesAtTime };
-    const unresolved = unresolvedDecisionMessages(replaySnapshot);
-    const failed = graph.nodes.filter((node) => node.state.tone === 'attention');
+    const replaySnapshot = {
+      ...snapshot,
+      actionRequests: (snapshot.actionRequests ?? []).filter(
+        (request) => Date.parse(request.createdAt) <= (replayAt ?? Number.POSITIVE_INFINITY),
+      ),
+      messages: messagesAtTime,
+    };
+    const actions = userActionRequests(replaySnapshot);
     return (
       <article className="mission-collaboration-detail" data-testid="mission-human-detail">
         <header className="mission-collaboration-head human">
@@ -60,36 +61,61 @@ export function MissionCollaborationInspector({
             <small>Mission participant</small>
             <strong>You</strong>
           </div>
-          <b>{unresolved.length + failed.length}</b>
+          <b>{actions.length}</b>
         </header>
         <section className="mission-collaboration-intro">
-          <h2>Needs your attention</h2>
-          <p>Decisions and recovery actions that can move this Mission forward.</p>
+          <h2>Your actions</h2>
+          <p>Explicit decisions the Mission Lead assigned to you.</p>
         </section>
         <div className="mission-human-queue">
-          {unresolved.map((message) => {
-            const sourceTask = message.fromAssignmentId
-              ? assignmentTask.get(message.fromAssignmentId)
+          {actions.map((request) => {
+            const sourceTask = request.createdByAssignmentId
+              ? assignmentTask.get(request.createdByAssignmentId)
               : null;
+            const options =
+              request.options.length > 0
+                ? request.options
+                : request.responseType === 'approval'
+                  ? [
+                      { id: 'approved', label: 'Approve' },
+                      { id: 'rejected', label: 'Reject' },
+                    ]
+                  : [];
             return (
               <article
-                key={message.id}
-                className={`mission-human-item priority-${message.priority}`}
+                key={request.id}
+                className={`mission-human-item priority-${request.priority}`}
               >
                 <header>
-                  <span>{message.type === 'question' ? 'Decision' : 'Escalation'}</span>
-                  <time>{formatMissionTime(message.createdAt)}</time>
+                  <span>{request.kind}</span>
+                  <time>{formatMissionTime(request.createdAt)}</time>
                 </header>
-                <h3>{message.subject}</h3>
-                {message.body ? <p>{message.body}</p> : null}
-                <small>From {principalName(snapshot, message.fromAssignmentId)}</small>
-                {replyingTo === message.id ? (
+                <h3>{request.title}</h3>
+                {request.context ? <p>{request.context}</p> : null}
+                {request.impact ? <p>Why it matters: {request.impact}</p> : null}
+                {request.recommendation ? (
+                  <p>Team recommendation: {request.recommendation}</p>
+                ) : null}
+                <small>From {principalName(snapshot, request.createdByAssignmentId)}</small>
+                {options.length > 0 && replayAt === null ? (
+                  <span className="mission-human-item-actions">
+                    {options.map((option) => (
+                      <button
+                        key={option.id}
+                        className={options[0]?.id === option.id ? 'mission-primary' : ''}
+                        onClick={() => onResolve(request.id, option.id, option.label)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </span>
+                ) : replyingTo === request.id ? (
                   <form
                     onSubmit={(event) => {
                       event.preventDefault();
                       const body = reply.trim();
                       if (!body) return;
-                      onReply(message.id, body);
+                      onResolve(request.id, 'answered', body);
                       setReply('');
                       setReplyingTo(null);
                     }}
@@ -121,7 +147,7 @@ export function MissionCollaborationInspector({
                         className="mission-primary"
                         onClick={() => {
                           setReply('');
-                          setReplyingTo(message.id);
+                          setReplyingTo(request.id);
                         }}
                       >
                         Respond
@@ -132,29 +158,11 @@ export function MissionCollaborationInspector({
               </article>
             );
           })}
-          {failed.map((node) => (
-            <button
-              key={node.id}
-              className="mission-human-recovery"
-              onClick={() => onSelectTask(node.id)}
-            >
-              <span>
-                <Ic name="wrench" size={13} />
-              </span>
-              <span>
-                <strong>{node.task.title}</strong>
-                <small>
-                  {node.state.label} · {node.principal?.displayName ?? 'Agent'} · Review recovery
-                </small>
-              </span>
-              <Ic name="chevron" size={11} />
-            </button>
-          ))}
-          {unresolved.length === 0 && failed.length === 0 ? (
+          {actions.length === 0 ? (
             <div className="mission-collaboration-empty">
               <Ic name="checkCircle" size={22} />
-              <strong>Nothing needs you here</strong>
-              <span>Return to Live to see current decisions and recovery actions.</span>
+              <strong>No actions assigned to you</strong>
+              <span>Agent requests and runtime issues stay in their own team views.</span>
             </div>
           ) : null}
         </div>

@@ -8,6 +8,10 @@ import {
   type AssignmentArtifact,
   type AssignmentWorkMode,
   type AssignmentState,
+  type ActionRequestBlockingScope,
+  type ActionRequestKind,
+  type ActionRequestOption,
+  type ActionRequestResponseType,
   type ContinuationBundle,
   type ContinuationCondition,
   type ContinuationMode,
@@ -15,6 +19,13 @@ import {
   type Mission,
   type MissionExecutionPolicy,
   type MissionTask,
+  type OrchestrationActionRequest,
+  type OrchestrationActionResolution,
+  type OrchestrationConversation,
+  type OrchestrationConversationParticipant,
+  type OrchestrationIncident,
+  type OrchestrationIncidentSeverity,
+  type OrchestrationIncidentState,
   type OrchestrationMessage,
   type OrchestrationMessageDelivery,
   type OrchestrationMessagePriority,
@@ -35,6 +46,8 @@ type JsonObject = Record<string, unknown>;
 
 const SNAPSHOT_RUNTIME_EVENT_LIMIT = 100;
 const SNAPSHOT_RUNTIME_EVENT_PAYLOAD_MAX_BYTES = 16 * 1024;
+const MISSION_TRASH_RETENTION_DAYS = 30;
+const TERMINAL_MISSION_STATES = new Set<Mission['state']>(['COMPLETED', 'FAILED', 'CANCELLED']);
 
 interface MissionRow {
   id: string;
@@ -50,6 +63,7 @@ interface MissionRow {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  deleted_at: string | null;
 }
 
 interface TaskRow {
@@ -116,6 +130,8 @@ interface AttemptRow {
 interface MessageRow {
   id: string;
   mission_id: string;
+  conversation_id: string | null;
+  action_request_id: string | null;
   from_assignment_id: string | null;
   to_assignment_id: string | null;
   thread_id: string | null;
@@ -131,6 +147,80 @@ interface MessageRow {
   read_at: string | null;
   suppressed_at: string | null;
   suppression_reason: string | null;
+}
+
+interface ConversationRow {
+  id: string;
+  mission_id: string;
+  topic: string;
+  created_by_principal_id: string | null;
+  state: OrchestrationConversation['state'];
+  created_at: string;
+  updated_at: string;
+}
+
+interface ConversationParticipantRow {
+  conversation_id: string;
+  principal_id: string;
+  assignment_id: string | null;
+  joined_at: string;
+}
+
+interface ActionRequestRow {
+  id: string;
+  mission_id: string;
+  conversation_id: string;
+  related_task_id: string | null;
+  created_by_principal_id: string;
+  created_by_assignment_id: string | null;
+  assigned_to_principal_id: string;
+  assigned_to_assignment_id: string | null;
+  kind: ActionRequestKind;
+  title: string;
+  context: string;
+  response_type: ActionRequestResponseType;
+  options_json: string;
+  recommendation: string | null;
+  impact: string | null;
+  priority: OrchestrationMessagePriority;
+  blocking_scope: ActionRequestBlockingScope;
+  status: OrchestrationActionRequest['status'];
+  opening_message_id: string | null;
+  idempotency_key: string;
+  due_at: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ActionResolutionRow {
+  id: string;
+  request_id: string;
+  resolved_by_principal_id: string;
+  resolved_by_assignment_id: string | null;
+  outcome: string;
+  body: string;
+  payload_json: string | null;
+  rationale: string | null;
+  idempotency_key: string;
+  created_at: string;
+}
+
+interface IncidentRow {
+  id: string;
+  mission_id: string;
+  assignment_id: string | null;
+  attempt_id: string | null;
+  kind: string;
+  severity: OrchestrationIncidentSeverity;
+  state: OrchestrationIncidentState;
+  summary: string;
+  detail_json: string | null;
+  automatic_attempts: number;
+  action_request_id: string | null;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
 }
 
 interface ArtifactRow {
@@ -236,6 +326,11 @@ interface ResumeIntentRow {
 export interface MissionSnapshot {
   mission: Mission;
   principals: OrchestrationPrincipal[];
+  conversations: OrchestrationConversation[];
+  conversationParticipants: OrchestrationConversationParticipant[];
+  actionRequests: OrchestrationActionRequest[];
+  actionResolutions: OrchestrationActionResolution[];
+  incidents: OrchestrationIncident[];
   tasks: MissionTask[];
   dependencies: TaskDependency[];
   assignments: Assignment[];
@@ -335,6 +430,8 @@ export interface OutboxRecord {
 
 export interface CreateMessageInput {
   missionId: string;
+  conversationId?: string | null;
+  actionRequestId?: string | null;
   fromAssignmentId: string | null;
   toAssignmentId: string | null;
   threadId?: string | null;
@@ -344,6 +441,65 @@ export interface CreateMessageInput {
   subject: string;
   body?: string;
   payload?: JsonObject | null;
+}
+
+export interface CreateActionRequestInput {
+  missionId: string;
+  conversationId?: string | null;
+  relatedTaskId?: string | null;
+  createdByPrincipalId: string;
+  createdByAssignmentId: string | null;
+  assignedToPrincipalId: string;
+  assignedToAssignmentId: string | null;
+  kind: ActionRequestKind;
+  title: string;
+  context?: string;
+  responseType: ActionRequestResponseType;
+  options?: ActionRequestOption[];
+  recommendation?: string | null;
+  impact?: string | null;
+  priority?: OrchestrationMessagePriority;
+  blockingScope?: ActionRequestBlockingScope;
+  dueAt?: string | null;
+  idempotencyKey: string;
+}
+
+export interface CreateActionRequestResult {
+  request: OrchestrationActionRequest;
+  conversation: OrchestrationConversation;
+  message: OrchestrationMessage;
+  reused: boolean;
+}
+
+export interface ResolveActionRequestInput {
+  requestId: string;
+  resolvedByPrincipalId: string;
+  resolvedByAssignmentId: string | null;
+  outcome: string;
+  body?: string;
+  payload?: JsonObject | null;
+  rationale?: string | null;
+  idempotencyKey: string;
+}
+
+export interface ResolveActionRequestResult {
+  request: OrchestrationActionRequest;
+  resolution: OrchestrationActionResolution;
+  message: OrchestrationMessage | null;
+  reused: boolean;
+}
+
+export interface RecordIncidentInput {
+  missionId: string;
+  assignmentId?: string | null;
+  attemptId?: string | null;
+  kind: string;
+  severity: OrchestrationIncidentSeverity;
+  state?: OrchestrationIncidentState;
+  summary: string;
+  detail?: JsonObject | null;
+  automaticAttempts?: number;
+  actionRequestId?: string | null;
 }
 
 export interface CompleteAttemptInput {
@@ -422,6 +578,7 @@ const missionFromRow = (row: MissionRow): Mission => ({
   createdAt: row.created_at,
   updatedAt: row.updated_at,
   completedAt: row.completed_at,
+  deletedAt: row.deleted_at,
 });
 
 const taskFromRow = (row: TaskRow): MissionTask => ({
@@ -488,6 +645,8 @@ const attemptFromRow = (row: AttemptRow): ExecutionAttempt => ({
 const messageFromRow = (row: MessageRow): OrchestrationMessage => ({
   id: row.id,
   missionId: row.mission_id,
+  conversationId: row.conversation_id,
+  actionRequestId: row.action_request_id,
   fromAssignmentId: row.from_assignment_id,
   toAssignmentId: row.to_assignment_id,
   threadId: row.thread_id,
@@ -503,6 +662,82 @@ const messageFromRow = (row: MessageRow): OrchestrationMessage => ({
   readAt: row.read_at,
   suppressedAt: row.suppressed_at,
   suppressionReason: row.suppression_reason,
+});
+
+const conversationFromRow = (row: ConversationRow): OrchestrationConversation => ({
+  id: row.id,
+  missionId: row.mission_id,
+  topic: row.topic,
+  createdByPrincipalId: row.created_by_principal_id,
+  state: row.state,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const conversationParticipantFromRow = (
+  row: ConversationParticipantRow,
+): OrchestrationConversationParticipant => ({
+  conversationId: row.conversation_id,
+  principalId: row.principal_id,
+  assignmentId: row.assignment_id,
+  joinedAt: row.joined_at,
+});
+
+const actionRequestFromRow = (row: ActionRequestRow): OrchestrationActionRequest => ({
+  id: row.id,
+  missionId: row.mission_id,
+  conversationId: row.conversation_id,
+  relatedTaskId: row.related_task_id,
+  createdByPrincipalId: row.created_by_principal_id,
+  createdByAssignmentId: row.created_by_assignment_id,
+  assignedToPrincipalId: row.assigned_to_principal_id,
+  assignedToAssignmentId: row.assigned_to_assignment_id,
+  kind: row.kind,
+  title: row.title,
+  context: row.context,
+  responseType: row.response_type,
+  options: parseJson(row.options_json, []),
+  recommendation: row.recommendation,
+  impact: row.impact,
+  priority: row.priority,
+  blockingScope: row.blocking_scope,
+  status: row.status,
+  openingMessageId: row.opening_message_id,
+  idempotencyKey: row.idempotency_key,
+  dueAt: row.due_at,
+  resolvedAt: row.resolved_at,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const actionResolutionFromRow = (row: ActionResolutionRow): OrchestrationActionResolution => ({
+  id: row.id,
+  requestId: row.request_id,
+  resolvedByPrincipalId: row.resolved_by_principal_id,
+  resolvedByAssignmentId: row.resolved_by_assignment_id,
+  outcome: row.outcome,
+  body: row.body,
+  payload: parseJson(row.payload_json, null),
+  rationale: row.rationale,
+  idempotencyKey: row.idempotency_key,
+  createdAt: row.created_at,
+});
+
+const incidentFromRow = (row: IncidentRow): OrchestrationIncident => ({
+  id: row.id,
+  missionId: row.mission_id,
+  assignmentId: row.assignment_id,
+  attemptId: row.attempt_id,
+  kind: row.kind,
+  severity: row.severity,
+  state: row.state,
+  summary: row.summary,
+  detail: parseJson(row.detail_json, null),
+  automaticAttempts: row.automatic_attempts,
+  actionRequestId: row.action_request_id,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  resolvedAt: row.resolved_at,
 });
 
 const artifactFromRow = (row: ArtifactRow): AssignmentArtifact => ({
@@ -628,6 +863,16 @@ export class MissionRepository {
         provider: input.lead.provider ?? null,
         externalIdentity: input.lead.externalIdentity ?? null,
         displayName: input.lead.displayName,
+        state: 'active',
+        createdAt: at,
+        lastSeenAt: at,
+      });
+      this.upsertPrincipal({
+        id: 'user',
+        kind: 'user',
+        provider: null,
+        externalIdentity: null,
+        displayName: 'You',
         state: 'active',
         createdAt: at,
         lastSeenAt: at,
@@ -1102,6 +1347,13 @@ export class MissionRepository {
         .run(at, assignment.taskId);
       this.db
         .prepare(
+          `UPDATE orchestration_incidents SET state = 'RECOVERING',
+           automatic_attempts = automatic_attempts + 1, updated_at = ?
+           WHERE assignment_id = ? AND state IN ('OPEN', 'NEEDS_ACTION')`,
+        )
+        .run(at, assignment.id);
+      this.db
+        .prepare(
           `INSERT INTO orchestration_outbox
            (id, mission_id, operation, aggregate_id, idempotency_key, payload_json, state,
             available_at, created_at)
@@ -1270,7 +1522,448 @@ export class MissionRepository {
       if (input.fromAssignmentId)
         this.assertAssignmentMission(input.fromAssignmentId, input.missionId);
       if (input.toAssignmentId) this.assertAssignmentMission(input.toAssignmentId, input.missionId);
+      if (input.actionRequestId) {
+        const request = this.requireActionRequest(input.actionRequestId);
+        if (request.missionId !== input.missionId) {
+          throw this.failure(
+            'ORCHESTRATION_TARGET_OUTSIDE_MISSION',
+            'The Action Request belongs to another Mission.',
+          );
+        }
+      }
       return this.insertMessage(input);
+    });
+  }
+
+  getConversation(id: string): OrchestrationConversation | null {
+    const row = this.db
+      .prepare('SELECT * FROM orchestration_conversations WHERE id = ?')
+      .get(id) as ConversationRow | undefined;
+    return row ? conversationFromRow(row) : null;
+  }
+
+  listConversations(missionId: string): OrchestrationConversation[] {
+    return (
+      this.db
+        .prepare(
+          'SELECT * FROM orchestration_conversations WHERE mission_id = ? ORDER BY created_at, rowid',
+        )
+        .all(missionId) as unknown as ConversationRow[]
+    ).map(conversationFromRow);
+  }
+
+  listConversationParticipants(missionId: string): OrchestrationConversationParticipant[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT p.* FROM orchestration_conversation_participants p
+           JOIN orchestration_conversations c ON c.id = p.conversation_id
+           WHERE c.mission_id = ? ORDER BY p.joined_at, p.rowid`,
+        )
+        .all(missionId) as unknown as ConversationParticipantRow[]
+    ).map(conversationParticipantFromRow);
+  }
+
+  getMessage(id: string): OrchestrationMessage | null {
+    const row = this.db.prepare('SELECT * FROM orchestration_messages WHERE id = ?').get(id) as
+      MessageRow | undefined;
+    return row ? messageFromRow(row) : null;
+  }
+
+  getActionRequest(id: string): OrchestrationActionRequest | null {
+    const row = this.db
+      .prepare('SELECT * FROM orchestration_action_requests WHERE id = ?')
+      .get(id) as ActionRequestRow | undefined;
+    return row ? actionRequestFromRow(row) : null;
+  }
+
+  listActionRequests(missionId: string): OrchestrationActionRequest[] {
+    return (
+      this.db
+        .prepare(
+          'SELECT * FROM orchestration_action_requests WHERE mission_id = ? ORDER BY created_at, rowid',
+        )
+        .all(missionId) as unknown as ActionRequestRow[]
+    ).map(actionRequestFromRow);
+  }
+
+  listActionResolutions(missionId: string): OrchestrationActionResolution[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT r.* FROM orchestration_action_resolutions r
+           JOIN orchestration_action_requests q ON q.id = r.request_id
+           WHERE q.mission_id = ? ORDER BY r.created_at, r.rowid`,
+        )
+        .all(missionId) as unknown as ActionResolutionRow[]
+    ).map(actionResolutionFromRow);
+  }
+
+  createActionRequest(input: CreateActionRequestInput): CreateActionRequestResult {
+    return this.db.transaction(() => {
+      this.requireMission(input.missionId);
+      this.requirePrincipal(input.createdByPrincipalId);
+      this.requirePrincipal(input.assignedToPrincipalId);
+      if (input.createdByAssignmentId) {
+        const creator = this.requireAssignment(input.createdByAssignmentId);
+        if (
+          creator.missionId !== input.missionId ||
+          creator.assigneePrincipalId !== input.createdByPrincipalId
+        ) {
+          throw this.failure(
+            'ORCHESTRATION_CALLER_MISMATCH',
+            'The request creator does not own the supplied Assignment.',
+          );
+        }
+      }
+      if (input.assignedToAssignmentId) {
+        const assignee = this.requireAssignment(input.assignedToAssignmentId);
+        if (
+          assignee.missionId !== input.missionId ||
+          assignee.assigneePrincipalId !== input.assignedToPrincipalId
+        ) {
+          throw this.failure(
+            'ORCHESTRATION_TARGET_MISMATCH',
+            'The requested assignee does not own the target Assignment.',
+          );
+        }
+      }
+      if (input.relatedTaskId) {
+        const task = this.requireTask(input.relatedTaskId);
+        if (task.missionId !== input.missionId) {
+          throw this.failure(
+            'ORCHESTRATION_TARGET_OUTSIDE_MISSION',
+            'The related Task belongs to another Mission.',
+          );
+        }
+      }
+
+      const existingRow = this.db
+        .prepare(
+          `SELECT * FROM orchestration_action_requests
+           WHERE mission_id = ? AND created_by_principal_id = ? AND idempotency_key = ?`,
+        )
+        .get(input.missionId, input.createdByPrincipalId, input.idempotencyKey) as
+        ActionRequestRow | undefined;
+      if (existingRow) {
+        const existing = actionRequestFromRow(existingRow);
+        const conversation = this.requireConversation(existing.conversationId);
+        const message = existing.openingMessageId
+          ? this.getMessage(existing.openingMessageId)
+          : null;
+        if (!message) {
+          throw this.failure(
+            'ORCHESTRATION_MESSAGE_NOT_FOUND',
+            'The Action Request opening message was not found.',
+          );
+        }
+        return { request: existing, conversation, message, reused: true };
+      }
+
+      const at = this.timestamp();
+      const conversation = this.ensureConversation(
+        input.missionId,
+        input.conversationId ?? null,
+        input.title,
+        input.createdByPrincipalId,
+      );
+      this.addConversationParticipant(
+        conversation.id,
+        input.createdByPrincipalId,
+        input.createdByAssignmentId,
+        at,
+      );
+      this.addConversationParticipant(
+        conversation.id,
+        input.assignedToPrincipalId,
+        input.assignedToAssignmentId,
+        at,
+      );
+      const id = newId('request');
+      const options = input.options ?? [];
+      this.db
+        .prepare(
+          `INSERT INTO orchestration_action_requests
+           (id, mission_id, conversation_id, related_task_id, created_by_principal_id,
+            created_by_assignment_id, assigned_to_principal_id, assigned_to_assignment_id,
+            kind, title, context, response_type, options_json, recommendation, impact, priority,
+            blocking_scope, status, idempotency_key, due_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          input.missionId,
+          conversation.id,
+          input.relatedTaskId ?? null,
+          input.createdByPrincipalId,
+          input.createdByAssignmentId,
+          input.assignedToPrincipalId,
+          input.assignedToAssignmentId,
+          input.kind,
+          input.title,
+          input.context ?? '',
+          input.responseType,
+          JSON.stringify(options),
+          input.recommendation ?? null,
+          input.impact ?? null,
+          input.priority ?? 'normal',
+          input.blockingScope ?? 'none',
+          input.idempotencyKey,
+          input.dueAt ?? null,
+          at,
+          at,
+        );
+      const message = this.insertMessage({
+        missionId: input.missionId,
+        conversationId: conversation.id,
+        actionRequestId: id,
+        fromAssignmentId: input.createdByAssignmentId,
+        toAssignmentId: input.assignedToAssignmentId,
+        type: ['escalation', 'recovery'].includes(input.kind) ? 'escalation' : 'question',
+        priority: input.priority ?? 'normal',
+        subject: input.title,
+        body: input.context ?? '',
+        payload: {
+          actionRequestId: id,
+          kind: input.kind,
+          responseType: input.responseType,
+          options,
+          recommendation: input.recommendation ?? null,
+          impact: input.impact ?? null,
+          blockingScope: input.blockingScope ?? 'none',
+        },
+      });
+      this.db
+        .prepare('UPDATE orchestration_action_requests SET opening_message_id = ? WHERE id = ?')
+        .run(message.id, id);
+      this.appendEvent(
+        input.missionId,
+        'actionRequest.created',
+        input.createdByPrincipalId,
+        input.createdByAssignmentId,
+        null,
+        {
+          requestId: id,
+          assignedToPrincipalId: input.assignedToPrincipalId,
+          assignedToAssignmentId: input.assignedToAssignmentId,
+          kind: input.kind,
+          blockingScope: input.blockingScope ?? 'none',
+        },
+      );
+      return {
+        request: this.requireActionRequest(id),
+        conversation,
+        message,
+        reused: false,
+      };
+    });
+  }
+
+  resolveActionRequest(input: ResolveActionRequestInput): ResolveActionRequestResult {
+    return this.db.transaction(() => {
+      const request = this.requireActionRequest(input.requestId);
+      if (
+        request.assignedToPrincipalId !== input.resolvedByPrincipalId ||
+        request.assignedToAssignmentId !== input.resolvedByAssignmentId
+      ) {
+        throw this.failure(
+          'ORCHESTRATION_ACTION_ASSIGNEE_REQUIRED',
+          'Only the principal assigned this request can resolve it.',
+        );
+      }
+      const existingRow = this.db
+        .prepare('SELECT * FROM orchestration_action_resolutions WHERE request_id = ?')
+        .get(request.id) as ActionResolutionRow | undefined;
+      if (existingRow) {
+        const resolution = actionResolutionFromRow(existingRow);
+        const messageRow = this.db
+          .prepare(
+            `SELECT * FROM orchestration_messages
+             WHERE action_request_id = ? AND type = 'answer' ORDER BY sequence DESC LIMIT 1`,
+          )
+          .get(request.id) as MessageRow | undefined;
+        return {
+          request,
+          resolution,
+          message: messageRow ? messageFromRow(messageRow) : null,
+          reused: true,
+        };
+      }
+      if (request.status !== 'OPEN') {
+        throw this.failure(
+          'ORCHESTRATION_ACTION_NOT_OPEN',
+          'This Action Request is no longer open.',
+        );
+      }
+      if (
+        request.options.length > 0 &&
+        !request.options.some((option) => option.id === input.outcome)
+      ) {
+        throw this.failure(
+          'ORCHESTRATION_ACTION_INVALID_OUTCOME',
+          'Choose one of the outcomes offered by this Action Request.',
+        );
+      }
+      const at = this.timestamp();
+      const resolutionId = newId('resolution');
+      this.db
+        .prepare(
+          `INSERT INTO orchestration_action_resolutions
+           (id, request_id, resolved_by_principal_id, resolved_by_assignment_id, outcome, body,
+            payload_json, rationale, idempotency_key, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          resolutionId,
+          request.id,
+          input.resolvedByPrincipalId,
+          input.resolvedByAssignmentId,
+          input.outcome,
+          input.body ?? '',
+          input.payload ? JSON.stringify(input.payload) : null,
+          input.rationale ?? null,
+          input.idempotencyKey,
+          at,
+        );
+      this.db
+        .prepare(
+          `UPDATE orchestration_action_requests
+           SET status = 'RESOLVED', resolved_at = ?, updated_at = ? WHERE id = ?`,
+        )
+        .run(at, at, request.id);
+      const selected = request.options.find((option) => option.id === input.outcome);
+      const body = input.body?.trim() || selected?.label || input.outcome;
+      const message = this.insertMessage({
+        missionId: request.missionId,
+        conversationId: request.conversationId,
+        actionRequestId: request.id,
+        fromAssignmentId: input.resolvedByAssignmentId,
+        toAssignmentId: request.createdByAssignmentId,
+        threadId: request.openingMessageId,
+        type: 'answer',
+        priority: request.priority,
+        subject: `Resolved: ${request.title}`,
+        body,
+        payload: {
+          actionRequestId: request.id,
+          outcome: input.outcome,
+          rationale: input.rationale ?? null,
+          ...(input.payload ?? {}),
+        },
+      });
+      this.db
+        .prepare(
+          `UPDATE orchestration_incidents SET state = 'CLOSED', resolved_at = ?, updated_at = ?
+           WHERE action_request_id = ? AND state NOT IN ('RECOVERED', 'CLOSED')`,
+        )
+        .run(at, at, request.id);
+      this.appendEvent(
+        request.missionId,
+        'actionRequest.resolved',
+        input.resolvedByPrincipalId,
+        input.resolvedByAssignmentId,
+        null,
+        { requestId: request.id, resolutionId, outcome: input.outcome },
+      );
+      return {
+        request: this.requireActionRequest(request.id),
+        resolution: this.requireActionResolution(resolutionId),
+        message,
+        reused: false,
+      };
+    });
+  }
+
+  listIncidents(missionId: string): OrchestrationIncident[] {
+    return (
+      this.db
+        .prepare(
+          'SELECT * FROM orchestration_incidents WHERE mission_id = ? ORDER BY created_at, rowid',
+        )
+        .all(missionId) as unknown as IncidentRow[]
+    ).map(incidentFromRow);
+  }
+
+  recordIncident(input: RecordIncidentInput): OrchestrationIncident {
+    return this.db.transaction(() => {
+      this.requireMission(input.missionId);
+      if (input.assignmentId) this.assertAssignmentMission(input.assignmentId, input.missionId);
+      if (input.attemptId) {
+        const attempt = this.requireAttempt(input.attemptId);
+        if (input.assignmentId && attempt.assignmentId !== input.assignmentId) {
+          throw this.failure(
+            'ORCHESTRATION_ATTEMPT_MISMATCH',
+            'The Incident Attempt does not belong to its Assignment.',
+          );
+        }
+      }
+      const existing = this.db
+        .prepare(
+          `SELECT * FROM orchestration_incidents
+           WHERE mission_id = ? AND assignment_id IS ? AND attempt_id IS ? AND kind = ?
+           ORDER BY rowid DESC LIMIT 1`,
+        )
+        .get(input.missionId, input.assignmentId ?? null, input.attemptId ?? null, input.kind) as
+        IncidentRow | undefined;
+      const at = this.timestamp();
+      if (existing) {
+        this.db
+          .prepare(
+            `UPDATE orchestration_incidents SET severity = ?, state = ?, summary = ?, detail_json = ?,
+             automatic_attempts = ?, action_request_id = ?, updated_at = ?, resolved_at = ?
+             WHERE id = ?`,
+          )
+          .run(
+            input.severity,
+            input.state ?? existing.state,
+            input.summary,
+            input.detail ? JSON.stringify(input.detail) : null,
+            input.automaticAttempts ?? existing.automatic_attempts,
+            input.actionRequestId ?? existing.action_request_id,
+            at,
+            ['RECOVERED', 'CLOSED'].includes(input.state ?? existing.state) ? at : null,
+            existing.id,
+          );
+        return this.requireIncident(existing.id);
+      }
+      const id = newId('incident');
+      this.db
+        .prepare(
+          `INSERT INTO orchestration_incidents
+           (id, mission_id, assignment_id, attempt_id, kind, severity, state, summary, detail_json,
+            automatic_attempts, action_request_id, created_at, updated_at, resolved_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          input.missionId,
+          input.assignmentId ?? null,
+          input.attemptId ?? null,
+          input.kind,
+          input.severity,
+          input.state ?? 'OPEN',
+          input.summary,
+          input.detail ? JSON.stringify(input.detail) : null,
+          input.automaticAttempts ?? 0,
+          input.actionRequestId ?? null,
+          at,
+          at,
+          ['RECOVERED', 'CLOSED'].includes(input.state ?? 'OPEN') ? at : null,
+        );
+      this.appendEvent(
+        input.missionId,
+        'incident.recorded',
+        null,
+        input.assignmentId ?? null,
+        input.attemptId ?? null,
+        {
+          incidentId: id,
+          kind: input.kind,
+          severity: input.severity,
+          state: input.state ?? 'OPEN',
+        },
+      );
+      return this.requireIncident(id);
     });
   }
 
@@ -2076,6 +2769,24 @@ export class MissionRepository {
       }
       if (success) this.promoteReadyTasks(assignment.missionId, assignment.taskId, at);
       if (success) this.reconcileMissionState(assignment.missionId, at);
+      if (success) {
+        this.db
+          .prepare(
+            `UPDATE orchestration_incidents SET state = 'RECOVERED', resolved_at = ?, updated_at = ?
+             WHERE assignment_id = ? AND state IN ('OPEN', 'RECOVERING')`,
+          )
+          .run(at, at, assignment.id);
+      } else {
+        this.recordIncident({
+          missionId: assignment.missionId,
+          assignmentId: assignment.id,
+          attemptId: attempt.id,
+          kind: 'agent-reported-failure',
+          severity: 'error',
+          summary: input.summary,
+          detail: input.result ?? { summary: input.summary },
+        });
+      }
       this.appendEvent(
         assignment.missionId,
         success ? 'attempt.completed' : 'attempt.failed',
@@ -2133,6 +2844,15 @@ export class MissionRepository {
           failure,
         },
       );
+      this.recordIncident({
+        missionId: assignment.missionId,
+        assignmentId: assignment.id,
+        attemptId: attempt.id,
+        kind: code,
+        severity: 'error',
+        summary: 'Agent runtime failed',
+        detail: failure,
+      });
       const failedAssignment = this.requireAssignment(assignment.id);
       this.cancelOwnedContinuations(assignment.id, attempt.id, 'owner_runtime_failed');
       this.satisfyContinuationsFromAssignment(failedAssignment);
@@ -2382,6 +3102,13 @@ export class MissionRepository {
         .run(at, assignment.taskId);
       this.db
         .prepare(
+          `UPDATE orchestration_incidents SET state = 'RECOVERING',
+           automatic_attempts = automatic_attempts + 1, updated_at = ?
+           WHERE assignment_id = ? AND state IN ('OPEN', 'NEEDS_ACTION')`,
+        )
+        .run(at, assignment.id);
+      this.db
+        .prepare(
           `INSERT INTO orchestration_outbox
            (id, mission_id, operation, aggregate_id, idempotency_key, payload_json, state,
             available_at, created_at)
@@ -2470,6 +3197,15 @@ export class MissionRepository {
         code,
         failure,
       });
+      this.recordIncident({
+        missionId: assignment.missionId,
+        assignmentId: assignment.id,
+        attemptId: attempt.id,
+        kind: code,
+        severity: mission.leadAssignmentId === assignment.id ? 'critical' : 'error',
+        summary: 'Agent runtime disconnected',
+        detail: failure,
+      });
       const orphanedAssignment = this.requireAssignment(assignment.id);
       this.cancelOwnedContinuations(assignment.id, attempt.id, 'owner_runtime_orphaned');
       this.satisfyContinuationsFromAssignment(orphanedAssignment);
@@ -2511,7 +3247,9 @@ export class MissionRepository {
   getMissionForOriginTask(taskId: string): Mission | null {
     const row = this.db
       .prepare(
-        'SELECT * FROM missions WHERE origin_conversation_task_id = ? ORDER BY created_at DESC LIMIT 1',
+        `SELECT * FROM missions
+         WHERE origin_conversation_task_id = ? AND deleted_at IS NULL
+         ORDER BY created_at DESC LIMIT 1`,
       )
       .get(taskId) as MissionRow | undefined;
     return row ? missionFromRow(row) : null;
@@ -2523,7 +3261,8 @@ export class MissionRepository {
         `SELECT m.* FROM missions m
          JOIN assignments a ON a.mission_id = m.id
          JOIN execution_attempts e ON e.assignment_id = a.id
-         WHERE e.runtime_session_id = ? ORDER BY e.rowid DESC LIMIT 1`,
+         WHERE e.runtime_session_id = ? AND m.deleted_at IS NULL
+         ORDER BY e.rowid DESC LIMIT 1`,
       )
       .get(runtimeSessionId) as MissionRow | undefined;
     return row ? missionFromRow(row) : null;
@@ -2824,8 +3563,25 @@ export class MissionRepository {
         .prepare('SELECT * FROM assignments WHERE mission_id = ? ORDER BY created_at, rowid')
         .all(missionId) as unknown as AssignmentRow[]
     ).map(assignmentFromRow);
+    const conversations = this.listConversations(missionId);
+    const conversationParticipants = this.listConversationParticipants(missionId);
+    const actionRequests = this.listActionRequests(missionId);
+    const actionResolutions = this.listActionResolutions(missionId);
+    const incidents = this.listIncidents(missionId);
     const principalIds = [
-      ...new Set(assignments.map((assignment) => assignment.assigneePrincipalId)),
+      ...new Set(
+        [
+          ...assignments.map((assignment) => assignment.assigneePrincipalId),
+          ...conversationParticipants.map((participant) => participant.principalId),
+          ...conversations.map((conversation) => conversation.createdByPrincipalId),
+          ...actionRequests.flatMap((request) => [
+            request.createdByPrincipalId,
+            request.assignedToPrincipalId,
+          ]),
+          ...actionResolutions.map((resolution) => resolution.resolvedByPrincipalId),
+          'user',
+        ].filter((id): id is string => id !== null),
+      ),
     ];
     const principals = principalIds.map((id) => this.requirePrincipal(id));
     const attempts = (
@@ -2848,6 +3604,11 @@ export class MissionRepository {
     return {
       mission,
       principals,
+      conversations,
+      conversationParticipants,
+      actionRequests,
+      actionResolutions,
+      incidents,
       tasks: this.listTasks(missionId),
       dependencies: this.listDependencies(missionId),
       assignments,
@@ -2867,7 +3628,10 @@ export class MissionRepository {
     return (
       this.db
         .prepare(
-          "SELECT * FROM missions WHERE state IN ('PLANNING','RUNNING','BLOCKED','VERIFYING') ORDER BY updated_at",
+          `SELECT * FROM missions
+           WHERE deleted_at IS NULL
+             AND state IN ('PLANNING','RUNNING','BLOCKED','VERIFYING')
+           ORDER BY updated_at`,
         )
         .all() as unknown as MissionRow[]
     ).map(missionFromRow);
@@ -2879,12 +3643,88 @@ export class MissionRepository {
    * completion, evidence and user acceptance do not disappear after restart.
    */
   listMissions(limit = 50): Mission[] {
+    this.purgeExpiredTrashedMissions();
     const boundedLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
     return (
       this.db
-        .prepare('SELECT * FROM missions ORDER BY updated_at DESC, rowid DESC LIMIT ?')
+        .prepare(
+          `SELECT * FROM missions
+           WHERE deleted_at IS NULL
+           ORDER BY updated_at DESC, rowid DESC LIMIT ?`,
+        )
         .all(boundedLimit) as unknown as MissionRow[]
     ).map(missionFromRow);
+  }
+
+  /** Recoverable Mission trash. Origin Sessions and project files are not owned
+   * by this aggregate and are deliberately left untouched. */
+  listDeletedMissions(limit = 50): Mission[] {
+    this.purgeExpiredTrashedMissions();
+    const boundedLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM missions
+           WHERE deleted_at IS NOT NULL
+           ORDER BY deleted_at DESC, rowid DESC LIMIT ?`,
+        )
+        .all(boundedLimit) as unknown as MissionRow[]
+    ).map(missionFromRow);
+  }
+
+  trashMission(missionId: string): Mission {
+    const mission = this.requireMission(missionId);
+    if (!TERMINAL_MISSION_STATES.has(mission.state)) {
+      throw this.failure(
+        'ORCHESTRATION_MISSION_ACTIVE',
+        'Cancel or finish the active Mission before deleting it.',
+      );
+    }
+    if (mission.deletedAt) return mission;
+    const at = this.timestamp();
+    this.db
+      .prepare(
+        `UPDATE missions
+         SET deleted_at = ?, updated_at = ?, version = version + 1
+         WHERE id = ?`,
+      )
+      .run(at, at, mission.id);
+    return this.requireMission(mission.id);
+  }
+
+  restoreMission(missionId: string): Mission {
+    const mission = this.requireMission(missionId);
+    if (!mission.deletedAt) return mission;
+    const at = this.timestamp();
+    this.db
+      .prepare(
+        `UPDATE missions
+         SET deleted_at = NULL, updated_at = ?, version = version + 1
+         WHERE id = ?`,
+      )
+      .run(at, mission.id);
+    return this.requireMission(mission.id);
+  }
+
+  deleteMissionPermanently(missionId: string): void {
+    const mission = this.requireMission(missionId);
+    if (!mission.deletedAt) {
+      throw this.failure(
+        'ORCHESTRATION_MISSION_NOT_TRASHED',
+        'Move the Mission to Recently Deleted before deleting it permanently.',
+      );
+    }
+    this.db.prepare('DELETE FROM missions WHERE id = ?').run(mission.id);
+  }
+
+  purgeExpiredTrashedMissions(retentionDays = MISSION_TRASH_RETENTION_DAYS): number {
+    const cutoff = new Date(
+      this.now().getTime() - retentionDays * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const result = this.db
+      .prepare('DELETE FROM missions WHERE deleted_at IS NOT NULL AND deleted_at <= ?')
+      .run(cutoff);
+    return Number(result.changes ?? 0);
   }
 
   listPendingOutbox(limit = 20): OutboxRecord[] {
@@ -3026,6 +3866,50 @@ export class MissionRepository {
     return attempt;
   }
 
+  private requireConversation(id: string): OrchestrationConversation {
+    const conversation = this.getConversation(id);
+    if (!conversation) {
+      throw this.failure(
+        'ORCHESTRATION_CONVERSATION_NOT_FOUND',
+        `Conversation ${id} was not found.`,
+      );
+    }
+    return conversation;
+  }
+
+  private requireActionRequest(id: string): OrchestrationActionRequest {
+    const request = this.getActionRequest(id);
+    if (!request) {
+      throw this.failure(
+        'ORCHESTRATION_ACTION_REQUEST_NOT_FOUND',
+        `Action Request ${id} was not found.`,
+      );
+    }
+    return request;
+  }
+
+  private requireActionResolution(id: string): OrchestrationActionResolution {
+    const row = this.db
+      .prepare('SELECT * FROM orchestration_action_resolutions WHERE id = ?')
+      .get(id) as ActionResolutionRow | undefined;
+    if (!row) {
+      throw this.failure(
+        'ORCHESTRATION_ACTION_RESOLUTION_NOT_FOUND',
+        `Action Resolution ${id} was not found.`,
+      );
+    }
+    return actionResolutionFromRow(row);
+  }
+
+  private requireIncident(id: string): OrchestrationIncident {
+    const row = this.db.prepare('SELECT * FROM orchestration_incidents WHERE id = ?').get(id) as
+      IncidentRow | undefined;
+    if (!row) {
+      throw this.failure('ORCHESTRATION_INCIDENT_NOT_FOUND', `Incident ${id} was not found.`);
+    }
+    return incidentFromRow(row);
+  }
+
   private upsertPrincipal(principal: OrchestrationPrincipal): void {
     this.db
       .prepare(
@@ -3049,22 +3933,92 @@ export class MissionRepository {
       );
   }
 
+  private ensureConversation(
+    missionId: string,
+    requestedId: string | null,
+    topic: string,
+    createdByPrincipalId: string | null,
+    threadId?: string | null,
+  ): OrchestrationConversation {
+    if (requestedId) {
+      const requested = this.requireConversation(requestedId);
+      if (requested.missionId !== missionId) {
+        throw this.failure(
+          'ORCHESTRATION_TARGET_OUTSIDE_MISSION',
+          'The Conversation belongs to another Mission.',
+        );
+      }
+      return requested;
+    }
+    if (threadId) {
+      const row = this.db
+        .prepare(
+          `SELECT c.* FROM orchestration_messages m
+           JOIN orchestration_conversations c ON c.id = m.conversation_id
+           WHERE m.mission_id = ? AND (m.id = ? OR m.thread_id = ?)
+           ORDER BY m.sequence DESC LIMIT 1`,
+        )
+        .get(missionId, threadId, threadId) as ConversationRow | undefined;
+      if (row) return conversationFromRow(row);
+    }
+    const id = newId('conversation');
+    const at = this.timestamp();
+    this.db
+      .prepare(
+        `INSERT INTO orchestration_conversations
+         (id, mission_id, topic, created_by_principal_id, state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'OPEN', ?, ?)`,
+      )
+      .run(id, missionId, topic, createdByPrincipalId, at, at);
+    return this.requireConversation(id);
+  }
+
+  private addConversationParticipant(
+    conversationId: string,
+    principalId: string,
+    assignmentId: string | null,
+    joinedAt: string,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO orchestration_conversation_participants
+         (conversation_id, principal_id, assignment_id, joined_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(conversation_id, principal_id) DO UPDATE SET
+           assignment_id = COALESCE(excluded.assignment_id, assignment_id)`,
+      )
+      .run(conversationId, principalId, assignmentId, joinedAt);
+  }
+
   private insertMessage(
     input: CreateMessageInput,
     suppressionReason?: string | null,
   ): OrchestrationMessage {
     const id = newId('message');
     const at = this.timestamp();
+    const creator = input.fromAssignmentId
+      ? this.requireAssignment(input.fromAssignmentId).assigneePrincipalId
+      : null;
+    const conversation = this.ensureConversation(
+      input.missionId,
+      input.conversationId ?? null,
+      input.subject,
+      creator,
+      input.threadId ?? null,
+    );
     this.db
       .prepare(
         `INSERT INTO orchestration_messages
-         (id, mission_id, from_assignment_id, to_assignment_id, thread_id, attempt_id, type,
-          priority, subject, body, payload_json, created_at, suppressed_at, suppression_reason)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, mission_id, conversation_id, action_request_id, from_assignment_id,
+          to_assignment_id, thread_id, attempt_id, type, priority, subject, body, payload_json,
+          created_at, suppressed_at, suppression_reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
         input.missionId,
+        conversation.id,
+        input.actionRequestId ?? null,
         input.fromAssignmentId,
         input.toAssignmentId,
         input.threadId ?? null,
@@ -3078,6 +4032,27 @@ export class MissionRepository {
         suppressionReason ? at : null,
         suppressionReason ?? null,
       );
+    if (input.fromAssignmentId) {
+      const assignment = this.requireAssignment(input.fromAssignmentId);
+      this.addConversationParticipant(
+        conversation.id,
+        assignment.assigneePrincipalId,
+        assignment.id,
+        at,
+      );
+    }
+    if (input.toAssignmentId) {
+      const assignment = this.requireAssignment(input.toAssignmentId);
+      this.addConversationParticipant(
+        conversation.id,
+        assignment.assigneePrincipalId,
+        assignment.id,
+        at,
+      );
+    }
+    this.db
+      .prepare('UPDATE orchestration_conversations SET updated_at = ? WHERE id = ?')
+      .run(at, conversation.id);
     if (input.toAssignmentId && !suppressionReason) {
       this.db
         .prepare(

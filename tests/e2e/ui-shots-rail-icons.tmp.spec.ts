@@ -93,7 +93,7 @@ test('rail provider marks — light/dark + dialog', async () => {
     await page.getByTestId('home-sidebar').screenshot({ path: `${OUT}/rail-icons-1-light.png` });
 
     // Projects panel — hover-revealed π/Claude/Codex starters.
-    await page.getByTestId('rail-context').click();
+    await page.getByTestId('rail-view-projects').click();
     await page.locator('[data-testid^="home-recent-"]').first().hover();
     await page.waitForTimeout(300);
     await page.getByTestId('home-sidebar').screenshot({ path: `${OUT}/rail-icons-5-projects.png` });
@@ -103,7 +103,7 @@ test('rail provider marks — light/dark + dialog', async () => {
     await page.waitForTimeout(500);
     await page.getByTestId('home-sidebar').screenshot({ path: `${OUT}/rail-icons-2-dark.png` });
 
-    await page.getByTestId('rail-context').click();
+    await page.getByTestId('rail-view-projects').click();
     await page.locator('[data-testid^="home-recent-"]').first().hover();
     await page.waitForTimeout(300);
     await page

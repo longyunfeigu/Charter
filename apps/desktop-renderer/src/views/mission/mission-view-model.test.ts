@@ -13,7 +13,7 @@ function snapshot(): MissionSnapshotDto {
       acceptanceCriteria: [],
       executionPolicy: {
         inheritHostPermissions: true,
-        controlScope: 'mission-wide',
+        controlScope: 'hierarchical',
         workspaceRoot: '/repo',
         toolPolicy: 'inherit',
         runtimeDefaults: { environment: {} },
@@ -27,6 +27,63 @@ function snapshot(): MissionSnapshotDto {
       completedAt: null,
     },
     principals: [],
+    actionRequests: [
+      {
+        id: 'agent-action',
+        missionId: 'mission-1',
+        conversationId: 'conversation-agent',
+        relatedTaskId: 'task-b',
+        createdByPrincipalId: 'pa',
+        createdByAssignmentId: 'a',
+        assignedToPrincipalId: 'pb',
+        assignedToAssignmentId: 'b',
+        kind: 'information',
+        title: 'Choose an API',
+        context: 'Which one?',
+        responseType: 'text',
+        options: [],
+        recommendation: null,
+        impact: null,
+        priority: 'high',
+        blockingScope: 'assignment',
+        status: 'OPEN',
+        openingMessageId: 'question-1',
+        idempotencyKey: 'agent-action',
+        dueAt: null,
+        resolvedAt: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'user-action',
+        missionId: 'mission-1',
+        conversationId: 'conversation-user',
+        relatedTaskId: 'task-a',
+        createdByPrincipalId: 'pa',
+        createdByAssignmentId: 'a',
+        assignedToPrincipalId: 'user',
+        assignedToAssignmentId: null,
+        kind: 'choice',
+        title: 'Choose release window',
+        context: 'The deploy needs a business decision.',
+        responseType: 'choice',
+        options: [
+          { id: 'now', label: 'Release now' },
+          { id: 'later', label: 'Release later' },
+        ],
+        recommendation: 'Release now',
+        impact: 'This determines whether deployment proceeds.',
+        priority: 'high',
+        blockingScope: 'mission',
+        status: 'OPEN',
+        openingMessageId: 'user-question-1',
+        idempotencyKey: 'user-action',
+        dueAt: null,
+        resolvedAt: null,
+        createdAt: '2026-01-01T00:01:00.000Z',
+        updatedAt: '2026-01-01T00:01:00.000Z',
+      },
+    ],
     tasks: [
       {
         id: 'task-a',
@@ -114,25 +171,49 @@ function snapshot(): MissionSnapshotDto {
         suppressedAt: null,
         suppressionReason: null,
       },
+      {
+        id: 'user-question-1',
+        missionId: 'mission-1',
+        conversationId: 'conversation-user',
+        actionRequestId: 'user-action',
+        fromAssignmentId: 'a',
+        toAssignmentId: null,
+        threadId: null,
+        attemptId: null,
+        type: 'question',
+        priority: 'high',
+        subject: 'Choose release window',
+        body: 'The deploy needs a business decision.',
+        payload: null,
+        sequence: 2,
+        createdAt: '2026-01-01T00:01:00.000Z',
+        deliveredAt: null,
+        readAt: null,
+        suppressedAt: null,
+        suppressionReason: null,
+      },
     ],
   };
 }
 
 describe('Mission view model', () => {
-  it('counts durable decisions and failed work as user attention', () => {
+  it('counts only explicit user Action Requests as user attention', () => {
     const value = missionSummary(snapshot());
-    expect(value).toMatchObject({ total: 2, completed: 1, percent: 50, failed: 1, attention: 2 });
+    expect(value).toMatchObject({
+      total: 2,
+      completed: 1,
+      percent: 50,
+      failed: 1,
+      attention: 1,
+      agentActions: 1,
+    });
+    expect(value.decisions.map((message) => message.id)).toEqual(['user-question-1']);
   });
 
-  it('resolves a question when an answer exists on its durable thread', () => {
+  it('removes an action only when its durable Action Request is resolved', () => {
     const value = snapshot();
-    value.messages.push({
-      ...value.messages[0]!,
-      id: 'answer-1',
-      type: 'answer',
-      threadId: 'question-1',
-      sequence: 2,
-    });
+    value.actionRequests![1]!.status = 'RESOLVED';
+    value.actionRequests![1]!.resolvedAt = '2026-01-01T00:02:00.000Z';
     expect(unresolvedDecisionMessages(value)).toEqual([]);
   });
 

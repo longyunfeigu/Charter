@@ -388,6 +388,16 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
       });
     });
 
+    onEvent('task.deleted', ({ taskId }) => {
+      const sessions = { ...get().sessions };
+      const working = { ...get().working };
+      const follow = { ...get().follow };
+      delete sessions[taskId];
+      delete working[taskId];
+      delete follow[taskId];
+      set({ sessions, working, follow });
+    });
+
     // Structured Claude/Codex streams expose a real reply/turn boundary.
     // Reflect it on the exact Session row instead of animating whichever room
     // happens to be selected at the time.

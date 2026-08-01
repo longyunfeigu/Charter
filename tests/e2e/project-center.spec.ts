@@ -1,11 +1,41 @@
 import { expect, test } from '@playwright/test';
-import { appendFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { launchApp } from './helpers/launch';
 import { createGitFixture } from './helpers/fixtures';
 
 test.describe('Project Center', () => {
+  test('removes a recent project from navigation after its folder is deleted', async () => {
+    const deletedProject = realpathSync(createGitFixture());
+    const activeProject = realpathSync(createGitFixture());
+    const first = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: deletedProject, PI_IDE_FORCE_MOCK: '1' },
+      home: 'keep',
+    });
+    const userDataDir = first.userDataDir;
+    await first.app.close();
+
+    const { app, page } = await launchApp({
+      userDataDir,
+      env: { PI_IDE_OPEN_WORKSPACE: activeProject, PI_IDE_FORCE_MOCK: '1' },
+      home: 'keep',
+    });
+    try {
+      await page.getByTestId('rail-view-projects').click();
+      await expect(page.getByTestId(`home-recent-${deletedProject}`)).toBeVisible();
+      await page.getByTestId('rail-view-sessions').click();
+
+      rmSync(deletedProject, { recursive: true, force: true });
+      await page.getByTestId('rail-view-projects').click();
+
+      await expect(page.getByTestId(`home-recent-${deletedProject}`)).toHaveCount(0);
+      await expect(page.getByTestId(`home-recent-${activeProject}`)).toBeVisible();
+    } finally {
+      await app.close();
+    }
+  });
+
   test('browses independently, reports real data, and changes context only explicitly', async () => {
     const projectA = realpathSync(createGitFixture());
     const projectB = realpathSync(createGitFixture());
@@ -33,7 +63,6 @@ test.describe('Project Center', () => {
 
     try {
       await page.setViewportSize({ width: 1320, height: 820 });
-      await expect(page.getByTestId('rail-context')).toContainText(projectB.split('/').pop()!);
       await page.getByTestId('rail-view-projects').click();
       await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
 

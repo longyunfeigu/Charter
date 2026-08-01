@@ -1,10 +1,10 @@
 # Mission Fabric V3 — implemented product contract
 
 - Status: Implemented, pending product-owner acceptance
-- Date: 2026-07-31
+- Date: 2026-08-01
 - Supersedes: `mission-orchestration-v2.md`
-- Scope: recursive delegation, direct peer communication, durable delivery, native PTY runtimes,
-  recovery, runtime-aware UI, CLI/Skill/MCP/native tool parity
+- Scope: recursive delegation, first-class conversations and action requests, hierarchical control,
+  durable delivery, native PTY runtimes, recovery, runtime-aware UI, CLI/Skill/MCP/native tool parity
 
 ## 1. Product decision
 
@@ -29,6 +29,20 @@ The responsibility tree, dependency graph, communication graph, and runtime topo
 - messages may connect any two members of the same Mission;
 - Claude, Codex, managed agents, ACP sessions, and visible terminals are runtime choices.
 
+Communication and responsibility are also deliberately separate. A question-shaped message is not
+a to-do, an escalation is not automatically a user decision, and a failed runtime is not silently
+promoted into the user's inbox. The collaboration layer has four explicit records:
+
+```text
+Conversation → Message                         team communication/history
+             └→ ActionRequest → Resolution     somebody explicitly owes an action
+Incident → optional ActionRequest              problem/recovery, with user involvement only if assigned
+```
+
+`Your actions` is derived only from open `ActionRequest` records assigned to the `user` Principal.
+Agent-to-Agent requests remain Team activity. Incidents remain Issues unless a Lead explicitly
+creates and links an irreducible user decision.
+
 The user does not need to start from a special Mission screen. A manually opened Claude or Codex
 session is promoted in place when it first uses a Mission command. Its conversation stays intact
 and becomes the Lead's working surface.
@@ -43,7 +57,7 @@ Skill/manual
           │
           ▼
 One command contract
-  inspect/delegate/message/park/continue/complete/...
+  inspect/delegate/message/request/resolve_request/park/continue/complete/...
           │
     ┌─────┼──────────────┐
     ▼     ▼              ▼
@@ -85,16 +99,19 @@ The canonical registry is
 | `sync` | Fetch durable inbox changes after a cursor and acknowledge observations |
 | `delegate` | Atomically create one Task, Assignment, Attempt, and runtime-start event |
 | `delegate_many` | Atomically create sibling work and start independent children concurrently |
-| `message` | Send a durable Mission message to another member |
-| `reply` | Reply on the original durable thread |
-| `ask` | Send a question and wait event-first for its threaded answer |
+| `message` | Send durable FYI/context; never creates an actionable request |
+| `request` | Assign an explicit typed Action Request to another Agent |
+| `request_decision` | Lead only: assign an irreducible typed decision to the user |
+| `resolve_request` | Resolve an Action Request assigned to the caller |
+| `reply` | Compatibility reply; resolves a linked text Action Request when present |
+| `ask` | Compatibility shortcut for an Agent Action Request plus event-first wait |
 | `wait` | Wait event-first for matching inbox messages |
 | `join` | Wait event-first for a set of Assignments to reach terminal states |
 | `park` | Persist Assignment/message conditions, end the current turn, and resume the same Session when they match |
 | `continue` | Idempotently acknowledge the injected resume intent and return its committed context |
 | `progress` | Record structured progress and renew the active Attempt heartbeat |
 | `complete` | Finish the current Attempt with outcome, summary, and evidence |
-| `escalate` | Route a blocker or decision to supervisor, Lead, or user |
+| `escalate` | Create an Agent request for the supervisor; a Lead escalation creates a user request |
 | `pause` / `resume` | Hold or release new input without corrupting the current turn |
 | `cancel` | Cancel Assignment and active runtime |
 | `retry` | Create a new Attempt; stale completions cannot win |
@@ -149,14 +166,22 @@ Messages are not pasted into a model while it is generating. The runtime adapter
 Message content remains in SQLite; the doorbell is only a wake-up signal. Duplicate wake-ups do
 not duplicate the message.
 
-### 4.3 Provider permissions
+### 4.3 Provider permissions and Mission authority
 
 Charter does not create a second per-child permission system. Mission children reuse the host and
 provider permission policy already granted on the machine. ACP permission requests choose the
 provider's `allow_always` option when offered, otherwise `allow_once`.
 
-Mission membership still scopes coordination: a caller may only address Assignments in its own
-Mission, and Attempt identity prevents a replaced runtime from completing current work.
+Mission membership scopes communication: a caller may only address Assignments in its own Mission,
+and Attempt identity prevents a replaced runtime from completing current work. Control authority is
+hierarchical and is not inferred from the ability to send a message:
+
+- the user and system may control the Mission;
+- the Lead controls the Mission responsibility tree;
+- a supervisor controls itself and its delegated subtree;
+- a worker controls itself;
+- peers may communicate and request work, but cannot pause, steer, cancel, retry, or reassign one
+  another.
 
 ### 4.4 Durable continuation instead of a sleeping Agent turn
 
@@ -186,13 +211,18 @@ backward compatibility; repeating them as a polling loop is not a supported coor
 ## 5. Durable state and recovery
 
 Migrations `mission-fabric-runtime-and-delivery` and
-`mission-continuations-and-resume-intents` add:
+`mission-continuations-and-resume-intents`, plus
+`mission-conversations-actions-and-incidents`, add:
 
 - `orchestration_runtime_sessions`;
 - `orchestration_runtime_events`;
 - `orchestration_message_deliveries`.
 - `orchestration_continuations` and condition targets;
 - `orchestration_resume_intents`.
+- `orchestration_conversations` and participants;
+- `orchestration_action_requests` and `orchestration_action_resolutions`;
+- `orchestration_incidents`;
+- Conversation and Action Request links on durable messages.
 
 The Mission snapshot exposes those records to the renderer and tests. Runtime bindings persist
 provider, transport, external session id, process key, capabilities, and state.
@@ -217,8 +247,8 @@ On application restart:
 2. Claude calls `delegate_many` for independent B and C work.
 3. Charter promotes Claude to Mission Lead without restarting the conversation.
 4. Codex B and C run as parallel native PTY sessions with inspectable terminal tabs.
-5. B discovers it needs C's judgment and calls `ask` directly.
-6. C receives a durable doorbell, calls `sync`, and replies on the same thread.
+5. B discovers it needs C's judgment and calls `request` directly.
+6. C receives a durable doorbell, calls `sync`, and resolves the request.
 7. A parks on B and C; Charter ends A's turn, resumes the same Session after both complete, and A
    acknowledges with `continue` before reviewing both results.
 8. The user sees one Mission with an auditable work map, messages, evidence, and runtime details.
@@ -228,23 +258,30 @@ On application restart:
 1. B finds a bounded specialist problem during its work.
 2. B calls `delegate` and becomes D's supervisor.
 3. D reports progress and completion directly to B.
-4. A can inspect or steer D because Mission control is Mission-wide, but A does not proxy B's
-   creation call.
+4. A can inspect or steer D because the Lead owns the responsibility tree; B can control D because
+   D is in B's subtree. C cannot control D merely because C can message D.
 
 ### User intervention
 
-1. The user selects an active Assignment.
-2. `Guide this work` persists a steer request.
-3. Busy runtimes receive it after the current turn; paused runtimes retain it until resume.
-4. Pause, resume, cancel, retry, and reassign are real lifecycle commands whose states are shown
-   from persisted domain data.
+1. Ordinary Agent questions and requests appear in Team activity and do not increment a user badge.
+2. When the team reaches an irreducible choice, the Lead calls `request_decision` with options,
+   impact, and a recommendation.
+3. The resulting typed card appears in `Your actions`; resolving it commits one Resolution and
+   wakes the requesting Assignment.
+4. Runtime failures appear under Issues. Recovery can remain automatic or Agent-owned without
+   manufacturing a user decision.
+5. Direct user controls such as guide, pause, resume, cancel, retry, and reassign remain real
+   lifecycle commands backed by persisted domain state.
 
 ## 7. UI contract
 
 Mission Center and Mission Workbench are the canonical product surfaces:
 
+- Your actions shows only open Action Requests explicitly assigned to the user, with typed options,
+  impact, and recommendations.
 - Work Map shows recursive ownership and dependency state.
-- Updates shows durable communication and delivery state.
+- Team activity shows Conversations, messages, Agent requests, and resolutions.
+- Issues shows runtime and coordination incidents independently of user attention.
 - Results shows completion summaries and evidence.
 - Runtime details show requested runtime, actual transport, process/session identity, lifecycle
   state, last streamed event, and inbox delivery counts.
@@ -265,9 +302,10 @@ result rather than watching an indefinitely busy Lead process.
 | Concern | Source |
 | --- | --- |
 | Domain state machines and dependency graph | `packages/orchestration-domain/src/` |
+| Conversation, Action Request/Resolution, and Incident contracts | `packages/orchestration-domain/src/conversation.ts`, `action-request.ts`, `incident.ts` |
 | Continuation and ResumeIntent domain contract | `packages/orchestration-domain/src/continuation.ts` |
 | SQLite repository and atomic operations | `packages/persistence/src/mission-repository.ts` |
-| Runtime/delivery migration | `packages/persistence/src/migrations.ts` |
+| Runtime, collaboration, and recovery migrations | `packages/persistence/src/migrations.ts` |
 | Command schemas and generated tool surfaces | `packages/tool-gateway/src/orchestration-command-registry.ts` |
 | Mission application service | `apps/desktop-main/src/services/mission-orchestration-service.ts` |
 | Event-first waits and subscriptions | `apps/desktop-main/src/services/orchestration-message-bus.ts` |

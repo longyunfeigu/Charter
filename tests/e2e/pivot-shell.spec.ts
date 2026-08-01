@@ -24,7 +24,7 @@ test.describe('Unified Session shell pivot (ADR-0004, PIVOT-001..010)', () => {
 
       // Project files are a content state in the same persistent shell: there
       // is no second Activity Bar, Sidebar, or Agent Panel.
-      await page.getByTestId('rail-context').click();
+      await page.getByTestId('rail-view-projects').click();
       await page.getByTestId(`home-recent-${realpathSync(fixture)}`).click();
       await expect(page.getByTestId('project-center')).toBeVisible();
       await page.getByTestId('project-center-tab-files').click();
@@ -64,7 +64,7 @@ test.describe('Unified Session shell pivot (ADR-0004, PIVOT-001..010)', () => {
 
       // PIVOT-002: choose the project from recents; Home stays up (mid-charter).
       // ADR-0023: recents live in the rail's Projects panel.
-      await page.getByTestId('rail-context').click();
+      await page.getByTestId('rail-view-projects').click();
       await page.getByTestId(`project-menu-${fixture}`).click();
       await page.getByTestId(`project-spawn-pi-${fixture}`).click();
       await expect(page.getByTestId('home-project')).toContainText(fixture.split('/').pop()!);

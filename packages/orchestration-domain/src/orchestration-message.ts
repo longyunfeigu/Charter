@@ -16,6 +16,8 @@ export type OrchestrationMessagePriority = 'normal' | 'high' | 'urgent';
 export interface OrchestrationMessage {
   id: string;
   missionId: string;
+  conversationId: string | null;
+  actionRequestId: string | null;
   fromAssignmentId: string | null;
   toAssignmentId: string | null;
   threadId: string | null;

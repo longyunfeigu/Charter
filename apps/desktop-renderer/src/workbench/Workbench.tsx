@@ -1,5 +1,9 @@
 import React, { useEffect, useRef } from 'react';
-import { useAppStore } from '../store/appStore.js';
+import {
+  navigationSnapshotLabel,
+  useAppStore,
+  type NavigationSnapshot,
+} from '../store/appStore.js';
 import { handleGlobalKeydown, registerCommands, executeCommand } from '../commands.js';
 import { onEvent, platform, rpcResult } from '../bridge.js';
 import { runInitsOnce } from './init.js';
@@ -19,6 +23,17 @@ import type { BottomTab, SideBarView } from '@pi-ide/ipc-contracts';
 import { useTaskStore } from '../store/taskStore.js';
 import { stepZoom, ZOOM_DEFAULT } from '../views/ui-zoom.js';
 import { useTerminalStore } from '../views/TerminalPanel.js';
+
+function navigationLabel(
+  snapshot: NavigationSnapshot | null,
+  tasks: ReturnType<typeof useTaskStore.getState>['tasks'],
+): string {
+  if (snapshot?.taskRoomTaskId) {
+    const task = tasks.find((candidate) => candidate.id === snapshot.taskRoomTaskId);
+    if (task) return task.title || 'Session';
+  }
+  return navigationSnapshotLabel(snapshot);
+}
 
 function useRegisterCoreCommands(): void {
   const store = useAppStore;
@@ -51,6 +66,22 @@ function useRegisterCoreCommands(): void {
         run: () => store.getState().openSettings('updates'),
       },
       {
+        id: 'navigation.back',
+        title: 'Go Back',
+        category: 'Navigation',
+        keybinding: 'mod+[',
+        enabled: () => store.getState().navigationBack.length > 0,
+        run: () => store.getState().navigateBack(),
+      },
+      {
+        id: 'navigation.forward',
+        title: 'Go Forward',
+        category: 'Navigation',
+        keybinding: 'mod+]',
+        enabled: () => store.getState().navigationForward.length > 0,
+        run: () => store.getState().navigateForward(),
+      },
+      {
         id: 'view.remotes',
         title: 'Open SSH Remotes',
         category: 'View',
@@ -79,7 +110,7 @@ function useRegisterCoreCommands(): void {
               s.setSessionToolExpanded(true);
             }
           } else {
-            s.setSurface('home');
+            s.openSessionHome();
             s.focusComposer();
           }
         },
@@ -265,6 +296,11 @@ export function Workbench(): React.JSX.Element {
   const appInfo = useAppStore((s) => s.appInfo);
   const railView = useAppStore((s) => s.railView);
   const remotesOpen = useAppStore((s) => s.remotesOpen);
+  const backTarget = useAppStore((s) => s.navigationBack.at(-1) ?? null);
+  const forwardTarget = useAppStore((s) => s.navigationForward.at(-1) ?? null);
+  const tasks = useTaskStore((s) => s.tasks);
+  const backLabel = navigationLabel(backTarget, tasks);
+  const forwardLabel = navigationLabel(forwardTarget, tasks);
   const overlayDialogRef = useRef<HTMLDivElement>(null);
   const overlayWasOpenRef = useRef(false);
   const overlayFocusReturnRef = useRef<HTMLElement | null>(null);
@@ -347,6 +383,38 @@ export function Workbench(): React.JSX.Element {
         inert={overlay !== 'none'}
       >
         <span className="tb-title">Charter</span>
+        <span className="tb-nav" aria-label="Page history">
+          <button
+            className="tb-nav-button back"
+            data-testid="navigation-back"
+            disabled={!backTarget}
+            aria-label={`Back to ${backLabel}`}
+            title={backTarget ? `Back to ${backLabel} (⌘[)` : 'No previous page'}
+            onClick={() => useAppStore.getState().navigateBack()}
+          >
+            <Ic name="chevron" size={12} />
+          </button>
+          <button
+            className="tb-nav-button forward"
+            data-testid="navigation-forward"
+            disabled={!forwardTarget}
+            aria-label={`Forward to ${forwardLabel}`}
+            title={forwardTarget ? `Forward to ${forwardLabel} (⌘])` : 'No next page'}
+            onClick={() => useAppStore.getState().navigateForward()}
+          >
+            <Ic name="chevron" size={12} />
+          </button>
+        </span>
+        {backTarget ? (
+          <button
+            className="tb-history-origin"
+            data-testid="navigation-origin"
+            title={`Return to ${backLabel}`}
+            onClick={() => useAppStore.getState().navigateBack()}
+          >
+            {backLabel}
+          </button>
+        ) : null}
         <button
           className="tb-chip"
           data-testid="surface-home"
@@ -363,7 +431,7 @@ export function Workbench(): React.JSX.Element {
               return;
             }
             if (railView === 'skills') return;
-            useAppStore.getState().setSurface('home');
+            useAppStore.getState().openSessionHome();
           }}
         >
           <Ic name={remotesOpen ? 'server' : railView === 'skills' ? 'puzzle' : 'home'} size={12} />{' '}

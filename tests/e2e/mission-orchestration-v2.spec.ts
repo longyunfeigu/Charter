@@ -7,7 +7,7 @@ import { MissionRepository } from '../../packages/persistence/src/mission-reposi
 import { createTsSmallFixture } from './helpers/fixtures';
 import { launchApp } from './helpers/launch';
 
-test('Mission Experience persists recursive work and supports decisions, evidence, and acceptance', async () => {
+test('Mission Experience separates Agent requests from user actions and persists acceptance', async () => {
   test.setTimeout(90_000);
   const fixture = createTsSmallFixture();
   const first = await launchApp({
@@ -125,16 +125,49 @@ test('Mission Experience persists recursive work and supports decisions, evidenc
       completed: ['schema', 'state transitions'],
       remaining: ['migration review'],
     });
-    repository.createMessage({
+    const agentRequest = repository.createActionRequest({
       missionId: created.mission.id,
-      fromAssignmentId: d.assignment.id,
-      toAssignmentId: b.assignment.id,
-      threadId: 'schema-review',
-      attemptId: d.attempt.id,
-      type: 'question',
+      relatedTaskId: b.task.id,
+      createdByPrincipalId: d.assignment.assigneePrincipalId,
+      createdByAssignmentId: d.assignment.id,
+      assignedToPrincipalId: b.assignment.assigneePrincipalId,
+      assignedToAssignmentId: b.assignment.id,
+      kind: 'information',
+      responseType: 'text',
       priority: 'high',
-      subject: 'Schema ownership check',
-      body: 'Should Assignment or Attempt own the runtime session?',
+      title: 'Schema ownership check',
+      context: 'Should Assignment or Attempt own the runtime session?',
+      blockingScope: 'assignment',
+      idempotencyKey: 'schema-ownership-request',
+    });
+    repository.resolveActionRequest({
+      requestId: agentRequest.request.id,
+      resolvedByPrincipalId: b.assignment.assigneePrincipalId,
+      resolvedByAssignmentId: b.assignment.id,
+      outcome: 'answered',
+      body: 'Attempt owns replaceable runtime identity.',
+      idempotencyKey: 'schema-ownership-resolution',
+    });
+    repository.createActionRequest({
+      missionId: created.mission.id,
+      relatedTaskId: lead.taskId,
+      createdByPrincipalId: lead.assigneePrincipalId,
+      createdByAssignmentId: lead.id,
+      assignedToPrincipalId: 'user',
+      assignedToAssignmentId: null,
+      kind: 'choice',
+      responseType: 'choice',
+      title: 'Choose the release window',
+      context: 'The architecture is ready. Choose when the release should proceed.',
+      options: [
+        { id: 'release-now', label: 'Release now' },
+        { id: 'hold-release', label: 'Hold release' },
+      ],
+      recommendation: 'Release now after accepting the recorded evidence.',
+      impact: 'This determines whether deployment proceeds today.',
+      priority: 'high',
+      blockingScope: 'none',
+      idempotencyKey: 'release-window-decision',
     });
     repository.completeAttempt({
       attemptId: d.attempt.id,
@@ -191,7 +224,8 @@ test('Mission Experience persists recursive work and supports decisions, evidenc
       'review complete',
     );
 
-    await second.page.getByRole('button', { name: 'All Missions' }).click();
+    await second.page.getByTestId('rail-view-missions').click();
+    await second.page.getByTestId('mission-overview-link').click();
     await expect(second.page.getByTestId('mission-center')).toBeVisible();
     await expect(second.page.getByTestId(`mission-center-card-${createdMissionId}`)).toContainText(
       'Ship Mission Orchestration V2',
@@ -269,14 +303,42 @@ test('Mission Experience persists recursive work and supports decisions, evidenc
     await expect(workMap.locator('.mission-work-children .mission-work-children')).toHaveCount(1);
     await expect(workMap).toContainText('Review the schema and report migration risks to B.');
 
-    const decisions = second.page.getByTestId('mission-decisions');
-    await expect(decisions).toContainText('Schema ownership check');
-    await decisions.getByRole('button', { name: 'Respond' }).click();
-    await decisions
-      .getByPlaceholder('Give the team a clear decision…')
-      .fill('Attempt owns runtime identity. Continue with that model.');
-    await decisions.getByRole('button', { name: 'Send decision' }).click();
-    await expect(decisions).not.toBeVisible();
+    const actions = second.page.getByTestId('mission-user-actions');
+    await expect(actions).toContainText('Choose the release window');
+    await expect(actions).toContainText('Team recommendation');
+    await expect(actions).not.toContainText('Schema ownership check');
+    const actionViewport = second.page.viewportSize();
+    await second.page.setViewportSize({ width: 1440, height: 900 });
+    await actions.scrollIntoViewIfNeeded();
+    const wideActionBox = await actions.boundingBox();
+    expect(wideActionBox).not.toBeNull();
+    expect(wideActionBox!.x + wideActionBox!.width).toBeLessThanOrEqual(1440);
+    await second.page.screenshot({ path: '/tmp/charter-mission-your-actions-wide.png' });
+    await second.page.setViewportSize({ width: 900, height: 760 });
+    const compactClose = second.page.getByTestId('rail-compact-close');
+    if (await compactClose.isVisible()) await compactClose.click();
+    await actions.scrollIntoViewIfNeeded();
+    const actionBox = await actions.boundingBox();
+    expect(actionBox).not.toBeNull();
+    expect(actionBox!.x).toBeGreaterThanOrEqual(0);
+    expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(900);
+    const narrowReleaseButton = actions.getByRole('button', { name: 'Release now' });
+    const narrowReleaseBox = await narrowReleaseButton.boundingBox();
+    expect(narrowReleaseBox).not.toBeNull();
+    expect(narrowReleaseBox!.x).toBeGreaterThanOrEqual(0);
+    expect(narrowReleaseBox!.x + narrowReleaseBox!.width).toBeLessThanOrEqual(900);
+    await second.page.waitForTimeout(300);
+    await second.page.screenshot({ path: '/tmp/charter-mission-your-actions-narrow.png' });
+    if (actionViewport) await second.page.setViewportSize(actionViewport);
+
+    await second.page.getByTestId('mission-tab-activity').click();
+    const activity = second.page.getByTestId('mission-activity-view');
+    await expect(activity).toContainText('Team activity');
+    await expect(activity).toContainText('Schema ownership check');
+    await expect(activity).toContainText('Request resolved');
+    await second.page.getByTestId('mission-tab-work').click();
+    await actions.getByRole('button', { name: 'Release now' }).click();
+    await expect(actions).not.toBeVisible();
 
     await workMap.getByRole('button', { name: /Migration investigator D/ }).click();
     const details = second.page.getByTestId('mission-work-detail');

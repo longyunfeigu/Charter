@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '../store/appStore.js';
 import { useOrchestrationStore } from '../store/orchestrationStore.js';
 import { useTaskStore } from '../store/taskStore.js';
@@ -11,6 +11,7 @@ import {
   missionSummary,
   TERMINAL_MISSION_STATES,
 } from './mission/mission-view-model.js';
+import { MissionDeleteDialog } from './mission/MissionDeleteDialog.js';
 
 export function MissionCenterView(): React.JSX.Element {
   const selectedId = useAppStore((state) => state.missionCenter?.missionId ?? null);
@@ -18,10 +19,13 @@ export function MissionCenterView(): React.JSX.Element {
   const order = useOrchestrationStore((state) => state.missionOrder);
   const loading = useOrchestrationStore((state) => state.loading);
   const tasks = useTaskStore((state) => state.tasks);
+  const [deleteTarget, setDeleteTarget] = useState<MissionSnapshotDto | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     useOrchestrationStore.getState().init();
     void useOrchestrationStore.getState().refreshMissions();
+    void useOrchestrationStore.getState().refreshDeletedMissions();
   }, []);
 
   const selected = selectedId ? byId[selectedId] : null;
@@ -39,8 +43,21 @@ export function MissionCenterView(): React.JSX.Element {
     (snapshot) => !TERMINAL_MISSION_STATES.has(snapshot.mission.state),
   );
   const attention = active.filter((snapshot) => missionSummary(snapshot).attention > 0);
+  const humanActionCount = active.reduce(
+    (total, snapshot) => total + missionSummary(snapshot).attention,
+    0,
+  );
+  const issueCount = active.reduce((total, snapshot) => total + missionSummary(snapshot).issues, 0);
   const review = active.filter((snapshot) => snapshot.mission.state === 'VERIFYING');
   const recent = missions.filter((snapshot) => TERMINAL_MISSION_STATES.has(snapshot.mission.state));
+
+  const trashSelected = async (): Promise<void> => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    const ok = await useOrchestrationStore.getState().trashMission(deleteTarget.mission.id);
+    setDeleting(false);
+    if (ok) setDeleteTarget(null);
+  };
 
   return (
     <main className="mission-center" data-testid="mission-center">
@@ -52,7 +69,8 @@ export function MissionCenterView(): React.JSX.Element {
           <small>Mission Center</small>
           <h1>Outcome-driven work, in one place.</h1>
           <p>
-            Follow progress, answer decisions and review evidence without managing Agent terminals.
+            Follow work, handle actions explicitly assigned to you, and review evidence without
+            managing Agent terminals.
           </p>
         </span>
       </header>
@@ -63,9 +81,14 @@ export function MissionCenterView(): React.JSX.Element {
           <small>moving toward a goal</small>
         </article>
         <article className={attention.length > 0 ? 'attention' : ''}>
-          <b>{attention.length}</b>
-          <span>Need you</span>
-          <small>decisions or recovery</small>
+          <b>{humanActionCount}</b>
+          <span>Your actions</span>
+          <small>explicit requests from Mission Leads</small>
+        </article>
+        <article className={issueCount > 0 ? 'issues' : ''}>
+          <b>{issueCount}</b>
+          <span>Issues</span>
+          <small>runtime or coordination problems</small>
         </article>
         <article className={review.length > 0 ? 'review' : ''}>
           <b>{review.length}</b>
@@ -134,7 +157,8 @@ export function MissionCenterView(): React.JSX.Element {
                       {summary.completed}/{summary.total} done
                     </span>
                     {summary.active > 0 ? <span>{summary.active} working</span> : null}
-                    {summary.attention > 0 ? <b>{summary.attention} need you</b> : null}
+                    {summary.attention > 0 ? <b>{summary.attention} for you</b> : null}
+                    {summary.issues > 0 ? <b>{summary.issues} issues</b> : null}
                     <small>{origin?.projectName ?? 'Current workspace'}</small>
                   </span>
                 </button>
@@ -156,22 +180,45 @@ export function MissionCenterView(): React.JSX.Element {
             {recent.slice(0, 6).map((snapshot) => {
               const state = missionStateCopy(snapshot.mission.state);
               return (
-                <button
-                  key={snapshot.mission.id}
-                  onClick={() => useAppStore.getState().openMission(snapshot.mission.id)}
-                >
-                  <span className={`mission-rail-state tone-${state.tone}`} />
-                  <span>
-                    <strong>{snapshot.mission.title}</strong>
-                    <small>{state.label}</small>
-                  </span>
-                  <time>{formatMissionTime(snapshot.mission.updatedAt)}</time>
-                  <Ic name="arrowRight" size={12} />
-                </button>
+                <div key={snapshot.mission.id} className="mission-center-recent-row">
+                  <button
+                    type="button"
+                    data-testid={`mission-center-recent-${snapshot.mission.id}`}
+                    onClick={() => useAppStore.getState().openMission(snapshot.mission.id)}
+                  >
+                    <span className={`mission-rail-state tone-${state.tone}`} />
+                    <span>
+                      <strong>{snapshot.mission.title}</strong>
+                      <small>{state.label}</small>
+                    </span>
+                    <time>{formatMissionTime(snapshot.mission.updatedAt)}</time>
+                    <Ic name="arrowRight" size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="mission-center-recent-delete"
+                    data-testid={`mission-center-trash-${snapshot.mission.id}`}
+                    aria-label={`Delete Mission ${snapshot.mission.title}`}
+                    title="Move to Recently Deleted"
+                    onClick={() => setDeleteTarget(snapshot)}
+                  >
+                    <Ic name="trash" size={14} />
+                  </button>
+                </div>
               );
             })}
           </div>
         </section>
+      ) : null}
+      {deleteTarget ? (
+        <MissionDeleteDialog
+          snapshot={deleteTarget}
+          busy={deleting}
+          onClose={() => {
+            if (!deleting) setDeleteTarget(null);
+          }}
+          onConfirm={() => void trashSelected()}
+        />
       ) : null}
     </main>
   );

@@ -16,6 +16,8 @@ function reset(): void {
       projects: { kind: 'home' },
       skills: { kind: 'home' },
     },
+    navigationBack: [],
+    navigationForward: [],
     taskRoomTaskId: null,
     missionCenter: null,
     sessionRoomView: 'conversation',
@@ -86,6 +88,81 @@ describe('railGroupOf / mainSurfaceOf', () => {
     });
     expect(useAppStore.getState().taskRoomTaskId).toBeNull();
     expect(useAppStore.getState().railView).toBe('missions');
+  });
+});
+
+describe('unified page history', () => {
+  it('returns from a Session to the exact Project tab that opened it', () => {
+    useAppStore.getState().openProjectCenter('/saved/project', 'changes');
+    useAppStore.getState().openTaskRoom('task-from-project');
+
+    expect(useAppStore.getState().railView).toBe('sessions');
+    useAppStore.getState().navigateBack();
+
+    const restored = useAppStore.getState();
+    expect(restored.railView).toBe('projects');
+    expect(restored.projectCenter).toEqual({ path: '/saved/project', tab: 'changes' });
+    expect(restored.taskRoomTaskId).toBeNull();
+  });
+
+  it('supports forward navigation and restores Session-local tool state', () => {
+    useAppStore.getState().openProjectCenter('/saved/project', 'sessions');
+    useAppStore.getState().openTaskRoom('task-1');
+    useAppStore.getState().openPeek('task-1', 'src/index.ts', 'diff');
+
+    useAppStore.getState().navigateBack();
+    useAppStore.getState().navigateForward();
+
+    const restored = useAppStore.getState();
+    expect(restored.taskRoomTaskId).toBe('task-1');
+    expect(restored.peek).toEqual({
+      taskId: 'task-1',
+      paths: ['src/index.ts'],
+      active: 'src/index.ts',
+      mode: 'diff',
+    });
+    expect(restored.sessionTool).toBe('diff');
+    expect(restored.sessionToolsOpen).toBe(true);
+  });
+
+  it('restores the selected Mission assignment and inspector tab', () => {
+    useAppStore.getState().openMission('mission-1', 'assignment-2', 'session');
+    useAppStore.getState().openTaskRoom('worker-task');
+
+    useAppStore.getState().navigateBack();
+
+    expect(useAppStore.getState().railView).toBe('missions');
+    expect(useAppStore.getState().missionCenter).toEqual({
+      missionId: 'mission-1',
+      assignmentId: 'assignment-2',
+      inspectorTab: 'session',
+    });
+  });
+
+  it('clears the forward branch after a new destination is opened', () => {
+    useAppStore.getState().openProjectCenter('/project-a');
+    useAppStore.getState().openTaskRoom('task-a');
+    useAppStore.getState().navigateBack();
+    expect(useAppStore.getState().navigationForward).toHaveLength(1);
+
+    useAppStore.getState().openArchaeology(null);
+    expect(useAppStore.getState().navigationForward).toHaveLength(0);
+  });
+
+  it('removes deleted Sessions from both history directions', () => {
+    useAppStore.getState().openTaskRoom('dead-task');
+    useAppStore.getState().openProjectCenter('/project');
+    useAppStore.getState().navigateBack();
+    expect(
+      useAppStore.getState().navigationForward.some((entry) => entry.taskRoomTaskId === null),
+    ).toBe(true);
+
+    useAppStore.getState().forgetTaskNavigation('dead-task');
+    expect(
+      [...useAppStore.getState().navigationBack, ...useAppStore.getState().navigationForward].some(
+        (entry) => entry.taskRoomTaskId === 'dead-task',
+      ),
+    ).toBe(false);
   });
 });
 

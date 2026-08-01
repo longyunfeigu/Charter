@@ -94,6 +94,18 @@
   cursor: pointer;
   font-family: inherit;
 }
+.tr-back.contextual {
+  width: auto;
+  max-width: 190px;
+  padding: 0 8px 0 6px;
+  border-radius: 7px;
+}
+.tr-back.contextual span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tr-back:hover {
   background: var(--bg-hover);
 }

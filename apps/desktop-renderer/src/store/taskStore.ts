@@ -68,6 +68,8 @@ interface TaskStore {
   renameTask(taskId: string, title: string): Promise<boolean>;
   /** Archive (hide) a finished task; answered tasks are closed out (accepted) first. */
   archiveTask(taskId: string): Promise<boolean>;
+  /** Permanently delete a settled Session and its Charter history. */
+  deleteTask(taskId: string): Promise<boolean>;
   setNewTaskOpen(open: boolean): void;
   createAndStart(input: {
     title: string;
@@ -291,6 +293,22 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         set({ streaming: null, streamingThinking: null });
       }
     });
+    onEvent('task.deleted', ({ taskId }) => {
+      const tasks = get().tasks.filter((task) => task.id !== taskId);
+      const patch: Partial<TaskStore> = { tasks };
+      if (get().activeTaskId === taskId) {
+        patch.activeTaskId = null;
+        patch.timeline = [];
+        patch.streaming = null;
+        patch.streamingThinking = null;
+      }
+      set(patch as never);
+      const app = useAppStore.getState();
+      if (app.taskRoomTaskId === taskId) {
+        app.closeTaskRoom();
+      }
+      app.forgetTaskNavigation(taskId);
+    });
     onEvent('agent.workerStatus', ({ alive }) => {
       const wasAlive = get().workerAlive;
       set({ workerAlive: alive });
@@ -382,11 +400,45 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       return false;
     }
     if (useAppStore.getState().taskRoomTaskId === taskId) app.closeTaskRoom();
+    app.forgetTaskNavigation(taskId);
     if (get().activeTaskId === taskId) {
       set({ activeTaskId: null, timeline: [], streaming: null, streamingThinking: null });
     }
     await get().refreshTasks();
     app.pushToast('info', 'Session archived.');
+    return true;
+  },
+
+  async deleteTask(taskId) {
+    const app = useAppStore.getState();
+    const deletingTask = get().tasks.find((task) => task.id === taskId) ?? null;
+    const res = await rpcResult('task.delete', { taskId });
+    if (!res.ok) {
+      app.pushToast('error', res.error.userMessage);
+      return false;
+    }
+    if (app.taskRoomTaskId === taskId) app.closeTaskRoom();
+    app.forgetTaskNavigation(taskId);
+    const tasks = get().tasks.filter((task) => task.id !== taskId);
+    const patch: Partial<TaskStore> = { tasks };
+    if (get().activeTaskId === taskId) {
+      patch.activeTaskId = null;
+      patch.timeline = [];
+      patch.streaming = null;
+      patch.streamingThinking = null;
+    }
+    set(patch as never);
+    // A deleted tracked Claude/Codex transcript is now host-suppressed; force
+    // refresh the archive so it cannot linger or reappear as "external".
+    void import('./archaeologyStore.js').then(({ useArchaeologyStore }) =>
+      useArchaeologyStore.getState().scan(true),
+    );
+    if (deletingTask?.external?.terminalId) {
+      void import('../views/TerminalPanel.js').then(({ useTerminalStore }) =>
+        useTerminalStore.getState().requestKill(deletingTask.external!.terminalId),
+      );
+    }
+    app.pushToast('success', 'Session permanently deleted.');
     return true;
   },
 

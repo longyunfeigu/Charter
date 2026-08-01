@@ -797,9 +797,7 @@ export function ProjectCenterView(): React.JSX.Element {
   const newSession = async (): Promise<void> => {
     if (!(await activate())) return;
     const app = useAppStore.getState();
-    app.setRailView('sessions');
-    app.closeTaskRoom();
-    app.setSurface('home');
+    app.openSessionHome();
     app.focusComposer();
   };
 

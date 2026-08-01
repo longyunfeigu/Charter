@@ -14,6 +14,7 @@ import {
   OrchestrationCancelSchema,
   OrchestrationCompleteSchema,
   OrchestrationContinueSchema,
+  OrchestrationDecisionRequestSchema,
   OrchestrationDelegateManySchema,
   OrchestrationDelegateSchema,
   OrchestrationEscalateSchema,
@@ -23,6 +24,8 @@ import {
   OrchestrationProgressSchema,
   OrchestrationReassignSchema,
   OrchestrationReplySchema,
+  OrchestrationRequestSchema,
+  OrchestrationResolveRequestSchema,
   OrchestrationRetrySchema,
   OrchestrationSteerSchema,
   OrchestrationSyncSchema,
@@ -34,6 +37,9 @@ export {
   ORCHESTRATION_TOOL_NAMES,
   OrchestrationDelegateSchema,
   OrchestrationMessageSchema,
+  OrchestrationRequestSchema,
+  OrchestrationDecisionRequestSchema,
+  OrchestrationResolveRequestSchema,
 } from './orchestration-command-registry.js';
 
 const AutoAllow = 'auto-allow' as const;
@@ -59,6 +65,18 @@ export interface OrchestrationControlPort {
       payload?: Record<string, unknown> | null;
       threadId?: string | null;
     },
+  ): unknown;
+  request(
+    caller: OrchestrationCallerContext,
+    input: z.infer<typeof OrchestrationRequestSchema>,
+  ): unknown;
+  requestDecision(
+    caller: OrchestrationCallerContext,
+    input: z.infer<typeof OrchestrationDecisionRequestSchema>,
+  ): unknown;
+  resolveRequest(
+    caller: OrchestrationCallerContext,
+    input: z.infer<typeof OrchestrationResolveRequestSchema>,
   ): unknown;
   reply(
     caller: OrchestrationCallerContext,
@@ -242,7 +260,10 @@ export function registerOrchestrationTools(
     name: 'orchestration.message',
     version: 1,
     permissionPolicy: AutoAllow,
-    description: 'Send a typed durable message to any Assignment in your Mission.',
+    description:
+      'Send durable FYI/progress context to an Assignment. This never creates an Action Request.',
+    promptGuidance:
+      'Use message only when no response is required. Use request for Agent work and request_decision only for irreducible user input.',
     inputSchema: OrchestrationMessageSchema,
     risk: () => ({ level: 'R0', reasons: ['persists structured Mission coordination'] }),
     preview: async (input) => ({ summary: `Message ${input.toAssignmentId}: ${input.subject}` }),
@@ -250,6 +271,53 @@ export function registerOrchestrationTools(
       code: 'OK',
       summary: 'Sent Mission message.',
       data: services.control.message(caller(call), input),
+    }),
+  });
+  register({
+    name: 'orchestration.request',
+    version: 1,
+    permissionPolicy: AutoAllow,
+    description: 'Assign an explicit durable Action Request to another Agent Assignment.',
+    promptGuidance:
+      'Use this when the target must answer, review, approve, or recover something. Agent requests stay in Team activity and never enter the user inbox.',
+    inputSchema: OrchestrationRequestSchema,
+    risk: () => ({ level: 'R0', reasons: ['assigns structured coordination work'] }),
+    preview: async (input) => ({ summary: `Request ${input.toAssignmentId}: ${input.title}` }),
+    execute: async (input, _signal, call) => ({
+      code: 'OK',
+      summary: 'Agent Action Request created.',
+      data: services.control.request(caller(call), input),
+    }),
+  });
+  register({
+    name: 'orchestration.request_decision',
+    version: 1,
+    permissionPolicy: AutoAllow,
+    description:
+      'Mission Lead only: create a typed, explicit request in the user Your actions inbox.',
+    promptGuidance:
+      'Use only when the team cannot safely infer or recover the answer. Include impact, options, and a recommendation whenever possible.',
+    inputSchema: OrchestrationDecisionRequestSchema,
+    risk: () => ({ level: 'R0', reasons: ['requests an explicit user decision'] }),
+    preview: async (input) => ({ summary: `Request user decision: ${input.title}` }),
+    execute: async (input, _signal, call) => ({
+      code: 'OK',
+      summary: 'User Action Request created.',
+      data: services.control.requestDecision(caller(call), input),
+    }),
+  });
+  register({
+    name: 'orchestration.resolve_request',
+    version: 1,
+    permissionPolicy: AutoAllow,
+    description: 'Resolve an Action Request assigned to the caller with a typed outcome.',
+    inputSchema: OrchestrationResolveRequestSchema,
+    risk: () => ({ level: 'R0', reasons: ['resolves only a request assigned to the caller'] }),
+    preview: async (input) => ({ summary: `Resolve ${input.requestId}: ${input.outcome}` }),
+    execute: async (input, _signal, call) => ({
+      code: 'OK',
+      summary: 'Action Request resolved.',
+      data: services.control.resolveRequest(caller(call), input),
     }),
   });
   register({

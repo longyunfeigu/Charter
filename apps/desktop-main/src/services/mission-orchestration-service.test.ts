@@ -85,6 +85,106 @@ describe('MissionOrchestrationService', () => {
     expect(runtime.starts).toHaveLength(2);
   });
 
+  it('separates Agent requests from user decisions and enforces hierarchical control', async () => {
+    const adopted = service.adopt({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Authority and attention',
+      goal: 'Keep team coordination out of the user inbox',
+      principal: { id: 'A', kind: 'managed_agent', displayName: 'Lead A' },
+      runtimeSessionId: 'runtime-A',
+      requestedRuntime: 'managed',
+    });
+    const { results } = service.delegateMany(adopted.caller, {
+      children: ['B', 'C'].map((title) => ({
+        title,
+        goal: `Do ${title}`,
+        acceptanceCriteria: [],
+        reason: 'parallel',
+        idempotencyKey: `authority-${title}`,
+      })),
+    });
+    await runner.drain();
+    const b = results[0]!;
+    const c = results[1]!;
+    const callerB = service.contextForAssignment(b.assignment.id, 'managed-run');
+    const d = service.delegate(callerB, {
+      title: 'D',
+      goal: 'Review B',
+      acceptanceCriteria: [],
+      reason: 'nested review',
+      idempotencyKey: 'authority-D',
+    });
+    await runner.drain();
+    const callerD = service.contextForAssignment(d.assignment.id, 'managed-run');
+
+    expect(() => service.pause(callerB, c.assignment.id, true)).toThrow(/delegated subtree/i);
+    expect(() => service.pause(callerD, c.assignment.id, true)).toThrow(/delegated subtree/i);
+
+    const agentEscalation = service.escalate(callerD, {
+      subject: 'Schema ownership',
+      body: 'B must choose the schema owner.',
+    });
+    expect(agentEscalation.request).toMatchObject({
+      assignedToAssignmentId: b.assignment.id,
+      assignedToPrincipalId: b.assignment.assigneePrincipalId,
+      status: 'OPEN',
+    });
+    expect(() =>
+      service.requestDecision(callerB, {
+        title: 'Bypass Lead',
+        context: 'This should not reach the user.',
+        responseType: 'text',
+        impact: 'None',
+        idempotencyKey: 'not-allowed',
+      }),
+    ).toThrow(/only the Mission Lead/i);
+
+    const humanDecision = service.requestDecision(adopted.caller, {
+      title: 'Choose release window',
+      context: 'This is an irreducible business choice.',
+      responseType: 'choice',
+      options: [
+        { id: 'now', label: 'Release now' },
+        { id: 'later', label: 'Release later' },
+      ],
+      recommendation: 'Release now',
+      impact: 'The deployment remains paused until a window is selected.',
+      idempotencyKey: 'release-window',
+    });
+    expect(humanDecision.request).toMatchObject({
+      assignedToPrincipalId: 'user',
+      assignedToAssignmentId: null,
+      status: 'OPEN',
+    });
+
+    service.resolveRequest(callerB, {
+      requestId: agentEscalation.request.id,
+      outcome: 'answered',
+      body: 'Attempt owns the runtime session.',
+      idempotencyKey: 'resolve-schema-owner',
+    });
+    const userCaller: OrchestrationCallerContext = {
+      principalId: 'user',
+      runtimeSessionId: 'user',
+      missionId: adopted.snapshot.mission.id,
+      assignmentId: adopted.caller.assignmentId,
+      attemptId: null,
+      origin: 'user',
+    };
+    service.resolveRequest(userCaller, {
+      requestId: humanDecision.request.id,
+      outcome: 'now',
+      body: 'Release now.',
+      idempotencyKey: 'resolve-release-window',
+    });
+
+    const snapshot = service.repository.snapshot(adopted.snapshot.mission.id);
+    expect(snapshot.actionRequests).toHaveLength(2);
+    expect(snapshot.actionRequests.every((request) => request.status === 'RESOLVED')).toBe(true);
+    expect(snapshot.actionResolutions).toHaveLength(2);
+  });
+
   it('delivers blocking structured messages without polling', async () => {
     const adopted = service.adopt({
       workspaceId: 'ws-1',

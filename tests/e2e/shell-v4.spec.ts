@@ -80,7 +80,7 @@ test.describe('Shell v4 — global tasks on a multi-mount engine (ADR-0009)', ()
       // Back home, browse project B — the pending task must NOT be cancelled.
       // Browsing alone does not change context; the explicit action below does.
       await page.getByTestId('task-room-back').click();
-      await page.getByTestId('rail-context').click();
+      await page.getByTestId('rail-view-projects').click();
       await page.getByTestId(`home-recent-${projectB}`).click();
       await expect(page.getByTestId('project-center')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId('home-project-tree')).toHaveCount(0);

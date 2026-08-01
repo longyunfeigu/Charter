@@ -3,7 +3,7 @@ import type { MissionSnapshotDto } from '@pi-ide/ipc-contracts';
 import { Ic } from '../home-icons.js';
 import { formatMissionTime, principalName } from './mission-view-model.js';
 
-type Filter = 'all' | 'decisions' | 'outcomes';
+type Filter = 'all' | 'requests' | 'outcomes';
 
 const MESSAGE_META: Record<
   MissionSnapshotDto['messages'][number]['type'],
@@ -32,8 +32,8 @@ export function MissionActivity({
     () =>
       snapshot.messages
         .filter((message) => {
-          if (filter === 'decisions') {
-            return ['question', 'answer', 'escalation'].includes(message.type);
+          if (filter === 'requests') {
+            return Boolean(message.actionRequestId);
           }
           if (filter === 'outcomes') {
             return ['completion', 'cancellation', 'handoff'].includes(message.type);
@@ -48,11 +48,11 @@ export function MissionActivity({
     <section className="mission-activity-view" data-testid="mission-activity-view">
       <header className="mission-section-heading">
         <span>
-          <small>Mission history</small>
-          <h2>Updates and decisions</h2>
+          <small>Durable collaboration</small>
+          <h2>Team activity</h2>
         </span>
         <nav aria-label="Activity filter">
-          {(['all', 'decisions', 'outcomes'] as const).map((value) => (
+          {(['all', 'requests', 'outcomes'] as const).map((value) => (
             <button
               key={value}
               className={filter === value ? 'active' : ''}
@@ -72,7 +72,14 @@ export function MissionActivity({
       ) : (
         <ol className="mission-activity" data-testid="mission-activity">
           {messages.map((message) => {
-            const meta = MESSAGE_META[message.type];
+            const request = (snapshot.actionRequests ?? []).find(
+              (item) => item.id === message.actionRequestId,
+            );
+            const meta = request
+              ? message.type === 'answer'
+                ? { label: 'Request resolved', icon: 'checkCircle' }
+                : { label: 'Action request', icon: 'help' }
+              : MESSAGE_META[message.type];
             const delivery = snapshot.messageDeliveries?.find(
               (item) =>
                 item.messageId === message.id && item.assignmentId === message.toAssignmentId,
@@ -98,6 +105,7 @@ export function MissionActivity({
                         : ''}
                     {message.suppressedAt ? ' · superseded by a newer attempt' : ''}
                     {delivery ? ` · ${delivery.state}` : ''}
+                    {request ? ` · ${request.status.toLowerCase()}` : ''}
                   </small>
                   {onInspect ? (
                     <button

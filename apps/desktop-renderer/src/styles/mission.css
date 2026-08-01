@@ -125,7 +125,7 @@
 }
 .mission-rail-scope {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 3px;
   padding: 3px;
   border: 1px solid var(--border-soft);
@@ -172,6 +172,26 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+.mission-rail-card-row {
+  position: relative;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+.mission-rail-card-row:hover {
+  background: var(--bg-hover);
+}
+.mission-rail-card-row.selected {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
+}
+.mission-rail-card-row .mission-rail-card {
+  padding-right: 34px;
+}
+.mission-rail-card:disabled {
+  cursor: default;
+  opacity: 1;
 }
 .mission-rail-overview:hover,
 .mission-rail-card:hover {
@@ -220,6 +240,76 @@
 .mission-rail-list {
   display: grid;
   gap: 2px;
+}
+.mission-rail-row-actions {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  display: flex;
+  gap: 2px;
+  transform: translateY(-50%);
+}
+.mission-rail-row-action {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-faint);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition:
+    opacity 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+.mission-rail-row-actions .mission-rail-row-action {
+  position: static;
+  opacity: 1;
+  transform: none;
+}
+.mission-rail-card-row:hover > .mission-rail-row-action,
+.mission-rail-row-action:focus-visible {
+  opacity: 1;
+}
+.mission-rail-row-action:hover {
+  border-color: var(--border);
+  background: var(--bg-card);
+  color: var(--fg);
+}
+.mission-rail-row-action.danger:hover {
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+  background: color-mix(in srgb, var(--danger) 9%, var(--bg-card));
+  color: var(--danger);
+}
+.mission-rail-trash-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+  padding: 9px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--fg-muted);
+}
+.mission-rail-trash-note > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.mission-rail-trash-note strong {
+  color: var(--fg);
+  font-size: 11px;
+}
+.mission-rail-trash-note small {
+  color: var(--fg-faint);
+  font-size: 9px;
 }
 .mission-rail-state {
   width: 7px;
@@ -363,9 +453,9 @@
   line-height: 1.55;
 }
 .mission-center-metrics {
-  max-width: 920px;
+  max-width: 1120px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
   margin: 30px 0 34px;
 }
@@ -390,6 +480,9 @@
 }
 .mission-center-metrics article.review b {
   color: var(--success);
+}
+.mission-center-metrics article.issues b {
+  color: var(--danger);
 }
 .mission-center-metrics article span {
   font-size: 11px;
@@ -505,6 +598,91 @@
   color: var(--fg-muted);
   text-align: center;
 }
+
+/* Mission retention */
+.mission-delete-dialog {
+  width: min(520px, 92vw);
+  color: var(--fg);
+  font-family: var(--font-ui);
+}
+.mission-delete-body {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px;
+}
+.mission-delete-mark {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-hover));
+  color: var(--danger);
+}
+.mission-delete-body h2 {
+  margin: 0 0 5px;
+  font-size: 15px;
+}
+.mission-delete-body p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.mission-delete-impact {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin: 4px 0 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.mission-delete-impact > div {
+  display: grid;
+  gap: 2px;
+  padding: 11px;
+  border-right: 1px solid var(--border-soft);
+}
+.mission-delete-impact > div:last-child {
+  border-right: 0;
+}
+.mission-delete-impact dt {
+  font: 650 14px var(--font-mono);
+}
+.mission-delete-impact dd {
+  margin: 0;
+  color: var(--fg-faint);
+  font-size: 9px;
+}
+.mission-delete-preserves {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--success) 7%, var(--bg-hover));
+  color: var(--success);
+}
+.mission-delete-preserves > span {
+  display: grid;
+  gap: 2px;
+  color: var(--fg-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.mission-delete-preserves strong {
+  color: var(--fg);
+}
+.mission-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
 .mission-center-empty > span {
   width: 52px;
   height: 52px;
@@ -540,7 +718,14 @@
   display: grid;
   border-top: 1px solid var(--border-soft);
 }
-.mission-center-recent button {
+.mission-center-recent-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border-soft);
+}
+.mission-center-recent-row > button:first-child {
+  flex: 1;
+  min-width: 0;
   min-height: 48px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -548,18 +733,31 @@
   gap: 10px;
   padding: 7px 4px;
   border: 0;
-  border-bottom: 1px solid var(--border-soft);
+  border: 0;
   background: transparent;
   color: var(--fg);
   text-align: left;
   cursor: pointer;
 }
-.mission-center-recent button:hover {
+.mission-center-recent-row > button:first-child:hover {
   background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
 }
-.mission-center-recent button > span:nth-child(2) {
+.mission-center-recent-row > button:first-child > span:nth-child(2) {
   display: grid;
   gap: 2px;
+}
+.mission-center-recent-delete {
+  width: 42px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--fg-faint);
+  cursor: pointer;
+}
+.mission-center-recent-delete:hover {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--danger);
 }
 .mission-center-recent strong {
   font-size: 11px;
@@ -825,7 +1023,7 @@
   overflow: auto;
 }
 
-/* Needs-you decision queue */
+/* Explicit user Action Request queue */
 .mission-decisions {
   max-width: 1300px;
   margin: 16px auto 0;
@@ -916,6 +1114,22 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.mission-decision-copy .mission-action-impact,
+.mission-decision-copy .mission-action-recommendation {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+.mission-action-impact b,
+.mission-action-recommendation b {
+  margin-right: 4px;
+  color: var(--fg);
+  font-size: 8px;
+  text-transform: uppercase;
+}
+.mission-action-recommendation {
+  color: color-mix(in srgb, var(--accent) 76%, var(--fg)) !important;
+}
 .mission-decision-copy small {
   color: var(--fg-faint);
   font-size: 8.5px;
@@ -931,6 +1145,36 @@
   color: var(--fg);
   font: 600 9px var(--font-ui);
   cursor: pointer;
+}
+.mission-action-view-work {
+  width: max-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: 600 8.5px var(--font-ui);
+  cursor: pointer;
+}
+.mission-action-options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.mission-action-options button {
+  min-height: 29px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--fg);
+  font: 600 9px var(--font-ui);
+  cursor: pointer;
+}
+.mission-action-options button.mission-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg, #fff);
 }
 .mission-decision-reply {
   grid-column: 2 / -1;
@@ -951,6 +1195,83 @@
   display: flex;
   justify-content: flex-end;
   gap: 6px;
+}
+
+/* Runtime/coordination problems are not automatically user actions. */
+.mission-issues {
+  max-width: 1300px;
+  margin: 14px auto 0;
+  padding: 0 18px;
+}
+.mission-issues > header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 7px;
+}
+.mission-issues > header > span:first-child {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+.mission-issues > header > span:nth-child(2) {
+  display: grid;
+  gap: 1px;
+}
+.mission-issues > header strong {
+  font-size: 11px;
+}
+.mission-issues > header small {
+  color: var(--fg-faint);
+  font-size: 9px;
+}
+.mission-issues > header > b {
+  color: var(--danger);
+  font: 700 10px var(--font-mono);
+}
+.mission-issue-list {
+  display: grid;
+  gap: 6px;
+}
+.mission-issue-list article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--danger) 4%, var(--bg-card));
+}
+.mission-issue-list article > span {
+  color: var(--danger);
+  font: 700 8px var(--font-mono);
+  text-transform: uppercase;
+}
+.mission-issue-list h3 {
+  margin: 0 0 2px;
+  font-size: 10px;
+}
+.mission-issue-list small {
+  color: var(--fg-faint);
+  font-size: 8.5px;
+}
+.mission-issue-list button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--fg);
+  font: 600 9px var(--font-ui);
+  cursor: pointer;
 }
 
 /* Work map + detail inspector */
@@ -3101,6 +3422,17 @@
 }
 
 @container mission-workbench (max-width: 900px) {
+  .mission-decision,
+  .mission-issue-list article {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .mission-decision-action,
+  .mission-action-options,
+  .mission-decision-reply,
+  .mission-issue-list article > button {
+    grid-column: 2;
+    justify-self: start;
+  }
   .mission-work-layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3162,6 +3494,9 @@
 }
 
 @media (max-width: 1050px) {
+  .mission-center-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .mission-strip {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
@@ -3210,6 +3545,17 @@
   }
   .mission-work-layout {
     grid-template-columns: 1fr;
+  }
+  .mission-decision,
+  .mission-issue-list article {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .mission-decision-action,
+  .mission-action-options,
+  .mission-decision-reply,
+  .mission-issue-list article > button {
+    grid-column: 2;
+    justify-self: start;
   }
   .mission-detail-pane {
     min-height: 360px;

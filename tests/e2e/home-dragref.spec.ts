@@ -15,7 +15,7 @@ test.describe('Projects — project actions without a duplicate file tree', () =
     });
     try {
       await page.getByTestId('surface-home').click();
-      await page.getByTestId('rail-context').click();
+      await page.getByTestId('rail-view-projects').click();
       await page.getByTestId('rail-add-project').click();
       await page.getByTestId('home-new-project').click();
       await expect(page.getByTestId('new-project-dialog')).toBeVisible();
@@ -33,7 +33,7 @@ test.describe('Projects — project actions without a duplicate file tree', () =
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] room for dialog test');
       await page.getByTestId('home-submit').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
-      await page.getByTestId('rail-context').click();
+      await page.getByTestId('rail-view-projects').click();
       await page.getByTestId('rail-add-project').click();
       await page.getByTestId('home-new-project').click();
       await expect(page.getByTestId('new-project-dialog')).toBeVisible();
@@ -53,7 +53,7 @@ test.describe('Projects — project actions without a duplicate file tree', () =
     });
     try {
       await page.getByTestId('surface-home').click();
-      await page.getByTestId('rail-context').click();
+      await page.getByTestId('rail-view-projects').click();
       await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
       await page.locator('[data-testid^="project-menu-"]').first().click();
       await page.locator('[data-testid^="project-spawn-pi-"]').first().click();
@@ -74,7 +74,7 @@ test.describe('Projects — project actions without a duplicate file tree', () =
     });
     try {
       await page.getByTestId('surface-home').click();
-      await page.getByTestId('rail-context').click();
+      await page.getByTestId('rail-view-projects').click();
       await page.locator('[data-testid^="home-recent-"]').first().click();
       await expect(page.getByTestId('project-center')).toBeVisible();
       await page.getByTestId('project-center-tab-files').click();

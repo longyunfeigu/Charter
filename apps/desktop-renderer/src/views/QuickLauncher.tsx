@@ -103,8 +103,7 @@ export function QuickLauncher(): React.JSX.Element | null {
         run: () => {
           // Land in the composer even when a Task Room is open.
           const app = useAppStore.getState();
-          app.setSurface('home');
-          app.closeTaskRoom();
+          app.openSessionHome();
           app.focusComposer();
         },
       },
@@ -121,7 +120,7 @@ export function QuickLauncher(): React.JSX.Element | null {
             group: 'Actions',
             icon: 'flag',
             label: 'Go Home (task launcher)',
-            run: () => useAppStore.getState().setSurface('home'),
+            run: () => useAppStore.getState().openSessionHome(),
           },
       {
         id: 'action-settings',

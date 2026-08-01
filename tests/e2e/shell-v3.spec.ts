@@ -133,7 +133,7 @@ test.describe('Shell v3 — Home refinements (PIVOT-027, PIVOT-012 title)', () =
     try {
       await page.getByTestId('surface-home').click();
       // Browsing and working context are separate; opening a file is explicit.
-      await page.getByTestId('rail-context').click();
+      await page.getByTestId('rail-view-projects').click();
       await page.locator('[data-testid^="home-recent-"]').first().click();
       await expect(page.getByTestId('project-center')).toBeVisible();
       await page.getByTestId('project-center-tab-files').click();

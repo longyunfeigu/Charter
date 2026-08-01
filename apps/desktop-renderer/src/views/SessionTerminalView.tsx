@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useAppStore } from '../store/appStore.js';
+import { navigationSnapshotLabel, useAppStore } from '../store/appStore.js';
 import { useExternalStore } from '../store/externalStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { EditorArea } from '../workbench/EditorArea.js';
@@ -106,6 +106,17 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
   const item = useTerminalStore((state) => state.items.find((entry) => entry.id === terminalId));
   const workspace = useWorkspaceStore((state) => state.workspace);
   const remoteContext = Boolean(item?.remote && app.remotesOpen);
+  const backTarget = app.navigationBack.at(-1) ?? null;
+  const backLabel = backTarget
+    ? navigationSnapshotLabel(backTarget)
+    : remoteContext
+      ? 'Host'
+      : 'Sessions';
+  const goBack = (): void => {
+    if (backTarget) app.navigateBack();
+    else if (remoteContext && item?.remote) app.selectRemoteHost(item.remote.hostId);
+    else app.closeTaskRoom();
+  };
   const allTerminals = !remoteContext && app.sessionTerminalScope === 'all';
   const singleSession = !remoteContext && !allTerminals;
   const promotedTerminalId = useExternalStore((state) => state.promoted?.terminalId ?? null);
@@ -180,8 +191,8 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
       <main className="stv-root" data-testid="session-terminal-view" data-terminal-id={terminalId}>
         <div className="empty-state">
           <div className="es-title">This terminal session is no longer available.</div>
-          <button className="btn" onClick={app.closeTaskRoom}>
-            Back to Sessions
+          <button className="btn" onClick={goBack}>
+            Back to {backLabel}
           </button>
         </div>
       </main>
@@ -267,12 +278,8 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
               <Ic name="terminal" size={12} /> All Terminals
             </button>
           ) : null}
-          <button
-            onClick={
-              remoteContext ? () => app.selectRemoteHost(item.remote!.hostId) : app.closeTaskRoom
-            }
-          >
-            <Ic name="chevron" size={12} /> {remoteContext ? 'Host' : 'Sessions'}
+          <button data-testid="session-terminal-back" onClick={goBack}>
+            <Ic name="chevron" size={12} /> {backLabel}
           </button>
         </header>
         <OrchestrationWorkerBand terminalId={terminalId} />
@@ -387,6 +394,9 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
           }}
         >
           <Ic name="layout" size={13} /> {toolOpen ? 'Hide tools' : 'Show tools'}
+        </button>
+        <button data-testid="session-terminal-back" onClick={goBack}>
+          <Ic name="chevron" size={12} /> {backLabel}
         </button>
       </header>
       <OrchestrationWorkerBand terminalId={terminalId} />

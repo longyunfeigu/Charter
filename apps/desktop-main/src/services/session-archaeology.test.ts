@@ -371,6 +371,24 @@ describe('SessionArchaeologyService.scan (read-only fs discovery)', () => {
     await expect(service.skillUsageEvents()).resolves.toEqual([]);
   });
 
+  it('does not resurrect an external transcript deleted from Charter', async () => {
+    const service = new SessionArchaeologyService({
+      logger: silentLogger,
+      homeDir: await fakeHome(),
+      knownSessions: () => new Map(),
+      ignoredSessions: () => new Set([`claude:${CLAUDE_ID}`]),
+      projects: () => ['/Users/dev/git/blog'],
+    });
+    const sessions = await service.scan();
+    expect(sessions.map((session) => `${session.cli}:${session.sessionId}`)).not.toContain(
+      `claude:${CLAUDE_ID}`,
+    );
+    expect(sessions.map((session) => `${session.cli}:${session.sessionId}`)).toContain(
+      `codex:${CODEX_ID}`,
+    );
+    await expect(service.skillUsageEvents()).resolves.toEqual([]);
+  });
+
   it('skillUsageEvents walks only the Claude store and tags the consumer (ADR-0040)', async () => {
     const service = new SessionArchaeologyService({
       logger: silentLogger,

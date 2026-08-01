@@ -79,7 +79,7 @@ export const PrincipalKindSchema = z.enum([
 
 const MissionExecutionPolicySchema = z.object({
   inheritHostPermissions: z.literal(true),
-  controlScope: z.literal('mission-wide'),
+  controlScope: z.enum(['mission-wide', 'hierarchical']),
   workspaceRoot: z.string(),
   toolPolicy: z.literal('inherit'),
   runtimeDefaults: z.object({
@@ -107,6 +107,7 @@ export const MissionDtoSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   completedAt: z.string().nullable(),
+  deletedAt: z.string().nullable().optional(),
 });
 export const MissionTaskDtoSchema = z.object({
   id: z.string(),
@@ -168,6 +169,8 @@ export const PrincipalDtoSchema = z.object({
 export const OrchestrationMessageDtoSchema = z.object({
   id: z.string(),
   missionId: z.string(),
+  conversationId: z.string().nullable().optional(),
+  actionRequestId: z.string().nullable().optional(),
   fromAssignmentId: z.string().nullable(),
   toAssignmentId: z.string().nullable(),
   threadId: z.string().nullable(),
@@ -193,6 +196,80 @@ export const OrchestrationMessageDtoSchema = z.object({
   readAt: z.string().nullable(),
   suppressedAt: z.string().nullable(),
   suppressionReason: z.string().nullable(),
+});
+export const ConversationDtoSchema = z.object({
+  id: z.string(),
+  missionId: z.string(),
+  topic: z.string(),
+  createdByPrincipalId: z.string().nullable(),
+  state: z.enum(['OPEN', 'ARCHIVED']),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export const ConversationParticipantDtoSchema = z.object({
+  conversationId: z.string(),
+  principalId: z.string(),
+  assignmentId: z.string().nullable(),
+  joinedAt: z.string(),
+});
+export const ActionRequestOptionDtoSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+});
+export const ActionRequestDtoSchema = z.object({
+  id: z.string(),
+  missionId: z.string(),
+  conversationId: z.string(),
+  relatedTaskId: z.string().nullable(),
+  createdByPrincipalId: z.string(),
+  createdByAssignmentId: z.string().nullable(),
+  assignedToPrincipalId: z.string(),
+  assignedToAssignmentId: z.string().nullable(),
+  kind: z.enum(['information', 'review', 'approval', 'choice', 'input', 'recovery', 'escalation']),
+  title: z.string(),
+  context: z.string(),
+  responseType: z.enum(['text', 'approval', 'choice', 'review', 'recovery']),
+  options: z.array(ActionRequestOptionDtoSchema),
+  recommendation: z.string().nullable(),
+  impact: z.string().nullable(),
+  priority: z.enum(['normal', 'high', 'urgent']),
+  blockingScope: z.enum(['none', 'assignment', 'task', 'mission']),
+  status: z.enum(['OPEN', 'RESOLVED', 'CANCELLED', 'EXPIRED']),
+  openingMessageId: z.string().nullable(),
+  idempotencyKey: z.string(),
+  dueAt: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export const ActionResolutionDtoSchema = z.object({
+  id: z.string(),
+  requestId: z.string(),
+  resolvedByPrincipalId: z.string(),
+  resolvedByAssignmentId: z.string().nullable(),
+  outcome: z.string(),
+  body: z.string(),
+  payload: z.record(z.string(), z.unknown()).nullable(),
+  rationale: z.string().nullable(),
+  idempotencyKey: z.string(),
+  createdAt: z.string(),
+});
+export const IncidentDtoSchema = z.object({
+  id: z.string(),
+  missionId: z.string(),
+  assignmentId: z.string().nullable(),
+  attemptId: z.string().nullable(),
+  kind: z.string(),
+  severity: z.enum(['warning', 'error', 'critical']),
+  state: z.enum(['OPEN', 'RECOVERING', 'RECOVERED', 'NEEDS_ACTION', 'CLOSED']),
+  summary: z.string(),
+  detail: z.record(z.string(), z.unknown()).nullable(),
+  automaticAttempts: z.number().int().nonnegative(),
+  actionRequestId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  resolvedAt: z.string().nullable(),
 });
 export const AssignmentArtifactDtoSchema = z.object({
   id: z.string(),
@@ -313,6 +390,11 @@ export const ResumeIntentDtoSchema = z.object({
 export const MissionSnapshotSchema = z.object({
   mission: MissionDtoSchema,
   principals: z.array(PrincipalDtoSchema),
+  conversations: z.array(ConversationDtoSchema).optional(),
+  conversationParticipants: z.array(ConversationParticipantDtoSchema).optional(),
+  actionRequests: z.array(ActionRequestDtoSchema).optional(),
+  actionResolutions: z.array(ActionResolutionDtoSchema).optional(),
+  incidents: z.array(IncidentDtoSchema).optional(),
   tasks: z.array(MissionTaskDtoSchema),
   dependencies: z.array(
     z.object({ taskId: z.string(), dependsOnTaskId: z.string(), createdAt: z.string() }),
@@ -330,6 +412,11 @@ export const MissionSnapshotSchema = z.object({
 });
 
 export type MissionSnapshotDto = z.infer<typeof MissionSnapshotSchema>;
+export type ConversationDto = z.infer<typeof ConversationDtoSchema>;
+export type ConversationParticipantDto = z.infer<typeof ConversationParticipantDtoSchema>;
+export type ActionRequestDto = z.infer<typeof ActionRequestDtoSchema>;
+export type ActionResolutionDto = z.infer<typeof ActionResolutionDtoSchema>;
+export type IncidentDto = z.infer<typeof IncidentDtoSchema>;
 export type AssignmentDto = z.infer<typeof AssignmentDtoSchema>;
 export type AttemptDto = z.infer<typeof AttemptDtoSchema>;
 export type AssignmentArtifactDto = z.infer<typeof AssignmentArtifactDtoSchema>;

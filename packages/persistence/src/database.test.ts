@@ -124,7 +124,7 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(upgraded.appliedVersions).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     const names = (
       upgraded.db
         .prepare(
@@ -216,7 +216,7 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([7, 8, 9, 10, 11]);
+    expect(upgraded.appliedVersions).toEqual([7, 8, 9, 10, 11, 12, 13, 14]);
     const status = (id: string) =>
       (
         upgraded.db
@@ -230,11 +230,11 @@ describe('persistence database', () => {
     upgraded.db.close();
   });
 
-  it('v9-v11 add normalized Missions, runtime sessions, delivery, and continuations', () => {
+  it('v9-v13 add normalized Missions, runtime delivery, conversations, actions, and incidents', () => {
     const before = open(MIGRATIONS.slice(0, 8));
     before.db.close();
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([9, 10, 11]);
+    expect(upgraded.appliedVersions).toEqual([9, 10, 11, 12, 13, 14]);
     const names = (
       upgraded.db
         .prepare(
@@ -244,20 +244,29 @@ describe('persistence database', () => {
             'orchestration_outbox','assignment_artifacts','orchestration_runtime_sessions',
             'orchestration_runtime_events','orchestration_message_deliveries',
             'orchestration_continuations','orchestration_continuation_targets',
-            'orchestration_resume_intents') ORDER BY name`,
+            'orchestration_resume_intents','deleted_external_sessions',
+            'orchestration_conversations','orchestration_conversation_participants',
+            'orchestration_action_requests','orchestration_action_resolutions',
+            'orchestration_incidents') ORDER BY name`,
         )
         .all() as { name: string }[]
     ).map((row) => row.name);
     expect(names).toEqual([
       'assignment_artifacts',
       'assignments',
+      'deleted_external_sessions',
       'execution_attempts',
       'mission_events',
       'mission_task_dependencies',
       'mission_tasks',
       'missions',
+      'orchestration_action_requests',
+      'orchestration_action_resolutions',
       'orchestration_continuation_targets',
       'orchestration_continuations',
+      'orchestration_conversation_participants',
+      'orchestration_conversations',
+      'orchestration_incidents',
       'orchestration_message_deliveries',
       'orchestration_messages',
       'orchestration_outbox',
@@ -266,6 +275,14 @@ describe('persistence database', () => {
       'orchestration_runtime_events',
       'orchestration_runtime_sessions',
     ]);
+    const messageColumns = (
+      upgraded.db.prepare('PRAGMA table_info(orchestration_messages)').all() as Array<{
+        name: string;
+      }>
+    ).map((row) => row.name);
+    expect(messageColumns).toEqual(
+      expect.arrayContaining(['conversation_id', 'action_request_id']),
+    );
     upgraded.db.close();
   });
 });

@@ -17,7 +17,7 @@ export function registerPivotHome(): void {
       id: 'surface.home',
       title: 'Go Home (Task Launcher)',
       category: 'View',
-      run: () => useAppStore.getState().setSurface('home'),
+      run: () => useAppStore.getState().openSessionHome(),
     },
     {
       id: 'surface.workspace',

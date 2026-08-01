@@ -284,6 +284,8 @@ export interface ArchaeologyOptions {
   enabled?: boolean;
   /** Host-owned dedupe: external conversation id → owning Charter task. */
   knownSessions: () => Map<string, string>;
+  /** External conversations the user permanently deleted from Charter. */
+  ignoredSessions?: () => ReadonlySet<string>;
   /** Known Charter project canonical paths (attribution targets). */
   projects: () => string[];
   /** Codex is date-partitioned — bound the walk (Claude needs no window). */
@@ -357,10 +359,13 @@ export class SessionArchaeologyService {
   private async collectSkillEventsOnce(): Promise<ExternalSkillUsageEvent[]> {
     const startedMs = Date.now();
     const candidates = await this.claudeCandidates();
+    const ignoredSessions = this.options.ignoredSessions?.() ?? new Set<string>();
     const events: ExternalSkillUsageEvent[] = [];
     for (const candidate of candidates) {
       const summary = await this.summarize(candidate);
       if (!summary) continue;
+      const sessionId = (summary.sessionId ?? candidate.fileSessionId).toLowerCase();
+      if (ignoredSessions.has(`claude:${sessionId}`)) continue;
       for (const event of summary.skillEvents) {
         events.push({ skill: event.skill, at: event.at, consumer: 'claude' });
       }
@@ -388,12 +393,14 @@ export class SessionArchaeologyService {
     const candidates = [...(await this.claudeCandidates()), ...(await this.codexCandidates())];
     const sessions: DiscoveredSessionDto[] = [];
     const knownSessions = this.options.knownSessions();
+    const ignoredSessions = this.options.ignoredSessions?.() ?? new Set<string>();
     const projects = this.options.projects();
     for (const candidate of candidates) {
       const summary = await this.summarize(candidate);
       if (!summary || summary.turnCount === 0) continue;
       const sessionId = (summary.sessionId ?? candidate.fileSessionId).toLowerCase();
       if (!CLI_SESSION_ID_RE.test(sessionId)) continue;
+      if (ignoredSessions.has(`${candidate.cli}:${sessionId}`)) continue;
       const cwd = summary.cwd;
       if (!cwd) continue;
       const { projectPath, attribution } = attributeProject(cwd, summary.filesTouched, projects);

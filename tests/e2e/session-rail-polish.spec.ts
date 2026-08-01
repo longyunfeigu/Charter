@@ -159,8 +159,7 @@ test.describe('Session rail and conversation role polish', () => {
       home: 'keep',
     });
     try {
-      await expect(page.getByTestId('rail-context')).toContainText(projectB.split('/').pop()!);
-      await page.getByTestId('rail-context').click();
+      await page.getByTestId('rail-view-projects').click();
       await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
 
       await page.getByTestId(`home-recent-${projectA}`).click();

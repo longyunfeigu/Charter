@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { MissionSnapshotDto } from '@pi-ide/ipc-contracts';
 import { useOrchestrationStore } from '../store/orchestrationStore.js';
-import { useAppStore } from '../store/appStore.js';
+import { navigationSnapshotLabel, useAppStore } from '../store/appStore.js';
 import { useTaskStore } from '../store/taskStore.js';
 import { RuntimeInspector } from './mission/RuntimeInspector.js';
 import { MissionWorkMap } from './mission/MissionWorkMap.js';
 import { MissionGraph, type MissionGraphSelection } from './mission/MissionGraph.js';
 import { MissionCollaborationInspector } from './mission/MissionCollaborationInspector.js';
 import { MissionDecisionPanel } from './mission/MissionDecisionPanel.js';
+import { MissionIssuesPanel } from './mission/MissionIssuesPanel.js';
 import { MissionActivity } from './mission/MissionActivity.js';
 import { MissionResults } from './mission/MissionResults.js';
 import {
@@ -19,6 +20,7 @@ import {
 import { ConfirmDangerButton } from './ui.js';
 import { Ic } from './home-icons.js';
 import { useTerminalStore } from './TerminalPanel.js';
+import { MissionDeleteDialog } from './mission/MissionDeleteDialog.js';
 
 function initialSection(snapshot: MissionSnapshotDto): MissionSection {
   return ['VERIFYING', 'COMPLETED'].includes(snapshot.mission.state) ? 'results' : 'work';
@@ -26,6 +28,8 @@ function initialSection(snapshot: MissionSnapshotDto): MissionSection {
 
 export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): React.JSX.Element {
   const missionId = snapshot.mission.id;
+  const backTarget = useAppStore((state) => state.navigationBack.at(-1) ?? null);
+  const backLabel = backTarget ? navigationSnapshotLabel(backTarget) : 'All Missions';
   const requestedDestination = useAppStore((state) =>
     state.missionCenter?.missionId === missionId ? state.missionCenter : null,
   );
@@ -55,6 +59,8 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
     requestedDestination?.inspectorTab === 'session',
   );
   const [replayAt, setReplayAt] = useState<number | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const selectedAssignment = useMemo(
     () => (selectedTaskId ? assignmentForTask(snapshot, selectedTaskId) : null),
     [selectedTaskId, snapshot],
@@ -105,6 +111,8 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
   const selectTask = (taskId: string): void => {
     setSelectedTaskId(taskId);
     setGraphSelection({ kind: 'task', taskId });
+    const assignment = assignmentForTask(snapshot, taskId);
+    if (assignment) useAppStore.getState().setMissionDestination(assignment.id, 'details');
   };
 
   const openConversation = (): void => {
@@ -152,8 +160,16 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
     <main className="mission-workbench" data-testid="mission-view">
       <header className="mission-workbench-head">
         <div className="mission-head-nav">
-          <button onClick={() => useAppStore.getState().openMission(null)}>
-            <Ic name="chevron" size={12} /> All Missions
+          <button
+            aria-label={`Back to ${backLabel}`}
+            title={`Back to ${backLabel}`}
+            onClick={() =>
+              backTarget
+                ? useAppStore.getState().navigateBack()
+                : useAppStore.getState().openMission(null)
+            }
+          >
+            <Ic name="chevron" size={12} /> {backLabel}
           </button>
           {originTaskId ? (
             <button data-testid="mission-open-conversation" onClick={openConversation}>
@@ -200,7 +216,16 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
                     .finishMission(missionId, 'cancelled', 'Cancelled by user')
                 }
               />
-            ) : null}
+            ) : (
+              <button
+                className="mission-head-control mission-head-delete"
+                data-testid="mission-trash-current"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Ic name="trash" size={12} />
+                Delete…
+              </button>
+            )}
           </div>
         </div>
         <div className="mission-overview-row">
@@ -226,10 +251,30 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
           </span>
           <span className={summary.attention > 0 ? 'attention' : ''}>
             <b>{summary.attention}</b>
-            <small>need you</small>
+            <small>for you</small>
           </span>
         </div>
       </header>
+      {deleteOpen ? (
+        <MissionDeleteDialog
+          snapshot={snapshot}
+          busy={deleting}
+          onClose={() => {
+            if (!deleting) setDeleteOpen(false);
+          }}
+          onConfirm={() => {
+            if (deleting) return;
+            setDeleting(true);
+            void useOrchestrationStore
+              .getState()
+              .trashMission(missionId)
+              .then((ok) => {
+                setDeleting(false);
+                if (ok) setDeleteOpen(false);
+              });
+          }}
+        />
+      ) : null}
 
       <nav className="mission-workbench-tabs" aria-label="Mission views">
         <button
@@ -247,7 +292,7 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
           data-testid="mission-tab-activity"
           onClick={() => setSection('activity')}
         >
-          <Ic name="clock" size={13} /> Updates
+          <Ic name="clock" size={13} /> Team activity
         </button>
         <button
           className={section === 'results' ? 'active' : ''}
@@ -264,11 +309,14 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
           <>
             <MissionDecisionPanel
               snapshot={snapshot}
-              onReply={(messageId, body) =>
-                void useOrchestrationStore.getState().replyToMessage(missionId, messageId, body)
+              onResolve={(requestId, outcome, body, rationale) =>
+                void useOrchestrationStore
+                  .getState()
+                  .resolveActionRequest(missionId, requestId, outcome, body, rationale)
               }
               onSelectAssignment={selectAssignment}
             />
+            <MissionIssuesPanel snapshot={snapshot} onSelectAssignment={selectAssignment} />
             <div
               className={[
                 'mission-work-layout',
@@ -314,7 +362,7 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
                     detailOpen={Boolean(graphSelection) && !graphDetailExpanded}
                     onSelection={(selection) => {
                       setGraphSelection(selection);
-                      if (selection?.kind === 'task') setSelectedTaskId(selection.taskId);
+                      if (selection?.kind === 'task') selectTask(selection.taskId);
                       if (!selection) setGraphDetailExpanded(false);
                     }}
                     onReplayAt={setReplayAt}
@@ -397,10 +445,10 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
                       snapshot={snapshot}
                       selection={graphSelection}
                       replayAt={replayAt}
-                      onReply={(messageId, body) =>
+                      onResolve={(requestId, outcome, body, rationale) =>
                         void useOrchestrationStore
                           .getState()
-                          .replyToMessage(missionId, messageId, body)
+                          .resolveActionRequest(missionId, requestId, outcome, body, rationale)
                       }
                       onSelectTask={selectTask}
                     />
@@ -435,7 +483,14 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
                         void useOrchestrationStore.getState().closeRuntime(m, a)
                       }
                       onOpenRuntime={openRuntime}
-                      onOpenAgentSession={() => setGraphDetailExpanded(true)}
+                      onOpenAgentSession={() => {
+                        setGraphDetailExpanded(true);
+                        if (selectedAssignment) {
+                          useAppStore
+                            .getState()
+                            .setMissionDestination(selectedAssignment.id, 'session');
+                        }
+                      }}
                       requestedTab={
                         requestedAssignment?.id === selectedAssignment?.id
                           ? requestedDestination?.inspectorTab

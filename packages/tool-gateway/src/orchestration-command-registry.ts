@@ -14,6 +14,23 @@ export const OrchestrationMessageTypeSchema = z.enum([
   'heartbeat',
 ]);
 export const OrchestrationPrioritySchema = z.enum(['normal', 'high', 'urgent']);
+export const OrchestrationActionKindSchema = z.enum([
+  'information',
+  'review',
+  'approval',
+  'choice',
+  'input',
+  'recovery',
+  'escalation',
+]);
+export const OrchestrationActionResponseTypeSchema = z.enum([
+  'text',
+  'approval',
+  'choice',
+  'review',
+  'recovery',
+]);
+export const OrchestrationBlockingScopeSchema = z.enum(['none', 'assignment', 'task', 'mission']);
 export const ORCHESTRATION_CONTROL_JSON_MAX_BYTES = 64 * 1024;
 export const ORCHESTRATION_CONTROL_RECORD_MAX_BYTES = 128 * 1024;
 export const ORCHESTRATION_CONTROL_BATCH_MAX_BYTES = 512 * 1024;
@@ -94,6 +111,75 @@ export const OrchestrationReplySchema = boundedControlInput(
       subject: z.string().min(1).max(1_000).optional(),
       body: z.string().max(100_000),
       payload: OrchestrationJsonObjectSchema.optional(),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
+);
+
+const OrchestrationActionOptionsSchema = z
+  .array(
+    z
+      .object({
+        id: z.string().min(1).max(100),
+        label: z.string().min(1).max(300),
+        description: z.string().min(1).max(2_000).optional(),
+      })
+      .strict(),
+  )
+  .max(20);
+
+export const OrchestrationRequestSchema = boundedControlInput(
+  z
+    .object({
+      toAssignmentId: z.string().min(1),
+      kind: OrchestrationActionKindSchema.default('information'),
+      title: z.string().min(1).max(1_000),
+      context: z.string().max(100_000).default(''),
+      responseType: OrchestrationActionResponseTypeSchema.default('text'),
+      options: OrchestrationActionOptionsSchema.optional(),
+      recommendation: z.string().max(10_000).nullable().optional(),
+      impact: z.string().max(10_000).nullable().optional(),
+      priority: OrchestrationPrioritySchema.default('normal'),
+      blockingScope: OrchestrationBlockingScopeSchema.default('none'),
+      relatedTaskId: z.string().min(1).nullable().optional(),
+      conversationId: z.string().min(1).nullable().optional(),
+      dueAt: z.string().datetime().nullable().optional(),
+      idempotencyKey: z.string().min(1).max(300),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
+);
+
+export const OrchestrationDecisionRequestSchema = boundedControlInput(
+  z
+    .object({
+      kind: z.enum(['approval', 'choice', 'input', 'review', 'recovery']).default('choice'),
+      title: z.string().min(1).max(1_000),
+      context: z.string().max(100_000).default(''),
+      responseType: OrchestrationActionResponseTypeSchema,
+      options: OrchestrationActionOptionsSchema.optional(),
+      recommendation: z.string().max(10_000).nullable().optional(),
+      impact: z.string().min(1).max(10_000),
+      priority: OrchestrationPrioritySchema.default('high'),
+      blockingScope: OrchestrationBlockingScopeSchema.default('mission'),
+      relatedTaskId: z.string().min(1).nullable().optional(),
+      conversationId: z.string().min(1).nullable().optional(),
+      dueAt: z.string().datetime().nullable().optional(),
+      idempotencyKey: z.string().min(1).max(300),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
+);
+
+export const OrchestrationResolveRequestSchema = boundedControlInput(
+  z
+    .object({
+      requestId: z.string().min(1),
+      outcome: z.string().min(1).max(300),
+      body: z.string().max(100_000).optional(),
+      payload: OrchestrationJsonObjectSchema.nullable().optional(),
+      rationale: z.string().max(10_000).nullable().optional(),
+      idempotencyKey: z.string().min(1).max(300),
     })
     .strict(),
   ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
@@ -324,8 +410,25 @@ export const ORCHESTRATION_COMMAND_REGISTRY = [
   },
   {
     command: 'message',
-    description: 'Send a typed durable message to any Assignment in the Mission.',
+    description:
+      'Send durable FYI/progress context to an Assignment; this never creates an actionable request.',
     schema: OrchestrationMessageSchema,
+  },
+  {
+    command: 'request',
+    description: 'Assign an explicit durable Action Request to another Agent Assignment.',
+    schema: OrchestrationRequestSchema,
+  },
+  {
+    command: 'request_decision',
+    description:
+      'Mission Lead only: assign an irreducible typed decision to the user Your actions inbox.',
+    schema: OrchestrationDecisionRequestSchema,
+  },
+  {
+    command: 'resolve_request',
+    description: 'Resolve an Action Request assigned to the caller with a typed outcome.',
+    schema: OrchestrationResolveRequestSchema,
   },
   {
     command: 'reply',

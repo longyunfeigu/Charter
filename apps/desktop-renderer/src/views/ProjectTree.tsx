@@ -127,7 +127,6 @@ export const ProjectTree = forwardRef<ProjectTreeHandle, { onQuickAdd?: (rel: st
         }
       }
       void openFile(path);
-      app.closeTaskRoom();
       app.setProjectTool('editor');
     };
 

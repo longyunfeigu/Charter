@@ -124,6 +124,10 @@ export function registerM6Handlers(
           ...(result.status === 'conflicts' ? { conflicts: result.conflicts } : {}),
         };
       },
+      'task.delete': async ({ taskId }) => {
+        await tasks.deleteTask(taskId);
+        return { deleted: true as const };
+      },
       'task.turns': async ({ taskId }) => ({ turns: tasks.turns(taskId) }),
 
       'models.list': async () => {

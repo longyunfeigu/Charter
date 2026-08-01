@@ -1248,7 +1248,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       expect(endSessionBox).not.toBeNull();
       expect(endTooltipBox).not.toBeNull();
       expect(endTooltipBox!.x + endTooltipBox!.width).toBeLessThan(endSessionBox!.x);
-      await expect(page.getByTestId(`home-archive-${taskId!}`)).toHaveCount(0);
+      await expect(page.getByTestId(`home-delete-${taskId!}`)).toHaveCount(0);
       await page.screenshot({ path: '/tmp/charter-active-session-end-action.png' });
       await endSession.click();
       await endSession.click();
@@ -1264,7 +1264,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await row.hover();
       await expect(page.getByTestId(`home-end-${taskId!}`)).toHaveCount(0);
       const resume = page.getByTestId(`home-resume-${taskId!}`);
-      const archive = page.getByTestId(`home-archive-${taskId!}`);
+      const archive = page.getByTestId(`home-delete-${taskId!}`);
       await expect(resume).toBeVisible();
       await expect(archive).toBeVisible();
       await expect(row.locator('.sr-state.review')).toHaveCSS('visibility', 'hidden');

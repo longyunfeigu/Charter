@@ -128,6 +128,10 @@ export function crashPreview(input: {
 }
 
 const HISTORY_TABLES_CHILD_FIRST = [
+  // Mission is an aggregate root with ON DELETE CASCADE ownership over its
+  // assignments, attempts, messages and evidence. Clear it before task rows so
+  // a privacy reset cannot leave an orphaned Mission history behind.
+  'missions',
   'permission_decisions',
   'tool_calls',
   'agent_runs',

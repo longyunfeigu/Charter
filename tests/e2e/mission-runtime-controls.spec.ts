@@ -114,9 +114,9 @@ test('Runtime Inspector buttons open, guide, pause, resume, and change a managed
     await expect(second.page.getByTestId('mission-rail-panel')).not.toBeVisible();
     await expect(second.page.getByTestId('task-room-back')).toHaveAttribute(
       'aria-label',
-      'Back to Sessions',
+      'Back to Mission',
     );
-    await expect(second.page.getByTestId('task-room-back')).not.toContainText('Sessions');
+    await expect(second.page.getByTestId('task-room-back')).toContainText('Mission');
     await expect(second.page.getByTestId('session-agent-chip')).not.toBeAttached();
     await second.page.setViewportSize({ width: 1440, height: 900 });
     await second.page.screenshot({ path: '/tmp/charter-session-header-clean-wide.png' });
@@ -133,7 +133,8 @@ test('Runtime Inspector buttons open, guide, pause, resume, and change a managed
     await expect(second.page.getByTestId('task-room-external-chip')).toHaveText('Charter managed');
     await second.page.getByTestId('session-more').click();
     await second.page.getByTestId('task-room-back').click();
-    await openMission(second.page, missionId);
+    await expect(second.page.getByTestId('mission-work-map')).toBeVisible();
+    await expect(details).toBeVisible();
 
     await details.getByRole('button', { name: 'Pause', exact: true }).click();
     await expect(details.getByText('Paused', { exact: true })).toBeVisible();

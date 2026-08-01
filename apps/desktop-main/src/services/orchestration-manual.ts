@@ -36,13 +36,17 @@ yourself with \`orchestration.delegate\`; never ask A to proxy the operation.
 
 1. Inspect Mission state, then use \`sync\` whenever a durable inbox doorbell arrives.
 2. Perform your Assignment and report meaningful phases with \`orchestration.progress\`.
-3. Coordinate using \`message\`, \`reply\`, \`ask\`, and durable \`park\`, not terminal-output polling.
-4. Escalate blockers rather than silently failing or inventing a decision.
+3. Use \`message\` for FYI context, \`request\` when another Agent owes an answer/action, and durable
+   \`park\` for work that outlives this turn. A message alone never creates anybody's to-do.
+4. Escalate blockers through the supervisor tree. Only the Lead uses \`request_decision\`, and only
+   when a user choice is genuinely irreducible. Include options, impact, and a recommendation.
 5. Finish exactly once with \`orchestration.complete\` and concrete artifacts/evidence. After completion,
    stop mutating the Assignment until a new Attempt or follow-up is issued.
 
-Use \`delegate_many\` for independent siblings so Charter can start them concurrently. Use \`ask\`
-only for a short request/answer exchange. For delegated work that may outlive this agent turn, call
+Use \`delegate_many\` for independent siblings so Charter can start them concurrently. \`ask\` is a
+compatibility shortcut that creates an Agent Action Request and waits for its resolution; new flows
+should prefer \`request\` plus \`park\`. Resolve requests assigned to you with \`resolve_request\`.
+For delegated work that may outlive this agent turn, call
 \`park\` with Assignment/message conditions and the latest \`sync\` cursor, then end the turn
 immediately. Charter persists the condition, matches committed events, and resumes the same
 Claude Code/Codex/ACP Session at a safe idle boundary. The injected resume prompt calls
@@ -65,7 +69,9 @@ Only the active Attempt can report progress or completion. A late result from an
 stored as suppressed and cannot complete a retry. Calls are authorized from Charter's trusted
 runtime/terminal identity; never place Principal, Assignment, Attempt, or control tokens in a tool
 payload. Permissions are inherited uniformly from the user's host Agent policy—there are no
-per-child grants—but control targets must remain inside the same Mission.
+per-child grants. Communication may cross the team, but control does not: the user can control the
+Mission, the Lead controls the Mission tree, supervisors control their own subtrees, and a worker
+controls itself. Peers cannot pause, cancel, steer, retry, or reassign one another.
 
 ## CLI examples
 
@@ -73,6 +79,9 @@ per-child grants—but control targets must remain inside the same Mission.
 charter orchestration inspect --json
 charter orchestration delegate_many --request-file children.json --json
 charter orchestration message --to assign_123 --subject "API ready" --body-file note.md --json
+charter orchestration request --request-file agent-review.json --json
+charter orchestration request_decision --request-file user-choice.json --json
+charter orchestration resolve_request --request-file resolution.json --json
 charter orchestration sync --request-json '{"afterSequence":42}' --json
 charter orchestration park --request-file continuation.json --json
 charter orchestration continue --continuation continuation_123 --json
@@ -88,6 +97,6 @@ export const CHARTER_ORCHESTRATION_PREAMBLE = `## Charter Mission orchestration
 When a bounded subproblem is independently verifiable, parallelizable, suited to another runtime,
 or needs independent review, load the charter-orchestration Skill. Every Mission member may call
 orchestration.delegate recursively; a child does not ask its parent to proxy delegation. Use
-structured message/park/progress/complete operations, and never infer completion from terminal
+structured message/request/park/progress/complete operations, and never infer completion from terminal
 quiet or process exit. After a successful park call, end the current turn; Charter resumes the same
 Session when committed conditions match.`;

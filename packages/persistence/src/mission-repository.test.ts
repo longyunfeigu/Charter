@@ -100,6 +100,149 @@ describe('MissionRepository', () => {
     opened.db.close();
   });
 
+  it('persists conversations and keeps Agent requests separate from user actions', () => {
+    const opened = open();
+    seedWorkspace(opened.db);
+    const repository = new MissionRepository(opened.db);
+    const created = repository.createMission({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Explicit actions',
+      goal: 'Coordinate without manufacturing user attention',
+      lead: {
+        principalId: 'lead',
+        kind: 'managed_agent',
+        displayName: 'Lead',
+        runtimeSessionId: 'lead-runtime',
+        requestedRuntime: 'managed',
+      },
+    });
+    const lead = created.assignments[0]!;
+    const child = repository.delegate({
+      missionId: created.mission.id,
+      supervisorAssignmentId: lead.id,
+      actorPrincipalId: lead.assigneePrincipalId,
+      goal: 'Review the schema',
+      acceptanceCriteria: [],
+      requestedRuntime: 'codex',
+      workMode: 'read-only',
+      reason: 'Independent review',
+      idempotencyKey: 'reviewer',
+    });
+
+    const ordinaryQuestion = repository.createMessage({
+      missionId: created.mission.id,
+      fromAssignmentId: child.assignment.id,
+      toAssignmentId: lead.id,
+      type: 'question',
+      subject: 'FYI question in team activity',
+      body: 'This legacy-shaped message is not an Action Request.',
+    });
+    expect(ordinaryQuestion.conversationId).toBeTruthy();
+    expect(ordinaryQuestion.actionRequestId).toBeNull();
+
+    const agentRequest = repository.createActionRequest({
+      missionId: created.mission.id,
+      relatedTaskId: child.task.id,
+      createdByPrincipalId: lead.assigneePrincipalId,
+      createdByAssignmentId: lead.id,
+      assignedToPrincipalId: child.assignment.assigneePrincipalId,
+      assignedToAssignmentId: child.assignment.id,
+      kind: 'review',
+      title: 'Review the migration',
+      context: 'Confirm the foreign-key behavior.',
+      responseType: 'text',
+      blockingScope: 'assignment',
+      idempotencyKey: 'migration-review',
+    });
+    const duplicate = repository.createActionRequest({
+      missionId: created.mission.id,
+      createdByPrincipalId: lead.assigneePrincipalId,
+      createdByAssignmentId: lead.id,
+      assignedToPrincipalId: child.assignment.assigneePrincipalId,
+      assignedToAssignmentId: child.assignment.id,
+      kind: 'review',
+      title: 'Ignored duplicate title',
+      responseType: 'text',
+      idempotencyKey: 'migration-review',
+    });
+    expect(duplicate.reused).toBe(true);
+    expect(duplicate.request.id).toBe(agentRequest.request.id);
+
+    const userRequest = repository.createActionRequest({
+      missionId: created.mission.id,
+      createdByPrincipalId: lead.assigneePrincipalId,
+      createdByAssignmentId: lead.id,
+      assignedToPrincipalId: 'user',
+      assignedToAssignmentId: null,
+      kind: 'choice',
+      title: 'Choose the release window',
+      context: 'The team cannot infer the business deadline.',
+      responseType: 'choice',
+      options: [
+        { id: 'now', label: 'Release now' },
+        { id: 'later', label: 'Release later' },
+      ],
+      recommendation: 'Release now',
+      impact: 'Deployment remains paused until this is resolved.',
+      priority: 'high',
+      blockingScope: 'mission',
+      idempotencyKey: 'release-window',
+    });
+
+    expect(() =>
+      repository.resolveActionRequest({
+        requestId: userRequest.request.id,
+        resolvedByPrincipalId: child.assignment.assigneePrincipalId,
+        resolvedByAssignmentId: child.assignment.id,
+        outcome: 'now',
+        idempotencyKey: 'wrong-resolver',
+      }),
+    ).toThrow(ProductFailure);
+
+    const agentResolution = repository.resolveActionRequest({
+      requestId: agentRequest.request.id,
+      resolvedByPrincipalId: child.assignment.assigneePrincipalId,
+      resolvedByAssignmentId: child.assignment.id,
+      outcome: 'answered',
+      body: 'Foreign keys are safe.',
+      idempotencyKey: `agent-resolution:${agentRequest.request.id}`,
+    });
+    expect(agentResolution.message).toMatchObject({
+      type: 'answer',
+      actionRequestId: agentRequest.request.id,
+      conversationId: agentRequest.conversation.id,
+    });
+    const userResolution = repository.resolveActionRequest({
+      requestId: userRequest.request.id,
+      resolvedByPrincipalId: 'user',
+      resolvedByAssignmentId: null,
+      outcome: 'now',
+      body: 'Release now.',
+      idempotencyKey: `user-resolution:${userRequest.request.id}`,
+    });
+    expect(userResolution.request.status).toBe('RESOLVED');
+
+    const snapshot = repository.snapshot(created.mission.id);
+    expect(snapshot.principals).toContainEqual(
+      expect.objectContaining({ id: 'user', kind: 'user' }),
+    );
+    expect(snapshot.conversations.length).toBeGreaterThanOrEqual(3);
+    expect(snapshot.actionRequests).toHaveLength(2);
+    expect(snapshot.actionResolutions).toHaveLength(2);
+    expect(snapshot.messages.filter((message) => message.actionRequestId)).toHaveLength(4);
+    opened.db.close();
+
+    const reopened = open();
+    const durable = new MissionRepository(reopened.db).snapshot(created.mission.id);
+    expect(durable.actionRequests.every((request) => request.status === 'RESOLVED')).toBe(true);
+    expect(durable.actionResolutions.map((resolution) => resolution.outcome)).toEqual([
+      'answered',
+      'now',
+    ]);
+    reopened.db.close();
+  });
+
   it('rolls back every child when one delegate_many request is invalid', () => {
     const opened = open();
     seedWorkspace(opened.db);
@@ -551,7 +694,18 @@ describe('MissionRepository', () => {
       runtimeSessionId: 'runtime-b1',
     });
     repository.failAttemptFromRuntime(child.attempt.id, 'crashed', { message: 'gone' });
+    expect(repository.listIncidents(mission.mission.id)).toContainEqual(
+      expect.objectContaining({
+        assignmentId: child.assignment.id,
+        state: 'OPEN',
+        kind: 'crashed',
+      }),
+    );
     const retry = repository.createRetry(child.assignment.id);
+    expect(repository.listIncidents(mission.mission.id)[0]).toMatchObject({
+      state: 'RECOVERING',
+      automaticAttempts: 1,
+    });
     repository.bindRuntime(child.assignment.id, retry.id, { runtimeSessionId: 'runtime-b2' });
 
     const stale = repository.completeAttempt({
@@ -574,6 +728,7 @@ describe('MissionRepository', () => {
     });
     expect(accepted.action).toBe('accepted');
     expect(repository.getAttempt(retry.id)?.state).toBe('SUCCEEDED');
+    expect(repository.listIncidents(mission.mission.id)[0]?.state).toBe('RECOVERED');
     const messages = repository.snapshot(mission.mission.id).messages;
     expect(messages.find((message) => message.body === 'late result')?.suppressionReason).toBe(
       'inactive_attempt',
@@ -857,5 +1012,82 @@ describe('MissionRepository', () => {
       trigger: { kind: 'deadline', timedOut: true },
     });
     reopened.db.close();
+  });
+
+  it('trashes, restores and permanently deletes terminal Missions without deleting the origin Session', () => {
+    const opened = open();
+    seedWorkspace(opened.db);
+    let now = Date.parse('2026-08-01T08:00:00.000Z');
+    opened.db
+      .prepare(
+        `INSERT INTO tasks
+         (id, workspace_id, title, goal_md, mode, state, model_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'origin-session',
+        'ws-1',
+        'Original Session',
+        'Keep this conversation',
+        'ask',
+        'IDLE',
+        '{}',
+        new Date(now).toISOString(),
+        new Date(now).toISOString(),
+      );
+    const repository = new MissionRepository(opened.db, () => new Date(now));
+    const createTerminalMission = (title: string): string => {
+      const created = repository.createMission({
+        workspaceId: 'ws-1',
+        workspaceRoot: '/repo',
+        originConversationTaskId: 'origin-session',
+        title,
+        goal: 'Exercise the Mission retention lifecycle.',
+        lead: {
+          principalId: `lead-${title}`,
+          kind: 'managed_agent',
+          displayName: 'Lead',
+          runtimeSessionId: `runtime-${title}`,
+          requestedRuntime: 'managed',
+        },
+      });
+      opened.db
+        .prepare(
+          "UPDATE missions SET state = 'COMPLETED', completed_at = ?, updated_at = ? WHERE id = ?",
+        )
+        .run(new Date(now).toISOString(), new Date(now).toISOString(), created.mission.id);
+      return created.mission.id;
+    };
+
+    const missionId = createTerminalMission('Recoverable Mission');
+    expect(repository.listMissions().map((mission) => mission.id)).toContain(missionId);
+    const trashed = repository.trashMission(missionId);
+    expect(trashed.deletedAt).toBe(new Date(now).toISOString());
+    expect(repository.listMissions().map((mission) => mission.id)).not.toContain(missionId);
+    expect(repository.listDeletedMissions().map((mission) => mission.id)).toContain(missionId);
+
+    const restored = repository.restoreMission(missionId);
+    expect(restored.deletedAt).toBeNull();
+    expect(repository.listMissions().map((mission) => mission.id)).toContain(missionId);
+
+    repository.trashMission(missionId);
+    repository.deleteMissionPermanently(missionId);
+    expect(repository.getMission(missionId)).toBeNull();
+    expect(
+      (
+        opened.db
+          .prepare('SELECT COUNT(*) AS count FROM tasks WHERE id = ?')
+          .get('origin-session') as {
+          count: number;
+        }
+      ).count,
+    ).toBe(1);
+
+    const expiringId = createTerminalMission('Expiring Mission');
+    repository.trashMission(expiringId);
+    now += 31 * 24 * 60 * 60 * 1000;
+    expect(repository.listDeletedMissions()).toHaveLength(0);
+    expect(repository.getMission(expiringId)).toBeNull();
+    opened.db.close();
   });
 });

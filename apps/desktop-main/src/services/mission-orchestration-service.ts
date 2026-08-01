@@ -1,5 +1,9 @@
 import { errorMessage, newId, productError, ProductFailure } from '@pi-ide/foundation';
 import type {
+  ActionRequestBlockingScope,
+  ActionRequestKind,
+  ActionRequestOption,
+  ActionRequestResponseType,
   AssignmentWorkMode,
   ContinuationCondition,
   ContinuationMode,
@@ -48,6 +52,48 @@ export interface DelegateRequest {
   workMode?: AssignmentWorkMode;
   writeScope?: string[] | null;
   reason: string;
+  idempotencyKey: string;
+}
+
+export interface ActionRequestInput {
+  toAssignmentId: string;
+  kind?: ActionRequestKind;
+  title: string;
+  context: string;
+  responseType?: ActionRequestResponseType;
+  options?: ActionRequestOption[];
+  recommendation?: string | null;
+  impact?: string | null;
+  priority?: OrchestrationMessagePriority;
+  blockingScope?: ActionRequestBlockingScope;
+  relatedTaskId?: string | null;
+  conversationId?: string | null;
+  dueAt?: string | null;
+  idempotencyKey: string;
+}
+
+export interface HumanDecisionRequestInput {
+  kind?: Extract<ActionRequestKind, 'approval' | 'choice' | 'input' | 'review' | 'recovery'>;
+  title: string;
+  context: string;
+  responseType: ActionRequestResponseType;
+  options?: ActionRequestOption[];
+  recommendation?: string | null;
+  impact: string;
+  priority?: OrchestrationMessagePriority;
+  blockingScope?: ActionRequestBlockingScope;
+  relatedTaskId?: string | null;
+  conversationId?: string | null;
+  dueAt?: string | null;
+  idempotencyKey: string;
+}
+
+export interface ResolveRequestInput {
+  requestId: string;
+  outcome: string;
+  body?: string;
+  payload?: Record<string, unknown> | null;
+  rationale?: string | null;
   idempotencyKey: string;
 }
 
@@ -318,14 +364,139 @@ export class MissionOrchestrationService {
     return message;
   }
 
+  request(callerInput: OrchestrationCallerContext, input: ActionRequestInput) {
+    const caller = this.requireMember(callerInput);
+    this.requireTargetInMission(input.toAssignmentId, caller.missionId!);
+    const target = this.repository.getAssignment(input.toAssignmentId)!;
+    const result = this.repository.createActionRequest({
+      missionId: caller.missionId!,
+      ...(input.conversationId !== undefined ? { conversationId: input.conversationId } : {}),
+      ...(input.relatedTaskId !== undefined ? { relatedTaskId: input.relatedTaskId } : {}),
+      createdByPrincipalId: caller.principalId,
+      createdByAssignmentId: caller.assignmentId,
+      assignedToPrincipalId: target.assigneePrincipalId,
+      assignedToAssignmentId: target.id,
+      kind: input.kind ?? 'information',
+      title: input.title,
+      context: input.context,
+      responseType: input.responseType ?? 'text',
+      ...(input.options ? { options: input.options } : {}),
+      ...(input.recommendation !== undefined ? { recommendation: input.recommendation } : {}),
+      ...(input.impact !== undefined ? { impact: input.impact } : {}),
+      ...(input.priority ? { priority: input.priority } : {}),
+      ...(input.blockingScope ? { blockingScope: input.blockingScope } : {}),
+      ...(input.dueAt !== undefined ? { dueAt: input.dueAt } : {}),
+      idempotencyKey: input.idempotencyKey,
+    });
+    this.changed(caller.missionId!);
+    this.messages.notifyAssignment(target.id);
+    if (
+      !this.repository.hasActiveContinuationForOwner(target.id) ||
+      (input.priority ?? 'normal') === 'urgent'
+    ) {
+      this.outbox.signalAssignment(target.id);
+    }
+    this.outbox.wake();
+    return result;
+  }
+
+  requestDecision(callerInput: OrchestrationCallerContext, input: HumanDecisionRequestInput) {
+    const caller = this.requireMember(callerInput);
+    const mission = this.repository.getMission(caller.missionId!)!;
+    if (mission.leadAssignmentId !== caller.assignmentId) {
+      throw this.failure(
+        'ORCHESTRATION_LEAD_REQUIRED',
+        'Escalate through your supervisor; only the Mission Lead can request a user decision.',
+      );
+    }
+    const result = this.repository.createActionRequest({
+      missionId: caller.missionId!,
+      ...(input.conversationId !== undefined ? { conversationId: input.conversationId } : {}),
+      ...(input.relatedTaskId !== undefined ? { relatedTaskId: input.relatedTaskId } : {}),
+      createdByPrincipalId: caller.principalId,
+      createdByAssignmentId: caller.assignmentId,
+      assignedToPrincipalId: 'user',
+      assignedToAssignmentId: null,
+      kind: input.kind ?? 'choice',
+      title: input.title,
+      context: input.context,
+      responseType: input.responseType,
+      ...(input.options ? { options: input.options } : {}),
+      ...(input.recommendation !== undefined ? { recommendation: input.recommendation } : {}),
+      impact: input.impact,
+      priority: input.priority ?? 'high',
+      blockingScope: input.blockingScope ?? 'mission',
+      ...(input.dueAt !== undefined ? { dueAt: input.dueAt } : {}),
+      idempotencyKey: input.idempotencyKey,
+    });
+    this.changed(caller.missionId!);
+    return result;
+  }
+
+  resolveRequest(callerInput: OrchestrationCallerContext, input: ResolveRequestInput) {
+    const caller = this.requireCaller(callerInput);
+    if (!caller.missionId) {
+      throw this.failure('ORCHESTRATION_MISSION_REQUIRED', 'No Mission is attached.');
+    }
+    const request = this.repository.getActionRequest(input.requestId);
+    if (!request || request.missionId !== caller.missionId) {
+      throw this.failure(
+        'ORCHESTRATION_ACTION_REQUEST_NOT_FOUND',
+        'The Action Request was not found in this Mission.',
+      );
+    }
+    let principalId = caller.principalId;
+    let assignmentId = caller.assignmentId;
+    if (caller.origin === 'user') {
+      principalId = 'user';
+      assignmentId = null;
+    } else if (caller.origin !== 'system') {
+      const member = this.requireMember(caller);
+      principalId = member.principalId;
+      assignmentId = member.assignmentId;
+    }
+    const result = this.repository.resolveActionRequest({
+      requestId: input.requestId,
+      resolvedByPrincipalId: principalId,
+      resolvedByAssignmentId: assignmentId,
+      outcome: input.outcome,
+      ...(input.body !== undefined ? { body: input.body } : {}),
+      ...(input.payload !== undefined ? { payload: input.payload } : {}),
+      ...(input.rationale !== undefined ? { rationale: input.rationale } : {}),
+      idempotencyKey: input.idempotencyKey,
+    });
+    this.changed(request.missionId);
+    if (request.createdByAssignmentId) {
+      this.messages.notifyAssignment(request.createdByAssignmentId);
+      if (!this.repository.hasActiveContinuationForOwner(request.createdByAssignmentId)) {
+        this.outbox.signalAssignment(request.createdByAssignmentId);
+      }
+      this.outbox.wake();
+    }
+    return result;
+  }
+
   reply(
     callerInput: OrchestrationCallerContext,
     input: { messageId: string; subject?: string; body: string; payload?: Record<string, unknown> },
   ) {
     const caller = this.requireMember(callerInput);
-    const original = this.repository
-      .snapshot(caller.missionId!)
-      .messages.find((message) => message.id === input.messageId);
+    const original = this.repository.getMessage(input.messageId);
+    if (original?.actionRequestId) {
+      const request = this.repository.getActionRequest(original.actionRequestId);
+      const outcome =
+        typeof input.payload?.outcome === 'string'
+          ? input.payload.outcome
+          : (request?.options[0]?.id ?? 'answered');
+      const result = this.resolveRequest(caller, {
+        requestId: original.actionRequestId,
+        outcome,
+        body: input.body,
+        ...(input.payload ? { payload: input.payload } : {}),
+        idempotencyKey: `reply:${original.actionRequestId}:${caller.principalId}`,
+      });
+      return result.message;
+    }
     if (!original || !original.fromAssignmentId) {
       throw this.failure('ORCHESTRATION_MESSAGE_NOT_FOUND', 'The message cannot be replied to.');
     }
@@ -352,14 +523,16 @@ export class MissionOrchestrationService {
     },
   ) {
     const caller = this.requireMember(callerInput);
-    const question = this.message(caller, {
+    const request = this.request(caller, {
       toAssignmentId: input.toAssignmentId,
-      type: 'question',
+      kind: 'information',
       priority: input.priority ?? 'normal',
-      subject: input.subject,
-      body: input.body,
-      ...(input.payload !== undefined ? { payload: input.payload } : {}),
+      title: input.subject,
+      context: input.body,
+      responseType: 'text',
+      idempotencyKey: `ask:${newId('request')}`,
     });
+    const question = request.message;
     const answers = await this.messages.wait({
       assignmentId: caller.assignmentId!,
       types: ['answer'],
@@ -519,25 +692,28 @@ export class MissionOrchestrationService {
   ) {
     const caller = this.requireMember(callerInput);
     const assignment = this.repository.getAssignment(caller.assignmentId!)!;
-    const mission = this.repository.getMission(caller.missionId!)!;
-    const target = assignment.supervisorAssignmentId ?? mission.leadAssignmentId;
+    const target = assignment.supervisorAssignmentId;
     if (!target || target === assignment.id) {
-      return this.repository.createMessage({
-        missionId: caller.missionId!,
-        fromAssignmentId: assignment.id,
-        toAssignmentId: null,
-        type: 'escalation',
+      return this.requestDecision(caller, {
+        kind: 'input',
+        title: input.subject,
+        context: input.body,
+        responseType: 'text',
+        impact: 'The Mission Lead cannot move this decision forward without user input.',
         priority: input.priority ?? 'high',
-        subject: input.subject,
-        body: input.body,
+        blockingScope: 'mission',
+        idempotencyKey: `escalation:${newId('request')}`,
       });
     }
-    return this.message(caller, {
+    return this.request(caller, {
       toAssignmentId: target,
-      type: 'escalation',
+      kind: 'escalation',
       priority: input.priority ?? 'high',
-      subject: input.subject,
-      body: input.body,
+      title: input.subject,
+      context: input.body,
+      responseType: 'text',
+      blockingScope: 'assignment',
+      idempotencyKey: `escalation:${newId('request')}`,
     });
   }
 
@@ -769,9 +945,26 @@ export class MissionOrchestrationService {
     input: OrchestrationCallerContext,
     assignmentId: string,
   ): OrchestrationCallerContext {
-    const caller = this.requireMember(input);
-    this.requireTargetInMission(assignmentId, caller.missionId!);
-    return caller;
+    const caller = this.requireCaller(input);
+    if (!caller.missionId) {
+      throw this.failure('ORCHESTRATION_MISSION_REQUIRED', 'No Mission is attached.');
+    }
+    this.requireTargetInMission(assignmentId, caller.missionId);
+    if (caller.origin === 'user' || caller.origin === 'system') return caller;
+    const member = this.requireMember(caller);
+    if (member.assignmentId === assignmentId) return member;
+
+    let current = this.repository.getAssignment(assignmentId);
+    const visited = new Set<string>();
+    while (current?.supervisorAssignmentId && !visited.has(current.id)) {
+      visited.add(current.id);
+      if (current.supervisorAssignmentId === member.assignmentId) return member;
+      current = this.repository.getAssignment(current.supervisorAssignmentId);
+    }
+    throw this.failure(
+      'ORCHESTRATION_CONTROL_FORBIDDEN',
+      'Agents may control only their own Assignment or work in their delegated subtree.',
+    );
   }
 
   private requireTargetInMission(assignmentId: string, missionId: string): void {

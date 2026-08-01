@@ -188,10 +188,25 @@ html.sr-resizing * {
   color: var(--fg-faint);
   font-size: 10px;
 }
+.sr-session-heading > strong,
+.sr-session-heading > .sr-session-archive {
+  flex: none;
+}
+.sr-session-heading > small {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sr-search-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px 34px;
+  grid-template-columns: minmax(0, 1fr) 34px;
   gap: 6px;
+}
+.sr-session-search-row {
+  grid-template-columns: minmax(0, 1fr) 34px 34px;
 }
 .sr-search-box {
   min-width: 0;
@@ -852,6 +867,7 @@ html.sr-resizing * {
   background: color-mix(in srgb, var(--danger) 9%, transparent);
 }
 .sr-actions .sr-archive.armed,
+.sr-actions .sr-delete.armed,
 .sr-actions .sr-end.armed {
   color: var(--danger);
   border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
@@ -1934,9 +1950,9 @@ html.sr-resizing * {
     opacity: 0;
     pointer-events: none;
     transform: translateX(-14px);
-    transition:
-      opacity 130ms ease,
-      transform 170ms ease;
+    /* Keep the compact drawer visually solid while it slides in. Fading the
+     * whole panel lets the page underneath bleed through text and controls. */
+    transition: transform 170ms ease;
   }
 
   .sr-rail-resize {
@@ -2014,6 +2030,7 @@ html.sr-resizing * {
 /* Sessions owns the cross-project archive. It is a secondary retrieval path,
    deliberately quieter than New Session but stable even when no hits exist. */
 .sr-session-archive {
+  flex: none;
   min-width: 0;
   min-height: 24px;
   display: flex;
@@ -2044,36 +2061,6 @@ html.sr-resizing * {
 .sr-session-archive small {
   color: var(--fg-faint);
   font: 9px var(--font-mono);
-}
-.sr-session-shortcuts {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 2px;
-}
-.sr-context-link {
-  min-width: 0;
-  min-height: 24px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 4px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--fg-muted);
-  font: 500 10.5px var(--font-ui);
-  cursor: pointer;
-}
-.sr-context-link:hover {
-  background: var(--bg-hover);
-  color: var(--fg);
-}
-.sr-context-link span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Session Archive — one retrieval surface for Charter records and read-only

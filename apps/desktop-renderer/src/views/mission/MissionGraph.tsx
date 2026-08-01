@@ -554,7 +554,7 @@ export function MissionGraph({
                 <Ic name="user" size={16} />
               </span>
               <strong>You</strong>
-              <small>{projection.humanAttention} need attention</small>
+              <small>{projection.humanAttention} for you</small>
               <b>{projection.humanAttention}</b>
             </button>
           ) : null}

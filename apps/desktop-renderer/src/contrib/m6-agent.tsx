@@ -35,8 +35,7 @@ export function registerM6(): void {
       keybinding: 'mod+n',
       run: () => {
         const app = useAppStore.getState();
-        app.setSurface('home');
-        app.closeTaskRoom();
+        app.openSessionHome();
         app.focusComposer();
       },
     },

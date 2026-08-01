@@ -20,8 +20,8 @@ const MISSION_COPY: Record<
     tone: 'active',
   },
   BLOCKED: {
-    label: 'Needs attention',
-    description: 'The team cannot move forward without a decision or recovery action.',
+    label: 'Blocked',
+    description: 'Work is blocked. Check team requests and Issues for the exact cause.',
     tone: 'attention',
   },
   VERIFYING: {
@@ -77,22 +77,45 @@ export function threadKey(message: MissionSnapshotDto['messages'][number]): stri
   return message.threadId ?? message.id;
 }
 
-/** Questions and escalations remain actionable until a later answer is recorded
- * on their thread. This survives restart without adding renderer-only state. */
+export function openActionRequests(snapshot: MissionSnapshotDto) {
+  return (snapshot.actionRequests ?? []).filter((request) => request.status === 'OPEN');
+}
+
+export function userActionRequests(snapshot: MissionSnapshotDto) {
+  const userIds = new Set(
+    snapshot.principals
+      .filter((principal) => principal.kind === 'user')
+      .map((principal) => principal.id),
+  );
+  userIds.add('user');
+  return openActionRequests(snapshot).filter(
+    (request) =>
+      request.assignedToAssignmentId === null && userIds.has(request.assignedToPrincipalId),
+  );
+}
+
+export function agentActionRequests(snapshot: MissionSnapshotDto) {
+  const userRequestIds = new Set(userActionRequests(snapshot).map((request) => request.id));
+  return openActionRequests(snapshot).filter((request) => !userRequestIds.has(request.id));
+}
+
+export function openIncidents(snapshot: MissionSnapshotDto) {
+  return (snapshot.incidents ?? []).filter(
+    (incident) => !['RECOVERED', 'CLOSED'].includes(incident.state),
+  );
+}
+
+/** Compatibility projection for graph/replay consumers. Human-attention edges
+ * come only from explicit user Action Requests, never from message wording. */
 export function unresolvedDecisionMessages(
   snapshot: MissionSnapshotDto,
 ): MissionSnapshotDto['messages'] {
-  const answers = new Set(
-    snapshot.messages
-      .filter((message) => message.type === 'answer' && message.threadId)
-      .map((message) => message.threadId!),
+  const openingIds = new Set(
+    userActionRequests(snapshot)
+      .map((request) => request.openingMessageId)
+      .filter((id): id is string => Boolean(id)),
   );
-  return snapshot.messages.filter(
-    (message) =>
-      (message.type === 'question' || message.type === 'escalation') &&
-      !message.suppressedAt &&
-      !answers.has(threadKey(message)),
-  );
+  return snapshot.messages.filter((message) => openingIds.has(message.id) && !message.suppressedAt);
 }
 
 export function latestProgressForAssignment(
@@ -118,8 +141,11 @@ export function missionSummary(snapshot: MissionSnapshotDto): {
   failed: number;
   paused: number;
   attention: number;
+  agentActions: number;
+  issues: number;
   percent: number;
   decisions: ReturnType<typeof unresolvedDecisionMessages>;
+  humanActions: ReturnType<typeof userActionRequests>;
 } {
   const completed = snapshot.tasks.filter((task) => task.state === 'COMPLETED').length;
   const active = snapshot.assignments.filter((assignment) => assignment.state === 'ACTIVE').length;
@@ -130,6 +156,9 @@ export function missionSummary(snapshot: MissionSnapshotDto): {
     ['FAILED', 'ORPHANED'].includes(assignment.state),
   ).length;
   const paused = snapshot.assignments.filter((assignment) => assignment.state === 'PAUSED').length;
+  const humanActions = userActionRequests(snapshot);
+  const agentActions = agentActionRequests(snapshot);
+  const issues = openIncidents(snapshot);
   const decisions = unresolvedDecisionMessages(snapshot);
   const total = snapshot.tasks.length;
   return {
@@ -139,9 +168,12 @@ export function missionSummary(snapshot: MissionSnapshotDto): {
     waiting,
     failed,
     paused,
-    attention: decisions.length + failed,
+    attention: humanActions.length,
+    agentActions: agentActions.length,
+    issues: issues.length,
     percent: total === 0 ? 0 : Math.round((completed / total) * 100),
     decisions,
+    humanActions,
   };
 }
 

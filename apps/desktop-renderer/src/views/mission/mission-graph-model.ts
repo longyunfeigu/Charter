@@ -1,5 +1,6 @@
 import type { MissionSnapshotDto } from '@pi-ide/ipc-contracts';
 import {
+  agentActionRequests,
   assignmentForTask,
   taskStateCopy,
   unresolvedDecisionMessages,
@@ -588,7 +589,9 @@ export function buildMissionGraph(
   );
   const replaySnapshot = { ...snapshot, messages: availableMessages };
   const unresolved = unresolvedDecisionMessages(replaySnapshot);
-  const unresolvedIds = new Set(unresolved.map((message) => message.id));
+  const openAgentRequestIds = new Set(
+    agentActionRequests(replaySnapshot).map((request) => request.id),
+  );
   const assignmentTask = new Map(
     snapshot.assignments.map((assignment) => [assignment.id, assignment.taskId]),
   );
@@ -660,7 +663,9 @@ export function buildMissionGraph(
       messageIds: group.messages.map((message) => message.id),
       count: new Set(group.messages.map((message) => message.threadId ?? message.id)).size,
       bidirectional: group.directions.size > 1,
-      pending: group.messages.some((message) => unresolvedIds.has(message.id)),
+      pending: group.messages.some(
+        (message) => message.actionRequestId && openAgentRequestIds.has(message.actionRequestId),
+      ),
       failed: (snapshot.messageDeliveries ?? []).some(
         (delivery) =>
           group.messages.some((message) => message.id === delivery.messageId) &&
@@ -676,9 +681,6 @@ export function buildMissionGraph(
     const source = message.fromAssignmentId ? assignmentTask.get(message.fromAssignmentId) : null;
     if (!source || !visibleById.has(source)) continue;
     humanSources.set(source, [...(humanSources.get(source) ?? []), message]);
-  }
-  for (const node of nodes.filter((item) => item.state.tone === 'attention')) {
-    if (!humanSources.has(node.id)) humanSources.set(node.id, []);
   }
   for (const [sourceId, messages] of humanSources) {
     edges.push({

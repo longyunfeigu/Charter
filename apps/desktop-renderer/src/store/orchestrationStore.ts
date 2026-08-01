@@ -20,11 +20,15 @@ interface OrchestrationStore {
   /** Canonical Mission Center lookup. Includes recent terminal Missions. */
   missionsById: Record<string, MissionSnapshotDto>;
   missionOrder: string[];
+  /** Recoverable local trash. Kept separate so deleted Missions cannot drive live UI. */
+  deletedMissionsById: Record<string, MissionSnapshotDto>;
+  deletedMissionOrder: string[];
   init(): void;
   trackTask(taskId: string): void;
   untrackTask(taskId: string): void;
   refresh(): Promise<void>;
   refreshMissions(): Promise<void>;
+  refreshDeletedMissions(): Promise<void>;
   refreshPermissions(): Promise<void>;
   refreshMission(taskId: string): Promise<void>;
   workersFor(taskId: string): OrchestrationWorkerDto[];
@@ -36,6 +40,13 @@ interface OrchestrationStore {
   pauseMission(missionRef: string, paused: boolean): Promise<void>;
   steerAssignment(missionRef: string, assignmentId: string, text: string): Promise<void>;
   replyToMessage(missionRef: string, messageId: string, body: string): Promise<void>;
+  resolveActionRequest(
+    missionRef: string,
+    requestId: string,
+    outcome: string,
+    body?: string,
+    rationale?: string,
+  ): Promise<void>;
   closeRuntime(missionRef: string, assignmentId: string): Promise<void>;
   promoteLead(missionRef: string, assignmentId: string): Promise<void>;
   cancelAssignment(missionRef: string, assignmentId: string, reason: string): Promise<void>;
@@ -52,6 +63,9 @@ interface OrchestrationStore {
     reason: string,
   ): Promise<void>;
   requestRevision(missionRef: string, feedback: string): Promise<void>;
+  trashMission(missionId: string): Promise<boolean>;
+  restoreMission(missionId: string): Promise<boolean>;
+  deleteMissionPermanently(missionId: string): Promise<boolean>;
 }
 
 const EMPTY: OrchestrationSnapshotDto = {
@@ -78,17 +92,48 @@ function missionFor(
 }
 
 function withMission(
-  state: Pick<OrchestrationStore, 'missions' | 'missionsById' | 'missionOrder'>,
+  state: Pick<
+    OrchestrationStore,
+    'missions' | 'missionsById' | 'missionOrder' | 'deletedMissionsById' | 'deletedMissionOrder'
+  >,
   snapshot: MissionSnapshotDto,
-): Pick<OrchestrationStore, 'missions' | 'missionsById' | 'missionOrder'> {
+): Pick<
+  OrchestrationStore,
+  'missions' | 'missionsById' | 'missionOrder' | 'deletedMissionsById' | 'deletedMissionOrder'
+> {
   const originTaskId = snapshot.mission.originConversationTaskId;
+  const missions = Object.fromEntries(
+    Object.entries(state.missions).filter(
+      ([, candidate]) => candidate?.mission.id !== snapshot.mission.id,
+    ),
+  );
+  const missionsById = { ...state.missionsById };
+  const deletedMissionsById = { ...state.deletedMissionsById };
+  delete missionsById[snapshot.mission.id];
+  delete deletedMissionsById[snapshot.mission.id];
+  if (snapshot.mission.deletedAt) {
+    deletedMissionsById[snapshot.mission.id] = snapshot;
+    return {
+      missions,
+      missionsById,
+      missionOrder: state.missionOrder.filter((id) => id !== snapshot.mission.id),
+      deletedMissionsById,
+      deletedMissionOrder: [
+        snapshot.mission.id,
+        ...state.deletedMissionOrder.filter((id) => id !== snapshot.mission.id),
+      ],
+    };
+  }
+  missionsById[snapshot.mission.id] = snapshot;
   return {
-    missionsById: { ...state.missionsById, [snapshot.mission.id]: snapshot },
-    missions: originTaskId ? { ...state.missions, [originTaskId]: snapshot } : state.missions,
+    missionsById,
+    missions: originTaskId ? { ...missions, [originTaskId]: snapshot } : missions,
     missionOrder: [
       snapshot.mission.id,
       ...state.missionOrder.filter((id) => id !== snapshot.mission.id),
     ],
+    deletedMissionsById,
+    deletedMissionOrder: state.deletedMissionOrder.filter((id) => id !== snapshot.mission.id),
   };
 }
 
@@ -101,6 +146,8 @@ export const useOrchestrationStore = create<OrchestrationStore>((set, get) => ({
   missions: {},
   missionsById: {},
   missionOrder: [],
+  deletedMissionsById: {},
+  deletedMissionOrder: [],
 
   init() {
     if (get().initialized) return;
@@ -128,6 +175,7 @@ export const useOrchestrationStore = create<OrchestrationStore>((set, get) => ({
     });
     void get().refresh();
     void get().refreshMissions();
+    void get().refreshDeletedMissions();
   },
 
   trackTask(taskId) {
@@ -169,6 +217,17 @@ export const useOrchestrationStore = create<OrchestrationStore>((set, get) => ({
         result.data.missions.map((snapshot) => [snapshot.mission.id, snapshot]),
       ),
       missionOrder: result.data.missions.map((snapshot) => snapshot.mission.id),
+    });
+  },
+
+  async refreshDeletedMissions() {
+    const result = await rpcResult('mission.listDeleted', { limit: 100 });
+    if (!result.ok) return;
+    set({
+      deletedMissionsById: Object.fromEntries(
+        result.data.missions.map((snapshot) => [snapshot.mission.id, snapshot]),
+      ),
+      deletedMissionOrder: result.data.missions.map((snapshot) => snapshot.mission.id),
     });
   },
 
@@ -279,6 +338,21 @@ export const useOrchestrationStore = create<OrchestrationStore>((set, get) => ({
     else useAppStore.getState().pushToast('error', result.error.userMessage);
   },
 
+  async resolveActionRequest(missionRef, requestId, outcome, body, rationale) {
+    const current = missionFor(get(), missionRef);
+    if (!current) return;
+    const result = await rpcResult('mission.resolveActionRequest', {
+      missionId: current.mission.id,
+      requestId,
+      outcome,
+      ...(body !== undefined ? { body } : {}),
+      ...(rationale !== undefined ? { rationale } : {}),
+      idempotencyKey: `user-resolution:${requestId}`,
+    });
+    if (result.ok) set((state) => withMission(state, result.data));
+    else useAppStore.getState().pushToast('error', result.error.userMessage);
+  },
+
   async closeRuntime(missionRef, assignmentId) {
     const current = missionFor(get(), missionRef);
     if (!current) return;
@@ -372,6 +446,51 @@ export const useOrchestrationStore = create<OrchestrationStore>((set, get) => ({
         .getState()
         .pushToast('success', 'Changes requested. The Mission is running again.');
     } else useAppStore.getState().pushToast('error', result.error.userMessage);
+  },
+
+  async trashMission(missionId) {
+    const result = await rpcResult('mission.trash', { missionId });
+    if (!result.ok) {
+      useAppStore.getState().pushToast('error', result.error.userMessage);
+      return false;
+    }
+    set((state) => withMission(state, result.data));
+    const app = useAppStore.getState();
+    app.forgetMissionNavigation(missionId);
+    if (app.missionCenter?.missionId === missionId) app.closeMission();
+    app.pushToast('success', 'Mission moved to Recently Deleted.');
+    return true;
+  },
+
+  async restoreMission(missionId) {
+    const result = await rpcResult('mission.restore', { missionId });
+    if (!result.ok) {
+      useAppStore.getState().pushToast('error', result.error.userMessage);
+      return false;
+    }
+    set((state) => withMission(state, result.data));
+    useAppStore.getState().pushToast('success', 'Mission restored to History.');
+    return true;
+  },
+
+  async deleteMissionPermanently(missionId) {
+    const result = await rpcResult('mission.deletePermanently', { missionId });
+    if (!result.ok) {
+      useAppStore.getState().pushToast('error', result.error.userMessage);
+      return false;
+    }
+    set((state) => {
+      const deletedMissionsById = { ...state.deletedMissionsById };
+      delete deletedMissionsById[missionId];
+      return {
+        deletedMissionsById,
+        deletedMissionOrder: state.deletedMissionOrder.filter((id) => id !== missionId),
+      };
+    });
+    const app = useAppStore.getState();
+    app.forgetMissionNavigation(missionId);
+    app.pushToast('success', 'Mission permanently deleted.');
+    return true;
   },
 }));
 

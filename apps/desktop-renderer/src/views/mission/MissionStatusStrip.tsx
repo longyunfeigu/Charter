@@ -15,8 +15,10 @@ export function MissionStatusStrip({
     snapshot.mission.state === 'VERIFYING'
       ? 'Review results'
       : summary.attention > 0
-        ? 'Resolve attention'
-        : 'Open Mission';
+        ? 'Open your actions'
+        : summary.issues > 0
+          ? 'View issues'
+          : 'Open Mission';
   return (
     <button
       type="button"
@@ -42,7 +44,8 @@ export function MissionStatusStrip({
       <span className="mission-strip-presence">
         {summary.active > 0 ? <span>{summary.active} working</span> : null}
         {summary.waiting > 0 ? <span>{summary.waiting} waiting</span> : null}
-        {summary.attention > 0 ? <strong>{summary.attention} need you</strong> : null}
+        {summary.attention > 0 ? <strong>{summary.attention} for you</strong> : null}
+        {summary.issues > 0 ? <strong>{summary.issues} issues</strong> : null}
       </span>
       <span className="mission-strip-open">
         {nextLabel}

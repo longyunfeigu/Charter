@@ -53,6 +53,7 @@ import {
   missionRuntimeStatusByTerminal,
   type MissionRuntimeStatus,
 } from './mission-runtime-status.js';
+import { TERMINAL_MISSION_STATES } from './mission/mission-view-model.js';
 
 export { isHistoryEntry, type SessionEntry } from './rail-groups.js';
 
@@ -362,8 +363,8 @@ function SessionTaskRow({
     : ['EXPLORING', 'PLANNING', 'IN_PROGRESS', 'VERIFYING'].includes(task.state);
   const resumable = canResumeExternal(task) && !live;
   const endable = task.external !== null && live;
-  const archivable = canArchiveTask(task) && !endable;
-  const hasActions = endable || resumable || archivable;
+  const deletable = canArchiveTask(task) && !endable;
+  const hasActions = endable || resumable || deletable;
   const [renameOpen, setRenameOpen] = useState(false);
   const [endingExternal, setEndingExternal] = useState(false);
   const externalLifecycle =
@@ -503,14 +504,14 @@ function SessionTaskRow({
               <Ic name="refresh" size={12} strokeWidth={2} />
             </button>
           ) : null}
-          {archivable ? (
+          {deletable ? (
             <ArmedIconButton
-              icon="archive"
-              className="sr-archive"
-              testid={`home-archive-${task.id}`}
-              title="Archive session"
-              armedTitle="Click again to archive"
-              onConfirm={() => void useTaskStore.getState().archiveTask(task.id)}
+              icon="trash"
+              className="sr-delete"
+              testid={`home-delete-${task.id}`}
+              title="Delete session"
+              armedTitle="Click again to permanently delete"
+              onConfirm={() => void useTaskStore.getState().deleteTask(task.id)}
             />
           ) : null}
         </div>
@@ -716,6 +717,8 @@ export function SessionRail(): React.JSX.Element {
   const orchestration = useOrchestrationStore((state) => state.snapshot);
   const missionsById = useOrchestrationStore((state) => state.missionsById);
   const missionOrder = useOrchestrationStore((state) => state.missionOrder);
+  const deletedMissionsById = useOrchestrationStore((state) => state.deletedMissionsById);
+  const deletedMissionOrder = useOrchestrationStore((state) => state.deletedMissionOrder);
   const missionRuntimeStatuses = useMemo(
     () => missionRuntimeStatusByTerminal(Object.values(missionsById)),
     [missionsById],
@@ -734,6 +737,9 @@ export function SessionRail(): React.JSX.Element {
   >({});
   const [query, setQuery] = useState('');
   const [needsOnly, setNeedsOnly] = useState(false);
+  const [sessionProjectPath, setSessionProjectPath] = useState<string | null>(
+    workspaceStore.workspace?.path ?? null,
+  );
   const [projectQuery, setProjectQuery] = useState('');
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [projectMenuPath, setProjectMenuPath] = useState<string | null>(null);
@@ -748,6 +754,11 @@ export function SessionRail(): React.JSX.Element {
   // sweep). The global archive belongs to Sessions; Projects only consumes
   // project-attributed counts.
   const discovered = useArchaeologyStore((s) => s.sessions);
+  const refreshRecent = (): void => {
+    void rpcResult('workspace.recent', {}).then((result) => {
+      if (result.ok) setRecent(result.data.items);
+    });
+  };
   const setView = (next: RailView): void => {
     if (next === 'missions') app.openMission(app.missionCenter?.missionId ?? null);
     else app.setRailView(next);
@@ -760,6 +771,7 @@ export function SessionRail(): React.JSX.Element {
   };
 
   const showProjects = (): void => {
+    refreshRecent();
     setView('projects');
     setProjectsPanelOpen(true);
   };
@@ -771,9 +783,7 @@ export function SessionRail(): React.JSX.Element {
     useExternalStore.getState().init();
     useOrchestrationStore.getState().init();
     void useArchaeologyStore.getState().scan();
-    void rpcResult('workspace.recent', {}).then((result) => {
-      if (result.ok) setRecent(result.data.items);
-    });
+    refreshRecent();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceStore.workspace?.path]);
 
@@ -793,6 +803,10 @@ export function SessionRail(): React.JSX.Element {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (workspaceStore.workspace?.path) setSessionProjectPath(workspaceStore.workspace.path);
+  }, [workspaceStore.workspace?.path]);
 
   useEffect(() => {
     if (!railResizing) return;
@@ -925,9 +939,43 @@ export function SessionRail(): React.JSX.Element {
     const entryByKey = new Map(legacyOrdered.map((entry) => [entry.key, entry]));
     const claimedEntries = new Set<string>();
     const missionEntries: Array<Extract<SessionEntry, { kind: 'mission' }>> = [];
-    const snapshots = missionOrder
+    const currentSnapshots = missionOrder
       .map((id) => missionsById[id])
       .filter((snapshot): snapshot is MissionSnapshotDto => Boolean(snapshot));
+    const deletedSnapshots = deletedMissionOrder
+      .map((id) => deletedMissionsById[id])
+      .filter((snapshot): snapshot is MissionSnapshotDto => Boolean(snapshot));
+    const hiddenMissionOwnedKeys = new Set<string>();
+    for (const snapshot of [...currentSnapshots, ...deletedSnapshots]) {
+      if (!snapshot.mission.deletedAt && !TERMINAL_MISSION_STATES.has(snapshot.mission.state)) {
+        continue;
+      }
+      const originTaskId = snapshot.mission.originConversationTaskId;
+      for (const assignment of snapshot.assignments) {
+        if (assignment.id === snapshot.mission.leadAssignmentId && originTaskId) continue;
+        const attempt =
+          snapshot.attempts.find((candidate) => candidate.id === assignment.activeAttemptId) ??
+          null;
+        if (attempt?.runtimeSessionId?.startsWith('managed-task:')) {
+          hiddenMissionOwnedKeys.add(
+            `task:${attempt.runtimeSessionId.slice('managed-task:'.length)}`,
+          );
+        }
+        if (attempt?.terminalId) {
+          const taskEntry = taskEntries.find(
+            (entry) =>
+              entry.kind === 'task' && entry.task.external?.terminalId === attempt.terminalId,
+          );
+          hiddenMissionOwnedKeys.add(taskEntry?.key ?? `terminal:${attempt.terminalId}`);
+        }
+      }
+    }
+    // The Session rail is for live/current conversations. Once a Mission is
+    // terminal its assignment tree belongs to Mission History, not Session
+    // cleanup; only non-terminal Missions project their ownership here.
+    const snapshots = currentSnapshots.filter(
+      (snapshot) => !TERMINAL_MISSION_STATES.has(snapshot.mission.state),
+    );
 
     for (const snapshot of snapshots) {
       const originTaskId = snapshot.mission.originConversationTaskId;
@@ -1016,7 +1064,9 @@ export function SessionRail(): React.JSX.Element {
     }
 
     const candidates = [
-      ...legacyOrdered.map((entry) => entryByKey.get(entry.key) ?? entry),
+      ...legacyOrdered
+        .filter((entry) => !hiddenMissionOwnedKeys.has(entry.key))
+        .map((entry) => entryByKey.get(entry.key) ?? entry),
       ...missionEntries,
     ];
     const candidateKeys = new Set(candidates.map((entry) => entry.key));
@@ -1043,6 +1093,8 @@ export function SessionRail(): React.JSX.Element {
     for (const entry of candidates) appendTree(entry);
     return ordered;
   }, [
+    deletedMissionOrder,
+    deletedMissionsById,
     missionOrder,
     missionsById,
     orchestration.workers,
@@ -1314,17 +1366,18 @@ export function SessionRail(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey);
   }, [app, orderedEntries]);
 
-  const startSession = (projectPath?: string): void => {
-    if (projectPath && workspaceStore.workspace?.path !== projectPath) {
+  const startSession = async (projectPath?: string): Promise<void> => {
+    const targetProjectPath =
+      projectPath ?? sessionProjectPath ?? workspaceStore.workspace?.path ?? undefined;
+    if (targetProjectPath && workspaceStore.workspace?.path !== targetProjectPath) {
       app.setHomePick(true);
-      void workspaceStore.openPath(projectPath);
+      await workspaceStore.openPath(targetProjectPath);
+      if (useWorkspaceStore.getState().workspace?.path !== targetProjectPath) return;
     }
     // ADR-0042: switch the nav section first — it restores that group's last
     // surface — THEN apply this action's explicit intent (the composer), so
     // the restore never overrides it.
-    setView('sessions');
-    app.closeTaskRoom();
-    app.setSurface('home');
+    app.openSessionHome();
     app.focusComposer();
     if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(false);
   };
@@ -1427,11 +1480,23 @@ export function SessionRail(): React.JSX.Element {
     <>
       <header className="sr-head">
         {railTabs}
-        <div className="sr-heading-row">
+        <div className="sr-heading-row sr-session-heading">
           <strong>Sessions</strong>
-          <small>{allEntries.length} sessions</small>
+          <button
+            className={`sr-session-archive ${app.archaeology ? 'active' : ''}`}
+            data-testid="rail-session-archive"
+            title={`${tasks.length} tracked · ${discovered.filter((session) => !session.trackedTaskId).length} external`}
+            onClick={() => {
+              app.openArchaeology(null);
+              if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(false);
+            }}
+          >
+            <Ic name="clock" size={11} />
+            <span>Session Archive</span>
+          </button>
+          <small title={`${allEntries.length} sessions`}>{allEntries.length}</small>
         </div>
-        <div className="sr-search-row">
+        <div className="sr-search-row sr-session-search-row">
           <label className="sr-search-box">
             <Ic name="search" size={13} />
             <input
@@ -1456,39 +1521,10 @@ export function SessionRail(): React.JSX.Element {
             className="sr-new-compact"
             data-testid="home-new-task"
             aria-label="New Session"
-            title="New Session"
-            onClick={() => startSession()}
+            title={`New Session${sessionProjectPath ? ` in ${sessionProjectPath.split(/[\\/]/).at(-1)}` : ''}`}
+            onClick={() => void startSession()}
           >
             <Ic name="plus" size={15} />
-          </button>
-        </div>
-        <div className="sr-session-shortcuts">
-          <button
-            className={`sr-session-archive ${app.archaeology ? 'active' : ''}`}
-            data-testid="rail-session-archive"
-            title={`${tasks.length} tracked · ${discovered.filter((session) => !session.trackedTaskId).length} external`}
-            onClick={() => {
-              app.openArchaeology(null);
-              if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(false);
-            }}
-          >
-            <Ic name="clock" size={12} />
-            <span>Session Archive</span>
-            <small>{allEntries.length}</small>
-          </button>
-          <button
-            className="sr-context-link"
-            data-testid="rail-context"
-            title={
-              workspaceStore.workspace
-                ? `${workspaceStore.workspace.path} — new sessions bind here`
-                : 'Pick the project new sessions bind to'
-            }
-            onClick={showProjects}
-          >
-            <Ic name="folder" size={11} />
-            <span>{workspaceStore.workspace ? 'Current project' : 'Choose project'}</span>
-            <Ic name="chevron" size={10} />
           </button>
         </div>
       </header>
@@ -1524,7 +1560,10 @@ export function SessionRail(): React.JSX.Element {
                     data-testid={`rail-group-${group.history ? 'history' : group.name}`}
                     aria-expanded={!isCollapsed}
                     title={group.path ?? group.name}
-                    onClick={() => toggleGroup(group.key)}
+                    onClick={() => {
+                      if (group.path) setSessionProjectPath(group.path);
+                      toggleGroup(group.key);
+                    }}
                   >
                     <Ic
                       name="chevron"
@@ -1540,7 +1579,7 @@ export function SessionRail(): React.JSX.Element {
                       className="sr-group-add"
                       aria-label={`New session in ${group.name}`}
                       title={`New session in ${group.name}`}
-                      onClick={() => startSession(group.path ?? undefined)}
+                      onClick={() => void startSession(group.path ?? undefined)}
                     >
                       <Ic name="plus" size={12} />
                     </button>
@@ -1838,6 +1877,7 @@ export function SessionRail(): React.JSX.Element {
                 title={`${project.path} — view Project Center`}
                 onClick={() => {
                   setProjectMenuPath(null);
+                  setSessionProjectPath(project.path);
                   app.openProjectCenter(project.path);
                   if (window.matchMedia('(max-width: 1120px)').matches) {
                     setCompactPanelOpen(false);
@@ -1898,6 +1938,7 @@ export function SessionRail(): React.JSX.Element {
                       data-testid={`project-history-${project.path}`}
                       onClick={() => {
                         setProjectMenuPath(null);
+                        setSessionProjectPath(project.path);
                         app.openProjectCenter(project.path, 'sessions');
                       }}
                     >
@@ -1909,7 +1950,7 @@ export function SessionRail(): React.JSX.Element {
                         data-testid={`project-spawn-pi-${project.path}`}
                         onClick={() => {
                           setProjectMenuPath(null);
-                          startSession(project.path);
+                          void startSession(project.path);
                         }}
                       >
                         <Ic name="plus" size={12} /> New Session

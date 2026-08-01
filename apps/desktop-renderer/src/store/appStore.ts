@@ -57,6 +57,83 @@ export type MainSurface =
  * list; Files feeds the open conversation), projects is its own page. */
 export type RailGroup = 'workbench' | 'projects' | 'skills';
 
+/** A browser-like navigation entry. Unlike MainSurface this deliberately keeps
+ * the contextual state around the surface, so Back restores the page the user
+ * actually left (Project tab, Mission inspector, Session tool, remote host),
+ * not merely a compatible top-level destination. */
+export interface NavigationSnapshot {
+  railView: RailView;
+  savedSurfaces: Record<RailGroup, MainSurface>;
+  surface: 'home' | 'workspace';
+  taskRoomTaskId: string | null;
+  missionCenter: {
+    missionId: string | null;
+    assignmentId?: string | null;
+    inspectorTab?: 'details' | 'session';
+  } | null;
+  sessionRoomView: SessionRoomView;
+  sessionTerminalId: string | null;
+  sessionTerminalScope: 'single' | 'all';
+  projectTool: ProjectTool | null;
+  projectCenter: { path: string; tab: ProjectCenterTab } | null;
+  projectBottomTab: BottomTab | null;
+  archaeology: { scope: string | null } | null;
+  remotesOpen: boolean;
+  remoteSelectedHostId: string | null;
+  remoteSubview: RemoteSubview;
+  peek: PeekState | null;
+  previewRailTaskId: string | null;
+  previewRailMode: PreviewRailMode;
+  sessionTool: SessionTool;
+  sessionToolsOpen: boolean;
+  sessionToolExpanded: boolean;
+}
+
+export function navigationSnapshotLabel(snapshot: NavigationSnapshot | null): string {
+  if (!snapshot) return 'previous page';
+  const surface = mainSurfaceOf(snapshot);
+  switch (surface.kind) {
+    case 'project-center': {
+      const name = surface.path.split('/').filter(Boolean).at(-1) ?? 'Project';
+      const tab = surface.tab === 'overview' ? '' : ` · ${surface.tab}`;
+      return `${name}${tab}`;
+    }
+    case 'room':
+      return 'Session';
+    case 'mission':
+      return surface.missionId ? 'Mission' : 'All Missions';
+    case 'terminal':
+      return snapshot.remotesOpen ? 'Remote terminal' : 'Terminal';
+    case 'archaeology':
+      return surface.scope
+        ? `${surface.scope.split('/').filter(Boolean).at(-1) ?? 'Project'} · Archive`
+        : 'Session Archive';
+    case 'project-tool':
+      return surface.tool === 'search'
+        ? 'Project search'
+        : surface.tool === 'changes'
+          ? 'Project changes'
+          : 'Project files';
+    case 'remotes':
+      return 'Remote Explorer';
+    default:
+      switch (snapshot.railView) {
+        case 'missions':
+          return 'Missions';
+        case 'inbox':
+          return 'Needs attention';
+        case 'projects':
+          return 'Projects';
+        case 'files':
+          return 'Files';
+        case 'skills':
+          return 'Skills';
+        default:
+          return 'Sessions';
+      }
+  }
+}
+
 export function railGroupOf(view: RailView): RailGroup {
   if (view === 'projects') return 'projects';
   if (view === 'skills') return 'skills';
@@ -235,6 +312,15 @@ interface AppStore {
   /** ADR-0042: each nav group's last main surface, restored when the rail
    * returns to that group so left nav and main content always correspond. */
   savedSurfaces: Record<RailGroup, MainSurface>;
+  /** True browser-style history shared by every product surface. */
+  navigationBack: NavigationSnapshot[];
+  navigationForward: NavigationSnapshot[];
+  navigateBack(): void;
+  navigateForward(): void;
+  /** Remove dead Session destinations after archive/permanent deletion. */
+  forgetTaskNavigation(taskId: string): void;
+  /** Remove a Mission from navigation after it enters trash or is purged. */
+  forgetMissionNavigation(missionId: string): void;
   openPreviewRail(taskId: string, mode?: PreviewRailMode): void;
   setPreviewRailMode(mode: PreviewRailMode): void;
   closePreviewRail(): void;
@@ -253,12 +339,15 @@ interface AppStore {
 
   init(): Promise<void>;
   setSurface(surface: 'home' | 'workspace'): void;
+  /** Navigate to the Sessions composer as one atomic history transition. */
+  openSessionHome(): void;
   openTaskRoom(taskId: string): void;
   openMission(
     missionId?: string | null,
     assignmentId?: string | null,
     inspectorTab?: 'details' | 'session',
   ): void;
+  setMissionDestination(assignmentId: string | null, inspectorTab?: 'details' | 'session'): void;
   closeMission(): void;
   setSessionRoomView(view: SessionRoomView): void;
   openTerminalSession(terminalId: string): void;
@@ -428,6 +517,81 @@ async function followTaskProject(taskId: string): Promise<void> {
 }
 
 export const useAppStore = create<AppStore>((set, get) => {
+  let navigationDepth = 0;
+  let restoringNavigation = false;
+
+  const captureNavigation = (): NavigationSnapshot => {
+    const state = get();
+    return {
+      railView: state.railView,
+      savedSurfaces: { ...state.savedSurfaces },
+      surface: state.surface,
+      taskRoomTaskId: state.taskRoomTaskId,
+      missionCenter: state.missionCenter ? { ...state.missionCenter } : null,
+      sessionRoomView: state.sessionRoomView,
+      sessionTerminalId: state.sessionTerminalId,
+      sessionTerminalScope: state.sessionTerminalScope,
+      projectTool: state.projectTool,
+      projectCenter: state.projectCenter ? { ...state.projectCenter } : null,
+      projectBottomTab: state.projectBottomTab,
+      archaeology: state.archaeology ? { ...state.archaeology } : null,
+      remotesOpen: state.remotesOpen,
+      remoteSelectedHostId: state.remoteSelectedHostId,
+      remoteSubview: state.remoteSubview,
+      peek: state.peek ? { ...state.peek, paths: [...state.peek.paths] } : null,
+      previewRailTaskId: state.previewRailTaskId,
+      previewRailMode: state.previewRailMode,
+      sessionTool: state.sessionTool,
+      sessionToolsOpen: state.sessionToolsOpen,
+      sessionToolExpanded: state.sessionToolExpanded,
+    };
+  };
+
+  const sameNavigation = (a: NavigationSnapshot, b: NavigationSnapshot): boolean =>
+    JSON.stringify(a) === JSON.stringify(b);
+
+  /** Coalesce nested opener calls into one history entry. setRailView, for
+   * example, may restore a surface through another opener. */
+  const navigate = (change: () => void): void => {
+    const outer = navigationDepth === 0 && !restoringNavigation;
+    const before = outer ? captureNavigation() : null;
+    navigationDepth += 1;
+    try {
+      change();
+    } finally {
+      navigationDepth -= 1;
+    }
+    if (!outer || !before) return;
+    const after = captureNavigation();
+    if (sameNavigation(before, after)) return;
+    const previous = get().navigationBack.at(-1);
+    set({
+      navigationBack: [
+        ...get().navigationBack,
+        ...(previous && sameNavigation(previous, before) ? [] : [before]),
+      ].slice(-60),
+      navigationForward: [],
+    });
+  };
+
+  const restoreNavigation = (snapshot: NavigationSnapshot): void => {
+    restoringNavigation = true;
+    try {
+      saveRailView(snapshot.railView);
+      set({
+        ...snapshot,
+        savedSurfaces: { ...snapshot.savedSurfaces },
+        missionCenter: snapshot.missionCenter ? { ...snapshot.missionCenter } : null,
+        projectCenter: snapshot.projectCenter ? { ...snapshot.projectCenter } : null,
+        archaeology: snapshot.archaeology ? { ...snapshot.archaeology } : null,
+        peek: snapshot.peek ? { ...snapshot.peek, paths: [...snapshot.peek.paths] } : null,
+      });
+    } finally {
+      restoringNavigation = false;
+    }
+    if (snapshot.taskRoomTaskId) void followTaskProject(snapshot.taskRoomTaskId);
+  };
+
   /** ADR-0042 — explicit surface openers keep the contextual rail in step when
    * moving between nav groups.  Workbench's Sessions/Inbox/Files views are
    * deliberately sticky, except when leaving Mission: Mission owns its entire
@@ -536,20 +700,62 @@ export const useAppStore = create<AppStore>((set, get) => {
       projects: { kind: 'home' },
       skills: { kind: 'home' },
     },
+    navigationBack: [],
+    navigationForward: [],
     composerFocusSeq: 0,
 
-    openArchaeology(scope) {
+    navigateBack() {
+      const back = get().navigationBack;
+      const target = back.at(-1);
+      if (!target) return;
+      const current = captureNavigation();
       set({
-        archaeology: { scope },
-        projectCenter: null,
-        taskRoomTaskId: null,
-        missionCenter: null,
-        sessionTerminalId: null,
-        remotesOpen: false,
-        projectTool: null,
-        projectBottomTab: null,
-        surface: 'home',
-        ...crossRailPatch('sessions'),
+        navigationBack: back.slice(0, -1),
+        navigationForward: [...get().navigationForward, current].slice(-60),
+      });
+      restoreNavigation(target);
+    },
+    navigateForward() {
+      const forward = get().navigationForward;
+      const target = forward.at(-1);
+      if (!target) return;
+      const current = captureNavigation();
+      set({
+        navigationBack: [...get().navigationBack, current].slice(-60),
+        navigationForward: forward.slice(0, -1),
+      });
+      restoreNavigation(target);
+    },
+    forgetTaskNavigation(taskId) {
+      const keep = (entry: NavigationSnapshot): boolean => entry.taskRoomTaskId !== taskId;
+      set({
+        navigationBack: get().navigationBack.filter(keep),
+        navigationForward: get().navigationForward.filter(keep),
+      });
+    },
+    forgetMissionNavigation(missionId) {
+      const keep = (entry: NavigationSnapshot): boolean =>
+        entry.missionCenter?.missionId !== missionId;
+      set({
+        navigationBack: get().navigationBack.filter(keep),
+        navigationForward: get().navigationForward.filter(keep),
+      });
+    },
+
+    openArchaeology(scope) {
+      navigate(() => {
+        set({
+          archaeology: { scope },
+          projectCenter: null,
+          taskRoomTaskId: null,
+          missionCenter: null,
+          sessionTerminalId: null,
+          remotesOpen: false,
+          projectTool: null,
+          projectBottomTab: null,
+          surface: 'home',
+          ...crossRailPatch('sessions'),
+        });
       });
     },
     closeArchaeology() {
@@ -557,20 +763,22 @@ export const useAppStore = create<AppStore>((set, get) => {
     },
     openProjectCenter(path, tab) {
       const current = get().projectCenter;
-      set({
-        projectCenter: {
-          path,
-          tab: tab ?? (current?.path === path ? current.tab : 'overview'),
-        },
-        archaeology: null,
-        taskRoomTaskId: null,
-        missionCenter: null,
-        sessionTerminalId: null,
-        remotesOpen: false,
-        projectTool: null,
-        projectBottomTab: null,
-        surface: 'home',
-        ...crossRailPatch('projects'),
+      navigate(() => {
+        set({
+          projectCenter: {
+            path,
+            tab: tab ?? (current?.path === path ? current.tab : 'overview'),
+          },
+          archaeology: null,
+          taskRoomTaskId: null,
+          missionCenter: null,
+          sessionTerminalId: null,
+          remotesOpen: false,
+          projectTool: null,
+          projectBottomTab: null,
+          surface: 'home',
+          ...crossRailPatch('projects'),
+        });
       });
     },
     setProjectCenterTab(tab) {
@@ -582,47 +790,53 @@ export const useAppStore = create<AppStore>((set, get) => {
     },
 
     openRemotes(hostId) {
-      set({
-        remotesOpen: true,
-        projectCenter: null,
-        remoteSelectedHostId: hostId ?? get().remoteSelectedHostId,
-        remoteSubview: 'overview',
-        taskRoomTaskId: null,
-        missionCenter: null,
-        sessionTerminalId: null,
-        archaeology: null,
-        projectTool: null,
-        projectBottomTab: null,
-        surface: 'home',
-        ...crossRailPatch('sessions'),
-      });
+      navigate(() =>
+        set({
+          remotesOpen: true,
+          projectCenter: null,
+          remoteSelectedHostId: hostId ?? get().remoteSelectedHostId,
+          remoteSubview: 'overview',
+          taskRoomTaskId: null,
+          missionCenter: null,
+          sessionTerminalId: null,
+          archaeology: null,
+          projectTool: null,
+          projectBottomTab: null,
+          surface: 'home',
+          ...crossRailPatch('sessions'),
+        }),
+      );
     },
     closeRemotes() {
       set({ remotesOpen: false, sessionTerminalId: null, remoteSubview: 'overview' });
     },
     selectRemoteHost(remoteSelectedHostId, remoteSubview = 'overview') {
-      set({
-        remotesOpen: true,
-        remoteSelectedHostId,
-        remoteSubview,
-        sessionTerminalId: null,
-        taskRoomTaskId: null,
-        missionCenter: null,
-        archaeology: null,
-        projectCenter: null,
-        projectTool: null,
-        projectBottomTab: null,
-        surface: 'home',
-      });
+      navigate(() =>
+        set({
+          remotesOpen: true,
+          remoteSelectedHostId,
+          remoteSubview,
+          sessionTerminalId: null,
+          taskRoomTaskId: null,
+          missionCenter: null,
+          archaeology: null,
+          projectCenter: null,
+          projectTool: null,
+          projectBottomTab: null,
+          surface: 'home',
+        }),
+      );
     },
     setRemoteSubview(remoteSubview) {
-      set({
-        remotesOpen: true,
-        remoteSubview,
-        sessionTerminalId: null,
-        taskRoomTaskId: null,
-        missionCenter: null,
-        surface: 'home',
+      navigate(() => {
+        set({
+          remotesOpen: true,
+          remoteSubview,
+          sessionTerminalId: null,
+          taskRoomTaskId: null,
+          missionCenter: null,
+          surface: 'home',
+        });
       });
     },
 
@@ -635,13 +849,15 @@ export const useAppStore = create<AppStore>((set, get) => {
         set({ railView });
         return;
       }
-      // ADR-0042: crossing nav groups swaps the main surface with the rail.
-      const target = get().savedSurfaces[railGroupOf(railView)];
-      set({
-        railView,
-        savedSurfaces: { ...get().savedSurfaces, [railGroupOf(prev)]: mainSurfaceOf(get()) },
+      navigate(() => {
+        // ADR-0042: crossing nav groups swaps the main surface with the rail.
+        const target = get().savedSurfaces[railGroupOf(railView)];
+        set({
+          railView,
+          savedSurfaces: { ...get().savedSurfaces, [railGroupOf(prev)]: mainSurfaceOf(get()) },
+        });
+        applySurface(target);
       });
-      applySurface(target);
     },
 
     setSurface(surface) {
@@ -659,15 +875,43 @@ export const useAppStore = create<AppStore>((set, get) => {
         });
         return;
       }
-      set({
-        surface,
-        // Surface navigation leaves Remotes — it sits above projectTool/home in
-        // mainSurfaceOf, so a stale flag would swallow the switch.
-        remotesOpen: false,
-        ...(get().remotesOpen ? { sessionTerminalId: null } : {}),
-        projectTool: surface === 'workspace' ? (get().projectTool ?? 'editor') : null,
-        ...(surface === 'workspace' ? { projectCenter: null, missionCenter: null } : {}),
-        ...(surface === 'workspace' ? crossRailPatch('files') : {}),
+      navigate(() => {
+        set({
+          surface,
+          // Surface navigation leaves Remotes — it sits above projectTool/home in
+          // mainSurfaceOf, so a stale flag would swallow the switch.
+          remotesOpen: false,
+          ...(get().remotesOpen ? { sessionTerminalId: null } : {}),
+          projectTool: surface === 'workspace' ? (get().projectTool ?? 'editor') : null,
+          ...(surface === 'workspace' ? { projectCenter: null, missionCenter: null } : {}),
+          ...(surface === 'workspace' ? crossRailPatch('files') : {}),
+        });
+      });
+    },
+
+    openSessionHome() {
+      navigate(() => {
+        saveRailView('sessions');
+        set({
+          railView: 'sessions',
+          taskRoomTaskId: null,
+          missionCenter: null,
+          sessionRoomView: 'conversation',
+          sessionTerminalId: null,
+          sessionTerminalScope: 'single',
+          surface: 'home',
+          peek: null,
+          previewRailTaskId: null,
+          sessionTool: 'summary',
+          sessionToolsOpen: false,
+          sessionToolExpanded: false,
+          projectTool: null,
+          projectCenter: null,
+          projectBottomTab: null,
+          archaeology: null,
+          remotesOpen: false,
+          ...crossRailPatch('sessions'),
+        });
       });
     },
 
@@ -763,21 +1007,23 @@ export const useAppStore = create<AppStore>((set, get) => {
       }
     },
     setProjectTool(projectTool) {
-      set({
-        projectTool,
-        projectCenter: projectTool ? null : get().projectCenter,
-        surface: projectTool ? 'workspace' : 'home',
-        ...(projectTool
-          ? {
-              taskRoomTaskId: null,
-              missionCenter: null,
-              sessionTerminalId: null,
-              archaeology: null,
-              // ADR-0029/0040: project tools pair with the rail's Files tree
-              // when arriving from the Projects page.
-              ...crossRailPatch('files'),
-            }
-          : { projectBottomTab: null }),
+      navigate(() => {
+        set({
+          projectTool,
+          projectCenter: projectTool ? null : get().projectCenter,
+          surface: projectTool ? 'workspace' : 'home',
+          ...(projectTool
+            ? {
+                taskRoomTaskId: null,
+                missionCenter: null,
+                sessionTerminalId: null,
+                archaeology: null,
+                // ADR-0029/0040: project tools pair with the rail's Files tree
+                // when arriving from the Projects page.
+                ...crossRailPatch('files'),
+              }
+            : { projectBottomTab: null }),
+        });
       });
     },
     setProjectBottomTab(projectBottomTab) {
@@ -810,50 +1056,66 @@ export const useAppStore = create<AppStore>((set, get) => {
     openTaskRoom(taskId) {
       // The peek belongs to one room — entering a different task's room resets it.
       const peek = get().peek;
-      set({
-        taskRoomTaskId: taskId,
-        missionCenter: null,
-        sessionRoomView: 'conversation',
-        sessionTerminalId: null,
-        surface: 'home',
-        sessionTool: 'summary',
-        sessionToolsOpen: false,
-        sessionToolExpanded: false,
-        projectTool: null,
-        projectCenter: null,
-        projectBottomTab: null,
-        archaeology: null,
-        remotesOpen: false,
-        sessionNotices: get().sessionNotices.filter((notice) => notice.taskId !== taskId),
-        ...(peek && peek.taskId !== taskId ? { peek: null } : {}),
-        ...crossRailPatch('sessions'),
+      navigate(() => {
+        set({
+          taskRoomTaskId: taskId,
+          missionCenter: null,
+          sessionRoomView: 'conversation',
+          sessionTerminalId: null,
+          surface: 'home',
+          sessionTool: 'summary',
+          sessionToolsOpen: false,
+          sessionToolExpanded: false,
+          projectTool: null,
+          projectCenter: null,
+          projectBottomTab: null,
+          archaeology: null,
+          remotesOpen: false,
+          sessionNotices: get().sessionNotices.filter((notice) => notice.taskId !== taskId),
+          ...(peek && peek.taskId !== taskId ? { peek: null } : {}),
+          ...crossRailPatch('sessions'),
+        });
       });
       void followTaskProject(taskId);
     },
 
     openMission(missionId = null, assignmentId = null, inspectorTab = 'details') {
       saveRailView('missions');
+      navigate(() => {
+        set({
+          missionCenter: {
+            missionId,
+            ...(assignmentId ? { assignmentId, inspectorTab } : {}),
+          },
+          taskRoomTaskId: null,
+          sessionTerminalId: null,
+          sessionRoomView: 'conversation',
+          surface: 'home',
+          peek: null,
+          previewRailTaskId: null,
+          sessionTool: 'summary',
+          sessionToolsOpen: false,
+          sessionToolExpanded: false,
+          projectTool: null,
+          projectCenter: null,
+          projectBottomTab: null,
+          archaeology: null,
+          remotesOpen: false,
+          ...crossRailPatch('missions'),
+          railView: 'missions',
+        });
+      });
+    },
+
+    setMissionDestination(assignmentId, inspectorTab = 'details') {
+      const current = get().missionCenter;
+      if (!current) return;
       set({
         missionCenter: {
-          missionId,
-          ...(assignmentId ? { assignmentId, inspectorTab } : {}),
+          ...current,
+          assignmentId,
+          inspectorTab,
         },
-        taskRoomTaskId: null,
-        sessionTerminalId: null,
-        sessionRoomView: 'conversation',
-        surface: 'home',
-        peek: null,
-        previewRailTaskId: null,
-        sessionTool: 'summary',
-        sessionToolsOpen: false,
-        sessionToolExpanded: false,
-        projectTool: null,
-        projectCenter: null,
-        projectBottomTab: null,
-        archaeology: null,
-        remotesOpen: false,
-        ...crossRailPatch('missions'),
-        railView: 'missions',
       });
     },
 
@@ -879,71 +1141,77 @@ export const useAppStore = create<AppStore>((set, get) => {
     },
 
     openTerminalSession(terminalId) {
-      set({
-        sessionTerminalId: terminalId,
-        sessionTerminalScope: 'single',
-        taskRoomTaskId: null,
-        missionCenter: null,
-        sessionRoomView: 'conversation',
-        surface: 'home',
-        peek: null,
-        previewRailTaskId: null,
-        sessionTool: 'terminal',
-        sessionToolsOpen: false,
-        sessionToolExpanded: false,
-        projectTool: null,
-        projectCenter: null,
-        projectBottomTab: null,
-        archaeology: null,
-        remotesOpen: false,
-        ...crossRailPatch('sessions'),
-      });
+      navigate(() =>
+        set({
+          sessionTerminalId: terminalId,
+          sessionTerminalScope: 'single',
+          taskRoomTaskId: null,
+          missionCenter: null,
+          sessionRoomView: 'conversation',
+          surface: 'home',
+          peek: null,
+          previewRailTaskId: null,
+          sessionTool: 'terminal',
+          sessionToolsOpen: false,
+          sessionToolExpanded: false,
+          projectTool: null,
+          projectCenter: null,
+          projectBottomTab: null,
+          archaeology: null,
+          remotesOpen: false,
+          ...crossRailPatch('sessions'),
+        }),
+      );
     },
 
     openAllTerminals(terminalId) {
-      set({
-        sessionTerminalId: terminalId,
-        sessionTerminalScope: 'all',
-        taskRoomTaskId: null,
-        missionCenter: null,
-        sessionRoomView: 'conversation',
-        surface: 'home',
-        peek: null,
-        previewRailTaskId: null,
-        sessionTool: 'terminal',
-        sessionToolsOpen: false,
-        sessionToolExpanded: false,
-        projectTool: null,
-        projectCenter: null,
-        projectBottomTab: null,
-        archaeology: null,
-        remotesOpen: false,
-        ...crossRailPatch('sessions'),
-      });
+      navigate(() =>
+        set({
+          sessionTerminalId: terminalId,
+          sessionTerminalScope: 'all',
+          taskRoomTaskId: null,
+          missionCenter: null,
+          sessionRoomView: 'conversation',
+          surface: 'home',
+          peek: null,
+          previewRailTaskId: null,
+          sessionTool: 'terminal',
+          sessionToolsOpen: false,
+          sessionToolExpanded: false,
+          projectTool: null,
+          projectCenter: null,
+          projectBottomTab: null,
+          archaeology: null,
+          remotesOpen: false,
+          ...crossRailPatch('sessions'),
+        }),
+      );
     },
 
     openRemoteTerminalSession(terminalId, remoteSelectedHostId) {
-      set({
-        sessionTerminalId: terminalId,
-        sessionTerminalScope: 'single',
-        taskRoomTaskId: null,
-        missionCenter: null,
-        sessionRoomView: 'conversation',
-        surface: 'home',
-        peek: null,
-        previewRailTaskId: null,
-        sessionTool: 'terminal',
-        sessionToolsOpen: false,
-        sessionToolExpanded: false,
-        projectTool: null,
-        projectCenter: null,
-        projectBottomTab: null,
-        archaeology: null,
-        remotesOpen: true,
-        remoteSelectedHostId,
-        remoteSubview: 'overview',
-        ...crossRailPatch('sessions'),
-      });
+      navigate(() =>
+        set({
+          sessionTerminalId: terminalId,
+          sessionTerminalScope: 'single',
+          taskRoomTaskId: null,
+          missionCenter: null,
+          sessionRoomView: 'conversation',
+          surface: 'home',
+          peek: null,
+          previewRailTaskId: null,
+          sessionTool: 'terminal',
+          sessionToolsOpen: false,
+          sessionToolExpanded: false,
+          projectTool: null,
+          projectCenter: null,
+          projectBottomTab: null,
+          archaeology: null,
+          remotesOpen: true,
+          remoteSelectedHostId,
+          remoteSubview: 'overview',
+          ...crossRailPatch('sessions'),
+        }),
+      );
     },
 
     closeTaskRoom() {
@@ -1016,7 +1284,7 @@ export const useAppStore = create<AppStore>((set, get) => {
 
     toggleSidebar() {
       if (!get().taskRoomTaskId) {
-        set({ projectTool: get().projectTool === 'editor' ? null : 'editor' });
+        get().setProjectTool(get().projectTool === 'editor' ? null : 'editor');
       }
     },
     toggleAgentPanel() {
@@ -1040,11 +1308,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     showSideBarView(view) {
       if (!get().taskRoomTaskId) {
         if (view === 'search' || view === 'scm') {
-          set({
-            surface: 'workspace',
-            projectTool: view === 'search' ? 'search' : 'changes',
-            ...crossRailPatch('files'),
-          });
+          get().setProjectTool(view === 'search' ? 'search' : 'changes');
         } else {
           // ADR-0029: the one project tree lives in the rail's Files pane.
           get().setRailView(view === 'tasks' ? 'sessions' : 'files');
@@ -1060,11 +1324,8 @@ export const useAppStore = create<AppStore>((set, get) => {
     showBottomTab(tab) {
       if (!get().taskRoomTaskId) {
         if (tab !== 'terminal') {
-          set({
-            surface: 'workspace',
-            projectTool: get().projectTool ?? 'editor',
-            projectBottomTab: tab,
-          });
+          get().setProjectTool(get().projectTool ?? 'editor');
+          set({ projectBottomTab: tab });
         }
         return;
       }

@@ -1,132 +1,161 @@
 import React, { useState } from 'react';
-import type { MissionSnapshotDto } from '@pi-ide/ipc-contracts';
+import type { ActionRequestDto, MissionSnapshotDto } from '@pi-ide/ipc-contracts';
 import { Ic } from '../home-icons.js';
-import {
-  formatMissionTime,
-  principalName,
-  unresolvedDecisionMessages,
-} from './mission-view-model.js';
+import { formatMissionTime, principalName, userActionRequests } from './mission-view-model.js';
+
+const KIND_LABEL: Record<ActionRequestDto['kind'], string> = {
+  information: 'Input',
+  review: 'Review',
+  approval: 'Approval',
+  choice: 'Decision',
+  input: 'Input',
+  recovery: 'Recovery',
+  escalation: 'Escalation',
+};
+
+function optionsFor(request: ActionRequestDto): ActionRequestDto['options'] {
+  if (request.options.length > 0) return request.options;
+  if (request.responseType === 'approval') {
+    return [
+      { id: 'approved', label: 'Approve' },
+      { id: 'rejected', label: 'Reject' },
+    ];
+  }
+  if (request.responseType === 'review') {
+    return [
+      { id: 'approved', label: 'Accept review' },
+      { id: 'changes_requested', label: 'Request changes' },
+    ];
+  }
+  if (request.responseType === 'recovery') {
+    return [
+      { id: 'retry', label: 'Retry' },
+      { id: 'cancel', label: 'Cancel work' },
+    ];
+  }
+  return [];
+}
 
 export function MissionDecisionPanel({
   snapshot,
-  onReply,
+  onResolve,
   onSelectAssignment,
 }: {
   snapshot: MissionSnapshotDto;
-  onReply: (messageId: string, body: string) => void;
+  onResolve: (requestId: string, outcome: string, body?: string, rationale?: string) => void;
   onSelectAssignment: (assignmentId: string) => void;
 }): React.JSX.Element | null {
-  const decisions = unresolvedDecisionMessages(snapshot);
-  const failed = snapshot.assignments.filter((assignment) =>
-    ['FAILED', 'ORPHANED'].includes(assignment.state),
-  );
-  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const actions = userActionRequests(snapshot);
+  const [respondingTo, setRespondingTo] = useState<string | null>(null);
   const [reply, setReply] = useState('');
 
-  if (decisions.length === 0 && failed.length === 0 && snapshot.mission.state !== 'BLOCKED') {
-    return null;
-  }
+  if (actions.length === 0) return null;
 
   return (
-    <section className="mission-decisions" data-testid="mission-decisions">
+    <section className="mission-decisions mission-user-actions" data-testid="mission-user-actions">
       <header>
         <span className="mission-decisions-icon">
           <Ic name="inbox" size={14} />
         </span>
         <span>
-          <strong>Needs you</strong>
-          <small>Only decisions and recovery actions that can move the Mission forward.</small>
+          <strong>Your actions</strong>
+          <small>Only explicit decisions assigned to you appear here.</small>
         </span>
-        <b>{decisions.length + failed.length || 1}</b>
+        <b>{actions.length}</b>
       </header>
       <div className="mission-decision-list">
-        {decisions.map((message) => (
-          <article key={message.id} className={`mission-decision priority-${message.priority}`}>
-            <span className="mission-decision-kind">
-              {message.type === 'question' ? 'Decision' : 'Escalation'}
-            </span>
-            <div className="mission-decision-copy">
-              <h3>{message.subject}</h3>
-              {message.body ? <p>{message.body}</p> : null}
-              <small>
-                From {principalName(snapshot, message.fromAssignmentId)} ·{' '}
-                {formatMissionTime(message.createdAt)}
-              </small>
-            </div>
-            {replyingTo === message.id ? (
-              <form
-                className="mission-decision-reply"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const body = reply.trim();
-                  if (!body) return;
-                  onReply(message.id, body);
-                  setReply('');
-                  setReplyingTo(null);
-                }}
-              >
-                <textarea
-                  autoFocus
-                  value={reply}
-                  placeholder="Give the team a clear decision…"
-                  onChange={(event) => setReply(event.currentTarget.value)}
-                />
-                <span>
-                  <button type="button" onClick={() => setReplyingTo(null)}>
-                    Cancel
-                  </button>
-                  <button className="mission-primary" type="submit" disabled={!reply.trim()}>
-                    Send decision
-                  </button>
-                </span>
-              </form>
-            ) : (
-              <button
-                type="button"
-                className="mission-decision-action"
-                onClick={() => {
-                  setReply('');
-                  setReplyingTo(message.id);
-                }}
-              >
-                Respond <Ic name="arrowRight" size={12} />
-              </button>
-            )}
-          </article>
-        ))}
-        {failed.map((assignment) => {
-          const task = snapshot.tasks.find((item) => item.id === assignment.taskId);
+        {actions.map((request) => {
+          const options = optionsFor(request);
           return (
-            <article key={assignment.id} className="mission-decision failed-work">
-              <span className="mission-decision-kind">Recovery</span>
+            <article
+              key={request.id}
+              className={`mission-decision priority-${request.priority}`}
+              data-testid={`mission-user-action-${request.id}`}
+            >
+              <span className="mission-decision-kind">{KIND_LABEL[request.kind]}</span>
               <div className="mission-decision-copy">
-                <h3>{task?.title ?? 'A work item'} needs recovery</h3>
-                <p>
-                  {assignment.state === 'ORPHANED'
-                    ? 'Its working session was lost. Reconnect it, retry it, or choose a new owner.'
-                    : 'The latest attempt failed. Review the details before retrying.'}
-                </p>
-                <small>{principalName(snapshot, assignment.id)}</small>
+                <h3>{request.title}</h3>
+                {request.context ? <p>{request.context}</p> : null}
+                {request.impact ? (
+                  <p className="mission-action-impact">
+                    <b>Why it matters</b> {request.impact}
+                  </p>
+                ) : null}
+                {request.recommendation ? (
+                  <p className="mission-action-recommendation">
+                    <b>Team recommendation</b> {request.recommendation}
+                  </p>
+                ) : null}
+                <small>
+                  From {principalName(snapshot, request.createdByAssignmentId)} ·{' '}
+                  {formatMissionTime(request.createdAt)}
+                </small>
+                {request.createdByAssignmentId ? (
+                  <button
+                    type="button"
+                    className="mission-action-view-work"
+                    onClick={() => onSelectAssignment(request.createdByAssignmentId!)}
+                  >
+                    View related work
+                  </button>
+                ) : null}
               </div>
-              <button
-                type="button"
-                className="mission-decision-action"
-                onClick={() => onSelectAssignment(assignment.id)}
-              >
-                Review <Ic name="arrowRight" size={12} />
-              </button>
+              {options.length > 0 ? (
+                <div className="mission-action-options" aria-label={`Resolve ${request.title}`}>
+                  {options.map((option, index) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={index === 0 ? 'mission-primary' : ''}
+                      title={option.description}
+                      onClick={() => onResolve(request.id, option.id, option.label)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : respondingTo === request.id ? (
+                <form
+                  className="mission-decision-reply"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const body = reply.trim();
+                    if (!body) return;
+                    onResolve(request.id, 'answered', body);
+                    setReply('');
+                    setRespondingTo(null);
+                  }}
+                >
+                  <textarea
+                    autoFocus
+                    value={reply}
+                    placeholder="Give the team a clear answer…"
+                    onChange={(event) => setReply(event.currentTarget.value)}
+                  />
+                  <span>
+                    <button type="button" onClick={() => setRespondingTo(null)}>
+                      Cancel
+                    </button>
+                    <button className="mission-primary" type="submit" disabled={!reply.trim()}>
+                      Send answer
+                    </button>
+                  </span>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  className="mission-decision-action"
+                  onClick={() => {
+                    setReply('');
+                    setRespondingTo(request.id);
+                  }}
+                >
+                  Respond <Ic name="arrowRight" size={12} />
+                </button>
+              )}
             </article>
           );
         })}
-        {decisions.length === 0 && failed.length === 0 ? (
-          <article className="mission-decision mission-blocked-generic">
-            <span className="mission-decision-kind">Blocked</span>
-            <div className="mission-decision-copy">
-              <h3>The Mission cannot continue</h3>
-              <p>Open the current work and guide the Lead, or recover an unavailable runtime.</p>
-            </div>
-          </article>
-        ) : null}
       </div>
     </section>
   );

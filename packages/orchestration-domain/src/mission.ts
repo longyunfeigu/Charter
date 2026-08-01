@@ -24,11 +24,13 @@ export interface Mission {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  /** Soft-deleted Missions remain recoverable for the local retention window. */
+  deletedAt?: string | null;
 }
 
 export interface MissionExecutionPolicy {
   inheritHostPermissions: true;
-  controlScope: 'mission-wide';
+  controlScope: 'mission-wide' | 'hierarchical';
   workspaceRoot: string;
   toolPolicy: 'inherit';
   runtimeDefaults: {
@@ -47,7 +49,7 @@ export type RuntimeKind = 'managed' | 'claude' | 'codex' | 'shell';
 export function defaultMissionExecutionPolicy(workspaceRoot: string): MissionExecutionPolicy {
   return {
     inheritHostPermissions: true,
-    controlScope: 'mission-wide',
+    controlScope: 'hierarchical',
     workspaceRoot,
     toolPolicy: 'inherit',
     runtimeDefaults: { environment: {} },

@@ -56,6 +56,23 @@ export function registerMissionHandlers(
           // bounded snapshot size.
           .map((mission) => missions.repository.snapshot(mission.id, 50, 10)),
       }),
+      'mission.listDeleted': async ({ limit }) => ({
+        missions: missions.repository
+          .listDeletedMissions(limit)
+          .map((mission) => missions.repository.snapshot(mission.id, 50, 10)),
+      }),
+      'mission.trash': async ({ missionId }) => {
+        missions.repository.trashMission(missionId);
+        return missions.repository.snapshot(missionId, 50, 10);
+      },
+      'mission.restore': async ({ missionId }) => {
+        missions.repository.restoreMission(missionId);
+        return missions.repository.snapshot(missionId, 50, 10);
+      },
+      'mission.deletePermanently': async ({ missionId }) => {
+        missions.repository.deleteMissionPermanently(missionId);
+        return { deleted: true as const };
+      },
       'mission.pauseAssignment': async ({ missionId, assignmentId, paused }) => {
         missions.pause(userCaller(missionId), assignmentId, paused);
         return missions.repository.snapshot(missionId);
@@ -66,6 +83,25 @@ export function registerMissionHandlers(
       },
       'mission.replyMessage': async ({ missionId, messageId, body }) => {
         missions.reply(userCaller(missionId), { messageId, body });
+        return missions.repository.snapshot(missionId);
+      },
+      'mission.resolveActionRequest': async ({
+        missionId,
+        requestId,
+        outcome,
+        body,
+        payload,
+        rationale,
+        idempotencyKey,
+      }) => {
+        missions.resolveRequest(userCaller(missionId), {
+          requestId,
+          outcome,
+          ...(body !== undefined ? { body } : {}),
+          ...(payload !== undefined ? { payload } : {}),
+          ...(rationale !== undefined ? { rationale } : {}),
+          idempotencyKey,
+        });
         return missions.repository.snapshot(missionId);
       },
       'mission.closeRuntime': async ({ missionId, assignmentId, reason }) => {

@@ -38,7 +38,7 @@ export function ImageView(props: { path: string }): React.JSX.Element {
     pushToast('success', `Saved ${res.data.path}`);
     if (attach) {
       useAppStore.getState().addPendingRefs([res.data.path]);
-      useAppStore.getState().setSurface('home');
+      useAppStore.getState().openSessionHome();
     }
     return true;
   };

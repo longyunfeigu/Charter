@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { TaskDto } from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
-import { useAppStore } from '../store/appStore.js';
+import { navigationSnapshotLabel, useAppStore } from '../store/appStore.js';
 import {
   type ArchaeologyFilter,
   unknownDirectories,
@@ -246,6 +246,12 @@ export function ArchaeologyView(): React.JSX.Element {
   const scope = archaeology?.scope ?? null;
   const closeArchaeology = useAppStore((state) => state.closeArchaeology);
   const openArchaeology = useAppStore((state) => state.openArchaeology);
+  const backTarget = useAppStore((state) => state.navigationBack.at(-1) ?? null);
+  const backLabel = backTarget
+    ? navigationSnapshotLabel(backTarget)
+    : scope
+      ? 'Session Archive'
+      : 'Sessions';
   const store = useArchaeologyStore();
   const liveTasks = useTaskStore((state) => state.tasks);
   const [catalogTasks, setCatalogTasks] = useState<TaskDto[]>([]);
@@ -309,9 +315,17 @@ export function ArchaeologyView(): React.JSX.Element {
         <button
           className="arch-back"
           data-testid="arch-back"
-          onClick={() => (scope ? openArchaeology(null) : closeArchaeology())}
+          aria-label={`Back to ${backLabel}`}
+          title={`Back to ${backLabel}`}
+          onClick={() =>
+            backTarget
+              ? useAppStore.getState().navigateBack()
+              : scope
+                ? openArchaeology(null)
+                : closeArchaeology()
+          }
         >
-          <Ic name="chevron" size={12} /> {scope ? 'Session Archive' : 'Sessions'}
+          <Ic name="chevron" size={12} /> {backLabel}
         </button>
         <div className="arch-heading">
           <strong>{scope ? pathTail(scope) : 'Session Archive'}</strong>

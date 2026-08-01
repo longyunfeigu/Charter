@@ -656,4 +656,185 @@ CREATE INDEX idx_orchestration_resume_intents_pending
   ON orchestration_resume_intents(state, available_at, created_at);
 `,
   },
+  {
+    version: 12,
+    name: 'deleted-external-sessions',
+    // Deleting a tracked external Session removes Charter's complete task
+    // ledger, but must not make the same read-only Claude/Codex transcript
+    // reappear as an untracked archaeology result on the next scan.
+    up: `
+CREATE TABLE deleted_external_sessions (
+  cli TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  deleted_at TEXT NOT NULL,
+  PRIMARY KEY (cli, session_id)
+);
+`,
+  },
+  {
+    version: 13,
+    name: 'mission-conversations-actions-and-incidents',
+    up: `
+INSERT OR IGNORE INTO orchestration_principals
+  (id, kind, display_name, state, created_at, last_seen_at)
+VALUES ('user', 'user', 'You', 'active', datetime('now'), datetime('now'));
+
+CREATE TABLE orchestration_conversations (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  topic TEXT NOT NULL,
+  created_by_principal_id TEXT REFERENCES orchestration_principals(id) ON DELETE SET NULL,
+  state TEXT NOT NULL DEFAULT 'OPEN',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_orchestration_conversations_mission
+  ON orchestration_conversations(mission_id, updated_at);
+
+CREATE TABLE orchestration_conversation_participants (
+  conversation_id TEXT NOT NULL REFERENCES orchestration_conversations(id) ON DELETE CASCADE,
+  principal_id TEXT NOT NULL REFERENCES orchestration_principals(id) ON DELETE CASCADE,
+  assignment_id TEXT REFERENCES assignments(id) ON DELETE SET NULL,
+  joined_at TEXT NOT NULL,
+  PRIMARY KEY (conversation_id, principal_id)
+);
+
+ALTER TABLE orchestration_messages ADD COLUMN conversation_id TEXT;
+ALTER TABLE orchestration_messages ADD COLUMN action_request_id TEXT;
+
+INSERT OR IGNORE INTO orchestration_conversations
+  (id, mission_id, topic, created_by_principal_id, state, created_at, updated_at)
+SELECT
+  'conversation:' || m.mission_id || ':' || COALESCE(m.thread_id, m.id),
+  m.mission_id,
+  MIN(m.subject),
+  MIN(a.assignee_principal_id),
+  'OPEN',
+  MIN(m.created_at),
+  MAX(m.created_at)
+FROM orchestration_messages m
+LEFT JOIN assignments a ON a.id = m.from_assignment_id
+GROUP BY m.mission_id, COALESCE(m.thread_id, m.id);
+
+UPDATE orchestration_messages
+SET conversation_id =
+  'conversation:' || mission_id || ':' || COALESCE(thread_id, id)
+WHERE conversation_id IS NULL;
+
+INSERT OR IGNORE INTO orchestration_conversation_participants
+  (conversation_id, principal_id, assignment_id, joined_at)
+SELECT m.conversation_id, a.assignee_principal_id, a.id, MIN(m.created_at)
+FROM orchestration_messages m
+JOIN assignments a ON a.id = m.from_assignment_id
+WHERE m.conversation_id IS NOT NULL
+GROUP BY m.conversation_id, a.assignee_principal_id;
+
+INSERT OR IGNORE INTO orchestration_conversation_participants
+  (conversation_id, principal_id, assignment_id, joined_at)
+SELECT m.conversation_id, a.assignee_principal_id, a.id, MIN(m.created_at)
+FROM orchestration_messages m
+JOIN assignments a ON a.id = m.to_assignment_id
+WHERE m.conversation_id IS NOT NULL
+GROUP BY m.conversation_id, a.assignee_principal_id;
+
+CREATE INDEX idx_orchestration_messages_conversation
+  ON orchestration_messages(conversation_id, sequence);
+CREATE INDEX idx_orchestration_messages_action_request
+  ON orchestration_messages(action_request_id, sequence);
+
+CREATE TABLE orchestration_action_requests (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  conversation_id TEXT NOT NULL REFERENCES orchestration_conversations(id) ON DELETE CASCADE,
+  related_task_id TEXT REFERENCES mission_tasks(id) ON DELETE SET NULL,
+  created_by_principal_id TEXT NOT NULL REFERENCES orchestration_principals(id),
+  created_by_assignment_id TEXT REFERENCES assignments(id) ON DELETE SET NULL,
+  assigned_to_principal_id TEXT NOT NULL REFERENCES orchestration_principals(id),
+  assigned_to_assignment_id TEXT REFERENCES assignments(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  context TEXT NOT NULL DEFAULT '',
+  response_type TEXT NOT NULL,
+  options_json TEXT NOT NULL DEFAULT '[]',
+  recommendation TEXT,
+  impact TEXT,
+  priority TEXT NOT NULL DEFAULT 'normal',
+  blocking_scope TEXT NOT NULL DEFAULT 'none',
+  status TEXT NOT NULL DEFAULT 'OPEN',
+  opening_message_id TEXT,
+  idempotency_key TEXT NOT NULL,
+  due_at TEXT,
+  resolved_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (mission_id, created_by_principal_id, idempotency_key)
+);
+CREATE INDEX idx_orchestration_action_requests_assignee
+  ON orchestration_action_requests(mission_id, assigned_to_principal_id, status, created_at);
+CREATE INDEX idx_orchestration_action_requests_assignment
+  ON orchestration_action_requests(assigned_to_assignment_id, status, created_at);
+
+CREATE TABLE orchestration_action_resolutions (
+  id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL UNIQUE REFERENCES orchestration_action_requests(id) ON DELETE CASCADE,
+  resolved_by_principal_id TEXT NOT NULL REFERENCES orchestration_principals(id),
+  resolved_by_assignment_id TEXT REFERENCES assignments(id) ON DELETE SET NULL,
+  outcome TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  payload_json TEXT,
+  rationale TEXT,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE orchestration_incidents (
+  id TEXT PRIMARY KEY,
+  mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  assignment_id TEXT REFERENCES assignments(id) ON DELETE SET NULL,
+  attempt_id TEXT REFERENCES execution_attempts(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'OPEN',
+  summary TEXT NOT NULL,
+  detail_json TEXT,
+  automatic_attempts INTEGER NOT NULL DEFAULT 0,
+  action_request_id TEXT REFERENCES orchestration_action_requests(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  resolved_at TEXT,
+  UNIQUE (assignment_id, attempt_id, kind)
+);
+CREATE INDEX idx_orchestration_incidents_mission
+  ON orchestration_incidents(mission_id, state, updated_at);
+
+INSERT OR IGNORE INTO orchestration_incidents
+  (id, mission_id, assignment_id, attempt_id, kind, severity, state, summary,
+   automatic_attempts, created_at, updated_at)
+SELECT
+  'incident:' || a.id || ':' || COALESCE(a.active_attempt_id, 'none') || ':legacy-state',
+  a.mission_id,
+  a.id,
+  a.active_attempt_id,
+  'legacy-state',
+  'error',
+  'OPEN',
+  CASE WHEN a.state = 'ORPHANED' THEN 'Agent runtime disconnected' ELSE 'Assignment failed' END,
+  0,
+  a.updated_at,
+  a.updated_at
+FROM assignments a
+WHERE a.state IN ('FAILED', 'ORPHANED');
+`,
+  },
+  {
+    version: 14,
+    name: 'mission-retention-lifecycle',
+    // Mission history is user-managed data. Deletion first moves the complete
+    // aggregate to a recoverable local trash; the repository permanently
+    // purges expired rows and SQLite cascades every Mission-owned record.
+    up: `
+ALTER TABLE missions ADD COLUMN deleted_at TEXT;
+CREATE INDEX idx_missions_deleted_updated ON missions(deleted_at, updated_at);
+`,
+  },
 ];

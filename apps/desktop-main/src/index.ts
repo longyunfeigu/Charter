@@ -517,10 +517,15 @@ function registerCoreHandlers(bootstrap: Bootstrap): void {
           return { saved: true };
         },
         'workspace.recent': async () => ({
-          items: state.recentWorkspaces().map((item) => ({
-            ...item,
-            kind: item.exists ? detectProjectKind(item.path) : null,
-          })),
+          // Deleted folders disappear from every project picker automatically.
+          // Keep their database rows so Session Archive history is not erased.
+          items: state
+            .recentWorkspaces()
+            .filter((item) => item.exists)
+            .map((item) => ({
+              ...item,
+              kind: detectProjectKind(item.path),
+            })),
         }),
       },
       logger,
@@ -1215,6 +1220,7 @@ if (!gotLock) {
         ...(archaeologyHome ? { homeDir: archaeologyHome } : {}),
         enabled: !process.env.PI_IDE_E2E || Boolean(archaeologyHome),
         knownSessions: () => taskServiceRef?.externalSessionIndex() ?? new Map(),
+        ignoredSessions: () => taskServiceRef?.deletedExternalSessionKeys() ?? new Set(),
         projects: () =>
           state
             .recentWorkspaces()

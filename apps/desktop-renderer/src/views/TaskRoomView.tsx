@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { rpcResult } from '../bridge.js';
 import { useTaskStore, RUNNING_TASK_STATES, titleFromIntent } from '../store/taskStore.js';
 import { useActivityStore, currentActionLine } from '../store/activityStore.js';
-import { useAppStore } from '../store/appStore.js';
+import { navigationSnapshotLabel, useAppStore } from '../store/appStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useEditorStore } from '../store/editorStore.js';
 import { PermissionCard, StateBadge } from './AgentPanel.js';
@@ -106,6 +106,9 @@ export function TaskRoomView(): React.JSX.Element {
   const canvasBodyRef = useRef<HTMLDivElement>(null);
   // ADR-0024: the whole Session room is one drop target for context feeding.
   const [roomDrop, setRoomDrop] = useState(false);
+  const backTarget = app.navigationBack.at(-1) ?? null;
+  const backLabel = backTarget ? navigationSnapshotLabel(backTarget) : 'Sessions';
+  const goBack = (): void => (backTarget ? app.navigateBack() : app.closeTaskRoom());
 
   // Hydrate this Session's remembered split before first paint.
   React.useLayoutEffect(() => {
@@ -167,13 +170,14 @@ export function TaskRoomView(): React.JSX.Element {
       <div className="tr-root" data-testid="task-room">
         <div className="tr-head">
           <button
-            className="tr-back"
+            className="tr-back contextual"
             data-testid="task-room-back"
-            aria-label="Back to Sessions"
-            title="Back to Sessions"
-            onClick={app.closeTaskRoom}
+            aria-label={`Back to ${backLabel}`}
+            title={`Back to ${backLabel}`}
+            onClick={goBack}
           >
             <Ic name="chevron" size={13} className="tr-back-ic" />
+            <span>{backLabel}</span>
           </button>
         </div>
         <div className="empty-state">
@@ -274,13 +278,14 @@ export function TaskRoomView(): React.JSX.Element {
       <div className="tr-head session-identity-head">
         <div className="tr-head-drag" />
         <button
-          className="tr-back"
+          className="tr-back contextual"
           data-testid="task-room-back"
-          aria-label="Back to Sessions"
-          title="Back to Sessions"
-          onClick={app.closeTaskRoom}
+          aria-label={`Back to ${backLabel}`}
+          title={`Back to ${backLabel}`}
+          onClick={goBack}
         >
           <Ic name="chevron" size={13} className="tr-back-ic" />
+          <span>{backLabel}</span>
         </button>
         <div className="session-identity">
           <div className="session-identity-title">
