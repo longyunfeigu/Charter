@@ -23,6 +23,8 @@ import { useTerminalStore } from './TerminalPanel.js';
 import { MissionDeleteDialog } from './mission/MissionDeleteDialog.js';
 
 function initialSection(snapshot: MissionSnapshotDto): MissionSection {
+  const summary = missionSummary(snapshot);
+  if (summary.attention > 0 || summary.issues > 0) return 'work';
   return ['VERIFYING', 'COMPLETED'].includes(snapshot.mission.state) ? 'results' : 'work';
 }
 
@@ -45,11 +47,11 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
   const [section, setSection] = useState<MissionSection>(() => initialSection(snapshot));
   const [workView, setWorkView] = useState<'graph' | 'outline'>(() => {
     try {
-      return window.localStorage.getItem('charter.mission.workView') === 'outline'
-        ? 'outline'
-        : 'graph';
+      return window.localStorage.getItem('charter.mission.workView') === 'graph'
+        ? 'graph'
+        : 'outline';
     } catch {
-      return 'graph';
+      return 'outline';
     }
   });
   const [graphSelection, setGraphSelection] = useState<MissionGraphSelection>(
@@ -86,16 +88,13 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
   }, [requestedAssignment?.id, requestedAssignment?.taskId, requestedDestination?.inspectorTab]);
 
   useEffect(() => {
-    if (snapshot.mission.state === 'VERIFYING' && !requestedAssignment) setSection('results');
-  }, [requestedAssignment, snapshot.mission.state]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('charter.mission.workView', workView);
-    } catch {
-      // The view still works when persistent browser storage is unavailable.
+    if (requestedAssignment) return;
+    if (summary.attention > 0 || summary.issues > 0) {
+      setSection('work');
+      return;
     }
-  }, [workView]);
+    if (snapshot.mission.state === 'VERIFYING') setSection('results');
+  }, [requestedAssignment, snapshot.mission.state, summary.attention, summary.issues]);
 
   useEffect(() => {
     if (workView !== 'graph' || !graphSelection) return;
@@ -113,6 +112,15 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
     setGraphSelection({ kind: 'task', taskId });
     const assignment = assignmentForTask(snapshot, taskId);
     if (assignment) useAppStore.getState().setMissionDestination(assignment.id, 'details');
+  };
+
+  const selectWorkView = (view: 'graph' | 'outline'): void => {
+    setWorkView(view);
+    try {
+      window.localStorage.setItem('charter.mission.workView', view);
+    } catch {
+      // The view still works when persistent browser storage is unavailable.
+    }
   };
 
   const openConversation = (): void => {
@@ -253,6 +261,10 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
             <b>{summary.attention}</b>
             <small>for you</small>
           </span>
+          <span className={summary.issues > 0 ? 'issues' : ''}>
+            <b>{summary.issues}</b>
+            <small>issues</small>
+          </span>
         </div>
       </header>
       {deleteOpen ? (
@@ -293,6 +305,7 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
           onClick={() => setSection('activity')}
         >
           <Ic name="clock" size={13} /> Team activity
+          {summary.agentActions > 0 ? <span>{summary.agentActions} open</span> : null}
         </button>
         <button
           className={section === 'results' ? 'active' : ''}
@@ -334,18 +347,18 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
                   </span>
                   <nav className="mission-work-view-switch" aria-label="Work presentation">
                     <button
-                      className={workView === 'graph' ? 'active' : ''}
-                      data-testid="mission-view-graph"
-                      onClick={() => setWorkView('graph')}
-                    >
-                      <Ic name="branch" size={11} /> Graph
-                    </button>
-                    <button
                       className={workView === 'outline' ? 'active' : ''}
                       data-testid="mission-view-outline"
-                      onClick={() => setWorkView('outline')}
+                      onClick={() => selectWorkView('outline')}
                     >
                       <Ic name="layout" size={11} /> Outline
+                    </button>
+                    <button
+                      className={workView === 'graph' ? 'active' : ''}
+                      data-testid="mission-view-graph"
+                      onClick={() => selectWorkView('graph')}
+                    >
+                      <Ic name="branch" size={11} /> Graph
                     </button>
                   </nav>
                   <p>

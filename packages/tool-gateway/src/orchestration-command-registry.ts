@@ -123,6 +123,8 @@ const OrchestrationActionOptionsSchema = z
         id: z.string().min(1).max(100),
         label: z.string().min(1).max(300),
         description: z.string().min(1).max(2_000).optional(),
+        recommended: z.boolean().optional(),
+        danger: z.boolean().optional(),
       })
       .strict(),
   )

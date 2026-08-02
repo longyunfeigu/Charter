@@ -53,6 +53,7 @@ export function MissionWorkMap({
       (item) => item.id === assignment?.assigneePrincipalId,
     );
     const state = taskStateCopy(task.state, assignment?.state);
+    const selected = selectedTaskId === task.id;
     const latest = assignment ? latestProgressForAssignment(snapshot, assignment.id) : null;
     const continuation = assignment
       ? (snapshot.continuations
@@ -81,8 +82,9 @@ export function MissionWorkMap({
       >
         <button
           type="button"
-          className={`mission-work-card ${selectedTaskId === task.id ? 'selected' : ''} tone-${state.tone}`}
+          className={`mission-work-card ${selected ? 'selected' : ''} tone-${state.tone}`}
           data-testid={`mission-work-item-${task.id}`}
+          aria-current={selected ? 'true' : undefined}
           onClick={() => onSelect(task.id)}
         >
           <span className={`mission-work-state tone-${state.tone}`}>
@@ -106,7 +108,7 @@ export function MissionWorkMap({
                 </span>
               ) : null}
             </span>
-            <span className="mission-work-goal">{task.goal}</span>
+            {selected ? <span className="mission-work-goal">{task.goal}</span> : null}
             {continuation ? (
               <span className="mission-work-latest" data-testid={`mission-wait-${assignment?.id}`}>
                 <Ic name="clock" size={11} />
@@ -123,7 +125,7 @@ export function MissionWorkMap({
                 {latest.body || latest.subject}
               </span>
             ) : null}
-            {taskDependencies.length > 0 ? (
+            {selected && taskDependencies.length > 0 ? (
               <span className="mission-work-dependencies">
                 <Ic name="branch" size={11} />
                 After {taskDependencies.map((item) => item.title).join(', ')}

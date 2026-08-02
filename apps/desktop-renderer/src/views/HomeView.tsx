@@ -63,6 +63,10 @@ export function HomeView(): React.JSX.Element {
   const [recent, setRecent] = useState<RecentWorkspaceDto[]>([]);
   const [branch, setBranch] = useState<string | null>(null);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  // External Claude/Codex launches may use the current checkout or create a
+  // task-owned worktree. This is only a pending composer choice until submit.
+  const [externalWorktree, setExternalWorktree] = useState(false);
+  const [workingCopyMenuOpen, setWorkingCopyMenuOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [refs, setRefs] = useState<string[]>([]);
@@ -196,24 +200,33 @@ export function HomeView(): React.JSX.Element {
 
   // Dropdowns close on any outside interaction (they overlay the composer).
   useEffect(() => {
-    if (!projectMenuOpen && !pickerOpen && !agentMenuOpen) return;
+    if (!projectMenuOpen && !pickerOpen && !agentMenuOpen && !workingCopyMenuOpen) return;
     const onDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
       if (
         target &&
         !target.closest('.hm-menu') &&
         !target.closest('.hm-agent-picker-wrap') &&
+        !target.closest('.hm-run-picker-wrap') &&
         !target.closest('[data-testid="home-project"]') &&
         !target.closest('[data-testid="home-attach"]')
       ) {
         setProjectMenuOpen(false);
         setPickerOpen(false);
         setAgentMenuOpen(false);
+        setWorkingCopyMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
-  }, [projectMenuOpen, pickerOpen, agentMenuOpen]);
+  }, [projectMenuOpen, pickerOpen, agentMenuOpen, workingCopyMenuOpen]);
+
+  useEffect(() => {
+    if (!workspace?.isGitRepo) {
+      setExternalWorktree(false);
+      setWorkingCopyMenuOpen(false);
+    }
+  }, [workspace]);
 
   const addRefs = useCallback(
     (rels: string[]) => {
@@ -253,7 +266,15 @@ export function HomeView(): React.JSX.Element {
       // write from here raced the TUI startup and left the text unsent.
       const id = await useTerminalStore.getState().create({
         launch: agent,
-        context: { kind: 'focused' },
+        ...(externalWorktree && workspace.isGitRepo
+          ? {
+              worktree: {
+                projectPath: workspace.path,
+                title: titleFromIntent(intent),
+                ...(wtSetup.trim() ? { setupCommand: wtSetup.trim() } : {}),
+              },
+            }
+          : { context: { kind: 'focused' as const } }),
         title: titleFromIntent(intent),
         reveal: false,
         // External CLIs read images behind @refs themselves — all-textual.
@@ -436,10 +457,10 @@ export function HomeView(): React.JSX.Element {
       <div className="hm-main-top" />
 
       <div className="hm-hero">
-        <h1>What should we build?</h1>
-        <div className="hm-sub">
-          Describe the outcome — plans, diffs and verification all wait for your OK.
+        <div className="hm-eyebrow">
+          <span /> New session brief
         </div>
+        <h1>What should we build?</h1>
       </div>
 
       <div className="hm-composer">
@@ -456,11 +477,14 @@ export function HomeView(): React.JSX.Element {
             <button
               className="hm-chip"
               data-testid="home-project"
-              onClick={() => setProjectMenuOpen(!projectMenuOpen)}
+              onClick={() => {
+                setWorkingCopyMenuOpen(false);
+                setProjectMenuOpen(!projectMenuOpen);
+              }}
             >
               <Ic name="folder" size={14} />
               <span>{workspace ? workspace.displayName : 'Select a project'}</span>
-              {workspace && branch ? (
+              {workspace && branch && agent === 'pi' ? (
                 <>
                   <span className="hm-sep">·</span>
                   <Ic name="branch" size={13} />
@@ -469,6 +493,97 @@ export function HomeView(): React.JSX.Element {
               ) : null}
               <Ic name="chevron" size={13} />
             </button>
+            {agent !== 'pi' && workspace ? (
+              <div className="hm-run-picker-wrap">
+                <button
+                  type="button"
+                  className={`hm-chip hm-run-chip ${externalWorktree ? 'isolated' : ''}`}
+                  data-testid="home-working-copy"
+                  aria-haspopup="menu"
+                  aria-expanded={workingCopyMenuOpen}
+                  title="Choose where this Agent Session will run"
+                  onClick={() => {
+                    setProjectMenuOpen(false);
+                    setWorkingCopyMenuOpen(!workingCopyMenuOpen);
+                  }}
+                >
+                  <Ic name="branch" size={13} />
+                  <span>
+                    {externalWorktree
+                      ? `New worktree · ${branch ?? 'HEAD'}`
+                      : `Current checkout · ${branch ?? 'No branch'}`}
+                  </span>
+                  <Ic name="chevron" size={13} />
+                </button>
+                {workingCopyMenuOpen ? (
+                  <div
+                    className="hm-menu hm-run-menu"
+                    data-testid="home-working-copy-menu"
+                    role="menu"
+                  >
+                    <div className="hm-sec">RUN IN</div>
+                    <button
+                      type="button"
+                      className={`hm-row ${!externalWorktree ? 'active' : ''}`}
+                      data-testid="home-working-copy-current"
+                      role="menuitemradio"
+                      aria-checked={!externalWorktree}
+                      onClick={() => {
+                        setExternalWorktree(false);
+                        setWorkingCopyMenuOpen(false);
+                      }}
+                    >
+                      <Ic name="folder" size={14} />
+                      <span className="hm-tt">
+                        Current checkout
+                        <span className="hm-mono">
+                          Work directly in {branch ?? 'the selected project'}
+                        </span>
+                      </span>
+                      {!externalWorktree ? (
+                        <Ic name="check" size={13} className="hm-check" />
+                      ) : null}
+                    </button>
+                    <button
+                      type="button"
+                      className={`hm-row ${externalWorktree ? 'active' : ''}`}
+                      data-testid="home-working-copy-new"
+                      role="menuitemradio"
+                      aria-checked={externalWorktree}
+                      disabled={!workspace.isGitRepo}
+                      onClick={() => setExternalWorktree(true)}
+                    >
+                      <Ic name="branch" size={14} />
+                      <span className="hm-tt">
+                        New isolated worktree
+                        <span className="hm-mono">
+                          {workspace.isGitRepo
+                            ? `Created from ${branch ?? 'HEAD'} when the Session starts`
+                            : 'Requires a Git repository with at least one commit'}
+                        </span>
+                      </span>
+                      {externalWorktree ? <Ic name="check" size={13} className="hm-check" /> : null}
+                    </button>
+                    {externalWorktree && workspace.isGitRepo ? (
+                      <label className="hm-run-setup" htmlFor="home-external-wtsetup">
+                        <span>Setup command on first launch</span>
+                        <input
+                          id="home-external-wtsetup"
+                          data-testid="home-external-wtsetup"
+                          className="mono"
+                          placeholder="Optional, e.g. npm install"
+                          value={wtSetup}
+                          onChange={(e) => {
+                            setWtSetup(e.target.value);
+                            setWtSetupTouched(true);
+                          }}
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {refs.map((r) => (
               <span key={r} className="hm-refchip" data-testid={`home-ref-${r}`}>
                 <Ic name={r.endsWith('/') ? 'folder' : 'file'} size={11} />
@@ -869,6 +984,7 @@ export function HomeView(): React.JSX.Element {
                       onClick={() => {
                         setAgent(id);
                         setAgentMenuOpen(false);
+                        if (id === 'pi') setWorkingCopyMenuOpen(false);
                       }}
                     >
                       <ProviderMark provider={id} size={18} />
@@ -965,8 +1081,10 @@ export function HomeView(): React.JSX.Element {
             </>
           ) : (
             <>
-              <b>{agent === 'claude' ? 'Claude Code' : 'Codex'}</b> — opens a preserved native
-              session in this project.
+              <b>{agent === 'claude' ? 'Claude Code' : 'Codex'}</b> —{' '}
+              {externalWorktree
+                ? 'creates an isolated worktree when you start, then opens the native session there.'
+                : 'opens a preserved native session in the current checkout.'}
             </>
           )}{' '}
           ⏎ to start · ⇧⏎ new line.

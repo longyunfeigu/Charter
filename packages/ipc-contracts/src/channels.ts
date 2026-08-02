@@ -715,6 +715,17 @@ export const CHANNELS = {
          * ignored for plain shell launches.
          */
         initialPrompt: z.string().min(1).max(20000).optional(),
+        /** Create a task-owned worktree immediately before launching a visible
+         * Claude/Codex session. Selecting this option in the renderer alone
+         * has no side effect; terminal.create is the creation boundary. */
+        worktree: z
+          .object({
+            projectPath: z.string().min(1).max(2000),
+            title: z.string().min(1).max(300),
+            setupCommand: z.string().max(1000).optional(),
+          })
+          .strict()
+          .optional(),
         /** ADR-0047: run this session on a saved SSH host instead of a local
          * PTY. Orthogonal to launch — claude/codex start on the remote. */
         target: z

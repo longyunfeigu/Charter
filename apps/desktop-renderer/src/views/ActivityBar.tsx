@@ -40,9 +40,6 @@ export function ActivityBar({
 
   return (
     <nav className="sr-activity" aria-label="Application">
-      <div className="sr-activity-brand" aria-label="Charter">
-        <Ic name="flag" size={15} />
-      </div>
       <button
         className={`sr-activity-item ${sessionsActive ? 'active' : ''}`}
         data-testid="rail-view-sessions"
@@ -51,6 +48,7 @@ export function ActivityBar({
         onClick={() => onSelect('sessions')}
       >
         <Ic name="sessions" size={17} />
+        <span className="sr-activity-label">Sessions</span>
       </button>
       <button
         className={`sr-activity-item ${active === 'missions' ? 'active' : ''}`}
@@ -60,6 +58,7 @@ export function ActivityBar({
         onClick={() => onSelect('missions')}
       >
         <Ic name="compass" size={17} />
+        <span className="sr-activity-label">Missions</span>
         {activeMissionCount > 0 ? (
           <span className="sr-mini-badge mission-count">{activeMissionCount}</span>
         ) : null}
@@ -72,6 +71,7 @@ export function ActivityBar({
         onClick={() => onSelect('inbox')}
       >
         <Ic name="inbox" size={16} />
+        <span className="sr-activity-label">For you</span>
         {inboxCount > 0 ? <span className="sr-mini-badge">{inboxCount}</span> : null}
       </button>
       <button
@@ -83,6 +83,7 @@ export function ActivityBar({
         onClick={onProjects}
       >
         <Ic name="folder" size={16} />
+        <span className="sr-activity-label">Projects</span>
       </button>
       <button
         className={`sr-activity-item ${active === 'remotes' ? 'active' : ''}`}
@@ -92,15 +93,17 @@ export function ActivityBar({
         onClick={onRemotes}
       >
         <Ic name="remote-terminal" size={17} />
+        <span className="sr-activity-label">Remotes</span>
       </button>
       <button
-        className={`sr-activity-item ${app.overlay === 'memory' ? 'active' : ''}`}
+        className={`sr-activity-item ${active === 'memory' ? 'active' : ''}`}
         data-testid="rail-view-memory"
         aria-label="Memory"
         title="Memory — project rules & agent memories"
-        onClick={() => app.setOverlay('memory')}
+        onClick={() => onSelect('memory')}
       >
         <Ic name="brain" size={16} />
+        <span className="sr-activity-label">Memory</span>
       </button>
       <button
         className={`sr-activity-item ${active === 'skills' ? 'active' : ''}`}
@@ -110,6 +113,7 @@ export function ActivityBar({
         onClick={() => onSelect('skills')}
       >
         <Ic name="puzzle" size={17} />
+        <span className="sr-activity-label">Skills</span>
       </button>
       <span className="sr-activity-spacer" />
       <button
@@ -120,6 +124,7 @@ export function ActivityBar({
         onClick={() => app.setSurface('workspace')}
       >
         <Ic name="layout" size={16} />
+        <span className="sr-activity-label">Editor</span>
       </button>
       <button
         className="sr-activity-item"
@@ -129,6 +134,7 @@ export function ActivityBar({
         onClick={() => app.openSettings()}
       >
         <Ic name="sliders" size={16} />
+        <span className="sr-activity-label">Settings</span>
       </button>
     </nav>
   );

@@ -127,7 +127,7 @@ test.describe('Session Archive', () => {
         .toBeGreaterThan(railBefore!.width + 90);
       const widened = (await rail.boundingBox())!.width;
       const storedWidth = await page.evaluate(() =>
-        Number(window.localStorage.getItem('charter.rail.width.v1')),
+        Number(window.localStorage.getItem('charter.rail.width.v3')),
       );
       expect(Math.abs(storedWidth - widened)).toBeLessThanOrEqual(1);
 

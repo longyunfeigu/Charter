@@ -116,7 +116,10 @@ test('Runtime Inspector buttons open, guide, pause, resume, and change a managed
       'aria-label',
       'Back to Mission',
     );
-    await expect(second.page.getByTestId('task-room-back')).toContainText('Mission');
+    await expect(second.page.getByTestId('task-room-back')).toHaveAttribute(
+      'aria-label',
+      'Back to Mission',
+    );
     await expect(second.page.getByTestId('session-agent-chip')).not.toBeAttached();
     await second.page.setViewportSize({ width: 1440, height: 900 });
     await second.page.screenshot({ path: '/tmp/charter-session-header-clean-wide.png' });

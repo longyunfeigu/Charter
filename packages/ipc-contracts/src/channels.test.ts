@@ -210,6 +210,30 @@ describe('IPC channel registry', () => {
     ).toBe(false);
   });
 
+  it('terminal.create accepts a host-managed external Agent worktree request', () => {
+    expect(
+      validateChannelRequest('terminal.create', {
+        launch: 'claude',
+        initialPrompt: 'fix the login timeout',
+        worktree: {
+          projectPath: '/repo',
+          title: 'fix the login timeout',
+          setupCommand: 'npm install',
+        },
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateChannelRequest('terminal.create', {
+        launch: 'codex',
+        worktree: {
+          projectPath: '/repo',
+          title: 'work in isolation',
+          path: '/tmp/renderer-chosen-worktree',
+        },
+      }).ok,
+    ).toBe(false);
+  });
+
   it('screenshot.saveToAssets takes exactly one watcher path or PNG bytes (ADR-0036)', () => {
     expect(
       validateChannelRequest('screenshot.saveToAssets', {

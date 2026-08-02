@@ -111,6 +111,14 @@ export interface TermInstance {
   outputColorizer: TerminalFileLinkColorizer;
   /** ANSI/VT state captured by main while this renderer was unavailable. */
   pendingReplay: string | null;
+  /** Restored screen bytes may contain terminal capability queries. Their
+   * xterm-generated replies belong to the historical program and must never
+   * be injected into the currently-live shell input line. */
+  protocolRepliesSuppressed: boolean;
+  /** Agent exit can overtake the renderer's terminal parser. Keep late TUI
+   * capability replies out of the shell until the queued output barrier has
+   * drained. */
+  protocolRepliesSuppressedUntil: number;
   /** Adopted TUIs need a real SIGWINCH repaint after replay. */
   restoreRepaintPending: boolean;
   /** This renderer reattached to a PTY that survived a previous app process. */
@@ -128,6 +136,13 @@ interface CreateTerminalRequest {
   launch?: TerminalLaunch;
   /** Composer first message — delivered by the host once the CLI TUI is ready. */
   initialPrompt?: string;
+  /** Optional task-owned worktree, created together with an external Agent
+   * launch. The renderer never chooses or sends its filesystem path. */
+  worktree?: {
+    projectPath: string;
+    title: string;
+    setupCommand?: string;
+  };
   /** ADR-0047: run the session on a saved SSH host instead of a local PTY. */
   target?: { kind: 'ssh'; hostId: string };
   quick?: boolean;
@@ -641,6 +656,7 @@ export function mountTerminal(
     | 'term'
     | 'fit'
     | 'pendingReplay'
+    | 'protocolRepliesSuppressed'
     | 'restoreRepaintPending'
     | 'fontSizeOverride'
     | 'outputColorizer'
@@ -698,8 +714,16 @@ export function mountTerminal(
         item.term.refresh(0, item.term.rows - 1);
         requestRestoredTerminalRepaint(item);
       };
-      if (replay) item.term.write(item.outputColorizer.write(replay), finishRestore);
-      else finishRestore();
+      if (replay !== null) {
+        item.protocolRepliesSuppressed = true;
+        item.term.write(item.outputColorizer.write(replay), () => {
+          item.protocolRepliesSuppressed = false;
+          finishRestore();
+        });
+      } else {
+        item.protocolRepliesSuppressed = false;
+        finishRestore();
+      }
     } catch {
       // fit/refresh races during teardown are harmless
     }
@@ -1060,6 +1084,16 @@ function createTermInstance(
   term.onData((data) => {
     const paste = isRecentTerminalPaste(term);
     const userInitiated = inputTracker.consume();
+    // Parsing an adopted/resynced screen can make xterm answer historical DA,
+    // DSR, XTVERSION and color queries. Forwarding those answers writes bytes
+    // such as "ffff/ffff/ffff … xterm.js(...)" into the live zsh input line.
+    if (
+      (item.protocolRepliesSuppressed || Date.now() < item.protocolRepliesSuppressedUntil) &&
+      !paste &&
+      !userInitiated
+    ) {
+      return;
+    }
     inputWriter.enqueue({
       id: info.id,
       data,
@@ -1085,12 +1119,15 @@ function createTermInstance(
     inputWriter,
     outputColorizer,
     pendingReplay: options.outputTail !== undefined ? options.outputTail : null,
+    protocolRepliesSuppressed: options.outputTail !== undefined,
+    protocolRepliesSuppressedUntil: 0,
     restoreRepaintPending: options.outputTail !== undefined,
     restored: options.restored ?? false,
     replaySequence: options.replaySequence ?? 0,
     fontSizeOverride: null,
   };
   term.onData((data) => {
+    if (item.protocolRepliesSuppressed || Date.now() < item.protocolRepliesSuppressedUntil) return;
     if (data === '\r') {
       item.lastCommand = item.currentInput.trim();
       item.currentInput = '';
@@ -1211,11 +1248,13 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       item.replaySequence = sequence;
       terminalOutputScheduler.replace(id, (done) => {
         item.pendingReplay = null;
+        item.protocolRepliesSuppressed = true;
         item.restoreRepaintPending = true;
         item.blocks.reset();
         item.term.reset();
         item.outputColorizer.reset();
         item.term.write(item.outputColorizer.write(replay), () => {
+          item.protocolRepliesSuppressed = false;
           item.term.refresh(0, item.term.rows - 1);
           // A resync can race terminal adoption, so do not depend on DOM state.
           // A later fit will restore the viewport if the terminal is still hidden.
@@ -1275,9 +1314,17 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       const item = get().items.find((t) => t.id === id);
       if (!item) return;
       if (agent !== null) {
+        item.protocolRepliesSuppressedUntil = 0;
         item.blocks.addTurnBlock(`✳ ${agentDisplayName(agent)} session started`, false);
         return;
       }
+      // Process detection and renderer parsing run on different queues. Hold
+      // non-user xterm replies until everything emitted by the departing TUI
+      // has crossed the parser, then retain a short shell-settle guard.
+      item.protocolRepliesSuppressedUntil = Number.POSITIVE_INFINITY;
+      terminalOutputScheduler.after(id, () => {
+        item.protocolRepliesSuppressedUntil = Date.now() + 500;
+      });
       item.blocks.addTurnBlock('✳ Session ended', false);
       if (!taskId) return;
       const files = useExternalStore.getState().sessions[taskId]?.files.length ?? 0;
@@ -1381,6 +1428,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
       ...(options?.taskId ? { taskId: options.taskId } : {}),
       ...(options?.context ? { context: options.context } : {}),
       ...(options?.initialPrompt?.trim() ? { initialPrompt: options.initialPrompt } : {}),
+      ...(options?.worktree ? { worktree: options.worktree } : {}),
       ...(options?.target ? { target: options.target } : {}),
       launch,
     });

@@ -52,17 +52,40 @@ test.describe('Session rail and conversation role polish', () => {
 
       await expect(page.locator('.sr-state.answered')).toHaveText('Answered');
       await expect(page.locator('.sr-state.review')).toHaveText('Review');
+      await expect(page.locator('.sr-session.selected')).toHaveCount(1);
+      await expect(page.locator('.sr-session.selected')).toHaveAttribute(
+        'data-testid',
+        /^home-task-/,
+      );
       await expect(page.getByTestId('rail-session-search')).toBeVisible();
       await expect(page.getByTestId('rail-needs-filter')).toBeVisible();
       await expect(page.getByTestId('rail-view-sessions')).toHaveClass(/active/);
-      await expect(page.locator('.sr-rail')).toHaveCSS('width', '280px');
-      await expect(page.locator('.sr-activity')).toHaveCSS('width', '40px');
+      await expect(page.locator('.sr-rail')).toHaveCSS('width', '312px');
+      await expect(page.locator('.sr-activity')).toHaveCSS('width', '78px');
+      await expect(page.locator('.sr-activity > :first-child')).toHaveAttribute(
+        'data-testid',
+        'rail-view-sessions',
+      );
+      await expect(page.getByTestId('rail-view-sessions')).toContainText('Sessions');
       await expect(page.getByTestId('session-tool-canvas')).toBeHidden();
       await expect(page.getByTestId('session-tools-open')).toBeVisible();
 
       // Session metadata uses the fast in-app tooltip, not Chromium's delayed title popup.
       const compactSession = page.locator('.sr-session:not(.has-detail)').first();
       await expect(compactSession).toBeVisible();
+      await expect(compactSession).toHaveCSS('min-height', '38px');
+      const projectGroup = page
+        .locator('.sr-group:has(.sr-group-items:not(.sr-history-groups))')
+        .first();
+      const projectFolder = projectGroup.locator('.sr-group-toggle > .app-icon').nth(1);
+      const sessionProvider = compactSession.locator('.sr-provider');
+      const [projectFolderBox, sessionProviderBox] = await Promise.all([
+        projectFolder.boundingBox(),
+        sessionProvider.boundingBox(),
+      ]);
+      expect(projectFolderBox).not.toBeNull();
+      expect(sessionProviderBox).not.toBeNull();
+      expect(sessionProviderBox!.x).toBeGreaterThan(projectFolderBox!.x);
       await expect(compactSession).not.toHaveAttribute('title', /.+/);
       await compactSession.hover();
       await expect(page.getByRole('tooltip')).toBeVisible({ timeout: 800 });
@@ -114,7 +137,7 @@ test.describe('Session rail and conversation role polish', () => {
       });
 
       await page.setViewportSize({ width: 960, height: 720 });
-      await expect(page.locator('.sr-rail')).toHaveCSS('width', '40px');
+      await expect(page.locator('.sr-rail')).toHaveCSS('width', '78px');
       await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
       await page.screenshot({
         path: join(tmpdir(), 'charter-session-rail-production-narrow.png'),
@@ -137,6 +160,75 @@ test.describe('Session rail and conversation role polish', () => {
         fullPage: true,
       });
 
+      expect(errors).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('stops every running Session from the contextual rail control', async () => {
+    const fixture = createGitFixture();
+    const { app, page } = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+      home: 'keep',
+    });
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+    });
+
+    try {
+      await page.setViewportSize({ width: 1220, height: 780 });
+      await startMockTask(
+        page,
+        'Waiting for package manager',
+        '[scenario:ask-clarify] choose the package manager before continuing',
+      );
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'AWAITING_USER', {
+        timeout: 20_000,
+      });
+
+      const summary = page.getByTestId('rail-running-summary');
+      await expect(summary).toContainText('1 session running');
+      await expect(page.getByTestId('rail-stop-all')).toContainText('Stop all 1');
+      await page.getByTestId('rail-stop-all').click();
+      const confirm = page.getByTestId('rail-stop-all-confirm');
+      await expect(confirm).toBeVisible();
+      await expect(confirm).toContainText('Session records and changes stay available');
+      await expect(page.getByTestId('rail-stop-all-cancel')).toBeFocused();
+      await page.screenshot({
+        path: join(tmpdir(), 'charter-session-stop-all-desktop.png'),
+        fullPage: true,
+      });
+
+      await page.getByTestId('rail-stop-all-cancel').click();
+      await expect(confirm).toBeHidden();
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'AWAITING_USER');
+
+      await page.setViewportSize({ width: 960, height: 720 });
+      await page.getByTestId('rail-view-sessions').click();
+      await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '1');
+      await page.getByTestId('rail-stop-all').click();
+      await expect(confirm).toBeVisible();
+      const confirmBox = await confirm.boundingBox();
+      expect(confirmBox).not.toBeNull();
+      expect(confirmBox!.x).toBeGreaterThanOrEqual(0);
+      expect(confirmBox!.x + confirmBox!.width).toBeLessThanOrEqual(960);
+      await page.screenshot({
+        path: join(tmpdir(), 'charter-session-stop-all-narrow.png'),
+        fullPage: true,
+      });
+
+      await page.getByTestId('rail-stop-all-confirm-action').click();
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'INTERRUPTED', {
+        timeout: 20_000,
+      });
+      await expect(summary).toBeHidden();
+      await expect(page.locator('.toast.success')).toContainText(
+        'Stopped 1 running session. Records remain in Session Archive.',
+      );
+      await expect(page.locator('button[data-testid^="home-task-"]')).toHaveCount(1);
       expect(errors).toEqual([]);
     } finally {
       await app.close();

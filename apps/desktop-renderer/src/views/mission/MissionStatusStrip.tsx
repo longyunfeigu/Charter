@@ -12,12 +12,12 @@ export function MissionStatusStrip({
   const summary = missionSummary(snapshot);
   const state = missionStateCopy(snapshot.mission.state);
   const nextLabel =
-    snapshot.mission.state === 'VERIFYING'
-      ? 'Review results'
-      : summary.attention > 0
-        ? 'Open your actions'
-        : summary.issues > 0
-          ? 'View issues'
+    summary.attention > 0
+      ? 'Open your actions'
+      : summary.issues > 0
+        ? 'View issues'
+        : snapshot.mission.state === 'VERIFYING'
+          ? 'Review results'
           : 'Open Mission';
   return (
     <button

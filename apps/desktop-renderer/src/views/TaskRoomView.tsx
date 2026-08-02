@@ -170,14 +170,13 @@ export function TaskRoomView(): React.JSX.Element {
       <div className="tr-root" data-testid="task-room">
         <div className="tr-head">
           <button
-            className="tr-back contextual"
+            className="tr-back"
             data-testid="task-room-back"
             aria-label={`Back to ${backLabel}`}
             title={`Back to ${backLabel}`}
             onClick={goBack}
           >
             <Ic name="chevron" size={13} className="tr-back-ic" />
-            <span>{backLabel}</span>
           </button>
         </div>
         <div className="empty-state">
@@ -278,14 +277,13 @@ export function TaskRoomView(): React.JSX.Element {
       <div className="tr-head session-identity-head">
         <div className="tr-head-drag" />
         <button
-          className="tr-back contextual"
+          className="tr-back"
           data-testid="task-room-back"
           aria-label={`Back to ${backLabel}`}
           title={`Back to ${backLabel}`}
           onClick={goBack}
         >
           <Ic name="chevron" size={13} className="tr-back-ic" />
-          <span>{backLabel}</span>
         </button>
         <div className="session-identity">
           <div className="session-identity-title">
@@ -397,6 +395,20 @@ export function TaskRoomView(): React.JSX.Element {
                             {task.external ? 'External CLI' : 'Charter managed'}
                           </strong>
                         </span>
+                        {task.external ? (
+                          <span>
+                            Control
+                            <strong>Outside Charter Tool Gateway</strong>
+                          </span>
+                        ) : null}
+                        {task.external?.snapshotRef ? (
+                          <span>
+                            Baseline
+                            <strong title={task.external.snapshotRef}>
+                              Snapshot {task.external.snapshotRef.slice(0, 7)}
+                            </strong>
+                          </span>
+                        ) : null}
                         <span>
                           Project
                           <strong title={task.projectPath}>{task.projectName}</strong>

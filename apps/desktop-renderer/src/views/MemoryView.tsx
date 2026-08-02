@@ -10,6 +10,7 @@ import type {
 } from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
 import { useMemoryStore } from '../store/memoryStore.js';
+import { useMemoryViewStore } from '../store/memoryViewStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { Markdown } from './Markdown.js';
 import { Ic } from './home-icons.js';
@@ -22,8 +23,6 @@ import '../styles/memory.css';
  * auto-memory for (matched Charter projects by name, foreign dirs verbatim);
  * Charter's "memory" is each project's distilled rules + distribution.
  */
-type MemoryAgent = 'claude' | 'codex' | 'charter';
-
 function when(iso: string | null): string {
   if (!iso) return '—';
   const date = new Date(iso);
@@ -806,7 +805,7 @@ function CharterView(props: {
 export function MemoryView(): React.JSX.Element {
   const store = useMemoryStore();
   const currentPath = useWorkspaceStore((s) => s.workspace?.path ?? null);
-  const [agent, setAgent] = useState<MemoryAgent>('claude');
+  const agent = useMemoryViewStore((state) => state.agent);
   useEffect(() => {
     store.init();
     void store.refresh();
@@ -814,70 +813,61 @@ export function MemoryView(): React.JSX.Element {
   }, []);
 
   const tree = store.tree;
-  const claudeCount = tree
-    ? tree.claude.global.length +
-      tree.claude.projects.reduce((sum, group) => sum + group.files.length, 0)
-    : 0;
-  const codexCount = tree?.codex.global.length ?? 0;
-  const charterCandidates = tree
-    ? tree.charter.projects.reduce((sum, project) => sum + project.candidateCount, 0)
-    : 0;
-
-  const navItem = (
-    id: MemoryAgent,
-    logo: string,
-    label: string,
-    extra: React.ReactNode,
-  ): React.JSX.Element => (
-    <button
-      className={`mv-nav-item ${agent === id ? 'active' : ''}`}
-      data-testid={`memory-nav-${id}`}
-      onClick={() => setAgent(id)}
-    >
-      <span className="mv-agent-logo">{logo}</span>
-      <span>{label}</span>
-      {extra}
-    </button>
-  );
+  const page =
+    agent === 'claude'
+      ? {
+          eyebrow: 'Claude Code knowledge',
+          title: 'Claude Code Memory',
+          description:
+            'Inspect global instructions and private project notes without changing who owns them.',
+        }
+      : agent === 'codex'
+        ? {
+            eyebrow: 'Codex knowledge',
+            title: 'Codex Memory',
+            description: 'Review the instruction files Codex carries into its work.',
+          }
+        : {
+            eyebrow: 'Charter knowledge',
+            title: 'Project Rules',
+            description:
+              'Turn reviewed corrections into explicit, shareable rules for future Agent work.',
+          };
 
   return (
-    <div className="mv-root" data-testid="memory-view">
-      <nav className="mv-nav" aria-label="Memory agents">
-        <div className="mv-nav-group">Agents</div>
-        {navItem('claude', '✳', 'Claude Code', <span className="mv-nav-count">{claudeCount}</span>)}
-        {navItem('codex', '▣', 'Codex', <span className="mv-nav-count">{codexCount}</span>)}
-        {navItem(
-          'charter',
-          '◆',
-          'Charter',
-          charterCandidates > 0 ? (
-            <span className="mv-nav-badge" data-testid="memory-nav-candidates">
-              {charterCandidates}
-            </span>
-          ) : (
-            <span className="mv-nav-count">
-              {tree?.charter.projects.reduce((sum, project) => sum + project.ruleCount, 0) ?? 0}
-            </span>
-          ),
+    <main className="mv-main" data-testid="memory-view">
+      <div className="mv-main-inner">
+        <header className="mv-page-head">
+          <div>
+            <span>{page.eyebrow}</span>
+            <h1>{page.title}</h1>
+            <p>{page.description}</p>
+          </div>
+          <button
+            className="mv-btn quiet"
+            data-testid="memory-refresh"
+            onClick={() => store.refresh()}
+          >
+            <Ic name="refresh" size={13} /> Refresh
+          </button>
+        </header>
+        {!tree ? (
+          <div className="mv-loading">
+            <span className="mv-loading-mark" aria-hidden="true" />
+            Loading memory…
+          </div>
+        ) : agent === 'claude' ? (
+          <ClaudeView
+            global={tree.claude.global}
+            projects={tree.claude.projects}
+            currentPath={currentPath}
+          />
+        ) : agent === 'codex' ? (
+          <CodexView global={tree.codex.global} />
+        ) : (
+          <CharterView projects={tree.charter.projects} currentPath={currentPath} />
         )}
-      </nav>
-      <main className="mv-main">
-        <div className="mv-main-inner">
-          {!tree ? (
-            <div className="mv-hint">Loading…</div>
-          ) : agent === 'claude' ? (
-            <ClaudeView
-              global={tree.claude.global}
-              projects={tree.claude.projects}
-              currentPath={currentPath}
-            />
-          ) : agent === 'codex' ? (
-            <CodexView global={tree.codex.global} />
-          ) : (
-            <CharterView projects={tree.charter.projects} currentPath={currentPath} />
-          )}
-        </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }

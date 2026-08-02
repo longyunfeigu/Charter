@@ -75,10 +75,12 @@ test('memory: correction → distill card → rule → injected into the next ru
     await expect(page.getByTestId('memory-rule-row').first()).toContainText('named exports only', {
       timeout: 10000,
     });
-    await page.locator('.modal-close').click();
+    await page.getByTestId('rail-view-sessions').click();
+    await expect(page.getByTestId('task-room')).toBeVisible();
 
     // ---- the very next managed run carries the rule (injection recorded) ----
-    await page.getByTestId('task-room-back').first().click();
+    await page.getByTestId('surface-home').click();
+    await expect(page.getByTestId('home-view')).toBeVisible();
     await page.getByTestId('home-mode-ask').click();
     await page.getByTestId('home-intent').fill('[scenario:ask-basic] quick question');
     await page.getByTestId('home-submit').click();
@@ -204,7 +206,7 @@ test('memory: external private memory (fake home) — discover, view, promote, a
     await page.getByTestId('memory-file-close').click();
     await expect(page.getByTestId('memory-file-dialog')).not.toBeVisible();
 
-    // Escape closes only the file dialog — the memory overlay stays open.
+    // Escape closes only the file dialog — the Memory workspace stays open.
     await habits.getByText('View', { exact: true }).click();
     await expect(page.getByTestId('memory-file-dialog')).toBeVisible();
     await page.keyboard.press('Escape');

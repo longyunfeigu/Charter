@@ -81,15 +81,15 @@ test.describe('Project Files — one canonical tree in the rail', () => {
       await page.screenshot({ path: '/tmp/charter-project-files-production-1320.png' });
 
       // At narrow width every rail panel becomes an overlay controlled by the
-      // stable 40px navigation strip.
+      // stable labeled navigation strip.
       await page.setViewportSize({ width: 900, height: 900 });
-      await expect(page.locator('.sr-rail')).toHaveCSS('width', '40px');
+      await expect(page.locator('.sr-rail')).toHaveCSS('width', '78px');
       await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
       await page.getByTestId('rail-view-projects').click();
       await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '1');
       await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
       await page.locator('[data-testid^="home-recent-"]').first().click();
-      await expect(page.locator('.sr-rail')).toHaveCSS('width', '40px');
+      await expect(page.locator('.sr-rail')).toHaveCSS('width', '78px');
       await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
       await expect(page.getByTestId('project-center')).toBeVisible();
       await page.screenshot({ path: '/tmp/charter-project-files-drawer-900.png' });

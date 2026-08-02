@@ -1,6 +1,18 @@
 export type ExternalCli = 'claude' | 'codex';
 export type ExternalAgentLifecycle = 'active' | 'ended' | 'interrupted';
 
+/** A historical terminal capability reply has leaked into zle when all three
+ * independent signatures are present. This is deliberately much narrower
+ * than a generic ANSI/text filter: ordinary output mentioning xterm remains
+ * untouched. */
+export function isLeakedTerminalReply(text: string): boolean {
+  return (
+    /[0-9a-f]{4}\/[0-9a-f]{4}\/[0-9a-f]{4}/i.test(text) &&
+    /\?1;2c/.test(text) &&
+    /xterm\.js\([^)]+\)/i.test(text)
+  );
+}
+
 const SHELL_TITLES = new Set([
   'sh',
   'bash',

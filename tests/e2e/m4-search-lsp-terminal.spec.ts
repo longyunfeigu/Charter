@@ -17,7 +17,7 @@ test.describe('M4 search, intelligence, terminal', () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({ env: { PI_IDE_OPEN_WORKSPACE: fixture } });
     try {
-      await expect(page.getByTestId('workspace-chip')).toBeVisible();
+      await expect(page.getByTestId('workbench')).toBeVisible();
       await page.keyboard.press(`${mod}+p`);
       await expect(page.getByTestId('quick-open')).toBeVisible();
       // Fill the input directly — free typing races the dialog's focus timing.

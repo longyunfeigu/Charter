@@ -9,7 +9,14 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-editor);
+  background:
+    linear-gradient(
+      90deg,
+      transparent 49.94%,
+      color-mix(in srgb, var(--border) 38%, transparent) 50%,
+      transparent 50.06%
+    ),
+    var(--bg-editor);
   /* Size container for the Session Canvas breakpoints: the single-surface
      switch reacts to the room width (window minus rails and sidebars), which
      a window media query cannot see. */
@@ -93,18 +100,6 @@
   padding: 0;
   cursor: pointer;
   font-family: inherit;
-}
-.tr-back.contextual {
-  width: auto;
-  max-width: 190px;
-  padding: 0 8px 0 6px;
-  border-radius: 7px;
-}
-.tr-back.contextual span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .tr-back:hover {
   background: var(--bg-hover);
@@ -1788,31 +1783,13 @@
   color: var(--fg);
   white-space: nowrap;
 }
-.tr-extbadge {
-  font-size: 9.5px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  padding: 1px 6px;
-  border-radius: 4px;
-  color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 14%, transparent);
-  white-space: nowrap;
-}
-.tr-extsnap {
-  font-size: 10.5px;
-  font-family: var(--font-mono, monospace);
-  color: var(--fg-faint);
-  white-space: nowrap;
-}
 .tr-extlive {
   font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-weight: 650;
   color: var(--info);
-  background: color-mix(in srgb, var(--info) 12%, transparent);
-  padding: 2px 8px;
-  border-radius: 999px;
-  animation: tr-ext-pulse 1.6s infinite;
+  background: transparent;
+  padding: 2px 4px;
+  border-radius: 5px;
 }
 .tr-extended {
   font-size: 10.5px;

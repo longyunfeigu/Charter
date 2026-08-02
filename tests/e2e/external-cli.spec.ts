@@ -143,7 +143,10 @@ function createActiveEditingCodexBin(fixture: string): string {
   return bin;
 }
 
-function createComposerClaudeBin(): { bin: string; probe: string } {
+function createComposerClaudeBin(options: { writeMarkerInCwd?: boolean } = {}): {
+  bin: string;
+  probe: string;
+} {
   const bin = mkdtempSync(join(tmpdir(), 'pi-ide-composer-bin-'));
   const probe = join(bin, 'probe.log');
   writeFileSync(
@@ -156,6 +159,9 @@ function createComposerClaudeBin(): { bin: string; probe: string } {
       "console.log('fake-claude-tui-ready');",
       "process.stdin.on('data', (chunk) => {",
       "  if (chunk.toString().includes('hi from composer')) {",
+      ...(options.writeMarkerInCwd
+        ? ["    fs.writeFileSync('worktree-only.txt', 'isolated external Agent write\\n');"]
+        : []),
       '    // Canonical-mode PTY stdin only releases a line once Enter arrives —',
       '    // seeing the prompt here proves the paste AND the separate Enter.',
       "    fs.appendFileSync(probe, 'got-prompt-line\\n');",
@@ -516,7 +522,17 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await page.evaluate(async (path) => {
         await window.product.rpc['workspace.open']!({ path });
       }, writing);
-      await expect(page.getByTestId('workspace-chip')).toContainText('fixture');
+      await expect
+        .poll(async () => {
+          return page.evaluate(async () => {
+            const result = (await window.product.rpc['workspace.current']!({})) as {
+              ok: boolean;
+              data?: { workspace?: { path: string } | null };
+            };
+            return result.ok ? (result.data?.workspace?.path ?? null) : null;
+          });
+        })
+        .toBe(writingCanonical);
       const afterFocusChange = await page.evaluate(async () => {
         const result = (await window.product.rpc['terminal.list']!({})) as E2ETerminalListResult;
         return result.ok ? result.data.items : [];
@@ -832,6 +848,121 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await expect
         .poll(readProbe, { timeout: 20000 })
         .toMatch(new RegExp(`argv=.*--resume ${sessionId}`));
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('composer creates an optional worktree only when the external Session starts', async () => {
+    const fixture = createGitFixture();
+    const { bin, probe } = createComposerClaudeBin({ writeMarkerInCwd: true });
+    const readProbe = (): string => {
+      try {
+        return readFileSync(probe, 'utf8');
+      } catch {
+        return '';
+      }
+    };
+    const { app, page } = await launchApp({
+      env: {
+        PI_IDE_OPEN_WORKSPACE: fixture,
+        PI_IDE_EXTERNAL_CLIS: 'claude',
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        ZDOTDIR: bin,
+      },
+    });
+    const rendererErrors: string[] = [];
+    page.on('pageerror', (error) => rendererErrors.push(`pageerror: ${error.message}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error') rendererErrors.push(`console: ${message.text()}`);
+    });
+    try {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      const back = page.getByTestId('project-tool-back');
+      if (await back.isVisible().catch(() => false)) await back.click();
+      await expect(page.getByTestId('home-intent')).toBeVisible();
+      await page.getByTestId('home-agent').click();
+      await page.getByTestId('home-agent-claude').click();
+
+      const workingCopy = page.getByTestId('home-working-copy');
+      await expect(workingCopy).toContainText('Current checkout');
+      await workingCopy.click();
+      await page.getByTestId('home-working-copy-new').click();
+      await expect(workingCopy).toContainText('New worktree');
+
+      const menu = page.getByTestId('home-working-copy-menu');
+      await expect(menu).toBeVisible();
+      await page.screenshot({ path: '/tmp/charter-external-worktree-desktop.png' });
+      await page.setViewportSize({ width: 900, height: 760 });
+      const narrowBox = await menu.boundingBox();
+      expect(narrowBox).not.toBeNull();
+      expect(narrowBox!.x).toBeGreaterThanOrEqual(0);
+      expect(narrowBox!.x + narrowBox!.width).toBeLessThanOrEqual(900);
+      await page.screenshot({ path: '/tmp/charter-external-worktree-narrow.png' });
+      await page.setViewportSize({ width: 1440, height: 900 });
+
+      // The detected setup command is editable and remains part of the pending
+      // choice. Clearing it keeps this fixture focused on the launch boundary.
+      const setup = page.getByTestId('home-external-wtsetup');
+      await expect(setup).toBeVisible();
+      await setup.fill('');
+
+      // Selecting the option above has not created a worktree. It is created
+      // atomically only when the first query starts the Session.
+      const before = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+        cwd: fixture,
+        encoding: 'utf8',
+      });
+      expect(before.match(/^worktree /gm)).toHaveLength(1);
+
+      await page.getByTestId('home-intent').fill('hi from composer');
+      await page.getByTestId('home-submit').click();
+      await expect.poll(readProbe, { timeout: 20_000 }).toContain('got-prompt-line');
+
+      const task = await page.evaluate(async () => {
+        const result = (await window.product.rpc['task.list']!({
+          filter: 'all',
+          includeArchived: false,
+        })) as {
+          ok: boolean;
+          data?: {
+            tasks: Array<{
+              id: string;
+              title: string;
+              worktree: { path: string; branch: string } | null;
+              external: { terminalId: string; cwd?: string } | null;
+            }>;
+          };
+        };
+        return result.ok
+          ? (result.data?.tasks.find((candidate) => candidate.external) ?? null)
+          : null;
+      });
+      expect(task).not.toBeNull();
+      expect(task!.title).toBe('hi from composer');
+      expect(task!.worktree?.branch).toMatch(/^charter\/hi-from-composer-/);
+      expect(task!.external?.cwd).toBe(task!.worktree?.path);
+      expect(existsSync(join(fixture, 'worktree-only.txt'))).toBe(false);
+      await expect
+        .poll(() => existsSync(join(task!.worktree!.path, 'worktree-only.txt')), {
+          timeout: 10_000,
+        })
+        .toBe(true);
+
+      const terminal = await page.evaluate(async (terminalId) => {
+        const result = (await window.product.rpc['terminal.list']!({})) as {
+          ok: boolean;
+          data?: {
+            items: Array<{ id: string; cwd: string; contextTaskId: string | null }>;
+          };
+        };
+        return result.ok
+          ? (result.data?.items.find((candidate) => candidate.id === terminalId) ?? null)
+          : null;
+      }, task!.external!.terminalId);
+      expect(terminal?.contextTaskId).toBe(task!.id);
+      expect(realpathSync(terminal!.cwd)).toBe(realpathSync(task!.worktree!.path));
+      expect(rendererErrors).toEqual([]);
     } finally {
       await app.close();
     }

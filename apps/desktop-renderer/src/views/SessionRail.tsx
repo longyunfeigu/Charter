@@ -4,7 +4,7 @@ import type { MissionSnapshotDto, RecentWorkspaceDto, TaskDto } from '@pi-ide/ip
 import { rpcResult } from '../bridge.js';
 import { useActivityStore, currentActionLine } from '../store/activityStore.js';
 import { useAppStore, type RailView } from '../store/appStore.js';
-import { useExternalStore } from '../store/externalStore.js';
+import { useExternalStore, type ExternalSession } from '../store/externalStore.js';
 import { RUNNING_TASK_STATES, useTaskStore } from '../store/taskStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useTerminalStore } from './TerminalPanel.js';
@@ -19,6 +19,7 @@ import {
 import { ArmedIconButton } from './ui.js';
 import { SessionFilesPane } from './SessionFilesPane.js';
 import { SkillsRailPanel } from './SkillsRailPanel.js';
+import { MemoryRailPanel } from './MemoryRailPanel.js';
 import { useGlowTasks } from './useGlow.js';
 import { sessionDisplayTitle } from '../store/sessionAttention.js';
 import { useArchaeologyStore } from '../store/archaeologyStore.js';
@@ -58,12 +59,93 @@ import { TERMINAL_MISSION_STATES } from './mission/mission-view-model.js';
 export { isHistoryEntry, type SessionEntry } from './rail-groups.js';
 
 const COLLAPSED_KEY = 'charter.rail.collapsed.v2';
-const RAIL_WIDTH_KEY = 'charter.rail.width.v1';
-const RAIL_WIDTH_DEFAULT = 280;
-const RAIL_WIDTH_MIN = 240;
+const RAIL_WIDTH_KEY = 'charter.rail.width.v3';
+const RAIL_WIDTH_LEGACY_KEY = 'charter.rail.width.v2';
+const RAIL_WIDTH_LEGACY_DEFAULT = 336;
+const RAIL_WIDTH_DEFAULT = 312;
+const RAIL_WIDTH_MIN = 288;
 const RAIL_WIDTH_MAX = 520;
 const SESSION_TOOLTIP_DELAY_MS = 180;
 const ACTION_TOOLTIP_DELAY_MS = 80;
+const LIVE_MISSION_ASSIGNMENT_STATES = new Set(['ACTIVE', 'WAITING', 'PAUSED']);
+
+type RunningSessionTarget =
+  | { key: string; kind: 'task'; taskId: string }
+  | { key: string; kind: 'external'; taskId: string }
+  | { key: string; kind: 'terminal'; terminalId: string }
+  | { key: string; kind: 'mission'; missionId: string; assignmentId: string };
+
+/**
+ * One global stop target per visible live Session. Mission-owned rows use the
+ * assignment lifecycle so their runtime cannot be relaunched by orchestration;
+ * ordinary tasks and terminals keep their existing stop semantics.
+ */
+export function runningSessionTargets(
+  entries: readonly SessionEntry[],
+  externalSessions: Readonly<Record<string, Pick<ExternalSession, 'status'>>>,
+): RunningSessionTarget[] {
+  const targets: RunningSessionTarget[] = [];
+  const seen = new Set<string>();
+  const add = (target: RunningSessionTarget): void => {
+    if (seen.has(target.key)) return;
+    seen.add(target.key);
+    targets.push(target);
+  };
+
+  for (const entry of entries) {
+    if (entry.mission && LIVE_MISSION_ASSIGNMENT_STATES.has(entry.mission.assignmentState)) {
+      add({
+        key: `mission:${entry.mission.missionId}:${entry.mission.assignmentId}`,
+        kind: 'mission',
+        missionId: entry.mission.missionId,
+        assignmentId: entry.mission.assignmentId,
+      });
+      continue;
+    }
+    if (entry.kind === 'mission') continue;
+    if (entry.kind === 'terminal') {
+      if (!entry.exited) {
+        add({
+          key: `terminal:${entry.terminalId}`,
+          kind: 'terminal',
+          terminalId: entry.terminalId,
+        });
+      }
+      continue;
+    }
+    if (entry.task.external) {
+      const status = externalSessions[entry.task.id]?.status ?? entry.task.external.status;
+      if (status === 'active') {
+        add({ key: `external:${entry.task.id}`, kind: 'external', taskId: entry.task.id });
+      }
+    } else if (RUNNING_TASK_STATES.has(entry.task.state)) {
+      add({ key: `task:${entry.task.id}`, kind: 'task', taskId: entry.task.id });
+    }
+  }
+  return targets;
+}
+
+async function stopRunningSession(target: RunningSessionTarget): Promise<boolean> {
+  if (target.kind === 'task') {
+    const result = await rpcResult('task.stop', { taskId: target.taskId });
+    return result.ok;
+  }
+  if (target.kind === 'external') {
+    const result = await rpcResult('external.endSession', { taskId: target.taskId });
+    return result.ok && result.data.ended;
+  }
+  if (target.kind === 'terminal') {
+    // The user already confirmed the global destructive action in the rail.
+    const result = await rpcResult('terminal.kill', { id: target.terminalId, force: true });
+    return result.ok && result.data.closed;
+  }
+  const result = await rpcResult('mission.cancelAssignment', {
+    missionId: target.missionId,
+    assignmentId: target.assignmentId,
+    reason: 'Stopped by user from the Sessions rail',
+  });
+  return result.ok;
+}
 
 function clampRailWidth(width: number): number {
   return Math.min(RAIL_WIDTH_MAX, Math.max(RAIL_WIDTH_MIN, Math.round(width)));
@@ -73,6 +155,13 @@ function loadRailWidth(): number {
   try {
     const saved = Number(window.localStorage.getItem(RAIL_WIDTH_KEY));
     if (Number.isFinite(saved) && saved > 0) return clampRailWidth(saved);
+
+    // Carry deliberate user resizing forward, but let the old 336px product
+    // default adopt the denser rail automatically.
+    const legacy = Number(window.localStorage.getItem(RAIL_WIDTH_LEGACY_KEY));
+    if (Number.isFinite(legacy) && legacy > 0 && Math.round(legacy) !== RAIL_WIDTH_LEGACY_DEFAULT) {
+      return clampRailWidth(legacy);
+    }
   } catch {
     // best-effort UI state
   }
@@ -714,6 +803,7 @@ export function SessionRail(): React.JSX.Element {
   const clearAttention = useTaskStore((s) => s.clearAttention);
   const terminalStore = useTerminalStore();
   const taskByTerminal = useExternalStore((state) => state.taskByTerminal);
+  const externalSessions = useExternalStore((state) => state.sessions);
   const orchestration = useOrchestrationStore((state) => state.snapshot);
   const missionsById = useOrchestrationStore((state) => state.missionsById);
   const missionOrder = useOrchestrationStore((state) => state.missionOrder);
@@ -743,7 +833,13 @@ export function SessionRail(): React.JSX.Element {
   const [projectQuery, setProjectQuery] = useState('');
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [projectMenuPath, setProjectMenuPath] = useState<string | null>(null);
+  const [stopAllConfirmOpen, setStopAllConfirmOpen] = useState(false);
+  const [stoppingAll, setStoppingAll] = useState(false);
+  const [stoppingCount, setStoppingCount] = useState(0);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const stopAllRef = useRef<HTMLDivElement | null>(null);
+  const stopAllTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const stopAllCancelRef = useRef<HTMLButtonElement | null>(null);
   const railRef = useRef<HTMLElement | null>(null);
   const railWidthRef = useRef(loadRailWidth());
   const railResizingRef = useRef(false);
@@ -870,6 +966,26 @@ export function SessionRail(): React.JSX.Element {
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [projectMenuPath]);
+
+  useEffect(() => {
+    if (!stopAllConfirmOpen) return;
+    const frame = window.requestAnimationFrame(() => stopAllCancelRef.current?.focus());
+    const close = (event: MouseEvent): void => {
+      if (!stopAllRef.current?.contains(event.target as Node)) setStopAllConfirmOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      setStopAllConfirmOpen(false);
+      stopAllTriggerRef.current?.focus();
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [stopAllConfirmOpen]);
 
   const allEntries = useMemo<SessionEntry[]>(() => {
     const workerTerminalIds = new Set(orchestration.workers.map((worker) => worker.terminalId));
@@ -1102,6 +1218,11 @@ export function SessionRail(): React.JSX.Element {
     terminalStore.items,
     taskByTerminal,
   ]);
+
+  const runningTargets = useMemo(
+    () => runningSessionTargets(allEntries, externalSessions),
+    [allEntries, externalSessions],
+  );
 
   const groups = useMemo<RailGroup[]>(() => buildRailGroups(allEntries), [allEntries]);
 
@@ -1382,6 +1503,41 @@ export function SessionRail(): React.JSX.Element {
     if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(false);
   };
 
+  const stopAllRunningSessions = async (): Promise<void> => {
+    if (stoppingAll || runningTargets.length === 0) return;
+    const targets = [...runningTargets];
+    setStopAllConfirmOpen(false);
+    setStoppingCount(targets.length);
+    setStoppingAll(true);
+    const results = await Promise.all(
+      targets.map(async (target) => {
+        try {
+          return await stopRunningSession(target);
+        } catch {
+          return false;
+        }
+      }),
+    );
+    await Promise.allSettled([
+      useTaskStore.getState().refreshTasks(),
+      useOrchestrationStore.getState().refreshMissions(),
+    ]);
+    const stopped = results.filter(Boolean).length;
+    const failed = results.length - stopped;
+    if (failed === 0) {
+      app.pushToast(
+        'success',
+        `Stopped ${stopped} running session${stopped === 1 ? '' : 's'}. Records remain in Session Archive.`,
+      );
+    } else {
+      app.pushToast(
+        'warning',
+        `Stopped ${stopped} of ${results.length} sessions. ${failed} could not be stopped.`,
+      );
+    }
+    setStoppingAll(false);
+  };
+
   const renderSessionEntry = (entry: SessionEntry, showProject: boolean): React.ReactNode => {
     if (entry.kind === 'mission') {
       return <MissionRuntimeRow key={entry.key} entry={entry} now={now} />;
@@ -1396,10 +1552,12 @@ export function SessionRail(): React.JSX.Element {
           now={now}
           worker={orchestration.workers.some((worker) => worker.taskId === entry.task.id)}
           depth={entry.mission?.depth ?? 0}
-          missionSelected={
-            entry.mission?.missionId === app.missionCenter?.missionId &&
-            entry.mission?.assignmentId === app.missionCenter?.assignmentId
-          }
+          missionSelected={Boolean(
+            entry.mission &&
+            app.missionCenter &&
+            entry.mission.missionId === app.missionCenter.missionId &&
+            entry.mission.assignmentId === app.missionCenter.assignmentId,
+          )}
           workerWorking={orchestration.workers.some(
             (worker) => worker.taskId === entry.task.id && worker.status === 'streaming',
           )}
@@ -1417,10 +1575,12 @@ export function SessionRail(): React.JSX.Element {
         showProject={showProject}
         worker={orchestration.workers.some((worker) => worker.terminalId === entry.terminalId)}
         depth={entry.mission?.depth ?? 0}
-        missionSelected={
-          entry.mission?.missionId === app.missionCenter?.missionId &&
-          entry.mission?.assignmentId === app.missionCenter?.assignmentId
-        }
+        missionSelected={Boolean(
+          entry.mission &&
+          app.missionCenter &&
+          entry.mission.missionId === app.missionCenter.missionId &&
+          entry.mission.assignmentId === app.missionCenter.assignmentId,
+        )}
         working={orchestration.workers.some(
           (worker) => worker.terminalId === entry.terminalId && worker.status === 'streaming',
         )}
@@ -1527,6 +1687,79 @@ export function SessionRail(): React.JSX.Element {
             <Ic name="plus" size={15} />
           </button>
         </div>
+        {runningTargets.length > 0 || stoppingAll ? (
+          <div ref={stopAllRef} className="sr-running-summary" data-testid="rail-running-summary">
+            <span className="sr-running-copy" aria-live="polite">
+              <span className="sr-running-dot" />
+              {stoppingAll ? (
+                <span>
+                  Stopping <b>{stoppingCount}</b> {stoppingCount === 1 ? 'session' : 'sessions'}…
+                </span>
+              ) : (
+                <span>
+                  <b>{runningTargets.length}</b>{' '}
+                  {runningTargets.length === 1 ? 'session' : 'sessions'} running
+                </span>
+              )}
+            </span>
+            <button
+              ref={stopAllTriggerRef}
+              type="button"
+              className="sr-stop-all"
+              data-testid="rail-stop-all"
+              aria-haspopup="dialog"
+              aria-expanded={stopAllConfirmOpen}
+              aria-controls="rail-stop-all-confirm"
+              disabled={stoppingAll}
+              onClick={() => setStopAllConfirmOpen((open) => !open)}
+            >
+              <Ic name="circleStop" size={12} />
+              Stop all {stoppingAll ? stoppingCount : runningTargets.length}
+            </button>
+            {stopAllConfirmOpen ? (
+              <div
+                id="rail-stop-all-confirm"
+                className="sr-stop-all-popover"
+                data-testid="rail-stop-all-confirm"
+                role="alertdialog"
+                aria-modal="false"
+                aria-labelledby="rail-stop-all-title"
+                aria-describedby="rail-stop-all-description"
+              >
+                <strong id="rail-stop-all-title">
+                  Stop {runningTargets.length} running{' '}
+                  {runningTargets.length === 1 ? 'session' : 'sessions'}?
+                </strong>
+                <p id="rail-stop-all-description">
+                  Active processes will end. Session records and changes stay available in Session
+                  Archive.
+                </p>
+                <div className="sr-stop-all-actions">
+                  <button
+                    ref={stopAllCancelRef}
+                    type="button"
+                    data-testid="rail-stop-all-cancel"
+                    onClick={() => {
+                      setStopAllConfirmOpen(false);
+                      stopAllTriggerRef.current?.focus();
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    data-testid="rail-stop-all-confirm-action"
+                    onClick={() => void stopAllRunningSessions()}
+                  >
+                    <Ic name="circleStop" size={12} />
+                    Stop all
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
       <div className="sr-scroll">
@@ -1995,7 +2228,19 @@ export function SessionRail(): React.JSX.Element {
         compactPanelOpen ? 'compact-open' : ''
       } ${railResizing ? 'is-resizing' : ''}`}
       data-testid="home-sidebar"
-      aria-label={view === 'skills' ? 'Skills' : view === 'missions' ? 'Missions' : 'Sessions'}
+      aria-label={
+        view === 'skills'
+          ? 'Skills'
+          : view === 'memory'
+            ? 'Memory'
+            : view === 'missions'
+              ? 'Missions'
+              : view === 'projects'
+                ? 'Projects'
+                : view === 'inbox'
+                  ? 'For you'
+                  : 'Sessions'
+      }
       style={{ '--rail-width': `${railWidth}px` } as React.CSSProperties}
     >
       <ActivityBar
@@ -2038,6 +2283,8 @@ export function SessionRail(): React.JSX.Element {
           projectsPanel
         ) : view === 'skills' ? (
           <SkillsRailPanel />
+        ) : view === 'memory' ? (
+          <MemoryRailPanel />
         ) : view === 'files' ? (
           filesPanel
         ) : (

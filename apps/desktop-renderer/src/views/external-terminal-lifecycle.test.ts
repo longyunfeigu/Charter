@@ -3,6 +3,7 @@ import {
   defaultExternalTerminalTools,
   externalSessionTitle,
   externalTerminalLifecycle,
+  isLeakedTerminalReply,
   type ExternalCli,
 } from './external-terminal-lifecycle.js';
 
@@ -83,5 +84,21 @@ describe('externalTerminalLifecycle', () => {
     expect(defaultExternalTerminalTools('active', 3)).toEqual({ open: false, tool: 'editor' });
     expect(defaultExternalTerminalTools('ended', 0)).toEqual({ open: false, tool: 'editor' });
     expect(defaultExternalTerminalTools('ended', 3)).toEqual({ open: true, tool: 'changes' });
+  });
+});
+
+describe('isLeakedTerminalReply', () => {
+  it('recognizes the combined color, DA and XTVERSION response leaked into zle', () => {
+    expect(
+      isLeakedTerminalReply(
+        'execute: ffff/ffff/ffff\\[?1;2cP>|xterm.js(6.1.0-beta.287)\\[?1;2c[?202_',
+      ),
+    ).toBe(true);
+  });
+
+  it('does not erase ordinary commands or output that merely mentions xterm', () => {
+    expect(isLeakedTerminalReply('npm why @xterm/xterm')).toBe(false);
+    expect(isLeakedTerminalReply('theme ffff/ffff/ffff')).toBe(false);
+    expect(isLeakedTerminalReply('xterm.js(6.1.0) [?1;2c')).toBe(false);
   });
 });

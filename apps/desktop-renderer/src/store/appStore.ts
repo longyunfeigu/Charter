@@ -21,7 +21,7 @@ import {
   type SessionNoticeTone,
 } from './sessionAttention.js';
 
-export type OverlayKind = 'none' | 'settings' | 'diagnostics' | 'about' | 'memory';
+export type OverlayKind = 'none' | 'settings' | 'diagnostics' | 'about';
 /** Contextual tools owned by the active Session. These replace the old
  * app-level workspace shell. */
 export type SessionTool = 'summary' | 'diff' | 'file' | 'preview' | 'terminal' | 'review';
@@ -38,7 +38,8 @@ export type ProjectCenterTab = 'overview' | 'sessions' | 'files' | 'changes' | '
 export type RemoteSubview = 'overview' | 'files' | 'forwards';
 /** The rail's contextual views inside the single navigation surface.
  * 'files' is the persistent context-feeding tree (ADR-0024, ADR-0029). */
-export type RailView = 'sessions' | 'missions' | 'inbox' | 'projects' | 'files' | 'skills';
+export type RailView =
+  'sessions' | 'missions' | 'inbox' | 'projects' | 'files' | 'memory' | 'skills';
 
 /** ADR-0042 — the identity of what the main content area is showing
  * (mirrors HomeShell's render priority). */
@@ -52,10 +53,11 @@ export type MainSurface =
   | { kind: 'archaeology'; scope: string | null }
   | { kind: 'remotes' };
 
-/** ADR-0042 — rail views form two navigation groups that each own their main
- * surface. sessions/inbox/files are one workbench (inbox is a filtered session
- * list; Files feeds the open conversation), projects is its own page. */
-export type RailGroup = 'workbench' | 'projects' | 'skills';
+/** ADR-0042 — every primary destination owns its main surface. Sessions,
+ * Inbox and Files deliberately share one workbench because those panels feed
+ * the same open conversation; Missions, Projects, Memory and Skills are independent
+ * pages and must never leave another destination's main content on screen. */
+export type RailGroup = 'workbench' | 'missions' | 'projects' | 'memory' | 'skills';
 
 /** A browser-like navigation entry. Unlike MainSurface this deliberately keeps
  * the contextual state around the surface, so Back restores the page the user
@@ -126,6 +128,8 @@ export function navigationSnapshotLabel(snapshot: NavigationSnapshot | null): st
           return 'Projects';
         case 'files':
           return 'Files';
+        case 'memory':
+          return 'Memory';
         case 'skills':
           return 'Skills';
         default:
@@ -135,7 +139,9 @@ export function navigationSnapshotLabel(snapshot: NavigationSnapshot | null): st
 }
 
 export function railGroupOf(view: RailView): RailGroup {
+  if (view === 'missions') return 'missions';
   if (view === 'projects') return 'projects';
+  if (view === 'memory') return 'memory';
   if (view === 'skills') return 'skills';
   return 'workbench';
 }
@@ -476,6 +482,7 @@ function loadRailView(): RailView {
       saved === 'inbox' ||
       saved === 'projects' ||
       saved === 'files' ||
+      saved === 'memory' ||
       saved === 'skills'
     ) {
       return saved;
@@ -600,11 +607,7 @@ export const useAppStore = create<AppStore>((set, get) => {
   const crossRailPatch = (target: RailView): Partial<AppStore> => {
     const prev = get().railView;
     if (prev === target) return {};
-    if (railGroupOf(prev) === railGroupOf(target)) {
-      if (prev !== 'missions') return {};
-      saveRailView(target);
-      return { railView: target };
-    }
+    if (railGroupOf(prev) === railGroupOf(target)) return {};
     saveRailView(target);
     return {
       railView: target,
@@ -697,7 +700,9 @@ export const useAppStore = create<AppStore>((set, get) => {
     railView: typeof window === 'undefined' ? 'sessions' : loadRailView(),
     savedSurfaces: {
       workbench: { kind: 'home' },
+      missions: { kind: 'mission', missionId: null },
       projects: { kind: 'home' },
+      memory: { kind: 'home' },
       skills: { kind: 'home' },
     },
     navigationBack: [],

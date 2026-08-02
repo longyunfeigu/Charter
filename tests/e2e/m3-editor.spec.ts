@@ -11,7 +11,7 @@ test.describe('M3 workspace and editor', () => {
     const { page } = first;
 
     // ADR-0029: the one project tree lives in the rail's Files pane.
-    await expect(page.getByTestId('workspace-chip')).toBeVisible();
+    await expect(page.getByTestId('rail-tab-files')).toBeVisible();
     await page.getByTestId('rail-tab-files').click();
     await page.getByTestId('tree-item-src').click();
     await page.getByTestId('tree-item-src/index.ts').click();

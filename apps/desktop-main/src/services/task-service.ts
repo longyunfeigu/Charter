@@ -2728,28 +2728,57 @@ export class TaskService {
     projectPath: string;
     /** Preserve an originating task worktree so accounting stays on that mount. */
     worktree?: TaskWorktree | null;
-    snapshotRef: string | null;
+    /** Create a fresh task-owned worktree before the visible CLI starts. */
+    isolation?: 'none' | 'worktree';
+    /** Optional dependency/codegen setup for a newly-created worktree. */
+    worktreeSetup?: string;
+    /** Omitted means capture the entry snapshot here; null means no snapshot. */
+    snapshotRef?: string | null;
     /** The user's first message names the session; null keeps the placeholder. */
     title?: string | null;
   }): Promise<TaskDto> {
     const project = await this.workspaceRowForPath(input.projectPath);
-    const accountingRoot = input.worktree?.path ?? project.canonicalPath;
     const now = new Date().toISOString();
     const id = newId('task');
     const title = input.title?.trim() || `${input.cli} · external session`;
-    let gitBaseline: { head: string | null; branch: string | null } | null = null;
-    if (project.isGitRepo) {
-      try {
-        gitBaseline = await new GitService(accountingRoot).headInfo();
-      } catch {
-        gitBaseline = null;
+    let worktree = input.worktree ?? null;
+    let setupResult: import('./worktree-service.js').WorktreeSetupResult | null = null;
+    if (!worktree && input.isolation === 'worktree') {
+      worktree = await this.worktrees.create(project.canonicalPath, project.id, id, title);
+      const setupCommand = input.worktreeSetup?.trim();
+      if (setupCommand) {
+        setupResult = await this.worktrees.runSetup(worktree.path, setupCommand);
+        if (!setupResult.ok) {
+          await this.worktrees.discard(project.canonicalPath, worktree);
+          throw new ProductFailure(
+            productError('WT_SETUP_FAILED', {
+              userMessage: `Worktree setup failed (${setupCommand}): ${setupResult.outputTail.split('\n').filter(Boolean).slice(-2).join(' ').slice(0, 200)}`,
+              retryable: true,
+            }),
+          );
+        }
       }
     }
+    const accountingRoot = worktree?.path ?? project.canonicalPath;
+    const cwd = worktree?.path ?? input.cwd;
+    let gitBaseline: { head: string | null; branch: string | null } | null = null;
+    let snapshotRef = input.snapshotRef;
+    if (project.isGitRepo) {
+      try {
+        const git = new GitService(accountingRoot);
+        gitBaseline = await git.headInfo();
+        if (snapshotRef === undefined) snapshotRef = await git.snapshotTree();
+      } catch {
+        gitBaseline = null;
+        if (snapshotRef === undefined) snapshotRef = null;
+      }
+    }
+    if (snapshotRef === undefined) snapshotRef = null;
     const external = {
       cli: input.cli,
       terminalId: input.terminalId,
-      cwd: input.cwd,
-      snapshotRef: input.snapshotRef,
+      cwd,
+      snapshotRef,
       status: 'active' as const,
       captureGrade: 'observed' as const,
       sessionId: null,
@@ -2768,7 +2797,7 @@ export class TaskService {
         JSON.stringify({ providerId: 'external', modelId: input.cli }),
         JSON.stringify([]),
         gitBaseline ? JSON.stringify(gitBaseline) : null,
-        input.worktree ? JSON.stringify(input.worktree) : null,
+        worktree ? JSON.stringify(worktree) : null,
         JSON.stringify(external),
         now,
         now,
@@ -2780,23 +2809,65 @@ export class TaskService {
       acceptance: [],
       gitBaseline,
       project: { name: project.displayName, path: project.canonicalPath },
-      worktree: input.worktree ?? null,
+      worktree,
       external,
     });
     this.recordEvent(id, 'external.sessionStarted', {
       cli: input.cli,
       terminalId: input.terminalId,
-      snapshotRef: input.snapshotRef,
+      snapshotRef,
     });
+    if (setupResult) this.recordEvent(id, 'worktree.setup', { ...setupResult });
     this.hopStates(id, ['EXPLORING', 'IN_PROGRESS']);
     this.logger.info('external session task created', {
       id,
       cli: input.cli,
       project: project.canonicalPath,
-      worktree: input.worktree?.path ?? null,
-      snapshot: input.snapshotRef,
+      worktree: worktree?.path ?? null,
+      snapshot: snapshotRef,
     });
     return this.getTask(id);
+  }
+
+  /** Bind a prepared external task to the PTY created for it. Preparation is
+   * intentionally separate so the worktree exists before TerminalManager
+   * chooses the CLI cwd, while the actual launch remains one IPC operation. */
+  bindExternalTaskTerminal(taskId: string, terminalId: string): TaskDto {
+    const row = this.getRow(taskId);
+    const external = row.external_json
+      ? (JSON.parse(row.external_json) as NonNullable<TaskDto['external']>)
+      : null;
+    if (!external || external.status !== 'active') {
+      throw new ProductFailure(
+        productError('EXTERNAL_SESSION_REQUIRED', {
+          userMessage: 'The prepared external Session is no longer available.',
+        }),
+      );
+    }
+    this.db
+      .prepare('UPDATE tasks SET external_json = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify({ ...external, terminalId }), new Date().toISOString(), taskId);
+    this.recordEvent(taskId, 'external.sessionTerminalBound', {
+      cli: external.cli,
+      terminalId,
+    });
+    return this.getTask(taskId);
+  }
+
+  /** Best-effort cleanup when PTY creation fails after worktree preparation. */
+  async abortPreparedExternalTask(taskId: string): Promise<void> {
+    try {
+      this.finishExternalSession(taskId, 0);
+      // Preparation/setup may have touched the fresh checkout. A failed PTY
+      // launch must discard those bytes, never merge them into the project.
+      await this.rollbackTask(taskId);
+      await this.deleteTask(taskId);
+    } catch (error) {
+      this.logger.warn('prepared external Session cleanup failed', {
+        taskId,
+        error: errorMessage(error),
+      });
+    }
   }
 
   /** External session ended: freeze the count, land in REVIEW_READY (never auto-accept). */

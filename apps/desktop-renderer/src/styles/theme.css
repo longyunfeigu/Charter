@@ -57,12 +57,22 @@
   --font-shell:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei',
     sans-serif;
-  --titlebar-height: 38px;
-  --statusbar-height: 24px;
-  --activitybar-width: 40px;
-  --rail-width: 280px;
-  --rail-compact-width: 40px;
-  --session-header-height: 58px;
+  /* Charter Signal Desk owns structure, never material. Every chrome role is
+     resolved late from the active skin so Studio, Archive, Atelier, Terminal
+     and Index remain visually sovereign in both light and dark modes. */
+  --chrome-ink: var(--bg-titlebar);
+  --chrome-ink-raised: var(--bg-card);
+  --chrome-paper: var(--fg);
+  --chrome-paper-muted: var(--fg-muted);
+  --chrome-line: var(--border);
+  --chrome-signal: var(--accent);
+  --chrome-signal-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --titlebar-height: 52px;
+  --statusbar-height: 25px;
+  --activitybar-width: 78px;
+  --rail-width: 312px;
+  --rail-compact-width: 78px;
+  --session-header-height: 72px;
   --control-height-sm: 28px;
   --control-height-md: 34px;
   --row-height: 32px;

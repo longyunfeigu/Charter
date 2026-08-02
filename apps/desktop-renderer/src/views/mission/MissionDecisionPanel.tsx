@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import type { ActionRequestDto, MissionSnapshotDto } from '@pi-ide/ipc-contracts';
 import { Ic } from '../home-icons.js';
-import { formatMissionTime, principalName, userActionRequests } from './mission-view-model.js';
+import {
+  actionOptionsFor,
+  formatMissionTime,
+  principalName,
+  userActionRequests,
+} from './mission-view-model.js';
 
 const KIND_LABEL: Record<ActionRequestDto['kind'], string> = {
   information: 'Input',
@@ -12,29 +17,6 @@ const KIND_LABEL: Record<ActionRequestDto['kind'], string> = {
   recovery: 'Recovery',
   escalation: 'Escalation',
 };
-
-function optionsFor(request: ActionRequestDto): ActionRequestDto['options'] {
-  if (request.options.length > 0) return request.options;
-  if (request.responseType === 'approval') {
-    return [
-      { id: 'approved', label: 'Approve' },
-      { id: 'rejected', label: 'Reject' },
-    ];
-  }
-  if (request.responseType === 'review') {
-    return [
-      { id: 'approved', label: 'Accept review' },
-      { id: 'changes_requested', label: 'Request changes' },
-    ];
-  }
-  if (request.responseType === 'recovery') {
-    return [
-      { id: 'retry', label: 'Retry' },
-      { id: 'cancel', label: 'Cancel work' },
-    ];
-  }
-  return [];
-}
 
 export function MissionDecisionPanel({
   snapshot,
@@ -65,7 +47,7 @@ export function MissionDecisionPanel({
       </header>
       <div className="mission-decision-list">
         {actions.map((request) => {
-          const options = optionsFor(request);
+          const options = actionOptionsFor(request);
           return (
             <article
               key={request.id}
@@ -102,15 +84,27 @@ export function MissionDecisionPanel({
               </div>
               {options.length > 0 ? (
                 <div className="mission-action-options" aria-label={`Resolve ${request.title}`}>
-                  {options.map((option, index) => (
+                  {options.map((option) => (
                     <button
                       key={option.id}
                       type="button"
-                      className={index === 0 ? 'mission-primary' : ''}
+                      className={[
+                        'mission-action-option',
+                        option.recommended ? 'mission-primary mission-option-recommended' : '',
+                        option.danger ? 'mission-option-danger' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      aria-label={option.label}
                       title={option.description}
+                      data-testid={`mission-action-option-${request.id}-${option.id}`}
                       onClick={() => onResolve(request.id, option.id, option.label)}
                     >
-                      {option.label}
+                      <span>
+                        <strong>{option.label}</strong>
+                        {option.recommended ? <em aria-hidden>Recommended</em> : null}
+                      </span>
+                      {option.description ? <small>{option.description}</small> : null}
                     </button>
                   ))}
                 </div>

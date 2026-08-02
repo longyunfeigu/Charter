@@ -1381,7 +1381,10 @@ export function SettingsView(): React.JSX.Element {
                 <button
                   className="btn"
                   data-testid="settings-open-memory"
-                  onClick={() => useAppStore.getState().setOverlay('memory')}
+                  onClick={() => {
+                    useAppStore.getState().setOverlay('none');
+                    useAppStore.getState().setRailView('memory');
+                  }}
                 >
                   Open Memory
                 </button>

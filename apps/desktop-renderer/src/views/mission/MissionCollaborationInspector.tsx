@@ -3,7 +3,12 @@ import type { MissionSnapshotDto } from '@pi-ide/ipc-contracts';
 import { Ic, ProviderMark, type ProviderMarkKind } from '../home-icons.js';
 import { buildMissionGraph } from './mission-graph-model.js';
 import type { MissionGraphSelection } from './MissionGraph.js';
-import { formatMissionTime, principalName, userActionRequests } from './mission-view-model.js';
+import {
+  actionOptionsFor,
+  formatMissionTime,
+  principalName,
+  userActionRequests,
+} from './mission-view-model.js';
 
 function providerMark(provider: string | null, kind: string | undefined): ProviderMarkKind {
   if (provider === 'claude') return 'claude';
@@ -72,15 +77,7 @@ export function MissionCollaborationInspector({
             const sourceTask = request.createdByAssignmentId
               ? assignmentTask.get(request.createdByAssignmentId)
               : null;
-            const options =
-              request.options.length > 0
-                ? request.options
-                : request.responseType === 'approval'
-                  ? [
-                      { id: 'approved', label: 'Approve' },
-                      { id: 'rejected', label: 'Reject' },
-                    ]
-                  : [];
+            const options = actionOptionsFor(request);
             return (
               <article
                 key={request.id}
@@ -102,10 +99,17 @@ export function MissionCollaborationInspector({
                     {options.map((option) => (
                       <button
                         key={option.id}
-                        className={options[0]?.id === option.id ? 'mission-primary' : ''}
+                        className={[
+                          option.recommended ? 'mission-primary mission-option-recommended' : '',
+                          option.danger ? 'mission-option-danger' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        aria-label={option.label}
                         onClick={() => onResolve(request.id, option.id, option.label)}
                       >
-                        {option.label}
+                        <span>{option.label}</span>
+                        {option.recommended ? <em aria-hidden>Recommended</em> : null}
                       </button>
                     ))}
                   </span>

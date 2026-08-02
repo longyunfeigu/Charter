@@ -17,6 +17,8 @@ test('Mission Experience separates Agent requests from user actions and persists
   let createdMissionId = '';
   let bAssignmentId = '';
   let dAssignmentId = '';
+  let agentRequestMessageId = '';
+  let userActionRequestId = '';
   try {
     await first.page.getByTestId('surface-home').click();
     await first.page.getByTestId('home-advanced-toggle').click();
@@ -140,6 +142,7 @@ test('Mission Experience separates Agent requests from user actions and persists
       blockingScope: 'assignment',
       idempotencyKey: 'schema-ownership-request',
     });
+    agentRequestMessageId = agentRequest.message.id;
     repository.resolveActionRequest({
       requestId: agentRequest.request.id,
       resolvedByPrincipalId: b.assignment.assigneePrincipalId,
@@ -148,7 +151,7 @@ test('Mission Experience separates Agent requests from user actions and persists
       body: 'Attempt owns replaceable runtime identity.',
       idempotencyKey: 'schema-ownership-resolution',
     });
-    repository.createActionRequest({
+    const userAction = repository.createActionRequest({
       missionId: created.mission.id,
       relatedTaskId: lead.taskId,
       createdByPrincipalId: lead.assigneePrincipalId,
@@ -160,8 +163,17 @@ test('Mission Experience separates Agent requests from user actions and persists
       title: 'Choose the release window',
       context: 'The architecture is ready. Choose when the release should proceed.',
       options: [
-        { id: 'release-now', label: 'Release now' },
-        { id: 'hold-release', label: 'Hold release' },
+        {
+          id: 'release-now',
+          label: 'Release now',
+          description: 'Proceed after reviewing the recorded evidence.',
+          recommended: true,
+        },
+        {
+          id: 'hold-release',
+          label: 'Hold release',
+          description: 'Keep deployment paused for another review.',
+        },
       ],
       recommendation: 'Release now after accepting the recorded evidence.',
       impact: 'This determines whether deployment proceeds today.',
@@ -169,6 +181,7 @@ test('Mission Experience separates Agent requests from user actions and persists
       blockingScope: 'none',
       idempotencyKey: 'release-window-decision',
     });
+    userActionRequestId = userAction.request.id;
     repository.completeAttempt({
       attemptId: d.attempt.id,
       principalId: d.assignment.assigneePrincipalId,
@@ -231,21 +244,31 @@ test('Mission Experience separates Agent requests from user actions and persists
       'Ship Mission Orchestration V2',
     );
     await second.page.getByTestId('rail-view-sessions').click();
+    await expect(second.page.getByTestId('mission-center')).toBeHidden();
+    await expect(second.page.getByTestId('rail-view-sessions')).toHaveClass(/active/);
     await second.page.getByTestId(`home-task-${taskId}`).click();
     const strip = second.page.getByTestId('mission-status-strip');
     await expect(strip).toBeVisible();
     await expect(strip).toHaveAttribute('aria-label', /Ship Mission Orchestration V2/);
     await expect(strip).toContainText('3 of 3 work items done');
+    await expect(strip).toContainText('Open your actions');
     await strip.click();
 
     const mission = second.page.getByTestId('mission-view');
     await expect(mission).toBeVisible();
     await expect(mission).toContainText('Ship Mission Orchestration V2');
     await expect(second.page.getByTestId('mission-state')).toHaveText('Ready to review');
-    await expect(second.page.getByTestId('mission-results')).toBeVisible();
+    await expect(second.page.getByTestId('mission-user-actions')).toBeVisible();
+    await expect(second.page.getByTestId('mission-work-map')).toBeVisible();
+    await expect(second.page.getByTestId('mission-view-outline')).toHaveClass(/active/);
 
-    await second.page.getByTestId('mission-tab-work').click();
     const workMap = second.page.getByTestId('mission-work-map');
+    await expect(workMap.locator('.mission-work-card')).toHaveCount(3);
+    await expect(workMap.locator('.mission-work-children .mission-work-children')).toHaveCount(1);
+    const selectedOutlineWork = workMap.locator('.mission-work-card[aria-current="true"]');
+    await expect(selectedOutlineWork).toHaveCount(1);
+    await expect(selectedOutlineWork).toContainText('Lead agent A');
+    await second.page.getByTestId('mission-view-graph').click();
     await expect(workMap.locator('.mission-graph-node')).toHaveCount(3);
     await expect(workMap).toContainText('Lead agent A');
     await expect(workMap).toContainText('Persistence specialist B');
@@ -306,7 +329,17 @@ test('Mission Experience separates Agent requests from user actions and persists
     const actions = second.page.getByTestId('mission-user-actions');
     await expect(actions).toContainText('Choose the release window');
     await expect(actions).toContainText('Team recommendation');
+    await expect(actions).toContainText('Proceed after reviewing the recorded evidence.');
     await expect(actions).not.toContainText('Schema ownership check');
+    const releaseNow = second.page.getByTestId(
+      `mission-action-option-${userActionRequestId}-release-now`,
+    );
+    const holdRelease = second.page.getByTestId(
+      `mission-action-option-${userActionRequestId}-hold-release`,
+    );
+    await expect(releaseNow).toHaveClass(/mission-primary/);
+    await expect(releaseNow).toContainText('Recommended');
+    await expect(holdRelease).not.toHaveClass(/mission-primary/);
     const actionViewport = second.page.viewportSize();
     await second.page.setViewportSize({ width: 1440, height: 900 });
     await actions.scrollIntoViewIfNeeded();
@@ -322,8 +355,7 @@ test('Mission Experience separates Agent requests from user actions and persists
     expect(actionBox).not.toBeNull();
     expect(actionBox!.x).toBeGreaterThanOrEqual(0);
     expect(actionBox!.x + actionBox!.width).toBeLessThanOrEqual(900);
-    const narrowReleaseButton = actions.getByRole('button', { name: 'Release now' });
-    const narrowReleaseBox = await narrowReleaseButton.boundingBox();
+    const narrowReleaseBox = await releaseNow.boundingBox();
     expect(narrowReleaseBox).not.toBeNull();
     expect(narrowReleaseBox!.x).toBeGreaterThanOrEqual(0);
     expect(narrowReleaseBox!.x + narrowReleaseBox!.width).toBeLessThanOrEqual(900);
@@ -336,10 +368,33 @@ test('Mission Experience separates Agent requests from user actions and persists
     await expect(activity).toContainText('Team activity');
     await expect(activity).toContainText('Schema ownership check');
     await expect(activity).toContainText('Request resolved');
+    await second.page.getByTestId('mission-activity-filter-requests').click();
+    await expect(activity).toContainText('Schema ownership check');
+    await expect(activity).not.toContainText('Repository schema and lifecycle are implemented.');
+    const agentRequestItem = second.page.getByTestId(
+      `mission-activity-item-${agentRequestMessageId}`,
+    );
+    const requestToggle = second.page.getByTestId(
+      `mission-activity-toggle-${agentRequestMessageId}`,
+    );
+    await expect(requestToggle).toHaveAttribute('aria-expanded', 'false');
+    await requestToggle.click();
+    await expect(requestToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(agentRequestItem).toContainText('Priority');
+    await expect(agentRequestItem).toContainText('information · resolved');
+    await second.page.screenshot({
+      path: '/tmp/charter-mission-activity-request-expanded.png',
+    });
+    await second.page.getByTestId('mission-activity-filter-progress').click();
+    await expect(activity).toContainText('Repository schema and lifecycle are implemented.');
+    await expect(activity).not.toContainText('Schema ownership check');
+    await second.page.screenshot({ path: '/tmp/charter-mission-activity-progressive.png' });
     await second.page.getByTestId('mission-tab-work').click();
-    await actions.getByRole('button', { name: 'Release now' }).click();
+    await releaseNow.click();
     await expect(actions).not.toBeVisible();
 
+    await second.page.getByTestId('mission-tab-work').click();
+    await second.page.getByTestId('mission-view-outline').click();
     await workMap.getByRole('button', { name: /Migration investigator D/ }).click();
     const details = second.page.getByTestId('mission-work-detail');
     await expect(details).toContainText('Schema review complete');

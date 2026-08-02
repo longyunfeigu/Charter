@@ -41,9 +41,14 @@ test.describe('Unified page history', () => {
       await session.locator('.pc-session-copy').click();
 
       await expect(page.getByTestId('task-room')).toBeVisible();
-      await expect(page.getByTestId('navigation-origin')).toContainText(projectName);
-      await expect(page.getByTestId('navigation-origin')).toContainText('sessions');
-      await expect(page.getByTestId('task-room-back')).toContainText(projectName);
+      await expect(page.getByTestId('navigation-back')).toHaveAttribute(
+        'aria-label',
+        new RegExp(`${projectName}.*sessions`),
+      );
+      await expect(page.getByTestId('task-room-back')).toHaveAttribute(
+        'aria-label',
+        new RegExp(`${projectName}.*sessions`),
+      );
 
       await page.getByTestId('task-room-back').click();
       await expect(page.getByTestId('project-center-sessions')).toBeVisible();

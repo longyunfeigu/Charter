@@ -216,6 +216,8 @@ export const ActionRequestOptionDtoSchema = z.object({
   id: z.string(),
   label: z.string(),
   description: z.string().optional(),
+  recommended: z.boolean().optional(),
+  danger: z.boolean().optional(),
 });
 export const ActionRequestDtoSchema = z.object({
   id: z.string(),

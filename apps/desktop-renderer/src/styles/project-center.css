@@ -5,19 +5,37 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg-editor);
+  background:
+    linear-gradient(
+      90deg,
+      transparent 49.94%,
+      color-mix(in srgb, var(--border) 42%, transparent) 50%,
+      transparent 50.06%
+    ),
+    var(--bg-editor);
   color: var(--fg);
   font-family: var(--font-ui);
 }
 
 .pc-header {
-  min-height: 108px;
+  position: relative;
+  min-height: 148px;
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 22px clamp(24px, 4vw, 56px) 18px;
-  border-bottom: 1px solid var(--border-soft);
-  background: color-mix(in srgb, var(--bg-editor) 94%, var(--bg-card));
+  padding: 30px clamp(24px, 4vw, 56px) 24px;
+  border-bottom: 1px solid var(--chrome-line);
+  background: var(--chrome-ink);
+  color: var(--chrome-paper);
+}
+.pc-header::after {
+  position: absolute;
+  top: 17px;
+  right: clamp(24px, 4vw, 56px);
+  color: var(--chrome-paper-muted);
+  font: 700 8px var(--font-mono);
+  letter-spacing: 0.1em;
+  content: 'PROJECT INTELLIGENCE / LIVE CONTEXT';
 }
 .pc-identity {
   min-width: 0;
@@ -33,9 +51,9 @@
   min-width: 0;
   overflow: hidden;
   margin: 0;
-  color: var(--fg);
-  font: 680 clamp(20px, 2.2vw, 28px) / 1.15 var(--font-display);
-  letter-spacing: -0.025em;
+  color: var(--chrome-paper);
+  font: 400 clamp(32px, 3.7vw, 48px) / 1.03 var(--font-display);
+  letter-spacing: -0.042em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -43,7 +61,7 @@
   max-width: 720px;
   overflow: hidden;
   margin: 6px 0 0;
-  color: var(--fg-faint);
+  color: var(--chrome-paper-muted);
   font: 11px var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -77,6 +95,33 @@
   background: transparent;
   font-family: var(--font-mono);
   font-weight: 500;
+}
+.pc-header .pc-badge,
+.pc-header .pc-header-git {
+  border-color: var(--chrome-line);
+  background: var(--chrome-ink-raised);
+  color: var(--chrome-paper-muted);
+}
+.pc-header .pc-badge.current {
+  border-color: color-mix(in srgb, var(--success) 58%, transparent);
+  color: var(--success);
+}
+.pc-header .pc-button,
+.pc-header .pc-icon-button {
+  border-color: var(--chrome-line);
+  background: var(--chrome-ink-raised);
+  color: var(--chrome-paper-muted);
+}
+.pc-header .pc-button:hover,
+.pc-header .pc-icon-button:hover {
+  border-color: color-mix(in srgb, var(--chrome-paper) 24%, transparent);
+  background: color-mix(in srgb, var(--chrome-paper) 9%, transparent);
+  color: var(--chrome-paper);
+}
+.pc-header .pc-button.primary {
+  border-color: var(--chrome-signal);
+  background: var(--chrome-signal);
+  color: var(--chrome-ink);
 }
 .pc-actions {
   display: flex;
@@ -171,7 +216,7 @@
   left: 0;
   height: 2px;
   border-radius: 2px 2px 0 0;
-  background: var(--accent);
+  background: var(--chrome-signal);
   content: '';
 }
 .pc-tabs button > span {
@@ -209,7 +254,7 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg-card);
-  box-shadow: var(--shadow-card);
+  box-shadow: none;
 }
 .pc-metrics > button,
 .pc-metrics > div {

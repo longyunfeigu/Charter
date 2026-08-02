@@ -1,12 +1,6 @@
 import React from 'react';
-import {
-  editorAreaRegistry,
-  statusBarRegistry,
-  titleBarRegistry,
-  overlayRegistry,
-} from '../workbench/Workbench.js';
+import { editorAreaRegistry, statusBarRegistry, overlayRegistry } from '../workbench/Workbench.js';
 import { EditorArea } from '../workbench/EditorArea.js';
-import { Ic } from '../views/home-icons.js';
 import { registerCommands } from '../commands.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useEditorStore } from '../store/editorStore.js';
@@ -20,21 +14,6 @@ function activeEditorModelPath(): string | null {
 function focusedMonaco(): monaco.editor.ICodeEditor | null {
   const editors = monaco.editor.getEditors();
   return editors.find((e) => e.hasTextFocus()) ?? editors[0] ?? null;
-}
-
-function WorkspaceChip(): React.JSX.Element | null {
-  const workspace = useWorkspaceStore((s) => s.workspace);
-  if (!workspace) return null;
-  return (
-    <span className="tb-chip" title={workspace.path} data-testid="workspace-chip">
-      <Ic name="folder" size={12} /> {workspace.displayName}
-      {workspace.trustState === 'untrusted' && workspace.hasPiProjectResources ? (
-        <span className="text-warning" title="Project agent resources are not loaded (untrusted)">
-          <Ic name="shield" size={11} />
-        </span>
-      ) : null}
-    </span>
-  );
 }
 
 function CursorItem(): React.JSX.Element | null {
@@ -125,7 +104,8 @@ function TrustPrompt(): React.JSX.Element | null {
           </p>
           <p className="text-muted" style={{ fontSize: 12 }}>
             Untrusted (default): the IDE works normally, but agent sessions do not load any
-            project-local executable resources. You can change this later from the workspace chip.
+            project-local executable resources. You can change this later from the Command Palette
+            with “Workspace: Manage Project Trust”.
           </p>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button
@@ -147,7 +127,6 @@ function TrustPrompt(): React.JSX.Element | null {
 
 export function registerM3(): void {
   editorAreaRegistry.main = EditorArea;
-  titleBarRegistry.center.push(WorkspaceChip);
   overlayRegistry.push(TrustPrompt);
   statusBarRegistry.right.push(CursorItem, LanguageItem, EolItem, EncodingItem);
   statusBarRegistry.left.push(DirtyItem);

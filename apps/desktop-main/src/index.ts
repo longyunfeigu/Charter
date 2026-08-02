@@ -866,6 +866,38 @@ if (!gotLock) {
               contextTaskId: null,
             };
           },
+          async prepareExternalWorktree({ cli, projectPath, title, setupCommand }) {
+            if (!taskServiceRef) throw new Error('Task service is not ready.');
+            const task = await taskServiceRef.createExternalTask({
+              cli,
+              terminalId: 'pending',
+              cwd: projectPath,
+              projectPath,
+              isolation: 'worktree',
+              ...(setupCommand ? { worktreeSetup: setupCommand } : {}),
+              title,
+            });
+            const worktree = task.worktree && !task.worktree.missing ? task.worktree : null;
+            if (!worktree) {
+              await taskServiceRef.abortPreparedExternalTask(task.id);
+              throw new Error('The external Session worktree was not created.');
+            }
+            return {
+              cwd: worktree.path,
+              projectName: task.projectName,
+              projectPath: task.projectPath,
+              contextKind: 'task' as const,
+              contextLabel: task.title,
+              contextTaskId: task.id,
+            };
+          },
+          bindExternalTerminal(taskId, terminalId) {
+            if (!taskServiceRef) throw new Error('Task service is not ready.');
+            taskServiceRef.bindExternalTaskTerminal(taskId, terminalId);
+          },
+          async abortPreparedExternal(taskId) {
+            await taskServiceRef?.abortPreparedExternalTask(taskId);
+          },
         },
         externalLaunchIntents,
         {

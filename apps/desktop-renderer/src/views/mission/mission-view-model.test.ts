@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { MissionSnapshotDto } from '@pi-ide/ipc-contracts';
-import { missionSummary, taskStateCopy, unresolvedDecisionMessages } from './mission-view-model.js';
+import {
+  actionOptionsFor,
+  missionActivityCounts,
+  missionActivityMessages,
+  missionSummary,
+  taskStateCopy,
+  unresolvedDecisionMessages,
+} from './mission-view-model.js';
 
 function snapshot(): MissionSnapshotDto {
   return {
@@ -155,6 +162,8 @@ function snapshot(): MissionSnapshotDto {
       {
         id: 'question-1',
         missionId: 'mission-1',
+        conversationId: 'conversation-agent',
+        actionRequestId: 'agent-action',
         fromAssignmentId: 'b',
         toAssignmentId: 'a',
         threadId: null,
@@ -187,6 +196,63 @@ function snapshot(): MissionSnapshotDto {
         payload: null,
         sequence: 2,
         createdAt: '2026-01-01T00:01:00.000Z',
+        deliveredAt: null,
+        readAt: null,
+        suppressedAt: null,
+        suppressionReason: null,
+      },
+      {
+        id: 'progress-1',
+        missionId: 'mission-1',
+        fromAssignmentId: 'b',
+        toAssignmentId: 'a',
+        threadId: null,
+        attemptId: null,
+        type: 'progress',
+        priority: 'normal',
+        subject: 'Repository progress',
+        body: 'The state transitions are implemented.',
+        payload: null,
+        sequence: 3,
+        createdAt: '2026-01-01T00:02:00.000Z',
+        deliveredAt: null,
+        readAt: null,
+        suppressedAt: null,
+        suppressionReason: null,
+      },
+      {
+        id: 'completion-1',
+        missionId: 'mission-1',
+        fromAssignmentId: 'b',
+        toAssignmentId: 'a',
+        threadId: null,
+        attemptId: null,
+        type: 'completion',
+        priority: 'normal',
+        subject: 'Repository complete',
+        body: 'The repository is ready for verification.',
+        payload: null,
+        sequence: 4,
+        createdAt: '2026-01-01T00:03:00.000Z',
+        deliveredAt: null,
+        readAt: null,
+        suppressedAt: null,
+        suppressionReason: null,
+      },
+      {
+        id: 'heartbeat-1',
+        missionId: 'mission-1',
+        fromAssignmentId: 'b',
+        toAssignmentId: 'a',
+        threadId: null,
+        attemptId: null,
+        type: 'heartbeat',
+        priority: 'normal',
+        subject: 'Still active',
+        body: '',
+        payload: null,
+        sequence: 5,
+        createdAt: '2026-01-01T00:04:00.000Z',
         deliveredAt: null,
         readAt: null,
         suppressedAt: null,
@@ -226,5 +292,42 @@ describe('Mission view model', () => {
       tone: 'waiting',
     });
     expect(missionSummary(value)).toMatchObject({ active: 0, waiting: 1 });
+  });
+
+  it('separates requests, progress, and outcomes without exposing heartbeats', () => {
+    const value = snapshot();
+
+    expect(missionActivityCounts(value)).toEqual({
+      all: 4,
+      requests: 2,
+      progress: 1,
+      outcomes: 1,
+    });
+    expect(missionActivityMessages(value, 'requests').map((message) => message.id)).toEqual([
+      'question-1',
+      'user-question-1',
+    ]);
+    expect(missionActivityMessages(value, 'progress').map((message) => message.id)).toEqual([
+      'progress-1',
+    ]);
+    expect(missionActivityMessages(value, 'outcomes').map((message) => message.id)).toEqual([
+      'completion-1',
+    ]);
+  });
+
+  it('styles only explicitly recommended or dangerous request options', () => {
+    const value = snapshot();
+    value.actionRequests![1]!.options = [
+      { id: 'later', label: 'Release later' },
+      { id: 'now', label: 'Release now', recommended: true },
+    ];
+    expect(actionOptionsFor(value.actionRequests![1]!)).toEqual(value.actionRequests![1]!.options);
+
+    value.actionRequests![1]!.options = [];
+    value.actionRequests![1]!.responseType = 'recovery';
+    expect(actionOptionsFor(value.actionRequests![1]!)).toEqual([
+      { id: 'retry', label: 'Retry' },
+      { id: 'cancel', label: 'Cancel work', danger: true },
+    ]);
   });
 });

@@ -191,14 +191,35 @@
 /* ---------- main ---------- */
 
 .hm-main {
+  position: relative;
+  isolation: isolate;
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  background:
+    linear-gradient(
+      90deg,
+      transparent 49.92%,
+      color-mix(in srgb, var(--border) 52%, transparent) 50%,
+      transparent 50.08%
+    ),
+    var(--bg-editor);
+}
+.hm-main::before {
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  right: clamp(24px, 4vw, 64px);
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--border) 72%, transparent);
+  content: '';
+  pointer-events: none;
 }
 .hm-main-top {
-  height: 38px;
+  height: clamp(18px, 3vh, 34px);
   flex: none;
   display: flex;
   align-items: center;
@@ -209,42 +230,60 @@
 .hm-main-top button {
   -webkit-app-region: no-drag;
 }
-/* Studio hero (ADR-0008): a quiet serif greeting anchored to the composer —
-   no icon, no vertical void. The column scrolls from the top. */
+/* Editorial session brief: scale creates identity, while the composer remains
+   the single operational focus. */
 .hm-hero {
+  width: min(980px, 100%);
   flex: none;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 auto;
+  padding: clamp(34px, 7vh, 78px) clamp(28px, 5vw, 64px) 27px;
+}
+.hm-eyebrow {
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5vh 24px 16px;
+  gap: 8px;
+  color: var(--fg-muted);
+  font: 700 9px var(--font-mono);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+.hm-eyebrow > span {
+  width: 22px;
+  height: 2px;
+  background: var(--chrome-signal);
 }
 .hm-hero h1 {
   margin: 0;
+  max-width: 850px;
   font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 650;
-  letter-spacing: -0.015em;
-}
-.hm-hero .hm-sub {
-  font-size: 13px;
-  color: var(--fg-faint);
-  text-align: center;
+  font-size: clamp(46px, 6.2vw, 76px);
+  font-weight: 400;
+  letter-spacing: -0.047em;
+  line-height: 0.96;
 }
 .hm-composer {
-  padding: 0 28px 8px;
+  width: min(980px, 100%);
+  margin: 0 auto;
+  padding: 0 clamp(28px, 5vw, 64px) 28px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   flex: none;
 }
 .hm-card {
   width: 100%;
-  max-width: 680px;
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--fg) 7%, transparent);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
 }
 .hm-card.drop {
   border-color: var(--accent);
@@ -285,6 +324,47 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.hm-run-picker-wrap {
+  position: relative;
+  min-width: 0;
+}
+.hm-run-chip.isolated {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--fg);
+}
+.hm-run-menu {
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(390px, calc(100vw - 48px));
+  max-width: none;
+}
+.hm-run-menu .hm-sec {
+  padding-top: 7px;
+}
+.hm-run-menu .hm-row {
+  align-items: flex-start;
+  padding-block: 9px;
+}
+.hm-run-menu .hm-row:disabled {
+  cursor: default;
+  opacity: 0.46;
+}
+.hm-run-menu .hm-row > svg {
+  margin-top: 2px;
+}
+.hm-run-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 6px 8px 3px 33px;
+  color: var(--fg-faint);
+  font-size: 10.5px;
+}
+.hm-run-setup input {
+  margin: 0;
+  font-family: var(--font-mono);
 }
 
 .hm-refchip {
@@ -330,10 +410,10 @@
   background: transparent;
   color: var(--fg);
   font-family: inherit;
-  font-size: 14.5px;
-  line-height: 1.55;
-  padding: 10px 16px 4px;
-  min-height: 62px;
+  font-size: 17px;
+  line-height: 1.5;
+  padding: 18px 18px 12px;
+  min-height: 104px;
 }
 .hm-ta::placeholder {
   color: var(--fg-faint);
@@ -410,7 +490,9 @@
   display: flex;
   align-items: center;
   gap: 1px;
-  padding: 8px 7px 10px;
+  min-height: 50px;
+  padding: 8px 9px;
+  border-top: 1px solid var(--border-soft);
 }
 .hm-btmrow .hm-spacer {
   flex: 1;
@@ -459,9 +541,9 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
   border: none;
   background: var(--bg-hover);
   color: var(--fg-faint);
@@ -471,7 +553,7 @@
 .hm-send.ready {
   background: var(--accent);
   color: var(--accent-fg);
-  box-shadow: var(--shadow-card);
+  box-shadow: none;
 }
 .hm-send:disabled {
   cursor: default;
@@ -639,11 +721,35 @@
 /* Caption under the composer: explains the active trust level (mockup parity). */
 .hm-hint {
   width: 100%;
-  max-width: 680px;
+  max-width: none;
   font-size: 12px;
   color: var(--fg-faint);
-  padding: 9px 4px 0;
+  padding: 11px 2px 0;
   text-align: left;
+}
+
+@media (max-width: 720px) {
+  .hm-main {
+    background: var(--bg-editor);
+  }
+  .hm-main::before {
+    display: none;
+  }
+  .hm-main-top {
+    height: 10px;
+  }
+  .hm-hero {
+    padding: 30px 22px 22px;
+  }
+  .hm-hero h1 {
+    font-size: clamp(38px, 11vw, 54px);
+  }
+  .hm-composer {
+    padding: 0 22px 22px;
+  }
+  .hm-btmrow {
+    flex-wrap: wrap;
+  }
 }
 .hm-hint b {
   color: var(--fg-muted);

@@ -135,7 +135,7 @@ export function QuickLauncher(): React.JSX.Element | null {
         group: 'Actions',
         icon: 'brain',
         label: 'Open Memory (project rules & agent memories)',
-        run: () => useAppStore.getState().setOverlay('memory'),
+        run: () => useAppStore.getState().setRailView('memory'),
       },
     ];
     list.push(...actions.filter((a) => matches(a.label)));
@@ -174,7 +174,7 @@ export function QuickLauncher(): React.JSX.Element | null {
           icon: 'brain',
           label: hit.label.length > 72 ? `${hit.label.slice(0, 72)}…` : hit.label,
           sub: hit.sub,
-          run: () => useAppStore.getState().setOverlay('memory'),
+          run: () => useAppStore.getState().setRailView('memory'),
         });
       }
     }

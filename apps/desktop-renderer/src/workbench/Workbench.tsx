@@ -258,7 +258,6 @@ export const statusBarRegistry: { left: React.ComponentType[]; right: React.Comp
   left: [],
   right: [],
 };
-export const titleBarRegistry: { center: React.ComponentType[] } = { center: [] };
 export const overlayRegistry: React.ComponentType[] = [];
 /** Dual-form shell (ADR-0004): the Home task launcher registered by contrib. */
 export const homeSurfaceRegistry: { main: React.ComponentType | null } = { main: null };
@@ -301,6 +300,31 @@ export function Workbench(): React.JSX.Element {
   const tasks = useTaskStore((s) => s.tasks);
   const backLabel = navigationLabel(backTarget, tasks);
   const forwardLabel = navigationLabel(forwardTarget, tasks);
+  const destination = remotesOpen
+    ? { label: 'Remote Explorer', icon: 'server', title: 'Selected remote host overview' }
+    : railView === 'missions'
+      ? { label: 'Missions', icon: 'compass', title: 'Mission overview' }
+      : railView === 'projects'
+        ? { label: 'Projects', icon: 'folder', title: 'Project browser' }
+        : railView === 'inbox'
+          ? { label: 'For you', icon: 'inbox', title: 'Work needing your attention' }
+          : railView === 'memory'
+            ? { label: 'Memory', icon: 'brain', title: 'Agent and project memory' }
+            : railView === 'skills'
+              ? { label: 'Skills', icon: 'puzzle', title: 'Skills usage and installations' }
+              : { label: 'Sessions', icon: 'sessions', title: 'Session workspace' };
+  const openDestination =
+    remotesOpen || railView === 'missions' || railView === 'sessions' || railView === 'files'
+      ? (): void => {
+          if (remotesOpen) {
+            useAppStore.getState().setRemoteSubview('overview');
+          } else if (railView === 'missions') {
+            useAppStore.getState().openMission(null);
+          } else {
+            useAppStore.getState().openSessionHome();
+          }
+        }
+      : null;
   const overlayDialogRef = useRef<HTMLDivElement>(null);
   const overlayWasOpenRef = useRef(false);
   const overlayFocusReturnRef = useRef<HTMLElement | null>(null);
@@ -382,7 +406,15 @@ export function Workbench(): React.JSX.Element {
         className={`titlebar ${platform() === 'darwin' ? '' : 'not-mac'}`}
         inert={overlay !== 'none'}
       >
-        <span className="tb-title">Charter</span>
+        <span className="tb-brand-lockup" aria-label="Charter agent operations">
+          <span className="tb-brand-mark" aria-hidden="true">
+            <Ic name="flag" size={13} />
+          </span>
+          <span className="tb-title">
+            <b>Charter</b>
+            <small>Agent operations</small>
+          </span>
+        </span>
         <span className="tb-nav" aria-label="Page history">
           <button
             className="tb-nav-button back"
@@ -405,41 +437,25 @@ export function Workbench(): React.JSX.Element {
             <Ic name="chevron" size={12} />
           </button>
         </span>
-        {backTarget ? (
+        {openDestination ? (
           <button
-            className="tb-history-origin"
-            data-testid="navigation-origin"
-            title={`Return to ${backLabel}`}
-            onClick={() => useAppStore.getState().navigateBack()}
+            className="tb-chip"
+            data-testid="surface-home"
+            title={destination.title}
+            onClick={openDestination}
           >
-            {backLabel}
+            <Ic name={destination.icon} size={12} /> {destination.label}
           </button>
-        ) : null}
-        <button
-          className="tb-chip"
-          data-testid="surface-home"
-          title={
-            remotesOpen
-              ? 'Return to the selected remote host overview'
-              : railView === 'skills'
-                ? 'Skills usage and installations'
-                : 'Open the selected Session'
-          }
-          onClick={() => {
-            if (remotesOpen) {
-              useAppStore.getState().setRemoteSubview('overview');
-              return;
-            }
-            if (railView === 'skills') return;
-            useAppStore.getState().openSessionHome();
-          }}
-        >
-          <Ic name={remotesOpen ? 'server' : railView === 'skills' ? 'puzzle' : 'home'} size={12} />{' '}
-          {remotesOpen ? 'Remote Explorer' : railView === 'skills' ? 'Skills' : 'Sessions'}
-        </button>
-        {titleBarRegistry.center.map((C, i) => (
-          <C key={i} />
-        ))}
+        ) : (
+          <span
+            className="tb-chip current-page"
+            data-testid="surface-home"
+            title={destination.title}
+            aria-current="page"
+          >
+            <Ic name={destination.icon} size={12} /> {destination.label}
+          </span>
+        )}
         <span className="tb-spacer" />
         <button
           className="tb-chip tb-quick-console"
@@ -460,7 +476,9 @@ export function Workbench(): React.JSX.Element {
 
       <div className="wb-main" inert={overlay !== 'none'}>
         {remotesOpen ? <RemoteRail /> : <SessionRail />}
-        {railView === 'skills' ? (
+        {railView === 'memory' ? (
+          <MemoryView />
+        ) : railView === 'skills' ? (
           <SkillsView />
         ) : homeSurfaceRegistry.main ? (
           <div className="session-home-host">
@@ -531,7 +549,6 @@ export function Workbench(): React.JSX.Element {
             </div>
             <div className="modal-body">
               {overlay === 'settings' ? <SettingsView /> : null}
-              {overlay === 'memory' ? <MemoryView /> : null}
               {overlay === 'diagnostics' ? <DiagnosticsView /> : null}
               {overlay === 'about' && appInfo ? (
                 <div style={{ padding: 20, lineHeight: 1.9 }}>

@@ -13,7 +13,9 @@ function reset(): void {
     railView: 'sessions',
     savedSurfaces: {
       workbench: { kind: 'home' },
+      missions: { kind: 'mission', missionId: null },
       projects: { kind: 'home' },
+      memory: { kind: 'home' },
       skills: { kind: 'home' },
     },
     navigationBack: [],
@@ -38,12 +40,13 @@ function reset(): void {
 beforeEach(reset);
 
 describe('railGroupOf / mainSurfaceOf', () => {
-  it('groups sessions, Missions, inbox and files into one workbench; projects and Skills stand alone', () => {
+  it('groups only conversation-feeding views; primary workspaces stand alone', () => {
     expect(railGroupOf('sessions')).toBe('workbench');
-    expect(railGroupOf('missions')).toBe('workbench');
+    expect(railGroupOf('missions')).toBe('missions');
     expect(railGroupOf('inbox')).toBe('workbench');
     expect(railGroupOf('files')).toBe('workbench');
     expect(railGroupOf('projects')).toBe('projects');
+    expect(railGroupOf('memory')).toBe('memory');
     expect(railGroupOf('skills')).toBe('skills');
   });
 
@@ -167,6 +170,22 @@ describe('unified page history', () => {
 });
 
 describe('setRailView across groups (the stale-main bug class)', () => {
+  it('switches Sessions and Missions atomically instead of leaving stale main content', () => {
+    useAppStore.getState().openTaskRoom('session-before-mission');
+    useAppStore.getState().openMission(null);
+    expect(useAppStore.getState().railView).toBe('missions');
+    expect(mainSurfaceOf(useAppStore.getState())).toEqual({ kind: 'mission', missionId: null });
+
+    useAppStore.getState().setRailView('sessions');
+    expect(useAppStore.getState().railView).toBe('sessions');
+    expect(useAppStore.getState().missionCenter).toBeNull();
+    expect(useAppStore.getState().taskRoomTaskId).toBe('session-before-mission');
+
+    useAppStore.getState().setRailView('missions');
+    expect(useAppStore.getState().railView).toBe('missions');
+    expect(mainSurfaceOf(useAppStore.getState())).toEqual({ kind: 'mission', missionId: null });
+  });
+
   it('leaving Sessions for Projects clears the open room from the main area', () => {
     useAppStore.getState().openTaskRoom('t1');
     useAppStore.getState().setRailView('projects');
@@ -192,6 +211,19 @@ describe('setRailView across groups (the stale-main bug class)', () => {
     expect(useAppStore.getState().railView).toBe('skills');
     useAppStore.getState().setRailView('sessions');
     expect(useAppStore.getState().taskRoomTaskId).toBe('t-skills');
+  });
+
+  it('Memory is a main page and cannot remain layered over another destination', () => {
+    useAppStore.getState().openTaskRoom('t-memory');
+    useAppStore.getState().setRailView('memory');
+    const memory = useAppStore.getState();
+    expect(memory.railView).toBe('memory');
+    expect(memory.taskRoomTaskId).toBeNull();
+    expect(memory.missionCenter).toBeNull();
+    expect(memory.remotesOpen).toBe(false);
+
+    useAppStore.getState().setRailView('sessions');
+    expect(useAppStore.getState().taskRoomTaskId).toBe('t-memory');
   });
 
   it('keeps Session Archive inside the workbench and restores it after visiting Projects', () => {

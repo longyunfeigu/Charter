@@ -3,7 +3,12 @@ import type { TaskDto } from '@pi-ide/ipc-contracts';
 import { pathForDroppedFile, rpcResult } from '../bridge.js';
 import { okOrToast, useAppStore } from '../store/appStore.js';
 import { useExternalStore, type ExternalSessionFile } from '../store/externalStore.js';
-import { useTerminalStore, mountTerminal, observeTerminalFit } from './TerminalPanel.js';
+import {
+  useTerminalStore,
+  mountTerminal,
+  observeTerminalFit,
+  type TermInstance,
+} from './TerminalPanel.js';
 import { hasDragRef, readDragRef } from './dragRefs.js';
 import { Ic } from './home-icons.js';
 import { canResumeExternal } from './labels.js';
@@ -11,8 +16,21 @@ import {
   externalAgentLifecycle,
   externalCliLabel,
   externalTerminalLifecycle,
+  isLeakedTerminalReply,
   isExternalCli,
 } from './external-terminal-lifecycle.js';
+
+function activeTerminalInput(item: Pick<TermInstance, 'term'>): string {
+  const buffer = item.term.buffer.active;
+  const cursor = buffer.baseY + buffer.cursorY;
+  let start = cursor;
+  while (start > 0 && cursor - start < 5 && buffer.getLine(start)?.isWrapped) start -= 1;
+  const lines: string[] = [];
+  for (let index = start; index <= cursor; index += 1) {
+    lines.push(buffer.getLine(index)?.translateToString(true) ?? '');
+  }
+  return lines.join('');
+}
 
 /**
  * ADR-0017 — the center column of an external CLI session's Task Room: the
@@ -53,6 +71,7 @@ export function ExternalTerminalColumn({
     : null;
   const terminalReadOnly = item !== null && (item.exited || lifecycle?.interactive === false);
   const hostRef = useRef<HTMLDivElement>(null);
+  const peekOpen = useAppStore((state) => state.peek?.taskId === task.id);
   const follow = useExternalStore((s) => s.follow[task.id] ?? true);
   const lastDelta = useExternalStore((s) => s.lastDelta);
   // 'drag' veils follow the pointer; 'ended' sticks after a drop on a dead
@@ -91,7 +110,8 @@ export function ExternalTerminalColumn({
   }, [external.terminalId, item, live, reconnectState, superseded]);
 
   // Live auto-follow (mock chapter ⑤ / direction B): while the peek is open,
-  // it follows whatever the CLI is writing right now. Opt-out via the LIVE pill.
+  // it follows whatever the CLI is writing right now. The control is shown
+  // only in that context instead of occupying every external terminal header.
   useEffect(() => {
     if (!follow || !lastDelta || lastDelta.taskId !== task.id) return;
     const app = useAppStore.getState();
@@ -109,6 +129,24 @@ export function ExternalTerminalColumn({
     mountTerminal(host, item, 'normal', terminalReadOnly);
     return observeTerminalFit(host, item);
   }, [item, terminalReadOnly]);
+
+  // Repair terminals already polluted by older builds. Only an ended Agent
+  // sitting at a live shell is eligible, and only when the current input line
+  // contains the exact xterm response signature. Ctrl-C cancels that corrupt
+  // line and gives the user a clean prompt; historical transcript rows remain
+  // untouched and arbitrary user commands are never guessed at or erased.
+  useEffect(() => {
+    if (live || !item || lifecycle?.agent !== 'ended' || lifecycle.terminal !== 'live') return;
+    const timer = window.setTimeout(() => {
+      if (!isLeakedTerminalReply(activeTerminalInput(item))) return;
+      void rpcResult('terminal.write', {
+        id: item.id,
+        data: '\u0003',
+        userInitiated: false,
+      });
+    }, 160);
+    return () => window.clearTimeout(timer);
+  }, [item, lifecycle?.agent, lifecycle?.terminal, live]);
 
   const acceptsDrag = (e: React.DragEvent): boolean =>
     hasDragRef(e) || e.dataTransfer.types.includes('Files');
@@ -141,29 +179,22 @@ export function ExternalTerminalColumn({
       }}
     >
       <div className="tr-exthead">
-        <span className={`tr-extdot ${live ? 'live' : ''}`} />
-        <span className="tr-extname">
+        <span
+          className={`tr-extdot ${live ? 'live' : ''}`}
+          data-testid={live ? 'external-live' : undefined}
+          aria-label={live ? 'External Agent live' : undefined}
+        />
+        <span
+          className="tr-extname"
+          title="External Agent session — execution is outside Charter's Tool Gateway"
+        >
           ✳ {isExternalCli(external.cli) ? externalCliLabel(external.cli) : external.cli}
         </span>
-        <span
-          className="tr-extbadge"
-          title="This session runs outside the Tool Gateway and the permission engine. An entry snapshot was taken; every change is tracked and reviewable."
-        >
-          EXT · unmanaged
-        </span>
-        {external.snapshotRef ? (
-          <span
-            className="tr-extsnap"
-            title="Entry snapshot — rollback restores these bytes exactly"
-          >
-            snap {external.snapshotRef.slice(0, 7)}
-          </span>
-        ) : null}
         <span className="tr-sp" />
-        {live ? (
+        {live && peekOpen ? (
           <button
             className={`tr-extlive ${follow ? '' : 'paused'}`}
-            data-testid="external-live"
+            data-testid="external-follow"
             title={
               follow
                 ? 'The peek follows what the CLI is writing. Click to pin the current file.'
@@ -171,9 +202,9 @@ export function ExternalTerminalColumn({
             }
             onClick={() => useExternalStore.getState().setFollow(task.id, !follow)}
           >
-            {follow ? 'LIVE · following' : '⏸ pinned'}
+            {follow ? 'Following changes' : 'Follow latest change'}
           </button>
-        ) : (
+        ) : !live ? (
           <>
             <span className="tr-extended" data-testid="external-ended">
               {lifecycle?.agentLabel ?? 'Agent ended'}
@@ -185,7 +216,7 @@ export function ExternalTerminalColumn({
               {lifecycle?.terminalLabel ?? 'Terminal ended'}
             </span>
           </>
-        )}
+        ) : null}
       </div>
       <div className="tr-extbody">
         {item ? (

@@ -19,6 +19,10 @@ export interface ActionRequestOption {
   id: string;
   label: string;
   description?: string;
+  /** Explicit visual guidance from the request author. The UI must not infer this from order. */
+  recommended?: boolean;
+  /** Marks a materially destructive or irreversible outcome. */
+  danger?: boolean;
 }
 
 /** Explicit work that one principal asks another principal to perform.

@@ -1,7 +1,8 @@
-import type { MissionSnapshotDto } from '@pi-ide/ipc-contracts';
+import type { ActionRequestDto, MissionSnapshotDto } from '@pi-ide/ipc-contracts';
 
 export type MissionSection = 'work' | 'activity' | 'results';
 export type MissionTone = 'active' | 'waiting' | 'attention' | 'success' | 'neutral';
+export type MissionActivityFilter = 'all' | 'requests' | 'progress' | 'outcomes';
 
 export const TERMINAL_MISSION_STATES = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
 
@@ -97,6 +98,61 @@ export function userActionRequests(snapshot: MissionSnapshotDto) {
 export function agentActionRequests(snapshot: MissionSnapshotDto) {
   const userRequestIds = new Set(userActionRequests(snapshot).map((request) => request.id));
   return openActionRequests(snapshot).filter((request) => !userRequestIds.has(request.id));
+}
+
+/** Resolve controls are explicit data. In particular, the UI never treats the
+ * first option as a recommendation just because it happens to be first. */
+export function actionOptionsFor(request: ActionRequestDto): ActionRequestDto['options'] {
+  if (request.options.length > 0) return request.options;
+  if (request.responseType === 'approval') {
+    return [
+      { id: 'approved', label: 'Approve' },
+      { id: 'rejected', label: 'Reject' },
+    ];
+  }
+  if (request.responseType === 'review') {
+    return [
+      { id: 'approved', label: 'Accept review' },
+      { id: 'changes_requested', label: 'Request changes' },
+    ];
+  }
+  if (request.responseType === 'recovery') {
+    return [
+      { id: 'retry', label: 'Retry' },
+      { id: 'cancel', label: 'Cancel work', danger: true },
+    ];
+  }
+  return [];
+}
+
+export function missionActivityMessages(
+  snapshot: MissionSnapshotDto,
+  filter: MissionActivityFilter,
+): MissionSnapshotDto['messages'] {
+  return snapshot.messages.filter((message) => {
+    if (message.type === 'heartbeat') return false;
+    if (filter === 'requests') return Boolean(message.actionRequestId);
+    if (filter === 'progress') {
+      return (
+        !message.actionRequestId && ['assignment', 'progress', 'handoff'].includes(message.type)
+      );
+    }
+    if (filter === 'outcomes') {
+      return !message.actionRequestId && ['completion', 'cancellation'].includes(message.type);
+    }
+    return true;
+  });
+}
+
+export function missionActivityCounts(
+  snapshot: MissionSnapshotDto,
+): Record<MissionActivityFilter, number> {
+  return {
+    all: missionActivityMessages(snapshot, 'all').length,
+    requests: missionActivityMessages(snapshot, 'requests').length,
+    progress: missionActivityMessages(snapshot, 'progress').length,
+    outcomes: missionActivityMessages(snapshot, 'outcomes').length,
+  };
 }
 
 export function openIncidents(snapshot: MissionSnapshotDto) {

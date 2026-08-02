@@ -47,6 +47,17 @@ export interface TerminalContextResolvers {
     cli: 'claude' | 'codex',
     sessionId: string,
   ): Promise<TerminalContextResolution | null>;
+  /** Prepare a task-owned worktree before a visible external Agent PTY is
+   * created. The returned task context is host-resolved; no path chosen by the
+   * renderer becomes a terminal cwd directly. */
+  prepareExternalWorktree(input: {
+    cli: 'claude' | 'codex';
+    projectPath: string;
+    title: string;
+    setupCommand?: string;
+  }): Promise<TerminalContextResolution>;
+  bindExternalTerminal(taskId: string, terminalId: string): void;
+  abortPreparedExternal(taskId: string): Promise<void>;
 }
 
 /**
@@ -452,7 +463,14 @@ export function registerM4Handlers(
         return { outcomes };
       },
 
-      'terminal.create': async ({ taskId, context, launch, initialPrompt, target }) => {
+      'terminal.create': async ({ taskId, context, launch, initialPrompt, worktree, target }) => {
+        if (worktree && (launch === 'shell' || target || context || taskId)) {
+          throw new ProductFailure(
+            productError('TERMINAL_WORKTREE_INVALID', {
+              userMessage: 'A new worktree can only be created for a local Claude or Codex launch.',
+            }),
+          );
+        }
         // ADR-0047: a remote target runs on an SSH host — SshService owns the
         // connect + shell channel + adoptBackend, and delivers the CLI launch.
         if (target?.kind === 'ssh') {
@@ -465,14 +483,43 @@ export function registerM4Handlers(
           }
           return remoteTerminals.create({ hostId: target.hostId, launch });
         }
-        const requested =
-          context ?? (taskId ? { kind: 'task' as const, taskId } : { kind: 'focused' as const });
-        const resolved = await resolveTerminalContext(requested);
-        const info = services.terminals.create({
-          ...resolved,
-          shellPath: undefined,
-          launch,
-        });
+        let preparedTaskId: string | null = null;
+        const resolved = worktree
+          ? await (() => {
+              if (!contextResolvers) {
+                throw new ProductFailure(
+                  productError('TERMINAL_CONTEXT_UNKNOWN', {
+                    userMessage: 'Worktree launch support is unavailable right now.',
+                  }),
+                );
+              }
+              return contextResolvers.prepareExternalWorktree({
+                cli: launch === 'claude' ? 'claude' : 'codex',
+                projectPath: worktree.projectPath,
+                title: worktree.title,
+                ...(worktree.setupCommand ? { setupCommand: worktree.setupCommand } : {}),
+              });
+            })()
+          : await resolveTerminalContext(
+              context ??
+                (taskId ? { kind: 'task' as const, taskId } : { kind: 'focused' as const }),
+            );
+        if (worktree) preparedTaskId = resolved.contextTaskId;
+
+        let info: TerminalInfo | null = null;
+        try {
+          info = services.terminals.create({
+            ...resolved,
+            shellPath: undefined,
+            launch,
+          });
+          if (preparedTaskId) contextResolvers?.bindExternalTerminal(preparedTaskId, info.id);
+        } catch (error) {
+          if (info) services.terminals.kill(info.id);
+          if (preparedTaskId) await contextResolvers?.abortPreparedExternal(preparedTaskId);
+          throw error;
+        }
+        if (!info) throw new Error('Terminal creation did not return a terminal.');
         const sessionId = launch === 'claude' ? randomUUID() : null;
         const command = terminalLaunchCommand(
           launch,

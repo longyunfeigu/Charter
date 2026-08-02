@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { launchApp } from './helpers/launch';
@@ -221,18 +221,38 @@ test.describe('External Session identity and presence', () => {
         );
         await expect(page.getByTestId(`session-terminal-${terminalId}`)).toHaveCount(0);
 
+        // Regression: older renderer builds could replay xterm's historical
+        // DA/color/XTVERSION replies into the now-live zsh input line. Seed
+        // that exact persisted corruption; opening the ended Session must
+        // cancel only this unmistakable protocol line before the user types.
+        const leakedReply =
+          'execute: ffff/ffff/ffff\\[?1;2cP>|xterm.js(6.1.0-beta.287)\\[?1;2c[?202_';
+        await page.evaluate(
+          async ({ id, data }) => {
+            await window.product.rpc['terminal.write']!({
+              id,
+              data,
+              userInitiated: false,
+            });
+          },
+          { id: terminalId!, data: leakedReply },
+        );
+        await waitForTerminalOutput(page, 'xterm.js(6.1.0-beta.287)', {
+          terminalId: terminalId!,
+        });
+
         await row.click();
         await expect(page.getByTestId('external-ended')).toHaveText('Agent ended');
         await expect(page.getByTestId('external-terminal-lifecycle')).toHaveText('Shell available');
         const terminal = page.getByTestId('external-terminal-host');
         await expect(terminal.locator('.xterm')).toBeVisible({ timeout: 15_000 });
         await terminal.locator('.xterm').click();
-        await page.keyboard.type(`echo shell-after-${provider}`);
+        const executionProof = join(fixture, `shell-after-${provider}.txt`);
+        const quotedProof = executionProof.replaceAll("'", "'\\''");
+        await page.keyboard.type(`printf recovered > '${quotedProof}'`);
         await page.keyboard.press('Enter');
-        await waitForTerminalOutput(page, `shell-after-${provider}`, {
-          terminalId: terminalId!,
-          timeout: 15_000,
-        });
+        await expect.poll(() => existsSync(executionProof), { timeout: 15_000 }).toBe(true);
+        expect(readFileSync(executionProof, 'utf8')).toBe('recovered');
         await page.screenshot({ path: `/tmp/charter-${provider}-ended-shell-1440.png` });
 
         await restarted.app.evaluate(({ BrowserWindow }) => {

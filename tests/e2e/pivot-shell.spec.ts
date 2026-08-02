@@ -50,7 +50,7 @@ test.describe('Unified Session shell pivot (ADR-0004, PIVOT-001..010)', () => {
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
     });
     const userDataDir = first.userDataDir;
-    await expect(first.page.getByTestId('workspace-chip')).toBeVisible();
+    await expect(first.page.getByTestId('workbench')).toBeVisible();
     await first.app.close();
 
     // Second launch: stay on Home and drive the full fast path through the UI.

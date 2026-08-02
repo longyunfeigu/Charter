@@ -955,18 +955,27 @@ export class ExternalSessionService {
     }
 
     // Product-launched sessions (composer / New Terminal presets) arrive with
-    // an intent: the pre-assigned conversation id and the first prompt. The
-    // intent is one-shot — consumed here, on the detection edge it was for.
-    const intent = reattachedTask ? null : (this.launchIntents?.consume(terminalId, cli) ?? null);
+    // an intent: the pre-assigned conversation id and the first prompt. A
+    // composer worktree launch already has a prepared external task, so the
+    // intent — rather than task presence — distinguishes it from a daemon
+    // reattach. The intent remains one-shot on this detection edge.
+    const intent = this.launchIntents?.consume(terminalId, cli) ?? null;
+    const existingReattach = reattachedTask !== null && intent === null;
 
     let taskId: string;
     if (reattachedTask) {
       taskId = reattachedTask.id;
-      this.tasks.recordEvent(taskId, 'external.sessionReattached', {
-        cli,
-        terminalId,
-        note: 'Reconnected to the daemon PTY after the desktop app restarted.',
-      });
+      this.tasks.recordEvent(
+        taskId,
+        existingReattach ? 'external.sessionReattached' : 'external.sessionLaunchConfirmed',
+        existingReattach
+          ? {
+              cli,
+              terminalId,
+              note: 'Reconnected to the daemon PTY after the desktop app restarted.',
+            }
+          : { cli, terminalId, worktree: worktree?.path ?? null },
+      );
     } else {
       try {
         const task = await this.tasks.createExternalTask({
@@ -1014,8 +1023,9 @@ export class ExternalSessionService {
       presenceAwaitingReply: false,
       presenceSawOutput: false,
       // A daemon-backed reattach means the same agent turn continued while
-      // the desktop was absent; resume watcher ownership immediately.
-      fileAttributionActive: reattachedTask !== null,
+      // the desktop was absent; a freshly prepared worktree launch has not
+      // begun its first turn yet.
+      fileAttributionActive: existingReattach,
       lastAgentActivityAtMs: Date.now(),
       fileAttributionGraceUntilMs: Date.now() + INITIAL_COMMAND_ATTRIBUTION_MS,
       pendingPrompt: null,
@@ -1036,7 +1046,7 @@ export class ExternalSessionService {
     session.unsubscribe = watcher.onBatch((changes) => this.onBatch(session, changes));
     watcher.start();
     this.registerLiveSession(session);
-    if (reattachedTask) await this.reconcileReattachedFiles(session);
+    if (existingReattach) await this.reconcileReattachedFiles(session);
     this.onSessionBound?.({ terminalId, taskId });
 
     if (intent?.sessionId) {
@@ -1062,7 +1072,7 @@ export class ExternalSessionService {
 
     // A reattached task already persisted output before shutdown. Feeding the
     // visual restore snapshot back into its ledger would duplicate old turns.
-    if (!reattachedTask) {
+    if (!existingReattach) {
       const leadIn = this.terminals.recentData(terminalId);
       if (leadIn) this.onTerminalData(terminalId, leadIn);
     }
@@ -1077,12 +1087,15 @@ export class ExternalSessionService {
       snapshotRef,
       files: session.lastFiles,
     });
-    this.logger.info(reattachedTask ? 'external session reattached' : 'external session started', {
-      terminalId,
-      cli,
-      taskId,
-      snapshotRef,
-    });
+    this.logger.info(
+      existingReattach ? 'external session reattached' : 'external session started',
+      {
+        terminalId,
+        cli,
+        taskId,
+        snapshotRef,
+      },
+    );
   }
 
   /** Rebuild accounting for writes that landed while no Electron watcher was
