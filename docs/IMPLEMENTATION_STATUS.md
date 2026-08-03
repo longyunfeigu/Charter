@@ -1,7 +1,7 @@
 # IMPLEMENTATION_STATUS.md
 
 Overall status: IN_PROGRESS  
-Current milestone: v1.0.0-beta.5 unsigned GitHub Prerelease CANDIDATE; Mission orchestration, extensible Agents and Terminal Replay VERIFIED; signed Stable is BLOCKED
+Current milestone: v1.0.0-beta.6 unsigned GitHub Prerelease CANDIDATE; Mission orchestration, extensible Agents and Terminal Replay VERIFIED; signed Stable is BLOCKED
 Last verified commit: (see git log)
 
 ## Status legend

@@ -1,6 +1,6 @@
 # Signing and notarization handoff
 
-Charter `1.0.0-beta.5` intentionally uses the unsigned release path. No certificate is needed to
+Charter `1.0.0-beta.6` intentionally uses the unsigned release path. No certificate is needed to
 build, test, or publish a GitHub prerelease. The instructions below are a dormant handoff for a
 future signed release; they are not evidence that the current artifacts are signed or notarized.
 

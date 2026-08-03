@@ -70,8 +70,8 @@ new artifact. Before applying a database schema migration, Charter automatically
 timestamped backup and restores it if the migration fails.
 
 Read the
-[known limitations](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.5/docs/KNOWN_LIMITATIONS.md),
-[recovery guide](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.5/docs/RECOVERY.md),
-[privacy notice](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.5/PRIVACY.md), and
-[security policy](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.5/SECURITY.md) before using
+[known limitations](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.6/docs/KNOWN_LIMITATIONS.md),
+[recovery guide](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.6/docs/RECOVERY.md),
+[privacy notice](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.6/PRIVACY.md), and
+[security policy](https://github.com/longyunfeigu/Charter/blob/v1.0.0-beta.6/SECURITY.md) before using
 the preview on important repositories.

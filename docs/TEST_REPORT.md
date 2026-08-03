@@ -1,9 +1,9 @@
-# Charter 1.0.0-beta.5 Test Report
+# Charter 1.0.0-beta.6 Test Report
 
 ## Build identity
 
-- Version: `1.0.0-beta.5`
-- Candidate tag: `v1.0.0-beta.5`
+- Version: `1.0.0-beta.6`
+- Candidate tag: `v1.0.0-beta.6`
 - Pi SDK: `@earendil-works/pi-coding-agent@0.82.1`
 - Electron: `43.1.0`
 - Date: 2026-08-03
@@ -61,7 +61,7 @@ and custom external Agents retain their own permission and trust boundaries.
 
 ## Release decision
 
-`1.0.0-beta.5` is approved as an **unsigned GitHub Prerelease candidate**. The complete local
+`1.0.0-beta.6` is approved as an **unsigned GitHub Prerelease candidate**. The complete local
 Electron E2E and soak gates passed. Publication remains conditional on a green main CI run and the
 tag-triggered workflow's repeated gates, native packages and artifact metadata. The immutable commit,
 workflow run and published assets are recorded by GitHub after those conditions succeed.

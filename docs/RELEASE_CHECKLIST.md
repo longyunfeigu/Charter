@@ -1,8 +1,8 @@
 # M12 Release Checklist
 
-## Unsigned public Beta (`1.0.0-beta.5`)
+## Unsigned public Beta (`1.0.0-beta.6`)
 
-- [x] SemVer prerelease version and matching `v1.0.0-beta.5` tag policy.
+- [x] SemVer prerelease version and matching `v1.0.0-beta.6` tag policy.
 - [x] Unsigned releases are restricted to prerelease channels; unsigned Stable fails closed.
 - [x] macOS, Windows and Linux native package/install workflows are defined.
 - [x] E2E-023 migration and backup restore coverage.

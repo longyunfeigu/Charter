@@ -46,25 +46,28 @@ describe('terminal transport at interactive load', () => {
     expect(stats.p95).toBeLessThan(75);
   });
 
-  it('delivers a 1 MiB paste with accepted 16 KiB backpressure chunks', async () => {
+  it('delivers a 1 MiB paste with accepted 256-byte TTY-safe chunks', async () => {
     const paste = '界'.repeat(Math.floor((1024 * 1024) / 3));
     const stats = await measureAsync(4, async () => {
       let delivered = '';
       let acceptedChunks = 0;
+      let maxChunkBytes = 0;
       const writer = new TerminalInputWriter(() => undefined, {
         sendAccepted: async (input) => {
           delivered += input.data;
           acceptedChunks += 1;
+          maxChunkBytes = Math.max(maxChunkBytes, Buffer.byteLength(input.data));
         },
         wait: async () => undefined,
       });
       writer.enqueue({ id: 'term', data: paste, userInitiated: true, paste: true });
       await writer.settle();
       expect(delivered).toBe(paste);
-      expect(acceptedChunks).toBeGreaterThan(1);
-      expect(acceptedChunks).toBeLessThan(80);
+      expect(maxChunkBytes).toBeLessThanOrEqual(256);
+      expect(acceptedChunks).toBeGreaterThan(4_000);
+      expect(acceptedChunks).toBeLessThan(4_200);
     });
-    report('terminal accepted paste (1 MiB UTF-8)', stats);
+    report('terminal accepted TTY-safe paste (1 MiB UTF-8)', stats);
     expect(stats.p95).toBeLessThan(150);
   });
 });
