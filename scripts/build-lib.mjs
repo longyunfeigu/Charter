@@ -55,6 +55,16 @@ export const bundles = [
     define: { 'process.env.NODE_ENV': '"production"' },
   },
   {
+    entryPoints: [join(root, 'apps/desktop-main/src/static-preview-server.ts')],
+    outfile: join(root, 'apps/desktop-main/dist/static-preview-server.cjs'),
+    platform: 'node',
+    format: 'cjs',
+    bundle: true,
+    sourcemap: true,
+    target: 'node22',
+    define: { 'process.env.NODE_ENV': '"production"' },
+  },
+  {
     entryPoints: [join(root, 'apps/desktop-preload/src/index.ts')],
     outfile: join(root, 'apps/desktop-preload/dist/preload.cjs'),
     platform: 'node',

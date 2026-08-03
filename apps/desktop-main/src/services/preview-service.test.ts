@@ -168,6 +168,19 @@ describe('isWebishRoot (Preview tab visibility heuristic)', () => {
       kind: 'static',
       staticEntry: 'examples/meal-picker/index.html',
     });
+    expect(
+      await previewLaunchForRoot(root, {
+        executable: "/Applications/Charter's Preview.app/Contents/MacOS/Charter",
+        serverEntry: '/tmp/app.asar.unpacked/static-preview-server.cjs',
+        runAsNode: true,
+      }),
+    ).toEqual({
+      webish: true,
+      command:
+        "ELECTRON_RUN_AS_NODE=1 '/Applications/Charter'\\''s Preview.app/Contents/MacOS/Charter' '/tmp/app.asar.unpacked/static-preview-server.cjs' --directory 'examples/meal-picker'",
+      kind: 'static',
+      staticEntry: 'examples/meal-picker/index.html',
+    });
   });
 });
 

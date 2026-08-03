@@ -29,6 +29,7 @@ asarUnpack:
   # load its entry from inside app.asar.
   - 'apps/desktop-main/dist/terminal-daemon.cjs'
   - 'apps/desktop-main/dist/terminal-control-mcp.cjs'
+  - 'apps/desktop-main/dist/static-preview-server.cjs'
   - 'node_modules/@vscode/ripgrep/**'
   - 'node_modules/@agentclientprotocol/**'
   - 'node_modules/@openai/**'

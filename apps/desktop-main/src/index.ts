@@ -1167,7 +1167,19 @@ if (!gotLock) {
       });
       registerPreviewHandlers(
         taskService,
-        new PreviewService(logger.child('preview')),
+        new PreviewService(logger.child('preview'), {
+          executable: process.execPath,
+          serverEntry: join(
+            app.getAppPath().endsWith('app.asar')
+              ? `${app.getAppPath()}.unpacked`
+              : app.getAppPath(),
+            'apps',
+            'desktop-main',
+            'dist',
+            'static-preview-server.cjs',
+          ),
+          runAsNode: true,
+        }),
         logger.child('ipc'),
       );
       // ADR-0024: out-of-project image imports for context-feeding chips.

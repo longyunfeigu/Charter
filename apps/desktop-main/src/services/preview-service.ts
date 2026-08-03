@@ -31,6 +31,14 @@ export interface PreviewLaunch {
   staticEntry: string | null;
 }
 
+export interface StaticPreviewRuntime {
+  /** Electron (RunAsNode) or another trusted Node-compatible executable. */
+  executable: string;
+  /** Bundled static-preview server entry, outside app.asar when packaged. */
+  serverEntry: string;
+  runAsNode?: boolean;
+}
+
 interface LsofListener {
   pid: number;
   command: string;
@@ -331,7 +339,10 @@ export async function discoverStaticPreview(root: string): Promise<StaticPreview
   return selected ? { entryPath: selected.entryPath, directory: selected.directory } : null;
 }
 
-export async function previewLaunchForRoot(root: string): Promise<PreviewLaunch> {
+export async function previewLaunchForRoot(
+  root: string,
+  staticRuntime?: StaticPreviewRuntime,
+): Promise<PreviewLaunch> {
   const scripts = await readScripts(root);
   const script = WEB_SCRIPTS.find((name) => typeof scripts[name] === 'string');
   if (script) {
@@ -344,9 +355,12 @@ export async function previewLaunchForRoot(root: string): Promise<PreviewLaunch>
   }
   const staticSite = await discoverStaticPreview(root);
   if (!staticSite) return { webish: false, command: null, kind: null, staticEntry: null };
+  const staticCommand = staticRuntime
+    ? `${staticRuntime.runAsNode ? 'ELECTRON_RUN_AS_NODE=1 ' : ''}${shellQuote(staticRuntime.executable)} ${shellQuote(staticRuntime.serverEntry)} --directory ${shellQuote(staticSite.directory)}`
+    : `python3 -m http.server 0 --bind 127.0.0.1 --directory ${shellQuote(staticSite.directory)}`;
   return {
     webish: true,
-    command: `python3 -m http.server 0 --bind 127.0.0.1 --directory ${shellQuote(staticSite.directory)}`,
+    command: staticCommand,
     kind: 'static',
     staticEntry: staticSite.entryPath,
   };
@@ -377,14 +391,17 @@ export class PreviewService {
     { expiresAt: number; value: Promise<PreviewLaunch> }
   >();
 
-  constructor(private readonly logger: Logger) {}
+  constructor(
+    private readonly logger: Logger,
+    private readonly staticRuntime?: StaticPreviewRuntime,
+  ) {}
 
   /** Coalesce the rail, badge and review-gate probes into one bounded tree scan. */
   launchForRoot(root: string): Promise<PreviewLaunch> {
     const now = Date.now();
     const cached = this.launchCache.get(root);
     if (cached && cached.expiresAt > now) return cached.value;
-    const value = previewLaunchForRoot(root).catch((error) => {
+    const value = previewLaunchForRoot(root, this.staticRuntime).catch((error) => {
       this.logger.warn('preview launch discovery failed', { root, error: errorMessage(error) });
       return {
         webish: false,
