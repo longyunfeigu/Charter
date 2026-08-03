@@ -170,6 +170,9 @@ test('packaged daemon keeps a PTY alive across a full app restart', async () => 
       // the ephemeral runner cleanup.
       removeTestDirectory(userDataDir, process.platform === 'win32' ? 60 : 0);
     }
-    rmSync(fixture, { recursive: true, force: true });
+    // Git/Defender can retain a handle in the fixture briefly after the
+    // packaged process exits, just as they can for the user-data directory.
+    // The PTY restart assertions have already passed at this point.
+    removeTestDirectory(fixture, process.platform === 'win32' ? 60 : 0);
   }
 });
