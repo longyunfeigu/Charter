@@ -71,7 +71,7 @@ describe('TerminalInputWriter', () => {
     expect(sendFast).toHaveBeenCalledOnce();
   });
 
-  it('waits for host acceptance and yields only between 16 KiB paste chunks', async () => {
+  it('paces native paste below the interactive TTY input-queue limit', async () => {
     const acceptance = deferred();
     const writes: string[] = [];
     const writer = new TerminalInputWriter(() => undefined, {
@@ -82,12 +82,12 @@ describe('TerminalInputWriter', () => {
       wait: async () => undefined,
     });
 
-    const paste = 'x'.repeat(16 * 1024 + 1);
+    const paste = 'x'.repeat(513);
     writer.enqueue({ id: 'term-1', data: paste, userInitiated: true, paste: true });
-    await vi.waitFor(() => expect(writes).toEqual(['x'.repeat(16 * 1024)]));
+    await vi.waitFor(() => expect(writes).toEqual(['x'.repeat(512)]));
 
     acceptance.resolve();
-    await vi.waitFor(() => expect(writes).toEqual(['x'.repeat(16 * 1024), 'x']));
+    await vi.waitFor(() => expect(writes).toEqual(['x'.repeat(512), 'x']));
   });
 
   it('confirms a single-chunk paste before dispatching a following Enter', async () => {

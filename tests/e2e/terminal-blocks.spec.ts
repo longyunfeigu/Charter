@@ -18,7 +18,7 @@ const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 
 const OK_BLOCK = String.raw`printf '\033]133;A\007\033]133;B\007fake-ok\n\033]133;C\007output-line\n\033]133;D;0\007'`;
 const ERR_BLOCK = String.raw`printf '\033]133;A\007\033]133;B\007fake-err\n\033]133;C\007boom\n\033]133;D;1\007'`;
-const LONG_BLOCK = String.raw`printf '\033]133;A\007\033]133;B\007fake-long\n\033]133;C\007\033]9;4;1;42\007'; sleep 6; printf '\033]133;D;1\007'`;
+const LONG_BLOCK = String.raw`printf '\033]133;A\007\033]133;B\007fake-long\n\033]133;C\007\033]9;4;1;42\007'; sleep 12; printf '\033]133;D;1\007'`;
 
 function seededUserData(settings: object): string {
   const dir = mkdtempSync(join(tmpdir(), 'pi-ide-e2e-'));
@@ -117,11 +117,14 @@ test.describe('ADR-0021 terminal blocks', () => {
 
       // Look elsewhere: a second terminal takes the dock focus.
       await page.getByTestId('terminal-new').click();
+      await expect
+        .poll(async () => (await terminalPtySnapshot(page)).items.length)
+        .toBeGreaterThan(1);
 
       // When the long command finishes unfocused, its row rings the bell
       // (system banners are muted under PI_IDE_E2E — same switchboard).
       await expect(page.getByTestId(`terminal-bell-${firstTerminalId}`)).toBeVisible({
-        timeout: 15000,
+        timeout: 30000,
       });
       // Progress cleared with the block: the status item is gone.
       await expect(page.getByTestId('status-terminal-run')).toHaveCount(0);

@@ -6,9 +6,9 @@ import {
   type Page,
 } from '@playwright/test';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { delimiter, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -29,6 +29,34 @@ export interface LaunchedPackagedApp {
 }
 
 const root = join(__dirname, '../../..');
+
+/**
+ * Most renderer specs exercise the complete Agent catalog without invoking a
+ * real third-party CLI. Hosted runners intentionally have neither Claude nor
+ * Codex installed, so give those specs inert executables instead of making
+ * catalog coverage depend on the developer machine that happens to run them.
+ * Specs that provide their own PATH still win because their bins are searched
+ * before this fallback directory.
+ */
+function createCatalogAgentBins(userDataDir: string): string {
+  const bin = join(userDataDir, 'e2e-agent-bin');
+  mkdirSync(bin, { recursive: true });
+  for (const agent of ['claude', 'codex']) {
+    const executable = join(bin, agent);
+    writeFileSync(
+      executable,
+      [
+        '#!/usr/bin/env node',
+        `console.log(${JSON.stringify(`${agent} e2e fixture ready`)});`,
+        'process.stdin.resume();',
+        'setTimeout(() => process.exit(0), 60_000);',
+        '',
+      ].join('\n'),
+    );
+    chmodSync(executable, 0o755);
+  }
+  return bin;
+}
 
 export function packagedExecutablePath(): string {
   const explicit = process.env.CHARTER_PACKAGED_EXECUTABLE;
@@ -63,6 +91,8 @@ export async function launchApp(
   } = {},
 ): Promise<LaunchedApp> {
   const userDataDir = options.userDataDir ?? mkdtempSync(join(tmpdir(), 'pi-ide-e2e-'));
+  const catalogAgentBin = createCatalogAgentBins(userDataDir);
+  const inheritedPath = options.env?.PATH ?? process.env.PATH ?? '';
   const app = await electron.launch({
     args: ['.'],
     cwd: root,
@@ -71,6 +101,7 @@ export async function launchApp(
       ...process.env,
       PI_IDE_USER_DATA: userDataDir,
       PI_IDE_E2E: '1',
+      PATH: `${inheritedPath}${delimiter}${catalogAgentBin}`,
       ...options.env,
     },
   });

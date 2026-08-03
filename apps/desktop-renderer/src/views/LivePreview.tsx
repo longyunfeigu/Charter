@@ -210,9 +210,7 @@ export function LivePreview({
       return;
     }
     setDevTerminalId(id);
-    window.setTimeout(() => {
-      void rpcResult('terminal.write', { id, data: `${devCommand}\n` });
-    }, 700);
+    useTerminalStore.getState().write(id, `${devCommand}\r`);
     app.pushToast(
       'info',
       devCommandKind === 'static'

@@ -173,6 +173,7 @@ interface TerminalStore {
   undoCloseId: string | null;
   init(): void;
   create(options?: CreateTerminalRequest): Promise<string | null>;
+  write(id: string, data: string): boolean;
   adopt(id: string): Promise<boolean>;
   setContext(id: string, context: TerminalWorkingContext): Promise<boolean>;
   setActive(id: string): void;
@@ -1436,6 +1437,16 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     set({ items: [...get().items, item], active: item.id });
     if (options?.reveal !== false) useAppStore.getState().showBottomTab('terminal');
     return item.id;
+  },
+
+  write(id, data) {
+    const item = get().items.find((terminal) => terminal.id === id);
+    if (!item || item.exited) return false;
+    // Use the same ready gate and accepted transport lane as native paste.
+    // Background terminals are often not mounted yet, so direct RPC writes
+    // can otherwise arrive before the shell has drawn its first prompt.
+    item.inputWriter.enqueue({ id, data, userInitiated: true, paste: true });
+    return true;
   },
 
   async adopt(id) {
