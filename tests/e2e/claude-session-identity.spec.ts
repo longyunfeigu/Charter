@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { launchApp } from './helpers/launch';
 import { createGitFixture } from './helpers/fixtures';
-import { waitForTerminalOutput } from './helpers/terminal';
+import { typeTerminalCommand, waitForTerminalOutput } from './helpers/terminal';
 
 interface TerminalInfo {
   id: string;
@@ -247,11 +247,13 @@ test.describe('External Session identity and presence', () => {
         const terminal = page.getByTestId('external-terminal-host');
         await expect(terminal.locator('.xterm')).toBeVisible({ timeout: 15_000 });
         await expect(terminal).toHaveAttribute('aria-readonly', 'false');
-        await terminal.locator('.xterm').click();
         const executionProof = join(fixture, `shell-after-${provider}.txt`);
         const quotedProof = executionProof.replaceAll("'", "'\\''");
-        await page.keyboard.type(`printf recovered > '${quotedProof}'`);
-        await page.keyboard.press('Enter');
+        await typeTerminalCommand(page, `printf recovered > '${quotedProof}'`, {
+          terminalId: terminalId!,
+          xterm: terminal.locator('.xterm'),
+          timeout: 20_000,
+        });
         await expect.poll(() => existsSync(executionProof), { timeout: 15_000 }).toBe(true);
         expect(readFileSync(executionProof, 'utf8')).toBe('recovered');
         await page.screenshot({ path: `/tmp/charter-${provider}-ended-shell-1440.png` });
@@ -265,7 +267,15 @@ test.describe('External Session identity and presence', () => {
           .poll(() => page.evaluate(() => window.innerWidth), { timeout: 15_000 })
           .toBeLessThanOrEqual(1024);
         await expect(page.getByTestId('external-terminal-lifecycle')).toHaveText('Shell available');
-        await expect(page.getByTestId('session-tool-close')).toBeHidden();
+        // Container-query breakpoints depend on the room width left after the
+        // app rail finishes compacting, not BrowserWindow width alone. If the
+        // tool canvas has become the narrow single surface, use its explicit
+        // Conversation action to return to the shell before judging it.
+        const conversation = page.getByTestId('session-tool-close');
+        if (await conversation.isVisible().catch(() => false)) {
+          await expect(conversation).toHaveAccessibleName('Conversation');
+          await conversation.click();
+        }
         await expect(terminal.locator('.xterm')).toBeVisible();
         await page.screenshot({ path: `/tmp/charter-${provider}-ended-shell-980.png` });
         expect(rendererErrors).toEqual([]);

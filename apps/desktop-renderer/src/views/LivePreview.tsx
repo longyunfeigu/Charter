@@ -210,7 +210,12 @@ export function LivePreview({
       return;
     }
     setDevTerminalId(id);
-    useTerminalStore.getState().write(id, `${devCommand}\r`);
+    // Keep the process cwd pinned to the exact tree the gate is inspecting.
+    // A task worktree can disappear between terminal-context resolution and
+    // startup; silently running the same relative command in the main tree
+    // would both serve the wrong code and be rejected by port attribution.
+    const quotedRoot = `'${root.replaceAll("'", "'\\''")}'`;
+    useTerminalStore.getState().write(id, `cd ${quotedRoot} && ${devCommand}\r`);
     app.pushToast(
       'info',
       devCommandKind === 'static'

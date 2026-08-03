@@ -312,7 +312,13 @@ test.describe('Shell v4 — heartbeat + focus layers (PIVOT-028/025)', () => {
       await page.setViewportSize({ width: 1440, height: 900 });
 
       // Live file rows are evidence shortcuts, not decoration.
-      await roomBoard.getByTestId('live-tile-notes-live-a.txt').click();
+      const liveTile = roomBoard.getByTestId('live-tile-notes-live-a.txt');
+      // The board refreshes while the worker writes. Keyboard activation
+      // verifies the same accessible action without requiring a motion-heavy
+      // tile to remain pixel-stable for Playwright's pointer actionability.
+      await liveTile.focus();
+      await expect(liveTile).toBeFocused();
+      await page.keyboard.press('Enter');
       await expect(page.getByTestId('session-diff-review')).toBeVisible();
 
       // Fleet layer: the persistent rail keeps the Session and its current

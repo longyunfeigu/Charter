@@ -21,7 +21,8 @@ const MAX_CHUNK_BYTES = 16 * 1024;
 // Interactive TTY line disciplines can have input queues far smaller than an
 // IPC payload (macOS's default shell is a common example). Native paste must
 // therefore be paced independently from ordinary large transport writes.
-const MAX_PASTE_CHUNK_BYTES = 512;
+const MAX_PASTE_CHUNK_BYTES = 256;
+const PASTE_CHUNK_SETTLE_MS = 5;
 const MAX_COALESCED_CODE_UNITS = 4096;
 const TERMINAL_SETTLE_MS = 50;
 const COMMAND_START_TIMEOUT_MS = 500;
@@ -178,7 +179,9 @@ export class TerminalInputWriter {
         try {
           if (accepted) {
             await this.sendAccepted(write);
-            if (index + 1 < chunks.length) await this.wait(0);
+            if (index + 1 < chunks.length) {
+              await this.wait(input.paste === true ? PASTE_CHUNK_SETTLE_MS : 0);
+            }
           } else {
             const result = this.sendFast(write);
             if (result instanceof Promise) void result.catch(() => undefined);

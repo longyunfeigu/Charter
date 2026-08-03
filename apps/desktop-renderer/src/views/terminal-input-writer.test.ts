@@ -82,12 +82,12 @@ describe('TerminalInputWriter', () => {
       wait: async () => undefined,
     });
 
-    const paste = 'x'.repeat(513);
+    const paste = 'x'.repeat(257);
     writer.enqueue({ id: 'term-1', data: paste, userInitiated: true, paste: true });
-    await vi.waitFor(() => expect(writes).toEqual(['x'.repeat(512)]));
+    await vi.waitFor(() => expect(writes).toEqual(['x'.repeat(256)]));
 
     acceptance.resolve();
-    await vi.waitFor(() => expect(writes).toEqual(['x'.repeat(512), 'x']));
+    await vi.waitFor(() => expect(writes).toEqual(['x'.repeat(256), 'x']));
   });
 
   it('confirms a single-chunk paste before dispatching a following Enter', async () => {
