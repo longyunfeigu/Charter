@@ -1,14 +1,9 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { launchApp } from './helpers/launch';
 import { createTsSmallFixture } from './helpers/fixtures';
 
-async function switchReplayDepth(page: Page, depth: 'recap' | 'explore' | 'verify') {
-  await page.getByTestId('replay-menu-toggle').click();
-  await page.getByTestId(`replay-depth-${depth}`).click();
-}
-
-/** P2 (ADR-0006, PIVOT-016..018): parallel runs, persistent Sessions, replay, ⌘K. */
-test.describe('P2 — parallel runs, session replay, quick launcher', () => {
+/** P2 (ADR-0006, PIVOT-016..018): parallel runs, persistent Sessions and ⌘K. */
+test.describe('P2 — parallel runs, Sessions, quick launcher', () => {
   test('ADR-0006: two tasks run concurrently; the Session rail tracks both', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
@@ -56,7 +51,7 @@ test.describe('P2 — parallel runs, session replay, quick launcher', () => {
     }
   });
 
-  test('PIVOT-016/017: writes surface in the Session ledger; replay walks the recorded actions', async () => {
+  test('PIVOT-016/017: writes surface in the Session ledger without fabricating terminal video', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
@@ -77,55 +72,11 @@ test.describe('P2 — parallel runs, session replay, quick launcher', () => {
         timeout: 30000,
       });
 
-      // Replay V3 (ADR-0017 am.8): result-first opening frame, no autoplay,
-      // no A–E peer navigation, no numeric confidence.
+      // Managed ACP runs have no PTY byte stream. Terminal Replay is therefore
+      // not offered; the product never invents a movie from semantic events.
       await page.getByTestId('session-more').click();
-      await page.getByTestId('replay-open').click();
-      await expect(page.getByTestId('replay-view')).toBeVisible();
-      await expect(page.getByTestId('replay-contract')).toBeVisible();
-      await expect(page.getByTestId('replay-summary')).toBeVisible();
-      await expect(page.getByTestId('replay-play')).toContainText('Replay');
-      expect(await page.locator('[data-testid^="replay-mode-"]').count()).toBe(0);
-      expect(await page.getByTestId('replay-view').textContent()).not.toMatch(/\d+%\s*confidence/i);
-
-      // A result-card claim reaches its material change in one interaction;
-      // the stored per-step patch renders on the stage.
-      await page.locator('.rp-summary-changed button').first().click();
-      await expect(page.getByTestId('replay-step')).toContainText('Edited src/index.ts');
-      await expect(page.getByTestId('replay-diff')).toContainText('+  return add(3, 4);');
-      await expect(page.getByTestId('replay-files')).toContainText('src/index.ts');
-
-      // Depth switching keeps the same selected fact (one controller).
-      await switchReplayDepth(page, 'explore');
-      await expect(page.getByTestId('replay-step')).toContainText('Edited src/index.ts');
-      await switchReplayDepth(page, 'verify');
-      await expect(page.getByTestId('replay-step')).toContainText('Edited src/index.ts');
-      await switchReplayDepth(page, 'recap');
-
-      if (process.env.CHARTER_CAPTURE_REPLAY === '1') {
-        await page.screenshot({ path: '/tmp/replay-prod-recap.png' });
-        for (const depth of ['explore', 'verify'] as const) {
-          await switchReplayDepth(page, depth);
-          await page.waitForTimeout(120);
-          await page.screenshot({ path: `/tmp/replay-prod-${depth}.png` });
-        }
-        await switchReplayDepth(page, 'recap');
-        await app.evaluate(({ BrowserWindow }) => {
-          BrowserWindow.getAllWindows()[0]?.setSize(1024, 768);
-        });
-        await page.waitForTimeout(150);
-        await page.screenshot({ path: '/tmp/replay-prod-narrow.png' });
-        await app.evaluate(({ BrowserWindow }) => {
-          BrowserWindow.getAllWindows()[0]?.setSize(1440, 900);
-        });
-        await page.waitForTimeout(150);
-      }
-
-      // Keyboard: ← steps back; Escape closes; the working tree was never touched.
-      await page.keyboard.press('ArrowLeft');
-      await expect(page.getByTestId('replay-step')).not.toContainText('Edited src/index.ts');
-      await page.keyboard.press('Escape');
-      await expect(page.getByTestId('replay-view')).toHaveCount(0);
+      await expect(page.getByTestId('replay-open')).toHaveCount(0);
+      await expect(page.getByTestId('task-room-file-src/index.ts')).toBeVisible();
     } finally {
       await app.close();
     }

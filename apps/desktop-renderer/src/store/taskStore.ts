@@ -132,9 +132,8 @@ interface TaskStore {
   reviewOpen: boolean;
   changeSet: ChangeSetDto | null;
   loadingChangeSet: boolean;
-  // P2 (PIVOT-017) → Replay V3 (ADR-0017 am.8): an explicit entry request —
-  // the overlay binds to request.taskId, depth and anchor, never to whatever
-  // activeTaskId later becomes.
+  // Terminal Replay binds to request.taskId, never to whichever Session later
+  // becomes active underneath the standalone player.
   replayRequest: ReplayRequest | null;
   openReplay(request?: Partial<ReplayRequest>): void;
   closeReplay(): void;
@@ -593,12 +592,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     const taskId = request?.taskId ?? get().activeTaskId;
     if (!taskId) return;
     set({
-      replayRequest: {
-        taskId,
-        depth: request?.depth ?? 'recap',
-        anchor: request?.anchor ?? { type: 'result' },
-        ...(request?.liveFollow !== undefined ? { liveFollow: request.liveFollow } : {}),
-      },
+      replayRequest: { taskId },
     });
   },
   closeReplay() {

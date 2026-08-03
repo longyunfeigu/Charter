@@ -217,18 +217,9 @@ export const ReplayEvidenceDetailSchema = z.object({
 });
 export type ReplayEvidenceDetail = z.infer<typeof ReplayEvidenceDetailSchema>;
 
-/** Explicit replay entry request — replaces the old boolean open flag. */
+/** Binds the standalone terminal player to one immutable Session identity. */
 export interface ReplayRequest {
   taskId: string;
-  depth?: ReplayDepth;
-  anchor?:
-    | { type: 'result' }
-    | { type: 'fact'; id: string }
-    | { type: 'change'; id: string }
-    /** First material change touching this path (Changes-panel entry). */
-    | { type: 'path'; path: string }
-    | { type: 'actual-time'; ms: number };
-  liveFollow?: boolean;
 }
 
 export interface ReplayTaskContext {

@@ -233,6 +233,72 @@ describe('parseCodexRollout (ADR-0038)', () => {
     expect(summary.startedAt).toBe('2026-06-30T00:59:15.777Z');
     expect(summary.filesTouched).toEqual(['/Users/dev/git/vibeai/tests/e2e.spec.ts']);
   });
+
+  it('counts real SKILL.md reads once per turn and ignores path searches', () => {
+    const skillRollout =
+      rollout +
+      '\n' +
+      lines(
+        {
+          timestamp: '2026-06-30T01:07:00.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'function_call',
+            name: 'exec_command',
+            arguments: JSON.stringify({
+              cmd: "sed -n '1,260p' /Users/dev/.agents/skills/web-access/SKILL.md",
+            }),
+          },
+        },
+        // A segmented second read in the same turn is still one invocation.
+        {
+          timestamp: '2026-06-30T01:08:00.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'function_call',
+            name: 'exec_command',
+            arguments: JSON.stringify({
+              cmd: "sed -n '261,520p' /Users/dev/.agents/skills/web-access/SKILL.md",
+            }),
+          },
+        },
+        // Searching for manuals is discovery, not skill activation.
+        {
+          timestamp: '2026-06-30T01:09:00.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'function_call',
+            name: 'exec_command',
+            arguments: JSON.stringify({ cmd: "rg -n 'SKILL.md' /Users/dev/.agents/skills" }),
+          },
+        },
+        {
+          timestamp: '2026-06-30T01:10:00.000Z',
+          type: 'event_msg',
+          payload: { type: 'user_message', message: 'now compare the source documents' },
+        },
+        // Free-form wrapper calls can read more than one selected skill.
+        {
+          timestamp: '2026-06-30T01:11:00.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'function_call',
+            name: 'functions.exec',
+            arguments:
+              'const r = await tools.exec_command({cmd: "cat /Users/dev/.agents/skills/web-access/SKILL.md /Users/dev/.codex/skills/pdf/SKILL.md"});',
+          },
+        },
+      );
+
+    const summary = parseCodexRollout(skillRollout);
+    expect(summary.turnCount).toBe(2);
+    expect(summary.skills).toEqual(['web-access', 'web-access', 'web-access', 'pdf']);
+    expect(summary.skillEvents).toEqual([
+      { skill: 'web-access', at: '2026-06-30T01:07:00.000Z' },
+      { skill: 'web-access', at: '2026-06-30T01:11:00.000Z' },
+      { skill: 'pdf', at: '2026-06-30T01:11:00.000Z' },
+    ]);
+  });
 });
 
 describe('attributeProject (ADR-0038: files beat cwd guessing)', () => {
@@ -312,6 +378,17 @@ describe('SessionArchaeologyService.scan (read-only fs discovery)', () => {
           type: 'event_msg',
           payload: { type: 'user_message', message: 'fix flaky e2e on CI' },
         },
+        {
+          timestamp: '2026-06-30T01:01:00.000Z',
+          type: 'response_item',
+          payload: {
+            type: 'function_call',
+            name: 'exec_command',
+            arguments: JSON.stringify({
+              cmd: "sed -n '1,260p' /Users/dev/.agents/skills/web-access/SKILL.md",
+            }),
+          },
+        },
       ),
     );
     // A rollout outside the scan window must not be walked.
@@ -386,21 +463,23 @@ describe('SessionArchaeologyService.scan (read-only fs discovery)', () => {
     expect(sessions.map((session) => `${session.cli}:${session.sessionId}`)).toContain(
       `codex:${CODEX_ID}`,
     );
-    await expect(service.skillUsageEvents()).resolves.toEqual([]);
+    await expect(service.skillUsageEvents()).resolves.toEqual([
+      { skill: 'web-access', at: '2026-06-30T01:01:00.000Z', consumer: 'codex' },
+    ]);
   });
 
-  it('skillUsageEvents walks only the Claude store and tags the consumer (ADR-0040)', async () => {
+  it('skillUsageEvents walks both CLI stores and tags each consumer (ADR-0040)', async () => {
     const service = new SessionArchaeologyService({
       logger: silentLogger,
       homeDir: await fakeHome(),
       knownSessions: () => new Map(),
       projects: () => [],
     });
-    // The codex rollout in the fake home has no skill traces; the non-uuid
-    // agenda.jsonl is not a session transcript and must not be walked.
+    // The non-uuid agenda.jsonl is not a session transcript and is skipped.
     await expect(service.skillUsageEvents()).resolves.toEqual([
       { skill: 'clear', at: '2026-07-17T09:00:01.000Z', consumer: 'claude' },
       { skill: 'baoyu-format-markdown', at: '2026-07-17T09:01:00.000Z', consumer: 'claude' },
+      { skill: 'web-access', at: '2026-06-30T01:01:00.000Z', consumer: 'codex' },
     ]);
   });
 });

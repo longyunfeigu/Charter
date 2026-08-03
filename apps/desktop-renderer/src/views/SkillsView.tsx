@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { SkillDto } from '@pi-ide/ipc-contracts';
 import { useAppStore } from '../store/appStore.js';
 import { useSkillsStore } from '../store/skillsStore.js';
@@ -8,10 +9,14 @@ import {
   filterSkillGroups,
   groupSkills,
   isAgentEnabled,
+  scopeSkillGroups,
   skillAgent,
   skillGroupCounts,
+  skillNeedsReview,
+  skillReviewReasons,
   SKILL_AGENTS,
   type SkillAgent,
+  type SkillAgentFilter,
   type SkillGroup,
 } from './skills-model.js';
 import { lastUsedLabel } from './skills-insight.js';
@@ -19,17 +24,106 @@ import '../styles/skills-main.css';
 
 type DrawerScope = 'all' | SkillAgent | 'custom';
 
+interface ReviewTooltipState {
+  id: string;
+  label: string;
+  left: number;
+  top: number;
+  maxWidth: number;
+}
+
+function useReviewTooltip(): {
+  triggerProps: (
+    label: string,
+    id: string,
+  ) => {
+    'aria-describedby': string | undefined;
+    onMouseEnter: React.MouseEventHandler<HTMLSpanElement>;
+    onMouseLeave: React.MouseEventHandler<HTMLSpanElement>;
+    onFocus: React.FocusEventHandler<HTMLSpanElement>;
+    onBlur: React.FocusEventHandler<HTMLSpanElement>;
+  };
+  tooltip: React.ReactNode;
+} {
+  const [state, setState] = useState<ReviewTooltipState | null>(null);
+  const hide = (): void => setState(null);
+  const show = (target: HTMLSpanElement, label: string, id: string): void => {
+    const rect = target.getBoundingClientRect();
+    const maxWidth = Math.min(360, window.innerWidth - 16);
+    const estimatedWidth = Math.min(maxWidth, Math.max(190, Math.ceil(label.length * 5.8) + 20));
+    const rightSide = rect.right + 8;
+    const left =
+      rightSide + estimatedWidth <= window.innerWidth - 8
+        ? rightSide
+        : Math.max(8, rect.left - estimatedWidth - 8);
+    setState({
+      id,
+      label,
+      left,
+      top: Math.max(8, Math.min(rect.top - 3, window.innerHeight - 120)),
+      maxWidth,
+    });
+  };
+
+  return {
+    triggerProps: (label, id) => ({
+      'aria-describedby': state?.id === id ? id : undefined,
+      onMouseEnter: (event) => show(event.currentTarget, label, id),
+      onMouseLeave: hide,
+      onFocus: (event) => show(event.currentTarget, label, id),
+      onBlur: hide,
+    }),
+    tooltip: state
+      ? createPortal(
+          <div
+            id={state.id}
+            className="skills-review-tooltip"
+            role="tooltip"
+            style={{ left: state.left, top: state.top, maxWidth: state.maxWidth }}
+          >
+            {state.label}
+          </div>,
+          document.body,
+        )
+      : null,
+  };
+}
+
 function agentCopies(group: SkillGroup, agent: SkillAgent): SkillDto[] {
   return group.copies.filter((copy) => skillAgent(copy) === agent);
 }
 
-function SkillDrawer(props: { group: SkillGroup; onClose(): void }): React.JSX.Element {
+function initialDrawerCopies(group: SkillGroup, agent: SkillAgentFilter): SkillDto[] {
+  return agent === 'all' ? group.copies : agentCopies(group, agent);
+}
+
+function groupReviewSummary(group: SkillGroup): string {
+  const reviewed = group.copies.filter(skillNeedsReview);
+  return reviewed
+    .flatMap((copy) => {
+      const agent = SKILL_AGENTS.find((item) => item.id === skillAgent(copy))!;
+      const prefix = reviewed.length > 1 ? `${agent.label}: ` : '';
+      return skillReviewReasons(copy).map((reason) => `${prefix}${reason}`);
+    })
+    .join('\n');
+}
+
+function SkillDrawer(props: {
+  group: SkillGroup;
+  initialAgent: SkillAgentFilter;
+  onClose(): void;
+}): React.JSX.Element {
   const setAgentEnabled = useSkillsStore((state) => state.setAgentEnabled);
   const trash = useSkillsStore((state) => state.trash);
   const pushToast = useAppStore((state) => state.pushToast);
-  const [scope, setScope] = useState<DrawerScope>('all');
+  const [scope, setScope] = useState<DrawerScope>(props.initialAgent);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
-    () => new Set(props.group.copies.filter((copy) => !copy.protected).map((copy) => copy.id)),
+    () =>
+      new Set(
+        initialDrawerCopies(props.group, props.initialAgent)
+          .filter((copy) => !copy.protected)
+          .map((copy) => copy.id),
+      ),
   );
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -159,6 +253,7 @@ function SkillDrawer(props: { group: SkillGroup; onClose(): void }): React.JSX.E
             {props.group.copies.map((copy) => {
               const agent = SKILL_AGENTS.find((item) => item.id === skillAgent(copy))!;
               const checked = selectedIds.has(copy.id);
+              const reviewReasons = skillReviewReasons(copy);
               return (
                 <label
                   key={copy.id}
@@ -176,6 +271,15 @@ function SkillDrawer(props: { group: SkillGroup; onClose(): void }): React.JSX.E
                   <div>
                     <strong>{agent.label}</strong>
                     <small title={copy.sourcePath}>{copy.sourcePath}</small>
+                    {reviewReasons.length > 0 ? (
+                      <small
+                        className="skills-copy-review"
+                        title={reviewReasons.join('\n')}
+                        data-testid={`skills-copy-review-${copy.id}`}
+                      >
+                        Needs review · {reviewReasons.join(' ')}
+                      </small>
+                    ) : null}
                   </div>
                   <span className={copy.protected ? 'locked' : isAgentEnabled(copy) ? 'on' : 'off'}>
                     {copy.protected
@@ -276,6 +380,7 @@ export function SkillsView(): React.JSX.Element {
   const setQuery = useSkillsViewStore((state) => state.setQuery);
   const setSort = useSkillsViewStore((state) => state.setSort);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const reviewTooltip = useReviewTooltip();
 
   useEffect(() => {
     init();
@@ -290,11 +395,17 @@ export function SkillsView(): React.JSX.Element {
     [skills, usage, usageLoaded],
   );
   const selected = selectedKey ? (groups.find((group) => group.key === selectedKey) ?? null) : null;
-  const counts = useMemo(() => skillGroupCounts(groups), [groups]);
-  const visible = useMemo(
-    () => filterSkillGroups(groups, { status, agent, query, sort }),
-    [agent, groups, query, sort, status],
+  const scopedGroups = useMemo(
+    () => scopeSkillGroups(groups, agent, usageLoaded),
+    [agent, groups, usageLoaded],
   );
+  const counts = useMemo(() => skillGroupCounts(scopedGroups), [scopedGroups]);
+  const visible = useMemo(
+    () => filterSkillGroups(scopedGroups, { status, agent: 'all', query, sort }),
+    [query, scopedGroups, sort, status],
+  );
+  const selectedAgent = agent === 'all' ? null : SKILL_AGENTS.find((item) => item.id === agent)!;
+  const usageAgents = selectedAgent ? [selectedAgent] : SKILL_AGENTS;
   const now = Date.now();
   return (
     <main className="skills-main" data-testid="skills-main-page">
@@ -377,9 +488,10 @@ export function SkillsView(): React.JSX.Element {
             <thead>
               <tr>
                 <th>Skill</th>
-                <th>Installed in</th>
+                <th>{selectedAgent ? `${selectedAgent.label} installation` : 'Installed in'}</th>
                 <th>
-                  Observed usage<span>{usageWindowDays}-day window · Codex not tracked</span>
+                  {selectedAgent ? `${selectedAgent.label} usage` : 'Observed usage'}
+                  <span>{usageWindowDays}-day observation window</span>
                 </th>
                 <th className="numeric">Last used</th>
                 <th aria-label="Manage" />
@@ -389,6 +501,7 @@ export function SkillsView(): React.JSX.Element {
               {visible.map((group) => {
                 const last = lastUsedLabel(group.lastUsedAt, now);
                 const allOff = group.copies.every((copy) => !isAgentEnabled(copy));
+                const reviewSummary = groupReviewSummary(group);
                 return (
                   <tr key={group.key} className={allOff ? 'is-off' : ''}>
                     <td>
@@ -399,7 +512,19 @@ export function SkillsView(): React.JSX.Element {
                             <span className="explicit">explicit</span>
                           ) : null}
                           {group.protectedOnly ? <span className="system">system</span> : null}
-                          {group.needsTechnicalReview ? <span className="issue">issue</span> : null}
+                          {group.needsTechnicalReview ? (
+                            <span
+                              {...reviewTooltip.triggerProps(
+                                reviewSummary,
+                                `skills-review-tooltip-${group.key.replace(/[^a-z0-9_-]/gi, '-')}`,
+                              )}
+                              className="review"
+                              tabIndex={0}
+                              aria-label={`Needs review: ${reviewSummary}`}
+                            >
+                              needs review
+                            </span>
+                          ) : null}
                           {group.noObservedUse ? (
                             <span className="unobserved">no observed use</span>
                           ) : null}
@@ -432,23 +557,15 @@ export function SkillsView(): React.JSX.Element {
                     </td>
                     <td>
                       <div className="skills-usage-rollup">
-                        {SKILL_AGENTS.map((item) => (
+                        {usageAgents.map((item) => (
                           <span
                             key={item.id}
                             className={item.id}
-                            title={
-                              item.id === 'codex'
-                                ? 'Codex skill usage is not tracked yet'
-                                : `${item.label} observed usage`
-                            }
+                            title={`${item.label} observed usage`}
                           >
                             <i />
-                            <b>
-                              {!usageLoaded || item.id === 'codex'
-                                ? '—'
-                                : group.usesByAgent[item.id]}
-                            </b>
-                            {usageLoaded && item.id !== 'codex' ? <small>×</small> : null}
+                            <b>{!usageLoaded ? '—' : group.usesByAgent[item.id]}</b>
+                            {usageLoaded ? <small>×</small> : null}
                           </span>
                         ))}
                       </div>
@@ -485,7 +602,15 @@ export function SkillsView(): React.JSX.Element {
           ) : null}
         </section>
       </div>
-      {selected ? <SkillDrawer group={selected} onClose={() => setSelectedKey(null)} /> : null}
+      {selected ? (
+        <SkillDrawer
+          key={`${selected.key}:${agent}`}
+          group={selected}
+          initialAgent={agent}
+          onClose={() => setSelectedKey(null)}
+        />
+      ) : null}
+      {reviewTooltip.tooltip}
     </main>
   );
 }

@@ -27,6 +27,7 @@ import {
   type TerminalDaemonEvent,
   type TerminalDaemonRequest,
 } from './terminal-daemon-protocol.js';
+import { TerminalRecordingWriter } from './terminal-recording.js';
 
 interface DaemonConnection {
   socket: Socket;
@@ -96,6 +97,7 @@ class HostedTerminal {
     readonly pty: IPty,
     readonly dir: string,
     scrollback: number,
+    private readonly recording: TerminalRecordingWriter | null,
     private readonly publish: (event: TerminalDaemonEvent) => void,
     private readonly onExit: () => void,
   ) {
@@ -114,6 +116,7 @@ class HostedTerminal {
       this.exited = true;
       reapTerminalProcessGroup(pty.pid);
       this.flushOutput();
+      this.recording?.close();
       this.publish({ type: 'exit', id: info.id, exitCode });
       this.onExit();
     });
@@ -160,6 +163,7 @@ class HostedTerminal {
     try {
       this.pty.resize(cols, rows);
       this.emulator.resize(cols, rows);
+      this.recording?.resize(cols, rows);
       this.dirty = true;
     } catch {
       // A resize racing process exit is harmless.
@@ -180,6 +184,7 @@ class HostedTerminal {
       // Already dead.
     }
     reapTerminalProcessGroup(this.pty.pid);
+    this.recording?.close();
     this.onExit();
   }
 
@@ -239,6 +244,7 @@ class HostedTerminal {
     this.outputTimer = null;
     this.flushOutput();
     this.flushLog();
+    this.recording?.close();
     this.emulator.dispose();
   }
 
@@ -246,6 +252,7 @@ class HostedTerminal {
     if (this.exited) return;
     this.sequence += 1;
     this.dirty = true;
+    this.recording?.output(data);
     this.emulator.write(data);
     this.pendingLog.push(`${JSON.stringify({ sequence: this.sequence, data })}\n`);
     if (!this.logTimer) {
@@ -345,6 +352,7 @@ export interface TerminalDaemonServerOptions {
   socketPath: string;
   tokenFile: string;
   stateDir: string;
+  recordingsDir?: string;
   log?: (event: string, context?: Record<string, unknown>) => void;
 }
 
@@ -506,7 +514,11 @@ export class TerminalDaemonServer {
         {
           sessions,
           hostKind: 'run-as-node',
-          capabilities: { compactList: true, snapshotById: true },
+          capabilities: {
+            compactList: true,
+            snapshotById: true,
+            terminalRecording: Boolean(this.options.recordingsDir),
+          },
         },
         undefined,
         false,
@@ -531,11 +543,30 @@ export class TerminalDaemonServer {
         env: request.env,
       });
       const dir = join(this.options.stateDir, request.info.id);
+      let recording: TerminalRecordingWriter | null = null;
+      if (this.options.recordingsDir) {
+        try {
+          recording = new TerminalRecordingWriter(
+            this.options.recordingsDir,
+            {
+              ...request.info,
+              pid: pty.pid,
+              persistence: 'daemon',
+            },
+            request.cols,
+            request.rows,
+            'daemon',
+          );
+        } catch {
+          recording = null;
+        }
+      }
       const session = new HostedTerminal(
         { ...request.info },
         pty,
         dir,
         request.scrollback,
+        recording,
         (event) => this.publish(event),
         () => this.dropSession(request.info.id),
       );
@@ -704,6 +735,7 @@ export async function startTerminalDaemonFromArgs(): Promise<void> {
   const socketPath = argValue('terminal-daemon-socket');
   const tokenFile = argValue('terminal-daemon-token');
   const stateDir = argValue('terminal-daemon-state');
+  const recordingsDir = argValue('terminal-daemon-recordings');
   const logFile = argValue('terminal-daemon-log');
   if (!socketPath || !tokenFile || !stateDir) {
     throw new Error('Terminal daemon launch arguments are incomplete.');
@@ -721,6 +753,7 @@ export async function startTerminalDaemonFromArgs(): Promise<void> {
     socketPath,
     tokenFile,
     stateDir,
+    ...(recordingsDir ? { recordingsDir } : {}),
     ...(log ? { log } : {}),
   });
   const shutdown = (): void => {

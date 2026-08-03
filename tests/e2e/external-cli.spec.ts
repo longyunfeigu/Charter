@@ -17,9 +17,14 @@ import { launchApp } from './helpers/launch';
 import { createGitFixture } from './helpers/fixtures';
 import { terminalPtySnapshot, waitForTerminalOutput } from './helpers/terminal';
 
-async function switchReplayDepth(page: Page, depth: 'recap' | 'explore' | 'verify') {
-  await page.getByTestId('replay-menu-toggle').click();
-  await page.getByTestId(`replay-depth-${depth}`).click();
+async function seekTerminalReplayToEnd(page: Page): Promise<void> {
+  const seek = page.getByTestId('terminal-replay-seek');
+  await expect.poll(async () => Number(await seek.getAttribute('max'))).toBeGreaterThan(0);
+  await seek.evaluate((node) => {
+    const input = node as HTMLInputElement;
+    input.value = input.max;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
 }
 
 async function useSoftwareTerminalRenderer(page: Page): Promise<void> {
@@ -1433,6 +1438,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       if (message.type() === 'error') rendererErrors.push(message.text());
     });
     try {
+      await useSoftwareTerminalRenderer(page);
       // Open a terminal on the IDE surface and start the fake agent.
       await page.keyboard.press('Control+`');
       await expect(page.getByTestId('terminal-panel')).toBeVisible();
@@ -1593,36 +1599,29 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await page.getByTestId('session-tool-review').click();
       await expect(page.getByTestId('review-bar')).toBeVisible();
 
-      // The same external task now has a durable Replay V3: observed
-      // provenance, per-fact evidence levels and a per-write evidence frame.
+      // The same external task now has a durable black-box recording of the
+      // exact PTY output. Seeking never substitutes semantic file summaries.
       await page.getByTestId('session-more').click();
       await page.getByTestId('replay-open').click();
       await expect(page.getByTestId('replay-view')).toBeVisible();
-      await expect(page.getByTestId('replay-source')).toContainText('External Terminal');
-      await expect(page.getByTestId('replay-source')).toContainText('Observed');
-      // Result-first: the changed line seeks to the observed file write.
-      await page.locator('.rp-summary-changed button').first().click();
-      await expect(page.getByTestId('replay-step')).toContainText('src/util.ts');
-      await expect(page.getByTestId('replay-diff')).toContainText('externalTouch');
+      await expect(page.getByTestId('terminal-replay-player')).toBeVisible();
+      await seekTerminalReplayToEnd(page);
+      await expect
+        .poll(
+          async () => (await page.locator('.trp-terminal-host .xterm-rows').textContent()) ?? '',
+        )
+        .toContain('fake agent session started');
+      await expect
+        .poll(
+          async () => (await page.locator('.trp-terminal-host .xterm-rows').textContent()) ?? '',
+        )
+        .toContain('edited src/util.ts');
+      await expect(page.locator('.rp-summary-changed, .rp-story-panel, .rp-contract')).toHaveCount(
+        0,
+      );
       if (process.env.CHARTER_CAPTURE_EXTERNAL_REPLAY === '1') {
         await page.waitForTimeout(150);
-        await page.screenshot({ path: '/tmp/replay-prod-external-recap.png' });
-      }
-      // Explore finds the observed terminal output by content; the boundary
-      // note states that a plain TUI cannot be semantically confirmed.
-      await switchReplayDepth(page, 'explore');
-      await page.getByTestId('replay-search').fill('promoted-echo-ok');
-      await page.getByTestId('replay-event-list').locator('button').first().click();
-      await expect(page.getByTestId('replay-step')).toContainText('promoted-echo-ok');
-      await expect(page.getByTestId('replay-fact-level')).toContainText('Observed');
-      await expect(page.getByTestId('replay-boundary')).toBeVisible();
-      if (process.env.CHARTER_CAPTURE_EXTERNAL_REPLAY === '1') {
-        await page.waitForTimeout(150);
-        await page.screenshot({ path: '/tmp/replay-prod-external-explore.png' });
-        await switchReplayDepth(page, 'verify');
-        await page.waitForTimeout(150);
-        await page.screenshot({ path: '/tmp/replay-prod-external-verify.png' });
-        await switchReplayDepth(page, 'explore');
+        await page.screenshot({ path: '/tmp/terminal-replay-external.png' });
       }
       await page.getByTestId('replay-close').click();
 

@@ -11,6 +11,7 @@ export * from './code-context.js';
 export * from './file-context.js';
 export * from './activity.js';
 export * from './replay.js';
+export * from './terminal-replay.js';
 export * from './providers.js';
 export * from './skills.js';
 export * from './memory.js';

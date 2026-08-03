@@ -410,7 +410,8 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
 
     // Interactive Claude/Codex TUIs do not expose structured result events.
     // The host therefore emits a presence-only output-settled edge after a
-    // submitted prompt; it must never be promoted into semantic Replay data.
+    // submitted prompt; it drives attention only. Terminal Replay independently
+    // records the exact PTY output bytes.
     onEvent('external.activitySettled', ({ terminalId, taskId, lastUserMessage }) => {
       set({ working: { ...get().working, [taskId]: false } });
       seq += 1;

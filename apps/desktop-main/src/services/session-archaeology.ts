@@ -34,11 +34,12 @@ export interface TranscriptSummary {
   startedAt: string | null;
   endedAt: string | null;
   filesTouched: string[];
-  /** Skill-tool loads, for the discovered-session chips. */
+  /** Skill loads, for the discovered-session chips. */
   skills: string[];
-  /** Timestamped invocations for usage counting (ADR-0040): Skill-tool loads
-   * plus `/name` slash expansions. Slash entries include built-in CLI
-   * commands (`/clear`, `/model`…) — the catalog join drops those. */
+  /** Timestamped invocations for usage counting (ADR-0040): Claude Skill-tool
+   * loads and `/name` expansions, plus Codex commands that read SKILL.md.
+   * Slash entries include built-in CLI commands (`/clear`, `/model`…) — the
+   * catalog join drops those. */
   skillEvents: Array<{ skill: string; at: string }>;
   turnCount: number;
 }
@@ -47,6 +48,10 @@ const CODEX_ROLLOUT_RE =
   /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
 /** Tool names whose input names a written file (Claude Code transcripts). */
 const CLAUDE_WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+const CODEX_READ_COMMAND_RE =
+  /(?:^|[\s"'`:({])(?:cat|sed|head|tail|less|bat|batcat|get-content|type)\b/i;
+const CODEX_DIRECT_READ_TOOL_RE = /(?:^|[_.-])(?:read|read_file|read_text_file)$/i;
+const CODEX_SKILL_PATH_RE = /(?:^|[\\/])([^\\/\s"'`]+)[\\/]SKILL\.md(?=$|[\s"'`),;}\]\\])/gi;
 const MAX_TITLE = 120;
 
 function record(value: unknown): Record<string, unknown> {
@@ -98,6 +103,47 @@ function commandInvocation(content: unknown): string | null {
   const trimmed = text?.trim() ?? '';
   if (!trimmed.startsWith('<command-')) return null;
   return COMMAND_NAME_RE.exec(trimmed)?.[1] ?? null;
+}
+
+/**
+ * Codex does not emit a first-class Skill event. Its rollout does preserve the
+ * function call that obeys a selected skill's contract by reading SKILL.md.
+ * Accept only read-like calls and take the directory immediately above the
+ * manual as the runtime skill name. Search/list commands that merely mention
+ * SKILL.md therefore do not become usage.
+ */
+function codexSkillReads(payload: Record<string, unknown>): string[] {
+  if (payload.type !== 'function_call') return [];
+  const tool = asString(payload.name) ?? '';
+  const rawArguments = asString(payload.arguments);
+  if (!rawArguments) return [];
+
+  let command = rawArguments;
+  try {
+    const args = record(JSON.parse(rawArguments));
+    command =
+      asString(args.cmd) ??
+      asString(args.command) ??
+      asString(args.path) ??
+      asString(args.file_path) ??
+      rawArguments;
+  } catch {
+    // Free-form function calls (for example functions.exec) contain source
+    // rather than JSON. The same read/path checks work on that source text.
+  }
+
+  const segments = command.split(/(?:&&|\|\||;|\r?\n|\\n)/);
+  const found = new Set<string>();
+  for (const segment of segments) {
+    const directRead = CODEX_DIRECT_READ_TOOL_RE.test(tool);
+    if (!directRead && !CODEX_READ_COMMAND_RE.test(segment)) continue;
+    CODEX_SKILL_PATH_RE.lastIndex = 0;
+    for (const match of segment.matchAll(CODEX_SKILL_PATH_RE)) {
+      const skill = match[1]?.trim();
+      if (skill) found.add(skill);
+    }
+  }
+  return [...found];
 }
 
 function clampTitle(text: string): string {
@@ -184,7 +230,8 @@ export function parseClaudeTranscript(text: string): TranscriptSummary {
 }
 
 /** Reduce one Codex rollout. cwd and id come from the `session_meta` head
- * line; written files from successful `patch_apply_end` events. */
+ * line; written files from successful `patch_apply_end` events; skill usage
+ * from function calls that read a skill's SKILL.md. */
 export function parseCodexRollout(text: string): TranscriptSummary {
   const out: TranscriptSummary = {
     sessionId: null,
@@ -194,11 +241,11 @@ export function parseCodexRollout(text: string): TranscriptSummary {
     endedAt: null,
     filesTouched: [],
     skills: [],
-    // Reserved (ADR-0040): no verified Codex skill-invocation format yet.
     skillEvents: [],
     turnCount: 0,
   };
   let firstUser: string | null = null;
+  let skillsReadThisTurn = new Set<string>();
   for (const entry of jsonLines(text)) {
     const ts = asString(entry.timestamp);
     if (ts) {
@@ -212,8 +259,18 @@ export function parseCodexRollout(text: string): TranscriptSummary {
       out.startedAt = asString(payload.timestamp) ?? out.startedAt;
       continue;
     }
+    if (entry.type === 'response_item') {
+      for (const skill of codexSkillReads(payload)) {
+        out.skills.push(skill);
+        if (skillsReadThisTurn.has(skill)) continue;
+        skillsReadThisTurn.add(skill);
+        if (ts) out.skillEvents.push({ skill, at: ts });
+      }
+      continue;
+    }
     if (entry.type !== 'event_msg') continue;
     if (payload.type === 'user_message') {
+      skillsReadThisTurn = new Set<string>();
       const text0 = plainUserText(payload.message);
       if (text0) {
         out.turnCount += 1;
@@ -311,14 +368,14 @@ interface Candidate {
 export interface ExternalSkillUsageEvent {
   skill: string;
   at: string;
-  consumer: 'claude';
+  consumer: DiscoveredCli;
 }
 
 export class SessionArchaeologyService {
   private readonly cache = new Map<string, CacheEntry>();
   private known: DiscoveredSessionDto[] = [];
   private scanning: Promise<DiscoveredSessionDto[]> | null = null;
-  private collecting: Promise<ExternalSkillUsageEvent[]> | null = null;
+  private readonly collecting = new Map<number, Promise<ExternalSkillUsageEvent[]>>();
 
   constructor(private readonly options: ArchaeologyOptions) {}
 
@@ -340,34 +397,37 @@ export class SessionArchaeologyService {
     return this.scanning;
   }
 
-  /**
-   * ADR-0040: every timestamped Skill-tool invocation across the Claude Code
-   * store, for the skills usage insight. No window parameter — the Claude
-   * store has no date partition so the walk cost is fixed, and window-free
-   * results let concurrent calls coalesce safely (aggregation windows later).
-   * Codex is reserved: its parser records no skill events, so its rollouts
-   * are never walked here.
-   */
-  async skillUsageEvents(): Promise<ExternalSkillUsageEvent[]> {
+  /** ADR-0040: timestamped invocations across Claude and Codex transcripts.
+   * The requested window bounds Codex's date-partitioned walk; aggregation
+   * still applies the exact event timestamp afterward. */
+  async skillUsageEvents(
+    windowDays = this.options.windowDays ?? 30,
+  ): Promise<ExternalSkillUsageEvent[]> {
     if (!this.enabled) return [];
-    this.collecting ??= this.collectSkillEventsOnce().finally(() => {
-      this.collecting = null;
+    const active = this.collecting.get(windowDays);
+    if (active) return active;
+    const collecting = this.collectSkillEventsOnce(windowDays).finally(() => {
+      this.collecting.delete(windowDays);
     });
-    return this.collecting;
+    this.collecting.set(windowDays, collecting);
+    return collecting;
   }
 
-  private async collectSkillEventsOnce(): Promise<ExternalSkillUsageEvent[]> {
+  private async collectSkillEventsOnce(windowDays: number): Promise<ExternalSkillUsageEvent[]> {
     const startedMs = Date.now();
-    const candidates = await this.claudeCandidates();
+    const candidates = [
+      ...(await this.claudeCandidates()),
+      ...(await this.codexCandidates(windowDays)),
+    ];
     const ignoredSessions = this.options.ignoredSessions?.() ?? new Set<string>();
     const events: ExternalSkillUsageEvent[] = [];
     for (const candidate of candidates) {
       const summary = await this.summarize(candidate);
       if (!summary) continue;
       const sessionId = (summary.sessionId ?? candidate.fileSessionId).toLowerCase();
-      if (ignoredSessions.has(`claude:${sessionId}`)) continue;
+      if (ignoredSessions.has(`${candidate.cli}:${sessionId}`)) continue;
       for (const event of summary.skillEvents) {
-        events.push({ skill: event.skill, at: event.at, consumer: 'claude' });
+        events.push({ skill: event.skill, at: event.at, consumer: candidate.cli });
       }
     }
     this.options.logger.info('archaeology skill events collected', {
@@ -443,10 +503,9 @@ export class SessionArchaeologyService {
     return out;
   }
 
-  private async codexCandidates(): Promise<Candidate[]> {
+  private async codexCandidates(windowDays = this.options.windowDays ?? 30): Promise<Candidate[]> {
     const root = join(this.home, '.codex', 'sessions');
     const out: Candidate[] = [];
-    const windowDays = this.options.windowDays ?? 30;
     const oldest = new Date(Date.now() - windowDays * 86_400_000);
     const floor = `${oldest.getFullYear()}-${String(oldest.getMonth() + 1).padStart(2, '0')}-${String(oldest.getDate()).padStart(2, '0')}`;
     for (const year of await this.listDirs(root)) {

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { launchApp } from './helpers/launch';
 import { createGitFixture } from './helpers/fixtures';
@@ -42,6 +42,37 @@ async function useSoftwareTerminalRenderer(page: Page): Promise<void> {
   await page.getByTestId('settings-section-terminal').click();
   await page.getByTestId('settings-terminal-renderer').selectOption('software');
   await page.keyboard.press('Escape');
+}
+
+async function seekTerminalReplayToEnd(page: Page): Promise<void> {
+  const seek = page.getByTestId('terminal-replay-seek');
+  await expect.poll(async () => Number(await seek.getAttribute('max'))).toBeGreaterThan(0);
+  await seek.evaluate((node) => {
+    const input = node as HTMLInputElement;
+    input.value = input.max;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+interface RealReplayAnalysis {
+  status: 'ready' | 'unavailable';
+  totalEvents: number;
+  sampledFrames: number;
+  motionEvents: number;
+  spans: Array<{ id: string; kind: string; originalDurationMs: number }>;
+}
+
+async function terminalReplayAnalysis(page: Page, taskId: string): Promise<RealReplayAnalysis> {
+  return await page.evaluate(async (id) => {
+    const bridge = (
+      window as never as {
+        product: { rpc: Record<string, (p: unknown) => Promise<{ ok: boolean; data?: any }>> };
+      }
+    ).product;
+    const result = await bridge.rpc['task.terminalReplayAnalysis']!({ taskId: id });
+    if (!result.ok) throw new Error('Terminal Replay analysis RPC failed.');
+    return result.data.analysis as RealReplayAnalysis;
+  }, taskId);
 }
 
 async function expectExternalEndedSurface(page: Page): Promise<void> {
@@ -193,19 +224,32 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
       await expect(page.getByTestId('session-bar-ended')).toBeVisible();
       await page.screenshot({ path: join(SHOTS, 'claude-interactive-returned.png') });
 
-      // The vendor CLI's real observed session is also consumable by the same
-      // semantic Replay surface used by deterministic CI coverage.
+      // The vendor CLI's real PTY stream is available as the same black-box
+      // Terminal Replay used by deterministic CI coverage.
       await page.getByTestId('session-bar-review').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
       await page.getByTestId('session-more').click();
       await page.getByTestId('replay-open').click();
       await expect(page.getByTestId('replay-view')).toBeVisible();
-      await expect(page.getByTestId('replay-source')).toContainText('Claude Terminal');
-      await expect(page.getByTestId('replay-source')).toContainText('Observed');
-      await expect(page.getByTestId('replay-story-list')).toBeVisible();
-      await expect(page.getByTestId('replay-timeline')).toBeVisible();
+      await expect(page.getByTestId('terminal-replay-player')).toBeVisible();
+      await expect(page.getByTestId('replay-view')).toHaveAttribute(
+        'data-analysis-status',
+        'ready',
+        { timeout: 30_000 },
+      );
+      const claudeAnalysis = await terminalReplayAnalysis(page, taskId);
+      expect(claudeAnalysis.status).toBe('ready');
+      expect(claudeAnalysis.totalEvents).toBeGreaterThan(0);
+      expect(claudeAnalysis.sampledFrames).toBeGreaterThan(0);
+      writeFileSync(
+        join(SHOTS, 'claude-terminal-replay-analysis.json'),
+        `${JSON.stringify(claudeAnalysis, null, 2)}\n`,
+      );
+      await seekTerminalReplayToEnd(page);
+      await expect(page.locator('.trp-terminal-host .xterm')).toBeVisible();
+      await expect(page.locator('.rp-story-panel, .rp-contract, .rp-summary')).toHaveCount(0);
       await page.waitForTimeout(180);
-      await page.screenshot({ path: join(SHOTS, 'claude-interactive-replay.png') });
+      await page.screenshot({ path: join(SHOTS, 'claude-interactive-terminal-replay.png') });
       await page.getByTestId('replay-close').click();
     } finally {
       const video = page.video();
@@ -259,7 +303,11 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
         const external = tasks.data?.tasks?.find((t: { external: unknown }) => t.external);
         if (!external) return null;
         const cs = await bridge.rpc['task.changeSet']!({ taskId: external.id });
-        return { state: external.state as string, changeSet: cs.data?.changeSet ?? null };
+        return {
+          id: external.id as string,
+          state: external.state as string,
+          changeSet: cs.data?.changeSet ?? null,
+        };
       });
       expect(result).not.toBeNull();
       expect(result!.state).toBe('REVIEW_READY');
@@ -267,6 +315,29 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
         result!.changeSet as { files: Array<{ path: string; status: string }> }
       ).files.find((f) => f.path === 'e2e-touch.txt');
       expect(touched?.status).toBe('created');
+
+      // Analyze the PTY produced by an actual Claude model turn, not only the
+      // local interactive slash-command path covered above.
+      await page.getByTestId('session-bar-review').click();
+      await expect(page.getByTestId('task-room')).toBeVisible();
+      await page.getByTestId('session-more').click();
+      await page.getByTestId('replay-open').click();
+      await expect(page.getByTestId('terminal-replay-player')).toBeVisible();
+      await expect(page.getByTestId('replay-view')).toHaveAttribute(
+        'data-analysis-status',
+        'ready',
+        { timeout: 30_000 },
+      );
+      const claudeModelAnalysis = await terminalReplayAnalysis(page, result!.id);
+      expect(claudeModelAnalysis.status).toBe('ready');
+      expect(claudeModelAnalysis.totalEvents).toBeGreaterThan(0);
+      expect(claudeModelAnalysis.sampledFrames).toBeGreaterThan(0);
+      writeFileSync(
+        join(SHOTS, 'claude-model-terminal-replay-analysis.json'),
+        `${JSON.stringify(claudeModelAnalysis, null, 2)}\n`,
+      );
+      await seekTerminalReplayToEnd(page);
+      await page.screenshot({ path: join(SHOTS, 'claude-model-terminal-replay.png') });
     } finally {
       const video = page.video();
       await app.close();
@@ -394,6 +465,36 @@ test.describe('ADR-0017 rev.2 real external CLIs (manual, gated)', () => {
       }, taskId);
       expect(endResult.ok).toBe(true);
       expect(endResult.data?.ended).toBe(true);
+      await expect(page.getByTestId('task-room-answered')).toContainText(/Session ended/i, {
+        timeout: 45_000,
+      });
+
+      // Verify that the real Codex PTY stream reaches the same black-box
+      // player as Claude rather than only exercising task/session metadata.
+      await page.getByTestId('session-more').click();
+      await page.getByTestId('replay-open').click();
+      await expect(page.getByTestId('terminal-replay-player')).toBeVisible();
+      await expect(page.getByText('Recorded', { exact: true })).toBeVisible();
+      await expect(page.getByTestId('replay-view')).toHaveAttribute(
+        'data-analysis-status',
+        'ready',
+        { timeout: 30_000 },
+      );
+      const codexAnalysis = await terminalReplayAnalysis(page, taskId);
+      expect(codexAnalysis.status).toBe('ready');
+      expect(codexAnalysis.totalEvents).toBeGreaterThan(0);
+      expect(codexAnalysis.sampledFrames).toBeGreaterThan(0);
+      expect(codexAnalysis.motionEvents).toBeGreaterThan(0);
+      expect(codexAnalysis.spans.some((span) => span.kind === 'thinking')).toBe(true);
+      writeFileSync(
+        join(SHOTS, 'codex-terminal-replay-analysis.json'),
+        `${JSON.stringify(codexAnalysis, null, 2)}\n`,
+      );
+      await seekTerminalReplayToEnd(page);
+      await expect(page.locator('.trp-terminal-host .xterm')).toBeVisible();
+      await expect(page.locator('.rp-story-panel, .rp-contract, .rp-summary')).toHaveCount(0);
+      await page.waitForTimeout(180);
+      await page.screenshot({ path: join(SHOTS, 'codex-terminal-replay.png') });
     } finally {
       const video = page.video();
       await app.close();

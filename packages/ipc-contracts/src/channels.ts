@@ -28,6 +28,11 @@ import {
   ReplayFactDtoSchema,
   ReplaySessionDtoSchema,
 } from './replay.js';
+import {
+  TerminalReplayAnalysisDtoSchema,
+  TerminalReplayEventDtoSchema,
+  TerminalReplaySessionDtoSchema,
+} from './terminal-replay.js';
 import { ProviderApiSchema, ProviderInfoSchema } from './providers.js';
 import {
   CharterTerminalSurfaceDtoSchema,
@@ -1978,6 +1983,58 @@ export const CHANNELS = {
       htmlPath: z.string().nullable(),
       jsonPath: z.string().nullable(),
       manifestSha256: z.string().nullable(),
+    }),
+  ),
+  // ---- Terminal Replay: lossless PTY capture with non-destructive smart time ----
+  'task.terminalReplaySession': ch(
+    'task.terminalReplaySession',
+    1,
+    z.object({ taskId: z.string() }).strict(),
+    z.object({ session: TerminalReplaySessionDtoSchema }),
+  ),
+  'task.terminalReplayEvents': ch(
+    'task.terminalReplayEvents',
+    1,
+    z
+      .object({
+        taskId: z.string(),
+        segmentId: z.string().min(1).max(240),
+        /** Byte cursor at a complete NDJSON line boundary. */
+        cursor: z.number().int().nonnegative().default(0),
+        limit: z.number().int().min(1).max(1000).default(500),
+      })
+      .strict(),
+    z.object({
+      events: z.array(TerminalReplayEventDtoSchema),
+      cursor: z.number().int().nonnegative(),
+      atEnd: z.boolean(),
+      live: z.boolean(),
+    }),
+  ),
+  'task.terminalReplayAnalysis': ch(
+    'task.terminalReplayAnalysis',
+    1,
+    z.object({ taskId: z.string() }).strict(),
+    z.object({ analysis: TerminalReplayAnalysisDtoSchema }),
+  ),
+  'task.terminalReplayExport': ch(
+    'task.terminalReplayExport',
+    1,
+    z
+      .object({
+        taskId: z.string(),
+        title: z.string().min(1).max(160),
+        format: z.enum(['mp4', 'gif', 'webm']),
+        bytes: z
+          .instanceof(Uint8Array)
+          .refine((value) => value.byteLength <= 512 * 1024 * 1024, 'Replay export is too large.'),
+      })
+      .strict(),
+    z.object({
+      saved: z.boolean(),
+      path: z.string().nullable(),
+      format: z.enum(['mp4', 'gif', 'webm']).nullable(),
+      fallback: z.string().nullable(),
     }),
   ),
   'workspace.relativize': ch(

@@ -72,19 +72,20 @@ describe('aggregateSkillUsage (ADR-0037)', () => {
         charter('alpha', daysAgo(9)),
         { skill: 'alpha', at: daysAgo(1), consumer: 'claude' },
         { skill: 'alpha', at: daysAgo(2), consumer: 'claude' },
+        { skill: 'alpha', at: daysAgo(3), consumer: 'codex' },
       ],
       NOW,
       45,
     );
     const alpha = out.get('alpha')!;
-    expect(alpha.uses).toBe(3);
+    expect(alpha.uses).toBe(4);
     expect(alpha.lastUsedAt).toBe(daysAgo(1));
     expect(alpha.byConsumer.charter.uses).toBe(1);
     expect(alpha.byConsumer.charter.lastUsedAt).toBe(daysAgo(9));
     expect(alpha.byConsumer.claude.uses).toBe(2);
     expect(alpha.byConsumer.claude.lastUsedAt).toBe(daysAgo(1));
-    expect(alpha.byConsumer.codex.uses).toBe(0);
-    expect(alpha.byConsumer.codex.lastUsedAt).toBeNull();
+    expect(alpha.byConsumer.codex.uses).toBe(1);
+    expect(alpha.byConsumer.codex.lastUsedAt).toBe(daysAgo(3));
     // Every slice shares the merged bucket count, and slices sum to the merge.
     const weeks = usageWeekCount(45);
     for (const series of [

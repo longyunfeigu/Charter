@@ -116,7 +116,7 @@ export const SkillUsageDtoSchema = z.object({
     charter: SkillConsumerUsageSchema,
     /** Claude Code transcripts (Skill tool_use events, ADR-0040). */
     claude: SkillConsumerUsageSchema,
-    /** Reserved: no verified Codex invocation format yet — always zeros. */
+    /** Codex rollout function calls that read a selected skill's SKILL.md. */
     codex: SkillConsumerUsageSchema,
   }),
 });

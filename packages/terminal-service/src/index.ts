@@ -794,6 +794,12 @@ class PtyBackend implements TerminalBackend {
 /** User terminal sessions (separate security domain from agent commands, TERM-005). */
 export class TerminalManager {
   private readonly sessions = new Map<string, Session>();
+  private readonly createdListeners = new Set<
+    (info: { terminal: TerminalInfo; cols: number; rows: number }) => void
+  >();
+  private readonly resizeListeners = new Set<
+    (info: { id: string; cols: number; rows: number }) => void
+  >();
   private readonly dataListeners = new Set<(info: { id: string; data: string }) => void>();
   private readonly inputListeners = new Set<(info: { id: string; data: string }) => void>();
   private readonly sourcedInputListeners = new Set<
@@ -860,6 +866,20 @@ export class TerminalManager {
   onDataEvent(listener: (info: { id: string; data: string }) => void): () => void {
     this.dataListeners.add(listener);
     return () => this.dataListeners.delete(listener);
+  }
+
+  /** Lifecycle edge used by passive facilities such as terminal recording. */
+  onCreatedEvent(
+    listener: (info: { terminal: TerminalInfo; cols: number; rows: number }) => void,
+  ): () => void {
+    this.createdListeners.add(listener);
+    return () => this.createdListeners.delete(listener);
+  }
+
+  /** Exact grid changes, kept separate from PTY bytes in asciinema v2. */
+  onResizeEvent(listener: (info: { id: string; cols: number; rows: number }) => void): () => void {
+    this.resizeListeners.add(listener);
+    return () => this.resizeListeners.delete(listener);
   }
 
   /**
@@ -1139,6 +1159,9 @@ export class TerminalManager {
       for (const listener of this.exitListeners) listener({ id, exitCode });
     });
     this.sessions.set(id, session);
+    for (const listener of this.createdListeners) {
+      listener({ terminal: { ...info }, cols, rows });
+    }
     if (knownAgent) {
       queueMicrotask(() => {
         if (this.sessions.get(id) !== session) return;
@@ -1196,8 +1219,10 @@ export class TerminalManager {
   resize(id: string, cols: number, rows: number): void {
     if (cols < 2 || rows < 1 || cols > 1000 || rows > 500) return;
     const session = this.sessions.get(id);
+    if (!session) return;
     session?.backend.resize(cols, rows);
     session?.screen.resize(cols, rows);
+    for (const listener of this.resizeListeners) listener({ id, cols, rows });
   }
 
   list(): TerminalInfo[] {

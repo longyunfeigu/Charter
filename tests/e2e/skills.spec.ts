@@ -14,7 +14,7 @@ import { createGitFixture } from './helpers/fixtures.js';
 function seedSkill(
   skillsDir: string,
   name: string,
-  options: { description: string; explicitOnly?: boolean; script?: boolean } = {
+  options: { description: string; explicitOnly?: boolean; script?: boolean; body?: string } = {
     description: '',
   },
 ): void {
@@ -28,7 +28,7 @@ function seedSkill(
       `description: ${options.description}`,
       ...(options.explicitOnly ? ['disable-model-invocation: true'] : []),
       '---',
-      `You are using the ${name} skill. Follow its steps carefully.`,
+      options.body ?? `You are using the ${name} skill. Follow its steps carefully.`,
       '',
     ].join('\n'),
   );
@@ -97,10 +97,13 @@ test('skills: manager (toggle/audit) + "/" picker + /skill: task through the moc
     await expect(page.getByTestId('skills-run')).toHaveCount(0);
     await expect(page.locator('.skills-stats')).toHaveCount(0);
     await expect(page.getByTestId('skills-rail-panel')).toContainText('Observed use');
+    await expect(page.getByTestId('skills-rail-panel')).not.toContainText('not tracked');
     await expect(
-      page.getByTestId('skills-rail-panel').getByText('not tracked', { exact: true }),
-    ).toBeVisible();
-    await expect(page.locator('thead')).toContainText('Codex not tracked');
+      page
+        .getByTestId('skills-rail-panel')
+        .locator('.skills-rail-coverage > div', { hasText: 'Codex' }),
+    ).toContainText('transcript-derived');
+    await expect(page.locator('thead')).toContainText('45-day observation window');
     await expect(page.getByText('Future adapters', { exact: true })).toHaveCount(0);
     await expect(page.getByText('Sources & trust', { exact: true })).toHaveCount(0);
     const row = page.locator('tbody tr', { hasText: 'pdf-fill' });
@@ -115,8 +118,9 @@ test('skills: manager (toggle/audit) + "/" picker + /skill: task through the moc
     await expect(page.getByTestId('skills-rail-review').locator('b')).toHaveText('1');
     await expect(row.locator('.skills-usage-rollup .codex')).toHaveAttribute(
       'title',
-      'Codex skill usage is not tracked yet',
+      'Codex observed usage',
     );
+    await expect(row.locator('.skills-usage-rollup .codex b')).toHaveText('0');
     // The inventory remains usable at a narrower desktop viewport: controls
     // wrap while the table keeps its horizontal scroll surface.
     await page.setViewportSize({ width: 900, height: 720 });
@@ -235,12 +239,57 @@ test('skills: groups same-name Agent copies and scopes disable/delete safely', a
   });
   seedSkill(join(skillHome, '.codex', 'skills', '.system'), 'system-pdf', {
     description: 'Codex built-in PDF capability.',
+    body: 'Use the Codex plugin integration to inspect PDF files.',
   });
+  const codexSessionId = '019f1609-996f-7633-b306-921acdf80a78';
+  const now = new Date();
+  const codexSessionDir = join(
+    skillHome,
+    '.codex',
+    'sessions',
+    String(now.getFullYear()),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  );
+  mkdirSync(codexSessionDir, { recursive: true });
+  const observedAt = now.toISOString();
+  writeFileSync(
+    join(codexSessionDir, `rollout-e2e-${codexSessionId}.jsonl`),
+    [
+      {
+        timestamp: observedAt,
+        type: 'session_meta',
+        payload: { id: codexSessionId, timestamp: observedAt, cwd: skillHome },
+      },
+      {
+        timestamp: observedAt,
+        type: 'event_msg',
+        payload: { type: 'user_message', message: 'review this design' },
+      },
+      {
+        timestamp: observedAt,
+        type: 'response_item',
+        payload: {
+          type: 'function_call',
+          name: 'exec_command',
+          arguments: JSON.stringify({
+            cmd: `sed -n '1,260p' ${join(skillHome, '.codex', 'skills', 'design-review', 'SKILL.md')}`,
+          }),
+        },
+      },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n'),
+  );
 
   const { app, page } = await launchApp({
     userDataDir,
     home: 'keep',
-    env: { PI_IDE_FORCE_MOCK: '1', PI_IDE_SKILLS_HOME: skillHome },
+    env: {
+      PI_IDE_FORCE_MOCK: '1',
+      PI_IDE_SKILLS_HOME: skillHome,
+      PI_IDE_ARCHAEOLOGY_HOME: skillHome,
+    },
   });
   try {
     await page.getByTestId('rail-view-skills').click();
@@ -249,14 +298,41 @@ test('skills: groups same-name Agent copies and scopes disable/delete safely', a
     await expect(row).toContainText('Charter');
     await expect(row).toContainText('Claude');
     await expect(row).toContainText('Codex');
+    await expect(row.locator('.skills-usage-rollup .codex b')).toHaveText('1');
+    await expect(row).not.toContainText('no observed use');
+
+    // An Agent tab is a complete data perspective, not only a row filter.
+    await page
+      .locator('.skills-agent-tabs')
+      .getByRole('button', { name: 'Claude', exact: true })
+      .click();
+    await expect(page.locator('thead')).toContainText('Claude Code installation');
+    await expect(page.locator('thead')).toContainText('Claude Code usage');
+    await expect(row.locator('.skills-install-pills .claude')).toHaveCount(1);
+    await expect(row.locator('.skills-install-pills .pi')).toHaveCount(0);
+    await expect(row.locator('.skills-install-pills .codex')).toHaveCount(0);
+    await expect(row.locator('.skills-usage-rollup > span')).toHaveCount(1);
+    await expect(row.locator('.skills-usage-rollup .claude b')).toHaveText('0');
+    await expect(row.locator('.skills-usage-rollup .pi')).toHaveCount(0);
+    await expect(row.locator('.skills-usage-rollup .codex')).toHaveCount(0);
+    await expect(row.locator('.skills-metric')).toContainText('never');
+    await expect(row.locator('.skills-metric')).toContainText('0 observed');
+    await expect(row).toContainText('no observed use');
+    await expect(page.locator('.skills-status-tabs')).toContainText('All 1');
+    await expect(page.locator('.skills-status-tabs')).toContainText('Observed 0');
+    await expect(page.locator('.skills-status-tabs')).toContainText('Review 1');
 
     await page.getByTestId('skills-manage-design-review').click();
     const drawer = page.getByRole('dialog', { name: 'Manage design-review' });
     await expect(drawer).toContainText('All agents · 3');
     await expect(drawer.getByRole('checkbox')).toHaveCount(3);
     const piCopy = drawer.getByRole('checkbox', { name: 'Select Charter Agent copy' });
-    await expect(piCopy).toBeChecked();
+    await expect(piCopy).not.toBeChecked();
     await expect(drawer.getByRole('checkbox', { name: 'Select Claude Code copy' })).toBeChecked();
+    await expect(drawer.getByRole('checkbox', { name: 'Select Codex copy' })).not.toBeChecked();
+    await expect(drawer).toContainText('1 selected');
+    await drawer.getByRole('button', { name: 'All agents · 3' }).click();
+    await expect(piCopy).toBeChecked();
     await expect(drawer.getByRole('checkbox', { name: 'Select Codex copy' })).toBeChecked();
     await piCopy.uncheck();
     await expect(piCopy).not.toBeChecked();
@@ -270,7 +346,7 @@ test('skills: groups same-name Agent copies and scopes disable/delete safely', a
     await page.getByTestId('skills-drawer-disable').click();
     await expect(drawer).toContainText('Disabled');
     await expect(row).toContainText('Claude · off');
-    await expect(row).not.toHaveClass(/is-off/);
+    await expect(row).toHaveClass(/is-off/);
     await expect(page.getByTestId('skills-drawer-enable')).toBeEnabled();
     await expect(page.getByTestId('skills-drawer-disable')).toBeDisabled();
     await drawer.getByRole('button', { name: 'All agents · 3' }).click();
@@ -281,14 +357,32 @@ test('skills: groups same-name Agent copies and scopes disable/delete safely', a
     await page.getByTestId('skills-drawer-delete').click();
     await page.getByTestId('skills-delete-confirm-button').click();
     await expect(drawer).toHaveCount(0);
+    await expect(row).toHaveCount(0);
+    await page
+      .locator('.skills-agent-tabs')
+      .getByRole('button', { name: 'All agents', exact: true })
+      .click();
     await expect(row).not.toContainText('Claude');
     await expect(row).toContainText('Charter');
     await expect(row).toContainText('Codex');
 
     const systemRow = page.locator('tbody tr', { hasText: 'system-pdf' });
+    const reviewBadge = systemRow.getByText('needs review', { exact: true });
+    await expect(reviewBadge).toBeVisible();
+    await expect(reviewBadge).not.toHaveAttribute('title', /.+/);
+    await reviewBadge.hover();
+    const reviewTooltip = page.getByRole('tooltip');
+    await expect(reviewTooltip).toBeVisible();
+    await expect(reviewTooltip).toContainText('agent-specific tools or integrations');
+    await page.mouse.move(0, 0);
+    await expect(reviewTooltip).toHaveCount(0);
+    await expect(systemRow.getByText('issue', { exact: true })).toHaveCount(0);
     await page.getByTestId('skills-manage-system-pdf').click();
     const systemDrawer = page.getByRole('dialog', { name: 'Manage system-pdf' });
     await expect(systemDrawer).toContainText('Built-in · locked');
+    await expect(systemDrawer.locator('.skills-copy-review')).toContainText(
+      'Instructions reference agent-specific tools or integrations',
+    );
     await expect(systemDrawer.getByRole('checkbox', { name: 'Select Codex copy' })).toBeDisabled();
     await expect(page.getByTestId('skills-drawer-enable')).toBeDisabled();
     await expect(page.getByTestId('skills-drawer-disable')).toBeDisabled();

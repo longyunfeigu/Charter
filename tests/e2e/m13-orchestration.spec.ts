@@ -530,9 +530,9 @@ test.describe('M13 session orchestration', () => {
       ).toBe(true);
 
       await page.getByTestId('session-more').click();
-      await page.getByTestId('replay-open').click();
-      await expect(page.getByTestId('replay-story-list')).toContainText('⌁');
-      await page.getByTestId('replay-close').click();
+      // The commander is a managed ACP run, not a PTY Session. Its spawned
+      // worker terminal is not misrepresented as a replay of the commander.
+      await expect(page.getByTestId('replay-open')).toHaveCount(0);
 
       await page.setViewportSize({ width: 900, height: 720 });
       const fleetBox = await fleet.boundingBox();

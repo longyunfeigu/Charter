@@ -736,28 +736,7 @@ const TimelineCard = React.memo(function TimelineCard({
     case 'permission.requested': {
       const card = payload.card as PermissionCardDto;
       const resolution = context.permissionResolutions.get(card.requestId) ?? null;
-      return (
-        <div className="rt-perm-wrap">
-          <PermissionCard card={card} resolution={resolution} />
-          {resolution ? (
-            <button
-              className="rt-verify-replay"
-              data-testid={`tl-verify-replay-${card.requestId}`}
-              title="Open Verify at this approval — claim, evidence and disposition"
-              onClick={() =>
-                useTaskStore.getState().openReplay({
-                  taskId: card.taskId,
-                  depth: 'verify',
-                  anchor: { type: 'fact', id: event.id },
-                })
-              }
-            >
-              <Ic name="shield" size={11} />
-              Verify in Replay
-            </button>
-          ) : null}
-        </div>
-      );
+      return <PermissionCard card={card} resolution={resolution} />;
     }
     case 'permission.decided':
       return null; // shown as the resolved state of its request card
@@ -1531,14 +1510,16 @@ export function AgentPanel(): React.JSX.Element {
                   />
                 </>
               ) : null}
-              <button
-                className="btn"
-                data-testid="replay-open"
-                title="Replay what the agent did, step by step"
-                onClick={() => store.openReplay()}
-              >
-                Replay
-              </button>
+              {task.external ? (
+                <button
+                  className="btn"
+                  data-testid="replay-open"
+                  title="Replay the exact terminal output from this Session"
+                  onClick={() => store.openReplay()}
+                >
+                  Terminal Replay
+                </button>
+              ) : null}
               {running ? (
                 <button
                   className="btn danger"

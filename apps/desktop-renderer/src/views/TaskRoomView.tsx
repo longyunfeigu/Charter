@@ -424,15 +424,17 @@ export function TaskRoomView(): React.JSX.Element {
                     >
                       <Ic name="pencil" size={12} /> Rename Session
                     </button>
-                    <button
-                      data-testid="replay-open"
-                      onClick={() => {
-                        setMoreOpen(false);
-                        store.openReplay();
-                      }}
-                    >
-                      <Ic name="play" size={12} /> Replay Session
-                    </button>
+                    {task.external ? (
+                      <button
+                        data-testid="replay-open"
+                        onClick={() => {
+                          setMoreOpen(false);
+                          store.openReplay();
+                        }}
+                      >
+                        <Ic name="play" size={12} /> Terminal Replay
+                      </button>
+                    ) : null}
                     {legacyFleetAvailable ? (
                       <button
                         data-testid="task-open-legacy-orchestration"

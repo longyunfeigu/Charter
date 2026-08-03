@@ -71,6 +71,9 @@ import { detectProjectKind } from './services/project-kind.js';
 import { registerActivityHandlers } from './ipc/activity-handlers.js';
 import { registerReplayHandlers } from './ipc/replay-handlers.js';
 import { ReplayService } from './services/replay-service.js';
+import { registerTerminalReplayHandlers } from './ipc/terminal-replay-handlers.js';
+import { TerminalReplayService } from './services/terminal-replay-service.js';
+import { TerminalRecordingCoordinator } from './services/terminal-recording.js';
 import { registerImageHandlers } from './ipc/image-handlers.js';
 import { registerPreviewHandlers } from './ipc/preview-handlers.js';
 import { registerContextAttachmentHandlers } from './ipc/context-attachment-handlers.js';
@@ -143,6 +146,8 @@ let updateServiceRef: UpdateService | null = null;
 let m4Ref: M4Services | null = null;
 let m5Ref: M5Services | null = null;
 let agentHostRef: AgentHost | null = null;
+let terminalRecordingRef: TerminalRecordingCoordinator | null = null;
+let terminalReplayRef: TerminalReplayService | null = null;
 let taskServiceRef: TaskService | null = null;
 let externalSessionsRef: ExternalSessionService | null = null;
 let archaeologyRef: SessionArchaeologyService | null = null;
@@ -548,6 +553,7 @@ function launchTerminalDaemon(paths: AppPaths, socketPath: string, tokenFile: st
     `--terminal-daemon-socket=${socketPath}`,
     `--terminal-daemon-token=${tokenFile}`,
     `--terminal-daemon-state=${join(paths.runtimeDir, 'terminal-sessions')}`,
+    `--terminal-daemon-recordings=${join(paths.userData, 'terminal-recordings')}`,
     `--terminal-daemon-log=${join(paths.logsDir, 'terminal-daemon.log')}`,
   ];
   const child = spawn(process.execPath, [daemonEntry, ...daemonArgs], {
@@ -736,6 +742,11 @@ if (!gotLock) {
         terminalDaemon,
       );
       m4Ref = m4;
+      terminalRecordingRef = new TerminalRecordingCoordinator(
+        m4.terminals,
+        join(paths.userData, 'terminal-recordings'),
+        () => terminalDaemon?.supportsTerminalRecording() !== true,
+      );
       for (const id of m4.restoredTerminalIds) terminalIdentitiesRef.issue(id);
       m4.terminals.onExitEvent(({ id }) => terminalIdentitiesRef?.revokeTerminal(id));
       terminalControlRef = new TerminalControlService(m4.terminals, logger.child('orchestration'), {
@@ -930,7 +941,8 @@ if (!gotLock) {
         // Deferred: taskServiceRef is assigned right below (ADR-0037), and
         // archaeologyRef further down (ADR-0040) — empty usage until then.
         events: (windowDays) => taskServiceRef?.skillUsageEvents(windowDays) ?? [],
-        externalEvents: async () => (await archaeologyRef?.skillUsageEvents()) ?? [],
+        externalEvents: async (windowDays) =>
+          (await archaeologyRef?.skillUsageEvents(windowDays)) ?? [],
       });
       // ADR-0028: project memory — shared rules source, review-correction
       // capture, managed-block sync, external private-memory management.
@@ -1109,6 +1121,14 @@ if (!gotLock) {
         app.getVersion(),
       );
       registerReplayHandlers(replayService, logger.child('ipc'));
+      terminalReplayRef = new TerminalReplayService(
+        state.db,
+        taskService,
+        m4.terminals,
+        join(paths.userData, 'terminal-recordings'),
+        logger.child('terminal-replay'),
+      );
+      registerTerminalReplayHandlers(terminalReplayRef, logger.child('ipc'));
       registerImageHandlers(workspaceHost, logger.child('ipc'));
       // ADR-0022: preview gate — port detection, capture, PR draft. The PR
       // draft cites the replay receipt hash, so the provider is wired here.
@@ -1457,6 +1477,8 @@ if (!gotLock) {
     missionRecoveryRef?.stop();
     taskServiceRef?.shutdown();
     terminalControlRef?.dispose();
+    terminalRecordingRef?.dispose();
+    terminalRecordingRef = null;
     sshForwardsRef?.stopAll(); // listeners first, so nothing re-dials mid-quit
     sshSftpRef?.closeAll();
     sshServiceRef?.disconnectAll(); // close ssh transports before their PTY-equivalents
@@ -1466,6 +1488,7 @@ if (!gotLock) {
       ctlServerRef?.stop() ?? Promise.resolve(),
       acpPoolRef?.shutdown() ?? Promise.resolve(),
       agentHostRef?.dispose() ?? Promise.resolve(),
+      terminalReplayRef?.dispose() ?? Promise.resolve(),
     ]);
     void disposal
       .catch(() => undefined)

@@ -87,6 +87,18 @@ export const bundles = [
     target: 'node22',
     alias,
   },
+  {
+    entryPoints: [join(root, 'apps/desktop-main/src/terminal-replay-analysis-worker.ts')],
+    outfile: join(root, 'apps/desktop-main/dist/terminal-replay-analysis-worker.cjs'),
+    platform: 'node',
+    format: 'cjs',
+    bundle: true,
+    sourcemap: true,
+    target: 'node22',
+    alias,
+    external: ['electron'],
+    define: { 'process.env.NODE_ENV': '"production"' },
+  },
 ];
 
 export async function buildAll() {

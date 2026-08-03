@@ -30,6 +30,7 @@ interface DaemonListResult {
   capabilities?: {
     compactList?: boolean;
     snapshotById?: boolean;
+    terminalRecording?: boolean;
   };
 }
 
@@ -192,6 +193,7 @@ export class TerminalDaemonClient {
   private synchronizing = false;
   private queuedEvents: TerminalDaemonEvent[] = [];
   private snapshotById = false;
+  private terminalRecording = false;
   private readonly snapshotRefreshQueue: string[] = [];
   private snapshotRefreshRunning = false;
 
@@ -241,10 +243,13 @@ export class TerminalDaemonClient {
       8000,
     )) as DaemonListResult;
     bootstrap.applyCapabilities(result);
-    // Early builds hosted the daemon in a second Electron application. Replace
-    // that host only when it owns no PTYs; live legacy sessions remain adopted
-    // until their next natural restart instead of being interrupted by upgrade.
-    if (result.hostKind !== 'run-as-node' && result.sessions.length === 0) {
+    // Replace an idle legacy host when it either predates the run-as-node move
+    // or cannot record terminals. Live legacy PTYs remain adopted until their
+    // natural restart instead of being interrupted by an upgrade.
+    if (
+      result.sessions.length === 0 &&
+      (result.hostKind !== 'run-as-node' || result.capabilities?.terminalRecording !== true)
+    ) {
       await bootstrap.request({ type: 'shutdownIfIdle' }, 2000).catch(() => undefined);
       bootstrap.close();
       await new Promise((resolve) => setTimeout(resolve, 150));
@@ -280,6 +285,10 @@ export class TerminalDaemonClient {
 
   restoredSessions(): DaemonTerminalSnapshot[] {
     return [...this.snapshots.values()];
+  }
+
+  supportsTerminalRecording(): boolean {
+    return this.terminalRecording;
   }
 
   async currentSnapshots(): Promise<DaemonTerminalSnapshot[]> {
@@ -532,6 +541,7 @@ export class TerminalDaemonClient {
 
   private applyCapabilities(result: DaemonListResult): void {
     this.snapshotById = result.capabilities?.snapshotById === true;
+    this.terminalRecording = result.capabilities?.terminalRecording === true;
   }
 
   private async fetchSnapshot(id: string): Promise<DaemonTerminalSnapshot> {

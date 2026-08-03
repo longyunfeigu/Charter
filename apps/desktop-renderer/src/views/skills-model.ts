@@ -25,7 +25,9 @@ export interface SkillGroup {
   uses: number;
   usesByAgent: Record<SkillAgent, number>;
   lastUsedAt: string | null;
+  lastUsedByAgent: Record<SkillAgent, string | null>;
   preambleTokens: number;
+  preambleTokensByAgent: Record<SkillAgent, number>;
   needsTechnicalReview: boolean;
   noObservedUse: boolean;
   review: boolean;
@@ -49,6 +51,21 @@ export function isAgentEnabled(skill: SkillDto): boolean {
   return skill.enabled;
 }
 
+export function skillNeedsReview(skill: SkillDto): boolean {
+  return skill.status === 'invalid' || skill.compatibility === 'needs-review';
+}
+
+export function skillReviewReasons(skill: SkillDto): string[] {
+  if (!skillNeedsReview(skill)) return [];
+  if (skill.issues.length > 0) return skill.issues;
+  const reasons: string[] = [];
+  if (skill.status === 'invalid') reasons.push('SKILL.md failed validation.');
+  if (skill.compatibility === 'needs-review') {
+    reasons.push('Instructions require a compatibility review for this Agent.');
+  }
+  return reasons;
+}
+
 function maxDate(a: string | null, b: string | null): string | null {
   if (!a) return b;
   if (!b) return a;
@@ -70,6 +87,12 @@ export function groupSkills(
   return [...grouped.entries()]
     .map(([key, copies]): SkillGroup => {
       const usesByAgent: Record<SkillAgent, number> = { pi: 0, claude: 0, codex: 0 };
+      const lastUsedByAgent: Record<SkillAgent, string | null> = {
+        pi: null,
+        claude: null,
+        codex: null,
+      };
+      const preambleTokensByAgent: Record<SkillAgent, number> = { pi: 0, claude: 0, codex: 0 };
       let uses = 0;
       let lastUsedAt: string | null = null;
       let preambleTokens = 0;
@@ -79,25 +102,21 @@ export function groupSkills(
         uses += row.uses;
         preambleTokens += row.preambleTokens;
         lastUsedAt = maxDate(lastUsedAt, row.lastUsedAt);
-        usesByAgent.pi += row.byConsumer.charter.uses;
-        usesByAgent.claude += row.byConsumer.claude.uses;
-        usesByAgent.codex += row.byConsumer.codex.uses;
+        const owner = skillAgent(copy);
+        preambleTokensByAgent[owner] += row.preambleTokens;
+        for (const agent of SKILL_AGENTS) {
+          const series = row.byConsumer[agent.consumer];
+          usesByAgent[agent.id] += series.uses;
+          lastUsedByAgent[agent.id] = maxDate(lastUsedByAgent[agent.id], series.lastUsedAt);
+        }
       }
       const agents = SKILL_AGENTS.map((agent) => agent.id).filter((agent) =>
         copies.some((copy) => skillAgent(copy) === agent),
       );
       const disabledAnywhere = copies.some((copy) => !isAgentEnabled(copy));
-      const needsTechnicalReview = copies.some(
-        (copy) => copy.status === 'invalid' || copy.compatibility === 'needs-review',
-      );
-      // Codex rollout files do not currently expose a verified implicit-skill
-      // event. Only nominate an unused skill when at least one enabled copy is
-      // installed in a consumer whose usage we can actually observe.
-      const hasObservedConsumerCopy = copies.some(
-        (copy) => skillAgent(copy) !== 'codex' && isAgentEnabled(copy),
-      );
-      const noObservedUse =
-        usageLoaded && hasObservedConsumerCopy && usesByAgent.pi + usesByAgent.claude === 0;
+      const needsTechnicalReview = copies.some(skillNeedsReview);
+      const hasObservedConsumerCopy = copies.some(isAgentEnabled);
+      const noObservedUse = usageLoaded && hasObservedConsumerCopy && uses === 0;
       return {
         key,
         displayName: copies[0]?.displayName ?? key,
@@ -107,7 +126,9 @@ export function groupSkills(
         uses,
         usesByAgent,
         lastUsedAt,
+        lastUsedByAgent,
         preambleTokens,
+        preambleTokensByAgent,
         needsTechnicalReview,
         noObservedUse,
         review: needsTechnicalReview || noObservedUse,
@@ -116,6 +137,40 @@ export function groupSkills(
       };
     })
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
+}
+
+/** Project grouped catalog data into one Agent's point of view. The selected
+ * Agent owns every row-level decision: installed copies, usage, recency,
+ * review state and sort metrics. `all` preserves the comparison view. */
+export function scopeSkillGroups(
+  groups: SkillGroup[],
+  agent: SkillAgentFilter,
+  usageLoaded = true,
+): SkillGroup[] {
+  if (agent === 'all') return groups;
+  return groups.flatMap((group) => {
+    const copies = group.copies.filter((copy) => skillAgent(copy) === agent);
+    if (copies.length === 0) return [];
+    const uses = group.usesByAgent[agent];
+    const needsTechnicalReview = copies.some(skillNeedsReview);
+    const noObservedUse = usageLoaded && copies.some(isAgentEnabled) && uses === 0;
+    return [
+      {
+        ...group,
+        description: copies.find((copy) => copy.description)?.description ?? '',
+        copies,
+        agents: [agent],
+        uses,
+        lastUsedAt: group.lastUsedByAgent[agent],
+        preambleTokens: group.preambleTokensByAgent[agent],
+        needsTechnicalReview,
+        noObservedUse,
+        review: needsTechnicalReview || noObservedUse,
+        disabledAnywhere: copies.some((copy) => !isAgentEnabled(copy)),
+        protectedOnly: copies.every((copy) => copy.protected === true),
+      },
+    ];
+  });
 }
 
 export function filterSkillGroups(

@@ -29,7 +29,7 @@ export interface SkillsHandlerDeps {
    * (session archaeology, also constructed later). Failures degrade to
    * Charter-only numbers — the panel never breaks over a transcript read.
    */
-  externalEvents?: () => Promise<ExternalSkillEvent[]>;
+  externalEvents?: (windowDays: number) => Promise<ExternalSkillEvent[]>;
 }
 
 const USAGE_WINDOW_DAYS_DEFAULT = 45;
@@ -114,7 +114,7 @@ export function registerSkillsHandlers(
         }));
         let external: ConsumerSkillUsageEvent[] = [];
         try {
-          external = joinExternalSkillEvents((await deps.externalEvents?.()) ?? [], catalog);
+          external = joinExternalSkillEvents((await deps.externalEvents?.(days)) ?? [], catalog);
         } catch (e) {
           logger.warn('external skill usage unavailable', { error: errorMessage(e) });
         }

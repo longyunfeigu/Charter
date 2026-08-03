@@ -62,6 +62,7 @@ describe.skipIf(process.platform === 'win32')('terminal daemon session survival'
       socketPath,
       tokenFile,
       stateDir: join(root, 'sessions'),
+      recordingsDir: join(root, 'recordings'),
     });
     await server.start();
 
@@ -149,6 +150,7 @@ describe.skipIf(process.platform === 'win32')('terminal daemon session survival'
       socketPath,
       tokenFile,
       stateDir: join(root, 'sessions'),
+      recordingsDir: join(root, 'recordings'),
     });
     await server.start();
     first = await TerminalDaemonClient.connect({

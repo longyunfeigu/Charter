@@ -272,9 +272,14 @@
   border: 1px solid color-mix(in srgb, #46b477 28%, var(--border));
   color: #287650;
 }
-.skills-name-cell .issue {
-  background: var(--danger-bg);
-  color: var(--danger);
+.skills-name-cell .review {
+  background: var(--warning-bg);
+  color: var(--warning);
+  cursor: help;
+  outline: none;
+}
+.skills-name-cell .review:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 34%, transparent);
 }
 .skills-name-cell .unobserved {
   background: var(--warning-bg);
@@ -552,6 +557,35 @@
   font: 9px var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.skills-copy-list small.skills-copy-review {
+  color: var(--warning);
+  font-family: var(--font-ui);
+}
+.skills-review-tooltip {
+  position: fixed;
+  z-index: 80;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--bg-editor) 18%, transparent);
+  border-radius: 7px;
+  background: var(--fg);
+  box-shadow: 0 8px 24px color-mix(in srgb, #000 22%, transparent);
+  color: var(--bg-editor);
+  font: 500 11px/1.45 var(--font-ui);
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  white-space: pre-line;
+  animation: skillsTooltipIn 70ms ease-out both;
+}
+@keyframes skillsTooltipIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .skills-copy-list label > span {
   padding: 3px 6px;
