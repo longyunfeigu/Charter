@@ -117,14 +117,15 @@ test('packaged daemon keeps a PTY alive across a full app restart', async () => 
     expect(terminal?.persistence).toBe('daemon');
     const terminalId = terminal!.id;
 
-    await waitForTerminalOutput(first.page, /[%$#❯]/, { terminalId });
+    await waitForTerminalOutput(first.page, /[%$#❯>]/, { terminalId });
     const xterm = first.page.locator('.xterm').last();
     await xterm.click();
     await first.page.keyboard.press('Control+u');
-    await first.page.keyboard.type(
-      "printf 'PACKAGED_BEFORE_RESTART\\n'; sleep 2; printf 'PACKAGED_WHILE_CLOSED\\n'; sleep 30",
-      { delay: 1 },
-    );
+    const restartProbe =
+      process.platform === 'win32'
+        ? 'echo PACKAGED_BEFORE_RESTART & ping 127.0.0.1 -n 3 >nul & echo PACKAGED_WHILE_CLOSED & ping 127.0.0.1 -n 31 >nul'
+        : "printf 'PACKAGED_BEFORE_RESTART\\n'; sleep 2; printf 'PACKAGED_WHILE_CLOSED\\n'; sleep 30";
+    await first.page.keyboard.type(restartProbe, { delay: 1 });
     await first.page.keyboard.press('Enter');
     await waitForTerminalOutput(first.page, 'PACKAGED_BEFORE_RESTART', { terminalId });
 
@@ -146,8 +147,12 @@ test('packaged daemon keeps a PTY alive across a full app restart', async () => 
 
     await second.page.locator('.xterm').last().click();
     await second.page.keyboard.press('Control+c');
-    await waitForTerminalOutput(second.page, /[%$#❯]/, { terminalId });
-    await second.page.keyboard.type("printf 'PACKAGED_AFTER_RESTART_INPUT_OK\\n'", { delay: 1 });
+    await waitForTerminalOutput(second.page, /[%$#❯>]/, { terminalId });
+    const inputProbe =
+      process.platform === 'win32'
+        ? 'echo PACKAGED_AFTER_RESTART_INPUT_OK'
+        : "printf 'PACKAGED_AFTER_RESTART_INPUT_OK\\n'";
+    await second.page.keyboard.type(inputProbe, { delay: 1 });
     await second.page.keyboard.press('Enter');
     await waitForTerminalOutput(second.page, 'PACKAGED_AFTER_RESTART_INPUT_OK', { terminalId });
 
