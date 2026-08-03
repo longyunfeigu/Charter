@@ -6,6 +6,7 @@ import {
   attributeProject,
   parseClaudeTranscript,
   parseCodexRollout,
+  parseKimiSession,
   SessionArchaeologyService,
 } from './session-archaeology.js';
 
@@ -20,6 +21,7 @@ const silentLogger = {
 
 const CLAUDE_ID = '6f3a92c1-aaaa-4bbb-8ccc-0123456789ab';
 const CODEX_ID = '019f1609-996f-7633-b306-921acdf80a78';
+const KIMI_ID = 'session_b04b292c-b7b4-456a-893c-3a22675771f9';
 
 const lines = (...entries: unknown[]) => entries.map((e) => JSON.stringify(e)).join('\n');
 
@@ -301,6 +303,47 @@ describe('parseCodexRollout (ADR-0038)', () => {
   });
 });
 
+describe('parseKimiSession', () => {
+  it('uses state identity and reduces user turns, file writes, and skills from the wire', () => {
+    const summary = parseKimiSession(
+      lines(
+        {
+          type: 'turn.prompt',
+          input: [{ type: 'text', text: '实现登录页' }],
+          origin: { kind: 'user' },
+          time: Date.parse('2026-08-03T04:09:00.000Z'),
+        },
+        {
+          type: 'context.append_loop_event',
+          event: { type: 'tool.call', name: 'Write', args: { path: 'src/login.tsx' } },
+          time: Date.parse('2026-08-03T04:09:20.000Z'),
+        },
+        {
+          type: 'context.append_loop_event',
+          event: { type: 'tool.call', name: 'Skill', args: { skill: 'frontend-design' } },
+          time: Date.parse('2026-08-03T04:09:21.000Z'),
+        },
+      ),
+      JSON.stringify({
+        workDir: '/Users/dev/git/app',
+        title: '实现登录页',
+        createdAt: '2026-08-03T04:08:53.976Z',
+        updatedAt: '2026-08-03T04:09:34.218Z',
+      }),
+      KIMI_ID,
+    );
+
+    expect(summary).toMatchObject({
+      sessionId: KIMI_ID,
+      cwd: '/Users/dev/git/app',
+      title: '实现登录页',
+      turnCount: 1,
+      filesTouched: ['/Users/dev/git/app/src/login.tsx'],
+      skills: ['frontend-design'],
+    });
+  });
+});
+
 describe('attributeProject (ADR-0038: files beat cwd guessing)', () => {
   const projects = [
     '/Users/dev/git/blog',
@@ -480,6 +523,52 @@ describe('SessionArchaeologyService.scan (read-only fs discovery)', () => {
       { skill: 'clear', at: '2026-07-17T09:00:01.000Z', consumer: 'claude' },
       { skill: 'baoyu-format-markdown', at: '2026-07-17T09:01:00.000Z', consumer: 'claude' },
       { skill: 'web-access', at: '2026-06-30T01:01:00.000Z', consumer: 'codex' },
+    ]);
+  });
+
+  it('discovers a manifest-selected Kimi history store', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'arch-kimi-'));
+    const dataHome = join(home, '.kimi-code');
+    const sessionDir = join(dataHome, 'sessions', 'wd_app', KIMI_ID);
+    const wireDir = join(sessionDir, 'agents', 'main');
+    await mkdir(wireDir, { recursive: true });
+    await writeFile(
+      join(dataHome, 'session_index.jsonl'),
+      lines({ sessionId: KIMI_ID, sessionDir, workDir: '/Users/dev/git/app' }),
+    );
+    await writeFile(
+      join(sessionDir, 'state.json'),
+      JSON.stringify({
+        workDir: '/Users/dev/git/app',
+        title: 'Kimi login work',
+        createdAt: '2026-08-03T04:08:53.976Z',
+        updatedAt: '2026-08-03T04:09:34.218Z',
+      }),
+    );
+    await writeFile(
+      join(wireDir, 'wire.jsonl'),
+      lines({
+        type: 'turn.prompt',
+        input: [{ type: 'text', text: 'build login' }],
+        origin: { kind: 'user' },
+        time: Date.parse('2026-08-03T04:09:00.000Z'),
+      }),
+    );
+    const service = new SessionArchaeologyService({
+      logger: silentLogger,
+      agentSources: [{ id: 'kimi', connector: 'kimi', dataHome }],
+      knownSessions: () => new Map(),
+      projects: () => ['/Users/dev/git/app'],
+    });
+
+    await expect(service.scan()).resolves.toEqual([
+      expect.objectContaining({
+        cli: 'kimi',
+        sessionId: KIMI_ID,
+        title: 'Kimi login work',
+        projectPath: '/Users/dev/git/app',
+        turnCount: 1,
+      }),
     ]);
   });
 });

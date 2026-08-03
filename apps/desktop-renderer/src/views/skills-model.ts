@@ -1,20 +1,65 @@
-import type { SkillConsumer, SkillDto, SkillUsageDto } from '@pi-ide/ipc-contracts';
+import type {
+  DetectedAgentDto,
+  SkillConsumer,
+  SkillDto,
+  SkillUsageDto,
+} from '@pi-ide/ipc-contracts';
 
-export type SkillAgent = 'pi' | 'claude' | 'codex';
+export type SkillAgent = string;
 export type SkillStatusFilter = 'all' | 'active' | 'review' | 'disabled';
 export type SkillAgentFilter = 'all' | SkillAgent;
 export type SkillSort = 'uses' | 'recent' | 'name';
 
-export const SKILL_AGENTS: ReadonlyArray<{
+export interface SkillAgentInfo {
   id: SkillAgent;
   label: string;
   shortLabel: string;
-  consumer: SkillConsumer;
-}> = [
-  { id: 'pi', label: 'Charter Agent', shortLabel: 'Charter', consumer: 'charter' },
-  { id: 'claude', label: 'Claude Code', shortLabel: 'Claude', consumer: 'claude' },
-  { id: 'codex', label: 'Codex', shortLabel: 'Codex', consumer: 'codex' },
+  /** Null when Charter has no provider transcript-usage connector yet. */
+  consumer: SkillConsumer | null;
+}
+
+const RESERVED_SKILL_SOURCES = new Set(['managed', 'agents', 'custom']);
+const USAGE_CONSUMERS: ReadonlyArray<[SkillAgent, SkillConsumer]> = [
+  ['pi', 'charter'],
+  ['claude', 'claude'],
+  ['codex', 'codex'],
 ];
+
+function fallbackAgentName(agentId: string): string {
+  return agentId
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+export function skillAgentInfo(
+  agentId: SkillAgent,
+  catalog: readonly DetectedAgentDto[] = [],
+): SkillAgentInfo {
+  if (agentId === 'pi') {
+    return { id: 'pi', label: 'Charter Agent', shortLabel: 'Charter', consumer: 'charter' };
+  }
+  const detected = catalog.find((agent) => agent.id === agentId);
+  return {
+    id: agentId,
+    label: detected?.displayName ?? fallbackAgentName(agentId),
+    shortLabel: detected?.shortName ?? fallbackAgentName(agentId),
+    consumer: USAGE_CONSUMERS.find(([candidate]) => candidate === agentId)?.[1] ?? null,
+  };
+}
+
+export function availableSkillAgents(
+  groups: readonly SkillGroup[],
+  catalog: readonly DetectedAgentDto[] = [],
+): SkillAgentInfo[] {
+  const ids = new Set<SkillAgent>(['pi']);
+  for (const agent of catalog) {
+    if (agent.installed && agent.capabilities.skills) ids.add(agent.id);
+  }
+  for (const group of groups) for (const agent of group.agents) ids.add(agent);
+  return [...ids].map((id) => skillAgentInfo(id, catalog));
+}
 
 export interface SkillGroup {
   key: string;
@@ -36,18 +81,16 @@ export interface SkillGroup {
 }
 
 export function skillAgent(skill: SkillDto): SkillAgent {
-  if (skill.source === 'claude') return 'claude';
-  if (skill.source === 'codex') return 'codex';
-  return 'pi';
+  return RESERVED_SKILL_SOURCES.has(skill.source) ? 'pi' : skill.source;
 }
 
 export function isAgentEnabled(skill: SkillDto): boolean {
   if (skill.agentEnabled !== undefined) return skill.agentEnabled;
   // Backward-compatible truth for a renderer talking to an older main
-  // process: a discovered Claude/Codex folder is natively available to that
+  // process: a discovered external Agent folder is natively available to that
   // Agent even when Charter has not trusted it for Pi context. Newer main
   // processes send agentEnabled=false explicitly for parked copies.
-  if (skill.source === 'claude' || skill.source === 'codex') return true;
+  if (skillAgent(skill) !== 'pi') return true;
   return skill.enabled;
 }
 
@@ -86,13 +129,17 @@ export function groupSkills(
 
   return [...grouped.entries()]
     .map(([key, copies]): SkillGroup => {
-      const usesByAgent: Record<SkillAgent, number> = { pi: 0, claude: 0, codex: 0 };
-      const lastUsedByAgent: Record<SkillAgent, string | null> = {
-        pi: null,
-        claude: null,
-        codex: null,
-      };
-      const preambleTokensByAgent: Record<SkillAgent, number> = { pi: 0, claude: 0, codex: 0 };
+      const agents = [...new Set(copies.map(skillAgent))];
+      const metricAgents = new Set([...agents, ...USAGE_CONSUMERS.map(([agent]) => agent)]);
+      const usesByAgent = Object.fromEntries(
+        [...metricAgents].map((agent) => [agent, 0]),
+      ) as Record<SkillAgent, number>;
+      const lastUsedByAgent = Object.fromEntries(
+        [...metricAgents].map((agent) => [agent, null]),
+      ) as Record<SkillAgent, string | null>;
+      const preambleTokensByAgent = Object.fromEntries(
+        [...metricAgents].map((agent) => [agent, 0]),
+      ) as Record<SkillAgent, number>;
       let uses = 0;
       let lastUsedAt: string | null = null;
       let preambleTokens = 0;
@@ -103,16 +150,13 @@ export function groupSkills(
         preambleTokens += row.preambleTokens;
         lastUsedAt = maxDate(lastUsedAt, row.lastUsedAt);
         const owner = skillAgent(copy);
-        preambleTokensByAgent[owner] += row.preambleTokens;
-        for (const agent of SKILL_AGENTS) {
-          const series = row.byConsumer[agent.consumer];
-          usesByAgent[agent.id] += series.uses;
-          lastUsedByAgent[agent.id] = maxDate(lastUsedByAgent[agent.id], series.lastUsedAt);
+        preambleTokensByAgent[owner] = (preambleTokensByAgent[owner] ?? 0) + row.preambleTokens;
+        for (const [agent, consumer] of USAGE_CONSUMERS) {
+          const series = row.byConsumer[consumer];
+          usesByAgent[agent] = (usesByAgent[agent] ?? 0) + series.uses;
+          lastUsedByAgent[agent] = maxDate(lastUsedByAgent[agent] ?? null, series.lastUsedAt);
         }
       }
-      const agents = SKILL_AGENTS.map((agent) => agent.id).filter((agent) =>
-        copies.some((copy) => skillAgent(copy) === agent),
-      );
       const disabledAnywhere = copies.some((copy) => !isAgentEnabled(copy));
       const needsTechnicalReview = copies.some(skillNeedsReview);
       const hasObservedConsumerCopy = copies.some(isAgentEnabled);
@@ -151,7 +195,7 @@ export function scopeSkillGroups(
   return groups.flatMap((group) => {
     const copies = group.copies.filter((copy) => skillAgent(copy) === agent);
     if (copies.length === 0) return [];
-    const uses = group.usesByAgent[agent];
+    const uses = group.usesByAgent[agent] ?? 0;
     const needsTechnicalReview = copies.some(skillNeedsReview);
     const noObservedUse = usageLoaded && copies.some(isAgentEnabled) && uses === 0;
     return [
@@ -161,8 +205,8 @@ export function scopeSkillGroups(
         copies,
         agents: [agent],
         uses,
-        lastUsedAt: group.lastUsedByAgent[agent],
-        preambleTokens: group.preambleTokensByAgent[agent],
+        lastUsedAt: group.lastUsedByAgent[agent] ?? null,
+        preambleTokens: group.preambleTokensByAgent[agent] ?? 0,
         needsTechnicalReview,
         noObservedUse,
         review: needsTechnicalReview || noObservedUse,

@@ -4,7 +4,7 @@ import type { MissionSnapshotDto, RecentWorkspaceDto, TaskDto } from '@pi-ide/ip
 import { rpcResult } from '../bridge.js';
 import { useActivityStore, currentActionLine } from '../store/activityStore.js';
 import { useAppStore, type RailView } from '../store/appStore.js';
-import { useExternalStore, type ExternalSession } from '../store/externalStore.js';
+import { useExternalStore } from '../store/externalStore.js';
 import { RUNNING_TASK_STATES, useTaskStore } from '../store/taskStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useTerminalStore } from './TerminalPanel.js';
@@ -55,6 +55,8 @@ import {
   type MissionRuntimeStatus,
 } from './mission-runtime-status.js';
 import { TERMINAL_MISSION_STATES } from './mission/mission-view-model.js';
+import { agentDisplayName } from '../store/agentCatalogStore.js';
+import { runningSessionTargets, type RunningSessionTarget } from './session-running-targets.js';
 
 export { isHistoryEntry, type SessionEntry } from './rail-groups.js';
 
@@ -67,62 +69,12 @@ const RAIL_WIDTH_MIN = 288;
 const RAIL_WIDTH_MAX = 520;
 const SESSION_TOOLTIP_DELAY_MS = 180;
 const ACTION_TOOLTIP_DELAY_MS = 80;
-const LIVE_MISSION_ASSIGNMENT_STATES = new Set(['ACTIVE', 'WAITING', 'PAUSED']);
-
-type RunningSessionTarget =
-  | { key: string; kind: 'task'; taskId: string }
-  | { key: string; kind: 'external'; taskId: string }
-  | { key: string; kind: 'terminal'; terminalId: string }
-  | { key: string; kind: 'mission'; missionId: string; assignmentId: string };
-
-/**
- * One global stop target per visible live Session. Mission-owned rows use the
- * assignment lifecycle so their runtime cannot be relaunched by orchestration;
- * ordinary tasks and terminals keep their existing stop semantics.
- */
-export function runningSessionTargets(
-  entries: readonly SessionEntry[],
-  externalSessions: Readonly<Record<string, Pick<ExternalSession, 'status'>>>,
-): RunningSessionTarget[] {
-  const targets: RunningSessionTarget[] = [];
-  const seen = new Set<string>();
-  const add = (target: RunningSessionTarget): void => {
-    if (seen.has(target.key)) return;
-    seen.add(target.key);
-    targets.push(target);
-  };
-
-  for (const entry of entries) {
-    if (entry.mission && LIVE_MISSION_ASSIGNMENT_STATES.has(entry.mission.assignmentState)) {
-      add({
-        key: `mission:${entry.mission.missionId}:${entry.mission.assignmentId}`,
-        kind: 'mission',
-        missionId: entry.mission.missionId,
-        assignmentId: entry.mission.assignmentId,
-      });
-      continue;
-    }
-    if (entry.kind === 'mission') continue;
-    if (entry.kind === 'terminal') {
-      if (!entry.exited) {
-        add({
-          key: `terminal:${entry.terminalId}`,
-          kind: 'terminal',
-          terminalId: entry.terminalId,
-        });
-      }
-      continue;
-    }
-    if (entry.task.external) {
-      const status = externalSessions[entry.task.id]?.status ?? entry.task.external.status;
-      if (status === 'active') {
-        add({ key: `external:${entry.task.id}`, kind: 'external', taskId: entry.task.id });
-      }
-    } else if (RUNNING_TASK_STATES.has(entry.task.state)) {
-      add({ key: `task:${entry.task.id}`, kind: 'task', taskId: entry.task.id });
-    }
-  }
-  return targets;
+async function stopExternalSession(taskId: string): Promise<boolean> {
+  // Keep process termination and durable Session finalization inside one host
+  // operation. A detached/restored PTY can be absent from the renderer while
+  // its task row still says active; terminal.kill alone would be a false success.
+  const result = await rpcResult('external.endSession', { taskId, force: true });
+  return result.ok && result.data.ended;
 }
 
 async function stopRunningSession(target: RunningSessionTarget): Promise<boolean> {
@@ -131,20 +83,27 @@ async function stopRunningSession(target: RunningSessionTarget): Promise<boolean
     return result.ok;
   }
   if (target.kind === 'external') {
-    const result = await rpcResult('external.endSession', { taskId: target.taskId });
-    return result.ok && result.data.ended;
+    return stopExternalSession(target.taskId);
   }
   if (target.kind === 'terminal') {
     // The user already confirmed the global destructive action in the rail.
     const result = await rpcResult('terminal.kill', { id: target.terminalId, force: true });
     return result.ok && result.data.closed;
   }
-  const result = await rpcResult('mission.cancelAssignment', {
+  const cancelled = await rpcResult('mission.cancelAssignment', {
     missionId: target.missionId,
     assignmentId: target.assignmentId,
     reason: 'Stopped by user from the Sessions rail',
   });
-  return result.ok;
+  if (!cancelled.ok) return false;
+  // Cancellation records lifecycle intent and wakes the outbox, but Stop all
+  // promises completion now. Close the resident runtime synchronously too.
+  const closed = await rpcResult('mission.closeRuntime', {
+    missionId: target.missionId,
+    assignmentId: target.assignmentId,
+    reason: 'Stopped by user from the Sessions rail',
+  });
+  return closed.ok;
 }
 
 function clampRailWidth(width: number): number {
@@ -297,17 +256,12 @@ function saveCollapsed(collapsed: ReadonlySet<string>): void {
   }
 }
 
-function providerForTask(task: TaskDto): 'pi' | 'claude' | 'codex' {
-  if (task.external?.cli === 'claude') return 'claude';
-  if (task.external?.cli === 'codex') return 'codex';
-  return 'pi';
+function providerForTask(task: TaskDto): string {
+  return task.external?.cli ?? 'pi';
 }
 
-function providerLabel(provider: 'pi' | 'shell' | 'claude' | 'codex'): string {
-  if (provider === 'claude') return 'Claude';
-  if (provider === 'codex') return 'Codex';
-  if (provider === 'shell') return 'Shell';
-  return 'Charter';
+function providerLabel(provider: string): string {
+  return agentDisplayName(provider, true);
 }
 
 function missionProvider(
@@ -319,8 +273,8 @@ function missionProvider(
     (candidate) => candidate.id === assignment.assigneePrincipalId,
   );
   const provider = principal?.provider ?? attempt?.requestedRuntime ?? null;
-  if (provider === 'claude' || provider === 'codex' || provider === 'shell') return provider;
-  return 'pi';
+  if (provider === 'managed' || !provider) return 'pi';
+  return provider;
 }
 
 function missionAssignmentDepth(
@@ -489,7 +443,7 @@ function SessionTaskRow({
         if (!result.data.ended) {
           app.pushToast(
             'warning',
-            `${task.external?.cli === 'claude' ? 'Claude Code' : 'Codex'} did not exit. Close its terminal to force it to stop.`,
+            `${agentDisplayName(task.external!.cli)} did not exit. Close its terminal to force it to stop.`,
           );
         }
       })
@@ -623,7 +577,7 @@ function TerminalSessionRow({
   missionRuntimeStatus = null,
 }: {
   terminalId: string;
-  launch: 'shell' | 'claude' | 'codex';
+  launch: string;
   showProject?: boolean;
   worker?: boolean;
   depth?: number;
@@ -999,8 +953,7 @@ export function SessionRail(): React.JSX.Element {
           !taskByTerminal[terminal.id] &&
           !tasks.some((task) => task.external?.terminalId === terminal.id) &&
           // ADR-0047: remote SSH sessions always earn a rail row (grouped by host).
-          (terminal.launch === 'claude' ||
-            terminal.launch === 'codex' ||
+          (isExternalCli(terminal.launch) ||
             Boolean(terminal.remote) ||
             workerTerminalIds.has(terminal.id)),
       )

@@ -13,6 +13,14 @@ const logger: Logger = {
   child: () => logger,
 };
 
+function testAgentSources(home: string) {
+  return [
+    { id: 'claude', label: 'Claude Code', root: join(home, '.claude', 'skills') },
+    { id: 'codex', label: 'Codex', root: join(home, '.codex', 'skills') },
+    { id: 'kimi', label: 'Kimi Code', root: join(home, '.kimi-code', 'skills') },
+  ];
+}
+
 function makeSkillFolder(
   base: string,
   name: string,
@@ -192,15 +200,17 @@ describe('SkillStore (ADR-0015)', () => {
     expect(store.remove('alpha')).toBe(false);
   });
 
-  it('discovers well-known Agent/Claude/Codex roots without trusting them', () => {
+  it('discovers shared and manifest-defined Agent roots without trusting them', () => {
     const home = mkdtempSync(join(tmpdir(), 'skills-home-'));
     try {
       makeSkillFolder(join(home, '.agents', 'skills'), 'shared');
       makeSkillFolder(join(home, '.claude', 'skills'), 'claude-only');
       makeSkillFolder(join(home, '.codex', 'skills', '.system'), 'codex-system');
+      makeSkillFolder(join(home, '.kimi-code', 'skills'), 'kimi-only');
       const discovered = new SkillStore(root, logger, {
         discoverExternal: true,
         homeDir: home,
+        agentSources: testAgentSources(home),
       });
       const snapshot = discovered.snapshot();
       expect(snapshot.sources.map((source) => source.id)).toEqual([
@@ -208,10 +218,12 @@ describe('SkillStore (ADR-0015)', () => {
         'agents',
         'claude',
         'codex',
+        'kimi',
       ]);
       expect(snapshot.skills.map((skill) => skill.displayName).sort()).toEqual([
         'claude-only',
         'codex-system',
+        'kimi-only',
         'shared',
       ]);
       expect(snapshot.skills.every((skill) => !skill.enabled)).toBe(true);
@@ -247,6 +259,7 @@ describe('SkillStore (ADR-0015)', () => {
       const discovered = new SkillStore(root, logger, {
         discoverExternal: true,
         homeDir: home,
+        agentSources: testAgentSources(home),
       });
       discovered.setSourcePolicy('agents', { trusted: true, autoEnableNew: true });
       expect(discovered.list().find((skill) => skill.displayName === 'alpha')?.enabled).toBe(true);
@@ -298,6 +311,7 @@ describe('SkillStore (ADR-0015)', () => {
       const discovered = new SkillStore(root, logger, {
         discoverExternal: true,
         homeDir: home,
+        agentSources: testAgentSources(home),
       });
       const copies = discovered.list().filter((skill) => skill.displayName === 'duplicate');
       expect(copies.map((skill) => skill.name)).toEqual(['duplicate', 'duplicate@claude']);

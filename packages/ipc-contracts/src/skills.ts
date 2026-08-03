@@ -1,6 +1,8 @@
 import { z } from 'zod';
+import { AgentIdSchema } from './agents.js';
 
-export const SkillSourceKindSchema = z.enum(['managed', 'agents', 'codex', 'claude', 'custom']);
+/** Reserved source kinds plus opaque Agent IDs from the Agent Catalog. */
+export const SkillSourceKindSchema = AgentIdSchema;
 export type SkillSourceKind = z.infer<typeof SkillSourceKindSchema>;
 
 /** One directory Charter discovers skills from (ADR-0019). */
@@ -129,7 +131,7 @@ export type SkillUsageDto = z.infer<typeof SkillUsageDtoSchema>;
  * settings panel can offer an update after the product revises the text.
  */
 export const CharterTerminalSurfaceDtoSchema = z.object({
-  target: z.enum(['claude', 'codex']),
+  target: AgentIdSchema,
   /** Absolute SKILL.md path inside the CLI's user-level skills directory. */
   path: z.string(),
   installed: z.boolean(),

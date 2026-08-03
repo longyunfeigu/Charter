@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import type { ChangeSet } from '@pi-ide/change-service';
 import {
   completionDisposition,
+  mergeReviewChangeSets,
   projectHistoricalOrchestrationFleet,
+  projectHistoricalOrchestrationTaskIds,
   TaskService,
   unresolvedFailedWriteCount,
 } from './task-service.js';
@@ -85,6 +88,78 @@ describe('unresolvedFailedWriteCount', () => {
         { name: 'create_file', state: 'SUCCEEDED', inputJson: '{"path":"src/other.ts"}' },
       ]),
     ).toBe(1);
+  });
+});
+
+describe('commander review projection', () => {
+  it('keeps every bound worker in the delivered result after the worker exits', () => {
+    expect(
+      projectHistoricalOrchestrationTaskIds([
+        {
+          type: 'orchestration.workerCreated',
+          payload: { terminalId: 'term_1', workerTaskId: 'worker_a' },
+        },
+        {
+          type: 'orchestration.workerBound',
+          payload: { terminalId: 'term_1', workerTaskId: 'worker_a' },
+        },
+        {
+          type: 'orchestration.workerKilled',
+          payload: { terminalId: 'term_1', workerTaskId: 'worker_a' },
+        },
+        {
+          type: 'orchestration.workerBound',
+          payload: { terminalId: 'term_2', workerTaskId: 'worker_b' },
+        },
+      ]),
+    ).toEqual(['worker_a', 'worker_b']);
+  });
+
+  it('deduplicates paths and uses the task that owns the earliest baseline', () => {
+    const changeSet = (
+      taskId: string,
+      files: Array<{ path: string; additions: number; currentHash: string }>,
+    ): ChangeSet => ({
+      taskId,
+      files: files.map((file) => ({
+        path: file.path,
+        status: 'created',
+        renamedFrom: null,
+        binary: false,
+        diff: `--- ${file.path}\n+++ ${file.path}\n+added`,
+        additions: file.additions,
+        deletions: 0,
+        baselineHash: null,
+        currentHash: file.currentHash,
+      })),
+      totalAdditions: files.reduce((total, file) => total + file.additions, 0),
+      totalDeletions: 0,
+    });
+    const merged = mergeReviewChangeSets(
+      'commander',
+      [
+        changeSet('commander', [
+          { path: 'app.js', additions: 10, currentHash: 'app-final' },
+          { path: 'shared.js', additions: 2, currentHash: 'shared-final' },
+        ]),
+        changeSet('worker', [
+          { path: 'core.js', additions: 20, currentHash: 'core-final' },
+          { path: 'shared.js', additions: 8, currentHash: 'shared-final' },
+        ]),
+      ],
+      new Map([
+        ['app.js', 'commander'],
+        ['core.js', 'worker'],
+        ['shared.js', 'worker'],
+      ]),
+    );
+
+    expect(merged.files.map((file) => [file.path, file.additions])).toEqual([
+      ['app.js', 10],
+      ['core.js', 20],
+      ['shared.js', 8],
+    ]);
+    expect(merged.totalAdditions).toBe(38);
   });
 });
 

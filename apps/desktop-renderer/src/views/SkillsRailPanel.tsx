@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo } from 'react';
+import { useAgentCatalogStore } from '../store/agentCatalogStore.js';
 import { useSkillsStore } from '../store/skillsStore.js';
 import { useSkillsViewStore } from '../store/skillsViewStore.js';
 import { Ic } from './home-icons.js';
 import {
+  availableSkillAgents,
   groupSkills,
   scopeSkillGroups,
   skillGroupCounts,
-  SKILL_AGENTS,
   type SkillStatusFilter,
 } from './skills-model.js';
 
@@ -18,6 +19,7 @@ const NAV: ReadonlyArray<{ id: SkillStatusFilter; label: string; icon: string }>
 ];
 
 export function SkillsRailPanel(): React.JSX.Element {
+  const catalog = useAgentCatalogStore((state) => state.agents);
   const skills = useSkillsStore((state) => state.skills);
   const usage = useSkillsStore((state) => state.usage);
   const usageLoaded = useSkillsStore((state) => state.usageLoaded);
@@ -34,7 +36,9 @@ export function SkillsRailPanel(): React.JSX.Element {
     [agent, allGroups, usageLoaded],
   );
   const counts = useMemo(() => skillGroupCounts(groups), [groups]);
-  const selectedAgent = agent === 'all' ? null : SKILL_AGENTS.find((item) => item.id === agent)!;
+  const skillAgents = useMemo(() => availableSkillAgents(allGroups, catalog), [allGroups, catalog]);
+  const selectedAgent =
+    agent === 'all' ? null : (skillAgents.find((item) => item.id === agent) ?? null);
 
   useEffect(() => init(), [init]);
 
@@ -69,21 +73,19 @@ export function SkillsRailPanel(): React.JSX.Element {
 
       <div className="skills-rail-section">Usage evidence</div>
       <div className="skills-rail-coverage">
-        <div>
-          <i className="agent-pi" />
-          <span>Charter Agent</span>
-          <small>exact ledger</small>
-        </div>
-        <div>
-          <i className="agent-claude" />
-          <span>Claude Code</span>
-          <small>transcript-derived</small>
-        </div>
-        <div>
-          <i className="agent-codex" />
-          <span>Codex</span>
-          <small>transcript-derived</small>
-        </div>
+        {skillAgents.map((item) => (
+          <div key={item.id}>
+            <i className={`agent-${item.id}`} />
+            <span>{item.label}</span>
+            <small>
+              {item.id === 'pi'
+                ? 'exact ledger'
+                : item.consumer
+                  ? 'transcript-derived'
+                  : 'catalog only'}
+            </small>
+          </div>
+        ))}
       </div>
     </div>
   );

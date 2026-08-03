@@ -45,7 +45,7 @@ interface PendingAuth {
 
 export interface CreateRemoteTerminalOptions {
   hostId: string;
-  launch: 'shell' | 'claude' | 'codex';
+  launch: string;
   cols?: number;
   rows?: number;
 }
@@ -344,10 +344,7 @@ export class SshService implements SshPromptBridge {
   // -------------------------------------------------------------------------
   // Remote CLI probe + terminal creation
 
-  async probeCli(
-    hostId: string,
-    cli: 'claude' | 'codex',
-  ): Promise<{ found: boolean; path: string | null }> {
+  async probeCli(hostId: string, cli: string): Promise<{ found: boolean; path: string | null }> {
     try {
       const result = await this.manager.exec(
         this.target(this.requireHost(hostId)),
@@ -371,7 +368,7 @@ export class SshService implements SshPromptBridge {
 
     // Probe before adopting so the green agent dot only lights when the CLI
     // is really present (knownAgent must not lie).
-    const agentLaunch = launch === 'claude' || launch === 'codex' ? launch : null;
+    const agentLaunch = launch === 'shell' ? null : launch;
     const agentFound = agentLaunch ? (await this.probeCli(host.id, agentLaunch)).found : false;
 
     const session = await this.manager.openShell(target, { cols, rows });
@@ -399,7 +396,7 @@ export class SshService implements SshPromptBridge {
     if (!set) this.terminalsByHost.set(host.id, (set = new Set()));
     set.add(info.id);
 
-    if (launch === 'claude' || launch === 'codex') {
+    if (agentLaunch) {
       if (agentFound) {
         // Let the renderer attach its xterm before the CLI's first repaint.
         setTimeout(
@@ -407,11 +404,9 @@ export class SshService implements SshPromptBridge {
           REMOTE_LAUNCH_DELAY_MS,
         ).unref();
       } else {
-        const hint =
-          launch === 'claude' ? 'npm i -g @anthropic-ai/claude-code' : 'npm i -g @openai/codex';
         this.terminals.injectData(
           info.id,
-          `\r\n\x1b[33m[charter] ${launch} was not found on ${host.label}. Install it with: ${hint}\x1b[0m\r\n`,
+          `\r\n\x1b[33m[charter] ${launch} was not found on ${host.label}. Install that Agent on the remote host, then retry.\x1b[0m\r\n`,
         );
       }
     }

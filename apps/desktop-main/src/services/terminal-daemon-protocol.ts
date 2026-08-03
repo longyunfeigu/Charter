@@ -13,7 +13,7 @@ export interface DaemonTerminalMetadata {
   contextKind: 'focused' | 'recent' | 'task' | 'scratch';
   contextLabel: string;
   contextTaskId: string | null;
-  launch: 'shell' | 'claude' | 'codex';
+  launch: string;
 }
 
 export interface DaemonTerminalSnapshot {

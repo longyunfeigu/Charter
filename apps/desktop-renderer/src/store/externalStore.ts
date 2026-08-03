@@ -257,12 +257,6 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
         );
       return;
     }
-    if (external.cli !== 'claude' && external.cli !== 'codex') {
-      useAppStore
-        .getState()
-        .pushToast('error', `${external.cli} does not support one-click session resume.`);
-      return;
-    }
     set({ resumingTaskId: task.id });
     try {
       const terminals = useTerminalStore.getState();

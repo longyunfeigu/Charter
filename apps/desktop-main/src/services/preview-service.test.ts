@@ -6,10 +6,12 @@ import {
   attributeListeners,
   cwdInsideRoot,
   devCommandForRoot,
+  discoverStaticPreview,
   isRenderablePreviewResponse,
   isWebishRoot,
   parseLsofCwds,
   parseLsofListeners,
+  previewLaunchForRoot,
 } from './preview-service.js';
 
 /** ADR-0022: the preview only ever binds to the task's own tree. */
@@ -145,6 +147,28 @@ describe('isWebishRoot (Preview tab visibility heuristic)', () => {
     expect(await isWebishRoot(nonWeb)).toBe(false);
     expect(await isWebishRoot(empty)).toBe(false);
   });
+
+  it('recognizes a nested zero-dependency index.html as a previewable app', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'static-web-'));
+    const site = join(root, 'examples', 'meal-picker');
+    const dependencySite = join(root, 'node_modules', 'ignore-me');
+    mkdirSync(site, { recursive: true });
+    mkdirSync(dependencySite, { recursive: true });
+    writeFileSync(join(site, 'index.html'), '<!doctype html><title>Meal picker</title>');
+    writeFileSync(join(dependencySite, 'index.html'), '<!doctype html><title>Dependency</title>');
+
+    expect(await discoverStaticPreview(root)).toEqual({
+      entryPath: 'examples/meal-picker/index.html',
+      directory: 'examples/meal-picker',
+    });
+    expect(await isWebishRoot(root)).toBe(true);
+    expect(await previewLaunchForRoot(root)).toEqual({
+      webish: true,
+      command: "python3 -m http.server 0 --bind 127.0.0.1 --directory 'examples/meal-picker'",
+      kind: 'static',
+      staticEntry: 'examples/meal-picker/index.html',
+    });
+  });
 });
 
 describe('devCommandForRoot (one-click start, ADR-0022 am.1)', () => {
@@ -154,6 +178,7 @@ describe('devCommandForRoot (one-click start, ADR-0022 am.1)', () => {
       join(both, 'package.json'),
       JSON.stringify({ scripts: { start: 'node s', dev: 'vite' } }),
     );
+    writeFileSync(join(both, 'index.html'), '<!doctype html>');
     expect(await devCommandForRoot(both)).toBe('npm run dev');
 
     const serveOnly = mkdtempSync(join(tmpdir(), 'dc2-'));

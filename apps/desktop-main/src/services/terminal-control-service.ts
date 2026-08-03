@@ -10,6 +10,7 @@ import type { ExternalLaunchIntents } from './external-launch-intents.js';
 export const TERMINAL_BUFFER_BYTES = 200 * 1024;
 export const DEFAULT_MAX_WORKERS = 5;
 export const DEFAULT_MAX_SENDS_PER_MINUTE = 30;
+const WORKER_STREAMING_GRACE_MS = 1_500;
 
 const ANSI_RE =
   /[\u001B\u009B](?:\][^\u0007]*(?:\u0007|\u001B\\)|[()[\]#;?]*(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007|(?:(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])))/g;
@@ -92,7 +93,7 @@ export interface OrchestrationWorkerSnapshot {
   commanderTaskId: string;
   commanderTerminalId: string | null;
   createdAt: string;
-  launch: 'shell' | 'claude' | 'codex';
+  launch: string;
   title: string;
   projectName: string;
   taskId: string | null;
@@ -115,7 +116,7 @@ export interface OrchestrationSnapshot {
 export interface OrchestrationFleetRestoreMember {
   terminalId: string;
   workerTaskId: string | null;
-  launch: 'shell' | 'claude' | 'codex';
+  launch: string;
   root: string;
   projectPath: string;
   title: string;
@@ -143,7 +144,7 @@ interface WorkerRelation {
   /** Durable external-task identity, present before the live detector catches up after restart. */
   taskId: string | null;
   createdAt: string;
-  launch: 'shell' | 'claude' | 'codex';
+  launch: string;
   title: string;
   projectName: string;
   idempotencyKey: string | null;
@@ -210,8 +211,16 @@ export interface TerminalControlServiceOptions {
   recordEvent?: (taskId: string, type: string, payload: Record<string, unknown>) => void;
   now?: () => number;
   settleMs?: number;
-  /** Absolute host-owned executable for visible agent runtimes. */
-  resolveAgentExecutable?: (launch: 'claude' | 'codex') => string | null;
+  /** Resolve an opaque Agent id through the trusted host Agent Registry. */
+  resolveAgentLaunch?: (
+    agentId: string,
+    initialPrompt: string | null,
+  ) => {
+    executable: string;
+    args: string[];
+    sessionId: string | null;
+    promptDelivery: 'argv' | 'deferred';
+  } | null;
 }
 
 /** The one orchestration heart behind both Gateway tools and ctl.sock. */
@@ -229,6 +238,9 @@ export class TerminalControlService implements TerminalControlPort {
   private readonly queuedRuntimeNotifications = new Map<string, QueuedRuntimeNotification[]>();
   private readonly waiters = new Map<number, Waiter>();
   private readonly externalCallers = new Map<string, string>();
+  /** A recent-output worker snapshot is time-dependent. Publish the quiet edge
+   * even when the PTY becomes completely silent and no later event arrives. */
+  private readonly workerIdleRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private waiterSequence = 0;
   private readonly unsubscribeData: () => void;
   private readonly unsubscribeInput: () => void;
@@ -266,6 +278,7 @@ export class TerminalControlService implements TerminalControlPort {
       this.changed();
     });
     this.unsubscribeExit = terminals.onExitEvent(({ id, exitCode }) => {
+      this.clearWorkerIdleRefresh(id);
       const state = this.stateFor(id);
       state.exited = true;
       state.processExitCode = exitCode;
@@ -439,7 +452,7 @@ export class TerminalControlService implements TerminalControlPort {
     caller: TerminalToolCaller,
     input: {
       root: string;
-      launch: 'shell' | 'claude' | 'codex';
+      launch: string;
       initialText?: string;
       submit: boolean;
       idempotencyKey?: string;
@@ -474,21 +487,20 @@ export class TerminalControlService implements TerminalControlPort {
       );
     }
 
-    const directAgent = input.launch === 'claude' || input.launch === 'codex' ? input.launch : null;
-    const agentExecutable = directAgent
-      ? (this.options.resolveAgentExecutable?.(directAgent) ?? directAgent)
-      : null;
-    const sessionId = input.launch === 'claude' ? randomUUID() : null;
     const initialPrompt = input.initialText?.trim() ? input.initialText : null;
-    const agentArgs =
-      input.launch === 'claude'
-        ? [
-            ...(sessionId ? ['--session-id', sessionId] : []),
-            ...(initialPrompt ? ['--', initialPrompt] : []),
-          ]
-        : input.launch === 'codex' && initialPrompt
-          ? ['--', initialPrompt]
-          : [];
+    const agentLaunch =
+      input.launch === 'shell'
+        ? null
+        : (this.options.resolveAgentLaunch?.(input.launch, initialPrompt) ?? null);
+    if (input.launch !== 'shell' && !agentLaunch) {
+      throw new ProductFailure(
+        productError('AGENT_NOT_AVAILABLE', {
+          userMessage: `The ${input.launch} Agent is not installed or cannot be launched.`,
+          retryable: true,
+        }),
+      );
+    }
+    const directAgent = agentLaunch ? input.launch : null;
     const info = this.terminals.create({
       cwd: input.root,
       projectName: basename(input.root),
@@ -498,7 +510,7 @@ export class TerminalControlService implements TerminalControlPort {
       contextTaskId: caller.taskId,
       launch: input.launch,
       ...(directAgent
-        ? { executable: agentExecutable!, args: agentArgs, knownAgent: directAgent }
+        ? { executable: agentLaunch!.executable, args: agentLaunch!.args, knownAgent: directAgent }
         : {}),
     });
     const relation: WorkerRelation = {
@@ -530,9 +542,9 @@ export class TerminalControlService implements TerminalControlPort {
     if (directAgent) {
       this.options.launchIntents?.register(info.id, {
         cli: directAgent,
-        sessionId,
+        sessionId: agentLaunch!.sessionId,
         prompt: initialPrompt,
-        promptDelivery: 'argv',
+        promptDelivery: agentLaunch!.promptDelivery,
       });
     } else if (relation.starting) {
       // Return immediately, but preserve input ordering until the shell has
@@ -717,7 +729,7 @@ export class TerminalControlService implements TerminalControlPort {
 
   /**
    * Mission-facing control for a visible runtime. Unlike pauseWorker, this
-   * also supports a user-created Claude/Codex terminal that was adopted as the
+   * also supports a user-created external Agent terminal that was adopted as the
    * Mission Lead. "Pause" intentionally means hold future injected guidance;
    * it does not freeze an already-running model turn.
    */
@@ -898,6 +910,7 @@ export class TerminalControlService implements TerminalControlPort {
       // output edge. The persisted turn boundary therefore owns the initial
       // activity state until the reattached CLI reports completion.
       this.stateFor(relation.terminalId).turnPending = relation.turnPending;
+      this.scheduleWorkerIdleRefresh(relation.terminalId);
       restored += 1;
     }
     if (restored > 0) this.changed();
@@ -976,7 +989,7 @@ export class TerminalControlService implements TerminalControlPort {
     }
   }
 
-  /** Bridges semantic Claude/Codex completion edges into orchestration waiters. */
+  /** Bridges semantic external-Agent completion edges into orchestration waiters. */
   notifyTurnSettled(
     terminalId: string,
     event: {
@@ -986,6 +999,7 @@ export class TerminalControlService implements TerminalControlPort {
       at?: number;
     },
   ): void {
+    this.clearWorkerIdleRefresh(terminalId);
     const state = this.stateFor(terminalId);
     state.turnSequence += 1;
     state.turnPending = false;
@@ -1062,6 +1076,8 @@ export class TerminalControlService implements TerminalControlPort {
     for (const worker of this.workers.values()) {
       if (worker.startupTimer) clearTimeout(worker.startupTimer);
     }
+    for (const timer of this.workerIdleRefreshTimers.values()) clearTimeout(timer);
+    this.workerIdleRefreshTimers.clear();
     this.heldRuntimeInput.clear();
     for (const terminalId of this.queuedRuntimeNotifications.keys()) {
       this.rejectRuntimeNotifications(terminalId, 'Terminal orchestration is shutting down.');
@@ -1287,7 +1303,10 @@ export class TerminalControlService implements TerminalControlPort {
         }
       }
     }
-    if (this.workers.has(id)) this.changed();
+    if (this.workers.has(id)) {
+      this.scheduleWorkerIdleRefresh(id);
+      this.changed();
+    }
   }
 
   private armQuiet(waiter: Waiter): void {
@@ -1316,6 +1335,7 @@ export class TerminalControlService implements TerminalControlPort {
   }
 
   private markTurnStarted(terminalId: string): void {
+    this.clearWorkerIdleRefresh(terminalId);
     const state = this.stateFor(terminalId);
     state.turnPending = true;
     if (this.workers.has(terminalId)) this.changed();
@@ -1442,7 +1462,7 @@ export class TerminalControlService implements TerminalControlPort {
             ? state.lastExitCode === 0
               ? 'completed'
               : 'failed'
-            : busy && this.now() - state.lastOutputAt < 1500
+            : busy && this.now() - state.lastOutputAt < WORKER_STREAMING_GRACE_MS
               ? 'streaming'
               : 'quiet';
     return {
@@ -1580,6 +1600,47 @@ export class TerminalControlService implements TerminalControlPort {
     } catch (error) {
       this.logger.warn('orchestration event record failed', { taskId, type, error: `${error}` });
     }
+  }
+
+  private clearWorkerIdleRefresh(terminalId: string): void {
+    const timer = this.workerIdleRefreshTimers.get(terminalId);
+    if (timer) clearTimeout(timer);
+    this.workerIdleRefreshTimers.delete(terminalId);
+  }
+
+  private scheduleWorkerIdleRefresh(terminalId: string): void {
+    this.clearWorkerIdleRefresh(terminalId);
+    const state = this.states.get(terminalId);
+    if (
+      !state ||
+      !this.workers.has(terminalId) ||
+      state.exited ||
+      state.turnPending ||
+      state.lastTurnStatus !== null
+    ) {
+      return;
+    }
+    const outputAt = state.lastOutputAt;
+    const remaining = Math.max(0, WORKER_STREAMING_GRACE_MS - (this.now() - outputAt));
+    const timer = setTimeout(() => {
+      this.workerIdleRefreshTimers.delete(terminalId);
+      const current = this.states.get(terminalId);
+      if (
+        !current ||
+        !this.workers.has(terminalId) ||
+        current.exited ||
+        current.turnPending ||
+        current.lastTurnStatus !== null ||
+        current.lastOutputAt !== outputAt
+      ) {
+        return;
+      }
+      // No output event exists to drive this transition. Recompute and publish
+      // so renderers do not retain the final transient `streaming` snapshot.
+      this.changed();
+    }, remaining);
+    timer.unref?.();
+    this.workerIdleRefreshTimers.set(terminalId, timer);
   }
 
   private changed(): void {

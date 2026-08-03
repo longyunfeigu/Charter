@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
-export const OrchestrationRuntimeSchema = z.enum(['managed', 'claude', 'codex', 'shell']);
+export const OrchestrationRuntimeSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/);
 export const OrchestrationWorkModeSchema = z.enum(['read-only', 'isolated-write', 'shared-write']);
 export const OrchestrationMessageTypeSchema = z.enum([
   'assignment',

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
-import { promises as fs, realpathSync } from 'node:fs';
+import { promises as fs, realpathSync, type Dirent } from 'node:fs';
 import { request } from 'node:http';
-import { join, sep } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { errorMessage, type Logger } from '@pi-ide/foundation';
 
 /**
@@ -17,6 +17,20 @@ export interface DetectedPort {
   command: string;
 }
 
+export interface StaticPreviewSite {
+  /** Root-relative HTML entry, always slash-normalized for display. */
+  entryPath: string;
+  /** Root-relative directory passed to the static server (`.` for the root). */
+  directory: string;
+}
+
+export interface PreviewLaunch {
+  webish: boolean;
+  command: string | null;
+  kind: 'package' | 'static' | null;
+  staticEntry: string | null;
+}
+
 interface LsofListener {
   pid: number;
   command: string;
@@ -27,6 +41,18 @@ interface LsofListener {
 const LOOPBACK_OR_ANY = new Set(['127.0.0.1', 'localhost', '::1', '*', '::', '0.0.0.0']);
 const PREVIEW_PROBE_BYTES = 8 * 1024;
 const PREVIEW_PROBE_TIMEOUT_MS = 900;
+const STATIC_SCAN_MAX_DEPTH = 4;
+const STATIC_SCAN_MAX_DIRECTORIES = 600;
+const STATIC_SCAN_IGNORED = new Set([
+  '.git',
+  '.hg',
+  '.svn',
+  '.cache',
+  '.next',
+  '.turbo',
+  'node_modules',
+  'coverage',
+]);
 
 /** Parse `lsof -nP -iTCP -sTCP:LISTEN -Fpcn` machine output. */
 export function parseLsofListeners(stdout: string): LsofListener[] {
@@ -235,17 +261,105 @@ async function readScripts(root: string): Promise<Record<string, unknown>> {
   }
 }
 
-export async function isWebishRoot(root: string): Promise<boolean> {
+function slashPath(path: string): string {
+  return path.split(sep).join('/');
+}
+
+function shellQuote(path: string): string {
+  return `'${path.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * Find a small standalone site without traversing dependency/build caches.
+ * Root index.html always wins; otherwise the most recently edited candidate
+ * is the best signal for the app the current Session just produced.
+ */
+export async function discoverStaticPreview(root: string): Promise<StaticPreviewSite | null> {
+  let realRoot: string;
+  try {
+    realRoot = realpathSync(root);
+  } catch {
+    return null;
+  }
+  const queue: Array<{ absolute: string; depth: number }> = [{ absolute: realRoot, depth: 0 }];
+  const candidates: Array<StaticPreviewSite & { depth: number; modifiedAt: number }> = [];
+  let visited = 0;
+
+  while (queue.length > 0 && visited < STATIC_SCAN_MAX_DIRECTORIES) {
+    const current = queue.shift()!;
+    visited += 1;
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(current.absolute, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    const index = entries.find(
+      (entry) => entry.isFile() && entry.name.toLowerCase() === 'index.html',
+    );
+    if (index) {
+      const absoluteEntry = join(current.absolute, index.name);
+      const relativeEntry = slashPath(relative(realRoot, absoluteEntry));
+      const relativeDirectory = slashPath(relative(realRoot, current.absolute)) || '.';
+      const modifiedAt = await fs
+        .stat(absoluteEntry)
+        .then((stat) => stat.mtimeMs)
+        .catch(() => 0);
+      candidates.push({
+        entryPath: relativeEntry,
+        directory: relativeDirectory,
+        depth: current.depth,
+        modifiedAt,
+      });
+    }
+    if (current.depth >= STATIC_SCAN_MAX_DEPTH) continue;
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+      if (STATIC_SCAN_IGNORED.has(entry.name) || entry.name.startsWith('.')) continue;
+      queue.push({ absolute: join(current.absolute, entry.name), depth: current.depth + 1 });
+    }
+  }
+
+  candidates.sort(
+    (a, b) =>
+      Number(a.directory !== '.') - Number(b.directory !== '.') ||
+      b.modifiedAt - a.modifiedAt ||
+      a.depth - b.depth ||
+      a.entryPath.localeCompare(b.entryPath),
+  );
+  const selected = candidates[0];
+  return selected ? { entryPath: selected.entryPath, directory: selected.directory } : null;
+}
+
+export async function previewLaunchForRoot(root: string): Promise<PreviewLaunch> {
   const scripts = await readScripts(root);
-  return WEB_SCRIPTS.some((s) => typeof scripts[s] === 'string');
+  const script = WEB_SCRIPTS.find((name) => typeof scripts[name] === 'string');
+  if (script) {
+    return {
+      webish: true,
+      command: `npm run ${script}`,
+      kind: 'package',
+      staticEntry: null,
+    };
+  }
+  const staticSite = await discoverStaticPreview(root);
+  if (!staticSite) return { webish: false, command: null, kind: null, staticEntry: null };
+  return {
+    webish: true,
+    command: `python3 -m http.server 0 --bind 127.0.0.1 --directory ${shellQuote(staticSite.directory)}`,
+    kind: 'static',
+    staticEntry: staticSite.entryPath,
+  };
+}
+
+export async function isWebishRoot(root: string): Promise<boolean> {
+  return (await previewLaunchForRoot(root)).webish;
 }
 
 /** ADR-0022 am.1: the project's own dev command (`npm run dev` …), used by the
  * gate's one-click start — typed into a task terminal, never gate-owned. */
 export async function devCommandForRoot(root: string): Promise<string | null> {
-  const scripts = await readScripts(root);
-  const name = WEB_SCRIPTS.find((s) => typeof scripts[s] === 'string');
-  return name ? `npm run ${name}` : null;
+  return (await previewLaunchForRoot(root)).command;
 }
 
 function run(cmd: string, args: string[]): Promise<string> {
@@ -258,7 +372,30 @@ function run(cmd: string, args: string[]): Promise<string> {
 }
 
 export class PreviewService {
+  private readonly launchCache = new Map<
+    string,
+    { expiresAt: number; value: Promise<PreviewLaunch> }
+  >();
+
   constructor(private readonly logger: Logger) {}
+
+  /** Coalesce the rail, badge and review-gate probes into one bounded tree scan. */
+  launchForRoot(root: string): Promise<PreviewLaunch> {
+    const now = Date.now();
+    const cached = this.launchCache.get(root);
+    if (cached && cached.expiresAt > now) return cached.value;
+    const value = previewLaunchForRoot(root).catch((error) => {
+      this.logger.warn('preview launch discovery failed', { root, error: errorMessage(error) });
+      return {
+        webish: false,
+        command: null,
+        kind: null,
+        staticEntry: null,
+      } satisfies PreviewLaunch;
+    });
+    this.launchCache.set(root, { expiresAt: now + 3_000, value });
+    return value;
+  }
 
   /** All loopback listeners whose process cwd is inside `root`. Failures are
    * an empty list (the UI shows the honest empty state), never a throw. */

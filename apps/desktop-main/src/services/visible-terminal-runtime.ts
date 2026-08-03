@@ -17,8 +17,8 @@ interface TerminalListResult {
   terminals?: Array<{ id?: string; busy?: boolean }>;
 }
 
-function launchFor(kind: RuntimeKind): 'shell' | 'claude' | 'codex' {
-  return kind === 'shell' ? 'shell' : kind === 'claude' ? 'claude' : 'codex';
+function launchFor(kind: RuntimeKind): string {
+  return kind;
 }
 
 export function missionWorkerPrompt(input: RuntimeStartRequest): string {

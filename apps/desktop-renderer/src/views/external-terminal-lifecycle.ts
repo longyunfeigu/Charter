@@ -1,4 +1,6 @@
-export type ExternalCli = 'claude' | 'codex';
+import { agentDisplayName } from '../store/agentCatalogStore.js';
+
+export type ExternalCli = string;
 export type ExternalAgentLifecycle = 'active' | 'ended' | 'interrupted';
 
 /** A historical terminal capability reply has leaked into zle when all three
@@ -32,11 +34,11 @@ const SHELL_TITLES = new Set([
 ]);
 
 export function isExternalCli(value: string | null | undefined): value is ExternalCli {
-  return value === 'claude' || value === 'codex';
+  return Boolean(value && value !== 'shell' && value !== 'pi' && value !== 'managed');
 }
 
 export function externalCliLabel(cli: ExternalCli): string {
-  return cli === 'claude' ? 'Claude Code' : 'Codex';
+  return agentDisplayName(cli);
 }
 
 function commandName(value: string): string {

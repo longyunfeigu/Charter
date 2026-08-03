@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Workbench } from './workbench/Workbench.js';
 import { StartupErrorView } from './views/StartupErrorView.js';
 import { useAppStore } from './store/appStore.js';
+import { useAgentCatalogStore } from './store/agentCatalogStore.js';
 
 function parseStartupError(): { code: string; message: string } | null {
   const hash = window.location.hash;
@@ -17,10 +18,17 @@ export function App(): React.JSX.Element {
   const [startupError] = useState(parseStartupError);
   const ready = useAppStore((s) => s.ready);
   const init = useAppStore((s) => s.init);
+  const initAgentCatalog = useAgentCatalogStore((state) => state.init);
+  const refreshAgentCatalog = useAgentCatalogStore((state) => state.refresh);
 
   useEffect(() => {
-    if (!startupError) void init();
-  }, [startupError, init]);
+    if (startupError) return;
+    initAgentCatalog();
+    void init();
+    const detectNewAgents = (): void => void refreshAgentCatalog(true);
+    window.addEventListener('focus', detectNewAgents);
+    return () => window.removeEventListener('focus', detectNewAgents);
+  }, [startupError, init, initAgentCatalog, refreshAgentCatalog]);
 
   if (startupError) {
     return <StartupErrorView code={startupError.code} message={startupError.message} />;

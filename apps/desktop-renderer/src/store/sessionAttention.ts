@@ -1,4 +1,5 @@
 import type { TaskDto } from '@pi-ide/ipc-contracts';
+import { agentDisplayName } from './agentCatalogStore.js';
 
 export type SessionNoticeTone = 'success' | 'review' | 'error' | 'warning';
 export type ExternalReplyBoundary = 'structured' | 'observed';
@@ -21,8 +22,8 @@ export function externalSessionReplyInfo(
   status: 'ok' | 'error' = 'ok',
 ): SessionCompletionInfo | null {
   const cli = task.external?.cli.toLowerCase();
-  if (cli !== 'claude' && cli !== 'codex') return null;
-  const provider = cli === 'claude' ? 'Claude' : 'Codex';
+  if (!cli) return null;
+  const provider = agentDisplayName(cli, true);
   if (status === 'error') {
     return {
       label: `${provider} reply failed`,

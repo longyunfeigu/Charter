@@ -54,7 +54,7 @@ interface OrchestrationStore {
   reassignAssignment(
     missionRef: string,
     assignmentId: string,
-    runtime: 'managed' | 'claude' | 'codex' | 'shell',
+    runtime: string,
     displayName: string,
   ): Promise<void>;
   finishMission(

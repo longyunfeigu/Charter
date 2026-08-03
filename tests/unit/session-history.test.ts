@@ -49,17 +49,17 @@ describe('isHistoryTask', () => {
 });
 
 describe('canResumeExternal', () => {
-  it('offers resume for ended claude/codex sessions across review and settled states', () => {
+  it('offers resume for ended Agent sessions across review and settled states', () => {
     expect(canResumeExternal(external('REVIEW_READY', 'ended', 0))).toBe(true);
     expect(canResumeExternal(external('ACCEPTED', 'ended', 2))).toBe(true);
     expect(canResumeExternal(external('ROLLED_BACK', 'ended', 2, 'codex'))).toBe(true);
     expect(canResumeExternal(external('INTERRUPTED', 'ended', 0))).toBe(true);
     expect(canResumeExternal(external('FAILED', 'ended', 1))).toBe(true);
+    expect(canResumeExternal(external('REVIEW_READY', 'ended', 0, 'kimi'))).toBe(true);
   });
 
-  it('hides resume while the session is alive or for unsupported CLIs', () => {
+  it('hides resume while the session is alive or no external session exists', () => {
     expect(canResumeExternal(external('REVIEW_READY', 'active', 0))).toBe(false);
-    expect(canResumeExternal(external('REVIEW_READY', 'ended', 0, 'gemini'))).toBe(false);
     expect(canResumeExternal({ state: 'ACCEPTED', changedFiles: 2, external: null })).toBe(false);
     // A stub that never left READY has no conversation worth reviving.
     expect(canResumeExternal(external('READY', 'ended'))).toBe(false);

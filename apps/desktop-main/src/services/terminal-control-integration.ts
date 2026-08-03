@@ -17,9 +17,9 @@ export interface TerminalControlIntegration {
   nodeExecutable: string;
   environment(basePath?: string): Record<string, string>;
   /** Real user-installed CLI. Product sessions never pay an MCP bootstrap tax. */
-  executableFor(launch: 'claude' | 'codex'): string | null;
+  executableFor(launch: string): string | null;
   /** Explicit compatibility launcher for clients that require MCP tools. */
-  mcpExecutableFor(launch: 'claude' | 'codex'): string | null;
+  mcpExecutableFor(launch: string): string | null;
 }
 
 /** A Finder/dev-launched Electron process inherits a minimal PATH that misses
@@ -173,7 +173,7 @@ export function installTerminalControlIntegration(input: {
     mcpServerPath,
     nodeExecutable: node,
     executableFor(launch) {
-      return launch === 'claude' ? claude : codex;
+      return launch === 'claude' ? claude : launch === 'codex' ? codex : null;
     },
     mcpExecutableFor(launch) {
       const path = join(binDir, `charter-${launch}-mcp`);

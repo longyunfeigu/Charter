@@ -49,6 +49,8 @@ import { useOrchestrationStore } from '../store/orchestrationStore.js';
 import { ArtifactFeedbackAttachments } from './ArtifactFeedbackAttachments.js';
 import { SessionRenameDialog } from './SessionRenameDialog.js';
 import { MissionStatusStrip } from './mission/MissionStatusStrip.js';
+import { agentDisplayName } from '../store/agentCatalogStore.js';
+import { sessionFilePaths } from './session-file-projection.js';
 
 const EMPTY_TERMINAL_REFS: TerminalOutputRef[] = [];
 const EMPTY_ORCHESTRATION_PERMISSIONS: PermissionCardDto[] = [];
@@ -57,11 +59,7 @@ function sessionAgentLabel(task: {
   external?: { cli: string } | null;
   model: { providerId: string };
 }): string {
-  if (task.external) {
-    if (task.external.cli === 'claude') return 'Claude';
-    if (task.external.cli === 'codex') return 'Codex';
-    return task.external.cli;
-  }
+  if (task.external) return agentDisplayName(task.external.cli, true);
   return task.model.providerId === 'mock' ? 'Charter' : task.model.providerId;
 }
 
@@ -200,9 +198,18 @@ export function TaskRoomView(): React.JSX.Element {
   // ADR-0017: an external session's rail is fed by watcher accounting, not by
   // agent tool events (there are none). Same rows, same peek behavior.
   const externalFiles = useExternalFiles(task);
-  const files = task.external
-    ? externalFiles.filter((f) => f.status !== 'deleted').map((f) => f.path)
-    : (activity?.filesTouched ?? []);
+  const projectedChangeSet =
+    store.activeTaskId === task.id && store.changeSet?.taskId === task.id ? store.changeSet : null;
+  const projectedChangeFiles = projectedChangeSet?.files.map((file) => file.path) ?? [];
+  const activityFiles = activity?.filesTouched ?? [];
+  const files = sessionFilePaths({
+    external: task.external !== null,
+    running,
+    projectedChangeSetLoaded: projectedChangeSet !== null,
+    projectedChangeFiles,
+    observedExternalFiles: externalFiles,
+    activityFiles,
+  });
   const sameProject = workspace?.path === task.projectPath;
   const fileStats = useMemo<Record<string, SessionFileStat>>(() => {
     const stats: Record<string, SessionFileStat> = {};

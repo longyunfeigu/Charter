@@ -107,6 +107,18 @@ const logger = {
   child: () => logger,
 } as unknown as Logger;
 
+const TEST_CLAUDE_SESSION_ID = '924241d6-f2e8-444d-8d75-0386362bf52f';
+
+function resolveTestAgentLaunch(launch: string, prompt: string | null) {
+  const sessionId = launch === 'claude' ? TEST_CLAUDE_SESSION_ID : null;
+  return {
+    executable: `/charter-wrappers/${launch}`,
+    args: [...(sessionId ? ['--session-id', sessionId] : []), ...(prompt ? ['--', prompt] : [])],
+    sessionId,
+    promptDelivery: 'argv' as const,
+  };
+}
+
 describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
   let terminals: FakeTerminals;
   let service: TerminalControlService;
@@ -119,6 +131,7 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
       enabled: () => true,
       maxWorkers: () => 2,
       maxSendsPerMinute: () => 2,
+      resolveAgentLaunch: resolveTestAgentLaunch,
       now: () => now,
       settleMs: 0,
     });
@@ -391,7 +404,7 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
           enabled: () => true,
           maxWorkers: () => 3,
           launchIntents: intents,
-          resolveAgentExecutable: (launch) => `/charter-wrappers/${launch}`,
+          resolveAgentLaunch: resolveTestAgentLaunch,
           settleMs: 30_000,
         },
       );
@@ -454,6 +467,7 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
       {
         enabled: () => true,
         maxWorkers: () => 3,
+        resolveAgentLaunch: resolveTestAgentLaunch,
         taskForTerminal: (terminalId) => activeTasks.get(terminalId) ?? null,
         recordEvent: (taskId, type, payload) => events.push({ taskId, type, payload }),
         settleMs: 0,
@@ -521,6 +535,7 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
       logger,
       {
         enabled: () => true,
+        resolveAgentLaunch: resolveTestAgentLaunch,
         recordEvent: (taskId, type, payload) => events.push({ taskId, type, payload }),
         settleMs: 0,
       },
@@ -566,6 +581,59 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
     ]);
     expect(events).toEqual([]);
     restoredService.dispose();
+  });
+
+  it('publishes quiet after restored output ages out without another PTY event', async () => {
+    vi.useFakeTimers();
+    try {
+      let restoredNow = 10_000;
+      const statuses: string[] = [];
+      const restoredService = new TerminalControlService(
+        terminals as unknown as TerminalManager,
+        logger,
+        {
+          enabled: () => true,
+          now: () => restoredNow,
+          settleMs: 0,
+          onChanged: (snapshot) => {
+            const status = snapshot.workers[0]?.status;
+            if (status) statuses.push(status);
+          },
+        },
+      );
+      const live = terminals.create({ cwd: '/repo', launch: 'codex' });
+      terminals.agents.set(live.id, 'codex');
+
+      // Daemon screen replay commonly arrives before the durable worker
+      // relationship is rebuilt. Restoring it publishes a transient recent-
+      // output snapshot that must later age out on its own.
+      terminals.emitData(live.id, 'replayed idle composer');
+      restoredService.restoreFleetRelations([
+        {
+          commanderTaskId: 'commander_task',
+          commanderTerminalId: 'commander_terminal',
+          terminalId: live.id,
+          workerTaskId: 'worker_task',
+          launch: 'codex',
+          root: '/repo',
+          projectPath: '/repo',
+          title: 'Codex review worker',
+          turnPending: false,
+        },
+      ]);
+      expect(statuses.at(-1)).toBe('streaming');
+
+      restoredNow += 1_499;
+      await vi.advanceTimersByTimeAsync(1_499);
+      expect(statuses.at(-1)).toBe('streaming');
+
+      restoredNow += 1;
+      await vi.advanceTimersByTimeAsync(1);
+      expect(statuses.at(-1)).toBe('quiet');
+      restoredService.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps the historical worker retryable when its resume fails', async () => {
@@ -624,6 +692,7 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
       logger,
       {
         enabled: () => true,
+        resolveAgentLaunch: resolveTestAgentLaunch,
         recordEvent: (taskId, type, payload) => events.push({ taskId, type, payload }),
         settleMs: 0,
       },

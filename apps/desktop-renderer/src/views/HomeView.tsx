@@ -14,6 +14,7 @@ import { contextFilesBlock, splitCharterRefs } from './charterRefs.js';
 import { useSkillSlash } from './SkillSlashPicker.js';
 import { useTerminalStore } from './TerminalPanel.js';
 import { selectableRecentWorkspaces } from './recent-workspaces.js';
+import { agentDisplayName, useAgentCatalogStore } from '../store/agentCatalogStore.js';
 
 const MAX_CONVERSATION_REFS = 3;
 
@@ -24,7 +25,7 @@ interface SelectedConversationRef {
 }
 
 type ReferencePickerItem = { kind: 'conversation'; task: TaskDto } | { kind: 'file'; path: string };
-type ComposerAgent = 'pi' | 'claude' | 'codex';
+type ComposerAgent = string;
 
 function parseCustomCommand(raw: string): VerificationCommand | null {
   const parts = raw.trim().split(/\s+/);
@@ -47,6 +48,12 @@ export function HomeView(): React.JSX.Element {
   const app = useAppStore();
   const workspaceStore = useWorkspaceStore();
   const taskStore = useTaskStore();
+  const catalogAgents = useAgentCatalogStore((state) => state.agents);
+  const initAgentCatalog = useAgentCatalogStore((state) => state.init);
+  const externalAgents = useMemo(
+    () => catalogAgents.filter((item) => item.installed && item.capabilities.terminal),
+    [catalogAgents],
+  );
 
   const [intent, setIntent] = useState('');
   const [agent, setAgent] = useState<ComposerAgent>('pi');
@@ -105,6 +112,7 @@ export function HomeView(): React.JSX.Element {
   });
 
   useEffect(() => {
+    initAgentCatalog();
     taskStore.init();
     useActivityStore.getState().init();
     void taskStore.refreshModels();
@@ -114,7 +122,11 @@ export function HomeView(): React.JSX.Element {
     });
     inputRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initAgentCatalog]);
+
+  useEffect(() => {
+    if (agent !== 'pi' && !externalAgents.some((item) => item.id === agent)) setAgent('pi');
+  }, [agent, externalAgents]);
 
   // Sidebar "New task" (and friends) ask the composer to take focus.
   const composerFocusSeq = useAppStore((s) => s.composerFocusSeq);
@@ -255,7 +267,7 @@ export function HomeView(): React.JSX.Element {
       ? [...suggestions.filter((s) => selectedVerif.has(s.label)), ...customVerif]
       : [];
 
-    // Claude and Codex are execution backends inside the same Composer. Their
+    // Detected external Agents are execution backends inside the same Composer. Their
     // native PTY is still preserved, but it is no longer a separate creation
     // doorway in the global rail.
     if (agent !== 'pi') {
@@ -958,22 +970,24 @@ export function HomeView(): React.JSX.Element {
                 onClick={() => setAgentMenuOpen(!agentMenuOpen)}
               >
                 <ProviderMark provider={agent} size={15} />
-                <span>{agent === 'pi' ? 'Charter' : agent === 'claude' ? 'Claude' : 'Codex'}</span>
+                <span>{agentDisplayName(agent, true)}</span>
                 <Ic name="chevron" size={11} />
               </button>
               {agentMenuOpen ? (
                 <div className="hm-agent-menu" data-testid="home-agent-menu" role="menu">
-                  {(
-                    [
-                      ['pi', 'Charter Agent', 'Plans, permissions, tools and evidence ledger'],
-                      [
-                        'claude',
-                        'Claude Code',
-                        'Native CLI, preserved inside the same Session shell',
-                      ],
-                      ['codex', 'Codex', 'Native CLI, preserved inside the same Session shell'],
-                    ] as const
-                  ).map(([id, label, detail]) => (
+                  {[
+                    {
+                      id: 'pi',
+                      label: 'Charter Agent',
+                      detail: 'Plans, permissions, tools and evidence ledger',
+                    },
+                    ...externalAgents.map((item) => ({
+                      id: item.id,
+                      label: item.displayName,
+                      detail:
+                        item.description || 'Native CLI, preserved inside the same Session shell',
+                    })),
+                  ].map(({ id, label, detail }) => (
                     <button
                       key={id}
                       type="button"
@@ -1081,7 +1095,7 @@ export function HomeView(): React.JSX.Element {
             </>
           ) : (
             <>
-              <b>{agent === 'claude' ? 'Claude Code' : 'Codex'}</b> —{' '}
+              <b>{agentDisplayName(agent)}</b> —{' '}
               {externalWorktree
                 ? 'creates an isolated worktree when you start, then opens the native session there.'
                 : 'opens a preserved native session in the current checkout.'}

@@ -5,7 +5,7 @@
 ### Let agents move fast. Keep every move in sight.
 
 **Charter is the local-first cockpit for coding agents that need to show their work.**<br>
-Run the built-in Charter Agent, Claude Code, and Codex on real repositories; watch every edit as it happens, steer from the running product, and approve evidence instead of promises.
+Run the built-in Charter Agent and installed coding-agent CLIs such as Claude Code, Codex, and Kimi Code on real repositories; watch every edit as it happens, steer from the running product, and approve evidence instead of promises.
 
 *The agent says it is done. Charter shows you why you should believe it.*
 
@@ -75,13 +75,13 @@ The Room narrates the active tool call while the Session canvas shows files heat
 
 ### One composer, whichever agent fits the job
 
-Start the managed Charter Agent, Claude Code, or Codex from the same composer. Choose the project, permission mode, model, thinking level, and checks before work begins.
+Start the managed Charter Agent or any detected Agent CLI from the same composer. Built-in manifests currently cover Claude Code, Codex, and Kimi Code; the picker only shows CLIs installed on this computer. Choose the project, permission mode, model, thinking level, and checks before work begins.
 
 ![Charter composer with Charter Agent, Claude Code, and Codex in one agent picker](docs/assets/readme/agent-picker.png)
 
-The managed agent works through Charter's Tool Gateway. Installed Claude Code and Codex CLIs keep their native terminal experience and conversation identity while Charter preserves the PTY, accounts for repository changes, and brings the outcome into the same review model.
+The managed agent works through Charter's Tool Gateway. Detected external Agent CLIs keep their native terminal experience and conversation identity while Charter preserves the PTY, accounts for repository changes, and brings the outcome into the same review model.
 
-A Session can also direct a visible fleet of shell, Claude Code, and Codex workers. Terminal orchestration calls run without permission popups, while identity checks, depth and rate limits, pause/takeover queues, and the evidence ledger remain active. Agent turn-completed events wake waiting coordinators immediately instead of requiring status polling. Workers stay attributable and open for follow-up instead of disappearing into background jobs.
+A Session can also direct a visible fleet of shell and detected Agent workers. Terminal orchestration calls run without permission popups, while identity checks, depth and rate limits, pause/takeover queues, and the evidence ledger remain active. Agent turn-completed events wake waiting coordinators immediately instead of requiring status polling. Workers stay attributable and open for follow-up instead of disappearing into background jobs.
 
 ### Preview the real product and point at the problem
 
@@ -129,7 +129,7 @@ Charter combines agent orchestration, a desktop IDE, controlled execution, live 
 
 ### Sessions and agent orchestration
 
-- **Three execution backends:** use the managed Charter Agent, Claude Code, or Codex without flattening their different trust models into one fiction.
+- **Manifest-driven execution backends:** use the managed Charter Agent or detected Claude Code, Codex, Kimi Code, and user-manifest Agents without flattening their different trust models into one fiction.
 - **Four autonomy modes:** choose Read, Approve, Auto, or Full while hard safety boundaries remain explicit.
 - **Plan-aware execution:** write tasks can propose a plan and wait for approval before plan-gated changes begin.
 - **Visible worker fleets:** create and direct sibling shell or agent PTYs without per-call permission popups, with event-driven turn completion, a live monitor, pause-all, per-worker takeover, budgets, and a complete audit trail.
@@ -142,7 +142,7 @@ Charter combines agent orchestration, a desktop IDE, controlled execution, live 
 - **Structured context:** attach files, folders, frozen line selections, images, search results, terminal excerpts, and Preview captures with provenance.
 - **Screenshot express:** on supported macOS setups, a new screenshot or clipboard capture can be attached to the active agent, annotated, or filed into project assets.
 - **Attention routing:** completion notices, needs-attention filters, Rail signals, and system notifications return you to the exact Session.
-- **Session archaeology:** discover supported local Claude Code and Codex histories, inspect their project attribution, and adopt resumable work into Charter.
+- **Session archaeology:** discover supported local Claude Code, Codex, and Kimi Code histories, inspect their project attribution, and adopt resumable work into Charter.
 - **Honest lifecycle states:** distinguish working, waiting, review-ready, answered, accepted, rolled back, interrupted, and ended external sessions.
 
 ### Files, editor, and terminals
@@ -184,7 +184,7 @@ Charter combines agent orchestration, a desktop IDE, controlled execution, live 
 - **Preview containment:** embedded pages are limited to detected loopback servers with navigation, popup, permission, and frame policies.
 
 > [!NOTE]
-> Local-first does not mean offline inference. Prompts and the context you attach are sent to the model endpoint you configure and remain subject to that provider's data policy. External Claude Code and Codex sessions also retain their own permission and network models.
+> Local-first does not mean offline inference. Prompts and the context you attach are sent to the model endpoint you configure and remain subject to that provider's data policy. External Agent sessions also retain their CLI's own permission and network models.
 
 ## Quick start
 
@@ -227,7 +227,7 @@ To explore the complete managed flow without a provider key on macOS or Linux, u
 PI_IDE_FORCE_MOCK=1 npm run dev
 ```
 
-To use **Claude Code** or **Codex** as external agents, install the CLI separately and ensure its executable is on `PATH`.
+To use **Claude Code**, **Codex**, or **Kimi Code** as an external Agent, install its CLI separately. Charter detects built-in Agents from `PATH`, native installer locations, and common Node version-manager directories; it rescans when the app regains focus. Additional trusted Agent definitions can be placed in `~/.charter/agents/*.json` without adding provider branches to the application core.
 
 ## Shortcuts
 
@@ -253,13 +253,13 @@ Charter separates the experience, model loop, tool execution, project services, 
 | **01 - Experience** | Session Rail, Room, Editor, Preview, Terminal, Review, Replay, Memory, and Skills |
 | **02 - Trust bridge** | Sandboxed Preload and versioned IPC schemas, the renderer's only route to privileged capabilities |
 | **03 - Control** | Task state, project contexts, Tool Gateway, permissions, Preview, Replay, and orchestration |
-| **04 - Execution** | The isolated managed Agent Worker and separately trusted Claude Code/Codex PTYs |
+| **04 - Execution** | The isolated managed Agent Worker and separately trusted, manifest-selected external Agent PTYs/ACP runtimes |
 | **05 - Workspace services** | Documents, search/language, Git/change tracking, terminals, and verification |
 | **06 - Evidence and data** | SQLite ledger, content blobs, attachments, worktrees, project rules, and OS-backed secrets |
 
 The managed **Agent Worker** owns the model loop but cannot directly read files, run commands, or access secrets. Tool requests return to **Electron Main**, where the Tool Gateway validates schemas and workspace boundaries, applies permission policy, executes the operation, redacts sensitive output, and records evidence.
 
-External Claude Code and Codex sessions deliberately have a different boundary. Charter preserves their real PTY, observes lifecycle and conversation identity, accounts for repository changes, and brings the result into Review; the external CLI still owns its internal permission model.
+External Agent sessions deliberately have a different boundary. Charter preserves their real PTY, observes the capabilities exposed by each manifest and provider adapter, accounts for repository changes, and brings the result into Review; the external CLI still owns its internal permission model.
 
 ### Permission model
 
@@ -282,7 +282,7 @@ Application-level permissions are not an operating-system sandbox. Review comman
 | Editing | Monaco Editor, MDXEditor, React Markdown |
 | Terminal | node-pty, xterm.js, WebGL, Unicode 11 support |
 | Search | ripgrep-backed workspace search |
-| Agent runtime | Pi coding-agent adapter plus external Claude Code/Codex PTYs |
+| Agent runtime | Pi coding-agent adapter plus manifest-selected external Agent PTYs and ACP runtimes |
 | Quality | TypeScript, Vitest, Playwright Electron, security and performance gates |
 | Distribution | electron-builder, checksums, SPDX SBOM, release manifest |
 

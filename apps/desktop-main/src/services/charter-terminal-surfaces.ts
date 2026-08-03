@@ -1,5 +1,4 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { errorMessage } from '@pi-ide/foundation';
 import type { CharterTerminalSurfaceDto } from '@pi-ide/ipc-contracts';
@@ -17,21 +16,22 @@ import { CHARTER_ORCHESTRATION_SKILL } from './orchestration-manual.js';
  * CHARTER_* environment. Writes happen exclusively on an explicit settings
  * click; every safety rule stays enforced host-side either way.
  */
-const SURFACE_TARGETS = [
-  { target: 'claude', dir: '.claude' },
-  { target: 'codex', dir: '.codex' },
-] as const;
-
-function skillFile(home: string, dir: string): string {
-  return join(home, dir, 'skills', 'charter-terminal', 'SKILL.md');
+export interface CharterTerminalSurfaceTarget {
+  target: string;
+  /** Absolute provider-owned skills root from the trusted Agent manifest. */
+  root: string;
 }
 
-function orchestrationSkillFile(home: string, dir: string): string {
-  return join(home, dir, 'skills', 'charter-orchestration', 'SKILL.md');
+function skillFile(root: string): string {
+  return join(root, 'charter-terminal', 'SKILL.md');
+}
+
+function orchestrationSkillFile(root: string): string {
+  return join(root, 'charter-orchestration', 'SKILL.md');
 }
 
 function statusOf(
-  target: 'claude' | 'codex',
+  target: string,
   path: string,
   orchestrationPath: string,
 ): CharterTerminalSurfaceDto {
@@ -58,24 +58,28 @@ function statusOf(
   }
 }
 
-export function charterTerminalSurfaceStatus(home = homedir()): CharterTerminalSurfaceDto[] {
-  return SURFACE_TARGETS.map(({ target, dir }) =>
-    statusOf(target, skillFile(home, dir), orchestrationSkillFile(home, dir)),
+export function charterTerminalSurfaceStatus(
+  targets: readonly CharterTerminalSurfaceTarget[],
+): CharterTerminalSurfaceDto[] {
+  return targets.map(({ target, root }) =>
+    statusOf(target, skillFile(root), orchestrationSkillFile(root)),
   );
 }
 
 /** Install or refresh the manual on every surface. Per-target failures land in
  * the returned status (partial success is fine: one CLI may be sandboxed). */
-export function installCharterTerminalSurfaces(home = homedir()): CharterTerminalSurfaceDto[] {
-  return SURFACE_TARGETS.map(({ target, dir }) => {
-    const file = skillFile(home, dir);
+export function installCharterTerminalSurfaces(
+  targets: readonly CharterTerminalSurfaceTarget[],
+): CharterTerminalSurfaceDto[] {
+  return targets.map(({ target, root }) => {
+    const file = skillFile(root);
     try {
-      mkdirSync(join(home, dir, 'skills', 'charter-terminal'), { recursive: true });
+      mkdirSync(join(root, 'charter-terminal'), { recursive: true });
       const tmp = `${file}.tmp-${process.pid}`;
       writeFileSync(tmp, CHARTER_TERMINAL_SKILL, 'utf8');
       renameSync(tmp, file);
-      const orchestrationFile = orchestrationSkillFile(home, dir);
-      mkdirSync(join(home, dir, 'skills', 'charter-orchestration'), { recursive: true });
+      const orchestrationFile = orchestrationSkillFile(root);
+      mkdirSync(join(root, 'charter-orchestration'), { recursive: true });
       const orchestrationTmp = `${orchestrationFile}.tmp-${process.pid}`;
       writeFileSync(orchestrationTmp, CHARTER_ORCHESTRATION_SKILL, 'utf8');
       renameSync(orchestrationTmp, orchestrationFile);

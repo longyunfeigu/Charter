@@ -15,6 +15,7 @@ import { CHARTER_ORCHESTRATION_SKILL } from '../services/orchestration-manual.js
 import {
   charterTerminalSurfaceStatus,
   installCharterTerminalSurfaces,
+  type CharterTerminalSurfaceTarget,
 } from '../services/charter-terminal-surfaces.js';
 
 export interface SkillsHandlerDeps {
@@ -30,6 +31,8 @@ export interface SkillsHandlerDeps {
    * Charter-only numbers — the panel never breaks over a transcript read.
    */
   externalEvents?: (windowDays: number) => Promise<ExternalSkillEvent[]>;
+  /** Installed Agent-owned skill roots projected from the Agent Registry. */
+  agentSurfaces?: () => readonly CharterTerminalSurfaceTarget[];
 }
 
 const USAGE_WINDOW_DAYS_DEFAULT = 45;
@@ -64,10 +67,10 @@ export function registerSkillsHandlers(
       'skills.installCharterTerminal': async () => {
         const skill = skills.installManaged('charter-terminal', CHARTER_TERMINAL_SKILL);
         skills.installManaged('charter-orchestration', CHARTER_ORCHESTRATION_SKILL);
-        return { skill, surfaces: installCharterTerminalSurfaces() };
+        return { skill, surfaces: installCharterTerminalSurfaces(deps.agentSurfaces?.() ?? []) };
       },
       'skills.charterTerminalStatus': async () => ({
-        surfaces: charterTerminalSurfaceStatus(),
+        surfaces: charterTerminalSurfaceStatus(deps.agentSurfaces?.() ?? []),
       }),
       'skills.addSource': async ({ dir }) => {
         let source = dir ?? null;

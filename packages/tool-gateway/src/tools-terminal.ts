@@ -29,7 +29,7 @@ export interface TerminalControlPort {
     caller: TerminalToolCaller,
     input: {
       root: string;
-      launch: 'shell' | 'claude' | 'codex';
+      launch: string;
       initialText?: string;
       submit: boolean;
       /** Host-internal runtime launch key; never supplied by the terminal tool schema. */
@@ -213,12 +213,17 @@ export function registerTerminalTools(gateway: ToolGateway, services: TerminalTo
     version: 1,
     permissionPolicy: TERMINAL_PERMISSION_POLICY,
     description:
-      'Create one visible worker terminal in this workspace. Optionally launch Claude/Codex or inject initial shell/TUI text after the terminal settles.',
+      "Create one visible worker terminal in this workspace. Optionally launch an Agent from Charter's detected Agent Catalog or inject initial shell/TUI text after the terminal settles.",
     promptGuidance:
       'MUST call this tool when the user asks to start/open/create/spawn a Codex, Claude, terminal, or agent worker; delegate review/test/implementation to another agent/window/session; run parallel work; or have agents interact for bounded rounds (e.g. "启动 codex worker", "让另一个 agent review", "你们交互两轮"). Create a visible worker — never substitute same-terminal codex exec, claude -p, backgrounding, or an invisible subagent — then direct it with terminal.send and terminal.wait.',
     inputSchema: z
       .object({
-        launch: z.enum(['shell', 'claude', 'codex']).default('shell'),
+        launch: z
+          .string()
+          .min(1)
+          .max(64)
+          .regex(/^[a-z0-9][a-z0-9._-]*$/)
+          .default('shell'),
         initialText: z.string().min(1).max(20_000).optional(),
         submit: z.boolean().default(true),
       })

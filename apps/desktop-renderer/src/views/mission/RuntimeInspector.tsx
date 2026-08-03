@@ -3,14 +3,13 @@ import type { AssignmentDto, MissionSnapshotDto } from '@pi-ide/ipc-contracts';
 import { ConfirmDangerButton } from '../ui.js';
 import { Ic, ProviderMark, type ProviderMarkKind } from '../home-icons.js';
 import { latestProgressForAssignment, taskStateCopy } from './mission-view-model.js';
+import { useAgentCatalogStore } from '../../store/agentCatalogStore.js';
 
 type InspectorTab = 'details' | 'session' | 'conversation' | 'attempts' | 'evidence';
 
 function providerMark(provider: string | null, kind: string | undefined): ProviderMarkKind {
-  if (provider === 'claude') return 'claude';
-  if (provider === 'codex') return 'codex';
   if (provider === 'shell' || kind === 'shell_agent') return 'shell';
-  return 'pi';
+  return provider && provider !== 'managed' ? provider : 'pi';
 }
 
 function referenceSummary(reference: Record<string, unknown>): string | null {
@@ -77,7 +76,7 @@ export function RuntimeInspector({
   onReassign: (
     missionId: string,
     assignmentId: string,
-    runtime: 'managed' | 'claude' | 'codex' | 'shell',
+    runtime: string,
     displayName: string,
   ) => void;
   onPromoteLead: (missionId: string, assignmentId: string) => void;
@@ -86,6 +85,12 @@ export function RuntimeInspector({
   onOpenAgentSession?: () => void;
   requestedTab?: 'details' | 'session';
 }): React.JSX.Element {
+  const catalogAgents = useAgentCatalogStore((state) => state.agents);
+  const initAgentCatalog = useAgentCatalogStore((state) => state.init);
+  useEffect(() => initAgentCatalog(), [initAgentCatalog]);
+  const runtimeAgents = catalogAgents.filter(
+    (agent) => agent.installed && (agent.capabilities.acp || agent.capabilities.terminal),
+  );
   const attempt = assignment
     ? (snapshot.attempts.find((item) => item.id === assignment.activeAttemptId) ?? null)
     : null;
@@ -154,9 +159,9 @@ export function RuntimeInspector({
   const [tab, setTab] = useState<InspectorTab>('details');
   const [steerText, setSteerText] = useState('');
   const [reassigning, setReassigning] = useState(false);
-  const [replacementRuntime, setReplacementRuntime] = useState<
-    'managed' | 'claude' | 'codex' | 'shell'
-  >(attempt?.requestedRuntime ?? 'managed');
+  const [replacementRuntime, setReplacementRuntime] = useState<string>(
+    attempt?.requestedRuntime ?? 'managed',
+  );
   const [replacementName, setReplacementName] = useState(
     `${principal?.displayName ?? 'Agent'} replacement`,
   );
@@ -522,15 +527,14 @@ export function RuntimeInspector({
             Agent runtime
             <select
               value={replacementRuntime}
-              onChange={(event) =>
-                setReplacementRuntime(
-                  event.currentTarget.value as 'managed' | 'claude' | 'codex' | 'shell',
-                )
-              }
+              onChange={(event) => setReplacementRuntime(event.currentTarget.value)}
             >
               <option value="managed">Charter Agent</option>
-              <option value="claude">Claude</option>
-              <option value="codex">Codex</option>
+              {runtimeAgents.map((agent) => (
+                <option key={agent.id} value={agent.id}>
+                  {agent.displayName}
+                </option>
+              ))}
               <option value="shell">Shell Agent</option>
             </select>
           </label>

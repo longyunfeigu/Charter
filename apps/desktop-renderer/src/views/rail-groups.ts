@@ -8,7 +8,7 @@ export interface MissionSessionLink {
   depth: number;
   agentName: string;
   taskTitle: string;
-  provider: 'pi' | 'shell' | 'claude' | 'codex';
+  provider: string;
   assignmentState: AssignmentDto['state'];
   missionState: MissionSnapshotDto['mission']['state'];
   runtimeSessionId: string | null;
@@ -24,7 +24,7 @@ export type SessionEntry =
       key: string;
       kind: 'terminal';
       terminalId: string;
-      launch: 'shell' | 'claude' | 'codex';
+      launch: string;
       projectName: string;
       exited: boolean;
       /** ADR-0047: true when this terminal runs on a remote SSH host. The host

@@ -67,7 +67,7 @@ export interface SkillFrontmatter {
 /**
  * Parse the portable Agent Skills fields without evaluating arbitrary YAML.
  * Supports quoted scalars plus YAML `|`/`>` block descriptions, which covers
- * Claude/Codex skills while keeping the parser dependency-free and inert.
+ * external Agent skills while keeping the parser dependency-free and inert.
  */
 export function parseSkillFrontmatter(content: string, fallbackName: string): SkillFrontmatter {
   let name = fallbackName;
@@ -249,6 +249,8 @@ export interface SkillStoreOptions {
   /** Tests default to managed-only; production opts into well-known home roots. */
   discoverExternal?: boolean;
   homeDir?: string;
+  /** Provider-owned roots supplied by the Agent Registry. */
+  agentSources?: readonly { id: string; label: string; root: string }[];
   onDidChange?: (event: { reason: string; revision: number }) => void;
 }
 
@@ -256,6 +258,7 @@ export class SkillStore {
   private readonly stateFile: string;
   private readonly home: string;
   private readonly discoverExternal: boolean;
+  private readonly agentSources: readonly { id: string; label: string; root: string }[];
   private readonly onDidChange: (event: { reason: string; revision: number }) => void;
   private state: StoreState;
   private entries: CatalogEntry[] = [];
@@ -279,6 +282,7 @@ export class SkillStore {
     this.stateFile = join(dir, STATE_FILE);
     this.home = resolve(options.homeDir ?? homedir());
     this.discoverExternal = options.discoverExternal ?? false;
+    this.agentSources = options.agentSources ?? [];
     this.onDidChange = options.onDidChange ?? (() => undefined);
     this.state = this.loadState();
     this.rescan('startup', false);
@@ -360,32 +364,24 @@ export class SkillStore {
       },
     ];
     if (this.discoverExternal) {
-      sources.push(
-        {
-          id: 'agents',
-          label: 'Agent Skills',
-          kind: 'agents',
-          root: join(this.home, '.agents', 'skills'),
+      sources.push({
+        id: 'agents',
+        label: 'Agent Skills',
+        kind: 'agents',
+        root: join(this.home, '.agents', 'skills'),
+        removable: false,
+        live: true,
+      });
+      for (const source of this.agentSources) {
+        sources.push({
+          id: source.id,
+          label: source.label,
+          kind: source.id,
+          root: resolve(source.root),
           removable: false,
           live: true,
-        },
-        {
-          id: 'claude',
-          label: 'Claude Code',
-          kind: 'claude',
-          root: join(this.home, '.claude', 'skills'),
-          removable: false,
-          live: true,
-        },
-        {
-          id: 'codex',
-          label: 'Codex',
-          kind: 'codex',
-          root: join(this.home, '.codex', 'skills'),
-          removable: false,
-          live: true,
-        },
-      );
+        });
+      }
     }
     for (const custom of this.state.customSources) {
       sources.push({
@@ -753,10 +749,7 @@ export class SkillStore {
         entry.source.kind === 'managed' ? true : policy.trusted && policy.autoEnableNew;
       const desired = this.state.enabled[entry.id] ?? defaultEnabled;
       const enabled = entry.agentEnabled && entry.status !== 'invalid' && policy.trusted && desired;
-      const agentEnabled =
-        entry.source.kind === 'claude' || entry.source.kind === 'codex'
-          ? entry.agentEnabled
-          : enabled;
+      const agentEnabled = isExternalAgentSource(entry.source) ? entry.agentEnabled : enabled;
       const issues = [...entry.issues];
       if (!entry.agentEnabled) {
         issues.push(`Disabled for ${entry.source.label}; the installed copy is parked by Charter.`);
@@ -1000,7 +993,7 @@ export class SkillStore {
 
   /**
    * Toggle the installed copy for its owning Agent. Pi/shared sources already
-   * have an in-process policy, while Claude/Codex need their folder moved out
+   * have an in-process policy, while external Agents need their folder moved out
    * of the live discovery root. The parking path is a sibling of that root so
    * restore stays atomic on the same file system.
    */
@@ -1019,7 +1012,7 @@ export class SkillStore {
       );
     }
 
-    const ownedByExternalAgent = entry.source.kind === 'claude' || entry.source.kind === 'codex';
+    const ownedByExternalAgent = isExternalAgentSource(entry.source);
     if (!ownedByExternalAgent) return this.setEnabled(id, enabled);
     if (entry.agentEnabled === enabled) return { ...entry.dto };
 
@@ -1351,18 +1344,17 @@ function isDirectory(path: string): boolean {
 }
 
 function compareEntries(a: CatalogEntry, b: CatalogEntry): number {
-  const priority: Record<SkillSourceKind, number> = {
-    managed: 0,
-    custom: 1,
-    agents: 2,
-    claude: 3,
-    codex: 4,
-  };
+  const priority = (kind: SkillSourceKind): number =>
+    kind === 'managed' ? 0 : kind === 'custom' ? 1 : kind === 'agents' ? 2 : 3;
   return (
-    priority[a.source.kind] - priority[b.source.kind] ||
+    priority(a.source.kind) - priority(b.source.kind) ||
     a.baseName.localeCompare(b.baseName) ||
     a.root.localeCompare(b.root)
   );
+}
+
+function isExternalAgentSource(source: SourceDefinition): boolean {
+  return !['managed', 'agents', 'custom'].includes(source.kind);
 }
 
 function escapeXml(value: string): string {

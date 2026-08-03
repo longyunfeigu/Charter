@@ -1,6 +1,6 @@
 import { open, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, isAbsolute, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 /**
  * ADR-0017 amendment — locating the CLI's own conversation id so resume can
@@ -24,12 +24,13 @@ import { basename, isAbsolute, join, resolve } from 'node:path';
  */
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const KIMI_SESSION_RE = /^session_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CODEX_ROLLOUT_RE =
   /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
 
-/** Session ids are written into a PTY — only exact UUIDs are ever embedded. */
+/** Session ids are written into a PTY — only exact provider-owned safe shapes are embedded. */
 export function isSafeCliSessionId(id: string): boolean {
-  return UUID_RE.test(id);
+  return UUID_RE.test(id) || KIMI_SESSION_RE.test(id);
 }
 
 /** Claude Code's transcript folder name for a working directory. */
@@ -58,6 +59,8 @@ export interface DiscoverInput {
   codexHomes?: string[];
   /** Test seam for the Main process's inherited Codex home. */
   configuredCodexHome?: string | null;
+  /** Test seam for Kimi Code's data home. */
+  kimiHome?: string | null;
 }
 
 interface Candidate {
@@ -161,6 +164,85 @@ async function discoverCodex(input: DiscoverInput): Promise<string | null> {
       b.mtimeMs - a.mtimeMs,
   );
   return candidates[0]?.sessionId ?? null;
+}
+
+const KIMI_INDEX_READ_BYTES = 4 * 1024 * 1024;
+
+function kimiHome(input: DiscoverInput): string {
+  if (input.kimiHome) return resolve(input.kimiHome);
+  if (!input.home && process.env.KIMI_CODE_HOME && isAbsolute(process.env.KIMI_CODE_HOME)) {
+    return resolve(process.env.KIMI_CODE_HOME);
+  }
+  return resolve(input.home ?? homedir(), '.kimi-code');
+}
+
+async function readTail(path: string, maxBytes: number): Promise<string> {
+  const info = await stat(path);
+  const length = Math.min(info.size, maxBytes);
+  if (length <= 0) return '';
+  const file = await open(path, 'r');
+  try {
+    const buffer = Buffer.allocUnsafe(length);
+    const { bytesRead } = await file.read(buffer, 0, length, Math.max(0, info.size - length));
+    let text = buffer.subarray(0, bytesRead).toString('utf8');
+    if (info.size > length) text = text.slice(Math.max(0, text.indexOf('\n') + 1));
+    return text;
+  } finally {
+    await file.close();
+  }
+}
+
+/** Kimi records an exact session directory and working directory in a bounded JSONL index. */
+async function discoverKimi(input: DiscoverInput): Promise<string | null> {
+  const home = kimiHome(input);
+  const sessionsRoot = resolve(home, 'sessions');
+  const text = await readTail(join(home, 'session_index.jsonl'), KIMI_INDEX_READ_BYTES);
+  const candidates: Candidate[] = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line) as {
+        sessionId?: unknown;
+        sessionDir?: unknown;
+        workDir?: unknown;
+      };
+      if (
+        typeof entry.sessionId !== 'string' ||
+        !KIMI_SESSION_RE.test(entry.sessionId) ||
+        typeof entry.sessionDir !== 'string' ||
+        typeof entry.workDir !== 'string' ||
+        resolve(entry.workDir) !== resolve(input.cwd)
+      ) {
+        continue;
+      }
+      const sessionDir = resolve(entry.sessionDir);
+      const relativeSessionDir = relative(sessionsRoot, sessionDir);
+      if (
+        !relativeSessionDir ||
+        relativeSessionDir.startsWith('..') ||
+        isAbsolute(relativeSessionDir) ||
+        basename(sessionDir) !== entry.sessionId
+      ) {
+        continue;
+      }
+      const statePath = join(sessionDir, 'state.json');
+      const info = await stat(statePath);
+      const stateText = await readTail(statePath, 256 * 1024);
+      const state = JSON.parse(stateText) as { workDir?: unknown; updatedAt?: unknown };
+      if (typeof state.workDir !== 'string' || resolve(state.workDir) !== resolve(input.cwd)) {
+        continue;
+      }
+      const updatedAt =
+        typeof state.updatedAt === 'string' ? Date.parse(state.updatedAt) : Number.NaN;
+      candidates.push({
+        sessionId: entry.sessionId,
+        mtimeMs: Number.isFinite(updatedAt) ? Math.max(info.mtimeMs, updatedAt) : info.mtimeMs,
+      });
+    } catch {
+      // Malformed, unreadable, or raced session entry — skip.
+    }
+  }
+  return newestInWindow(candidates, input);
 }
 
 /**
@@ -270,6 +352,7 @@ export async function discoverCliSessionId(input: DiscoverInput): Promise<string
   try {
     if (input.cli === 'claude') return await discoverClaude(input);
     if (input.cli === 'codex') return await discoverCodex(input);
+    if (input.cli === 'kimi') return await discoverKimi(input);
     return null;
   } catch {
     return null;

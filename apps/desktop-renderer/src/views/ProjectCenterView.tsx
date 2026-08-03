@@ -10,6 +10,7 @@ import { useAppStore, type ProjectCenterTab } from '../store/appStore.js';
 import { useArchaeologyStore } from '../store/archaeologyStore.js';
 import { useEditorStore } from '../store/editorStore.js';
 import { useExternalStore } from '../store/externalStore.js';
+import { agentDisplayName } from '../store/agentCatalogStore.js';
 import { RUNNING_TASK_STATES, useTaskStore } from '../store/taskStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useTerminalStore } from './TerminalPanel.js';
@@ -52,17 +53,13 @@ function relativeTime(value: string | null, now = Date.now()): string {
 }
 
 function providerForTask(task: TaskDto): ProviderMarkKind {
-  if (task.external?.cli === 'claude') return 'claude';
-  if (task.external?.cli === 'codex') return 'codex';
-  if (task.external) return 'shell';
+  if (task.external) return task.external.cli;
   return 'pi';
 }
 
 function providerLabel(task: TaskDto): string {
   if (!task.external) return 'Charter';
-  if (task.external.cli === 'claude') return 'Claude Code';
-  if (task.external.cli === 'codex') return 'Codex';
-  return task.external.cli;
+  return agentDisplayName(task.external.cli);
 }
 
 function isLive(task: TaskDto): boolean {

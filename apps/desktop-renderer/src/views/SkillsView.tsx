@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { SkillDto } from '@pi-ide/ipc-contracts';
 import { useAppStore } from '../store/appStore.js';
+import { useAgentCatalogStore } from '../store/agentCatalogStore.js';
 import { useSkillsStore } from '../store/skillsStore.js';
 import { useSkillsViewStore } from '../store/skillsViewStore.js';
 import { Ic, ProviderMark } from './home-icons.js';
@@ -9,12 +10,13 @@ import {
   filterSkillGroups,
   groupSkills,
   isAgentEnabled,
+  availableSkillAgents,
   scopeSkillGroups,
   skillAgent,
+  skillAgentInfo,
   skillGroupCounts,
   skillNeedsReview,
   skillReviewReasons,
-  SKILL_AGENTS,
   type SkillAgent,
   type SkillAgentFilter,
   type SkillGroup,
@@ -98,10 +100,11 @@ function initialDrawerCopies(group: SkillGroup, agent: SkillAgentFilter): SkillD
 }
 
 function groupReviewSummary(group: SkillGroup): string {
+  const catalog = useAgentCatalogStore.getState().agents;
   const reviewed = group.copies.filter(skillNeedsReview);
   return reviewed
     .flatMap((copy) => {
-      const agent = SKILL_AGENTS.find((item) => item.id === skillAgent(copy))!;
+      const agent = skillAgentInfo(skillAgent(copy), catalog);
       const prefix = reviewed.length > 1 ? `${agent.label}: ` : '';
       return skillReviewReasons(copy).map((reason) => `${prefix}${reason}`);
     })
@@ -113,6 +116,11 @@ function SkillDrawer(props: {
   initialAgent: SkillAgentFilter;
   onClose(): void;
 }): React.JSX.Element {
+  const catalog = useAgentCatalogStore((state) => state.agents);
+  const skillAgents = useMemo(
+    () => availableSkillAgents([props.group], catalog),
+    [catalog, props.group],
+  );
   const setAgentEnabled = useSkillsStore((state) => state.setAgentEnabled);
   const trash = useSkillsStore((state) => state.trash);
   const pushToast = useAppStore((state) => state.pushToast);
@@ -228,15 +236,17 @@ function SkillDrawer(props: {
             <button className={scope === 'all' ? 'on' : ''} onClick={() => selectScope('all')}>
               All agents · {props.group.copies.length}
             </button>
-            {SKILL_AGENTS.filter((agent) => props.group.agents.includes(agent.id)).map((agent) => (
-              <button
-                key={agent.id}
-                className={scope === agent.id ? 'on' : ''}
-                onClick={() => selectScope(agent.id)}
-              >
-                {agent.shortLabel} · {agentCopies(props.group, agent.id).length}
-              </button>
-            ))}
+            {skillAgents
+              .filter((agent) => props.group.agents.includes(agent.id))
+              .map((agent) => (
+                <button
+                  key={agent.id}
+                  className={scope === agent.id ? 'on' : ''}
+                  onClick={() => selectScope(agent.id)}
+                >
+                  {agent.shortLabel} · {agentCopies(props.group, agent.id).length}
+                </button>
+              ))}
           </div>
           <p className="skills-scope-help">
             Use an Agent scope as a shortcut, or select exact copies below. Unselected Agent copies
@@ -251,7 +261,7 @@ function SkillDrawer(props: {
           </div>
           <div className="skills-copy-list">
             {props.group.copies.map((copy) => {
-              const agent = SKILL_AGENTS.find((item) => item.id === skillAgent(copy))!;
+              const agent = skillAgentInfo(skillAgent(copy), catalog);
               const checked = selectedIds.has(copy.id);
               const reviewReasons = skillReviewReasons(copy);
               return (
@@ -363,6 +373,7 @@ function SkillDrawer(props: {
 }
 
 export function SkillsView(): React.JSX.Element {
+  const catalog = useAgentCatalogStore((state) => state.agents);
   const skills = useSkillsStore((state) => state.skills);
   const usage = useSkillsStore((state) => state.usage);
   const usageWindowDays = useSkillsStore((state) => state.usageWindowDays);
@@ -394,6 +405,7 @@ export function SkillsView(): React.JSX.Element {
     () => groupSkills(skills, usage, usageLoaded),
     [skills, usage, usageLoaded],
   );
+  const skillAgents = useMemo(() => availableSkillAgents(groups, catalog), [catalog, groups]);
   const selected = selectedKey ? (groups.find((group) => group.key === selectedKey) ?? null) : null;
   const scopedGroups = useMemo(
     () => scopeSkillGroups(groups, agent, usageLoaded),
@@ -404,8 +416,9 @@ export function SkillsView(): React.JSX.Element {
     () => filterSkillGroups(scopedGroups, { status, agent: 'all', query, sort }),
     [query, scopedGroups, sort, status],
   );
-  const selectedAgent = agent === 'all' ? null : SKILL_AGENTS.find((item) => item.id === agent)!;
-  const usageAgents = selectedAgent ? [selectedAgent] : SKILL_AGENTS;
+  const selectedAgent =
+    agent === 'all' ? null : (skillAgents.find((item) => item.id === agent) ?? null);
+  const usageAgents = selectedAgent ? [selectedAgent] : skillAgents;
   const now = Date.now();
   return (
     <main className="skills-main" data-testid="skills-main-page">
@@ -446,7 +459,7 @@ export function SkillsView(): React.JSX.Element {
             <button className={agent === 'all' ? 'on' : ''} onClick={() => setAgent('all')}>
               All agents
             </button>
-            {SKILL_AGENTS.map((item) => (
+            {skillAgents.map((item) => (
               <button
                 key={item.id}
                 className={agent === item.id ? 'on' : ''}
@@ -536,8 +549,9 @@ export function SkillsView(): React.JSX.Element {
                     </td>
                     <td>
                       <div className="skills-install-pills">
-                        {SKILL_AGENTS.filter((item) => group.agents.includes(item.id)).map(
-                          (item) => {
+                        {skillAgents
+                          .filter((item) => group.agents.includes(item.id))
+                          .map((item) => {
                             const copies = agentCopies(group, item.id);
                             const enabled = copies.some(isAgentEnabled);
                             const locked = copies.every((copy) => copy.protected);
@@ -551,8 +565,7 @@ export function SkillsView(): React.JSX.Element {
                                 {locked ? ' · built-in' : enabled ? '' : ' · off'}
                               </span>
                             );
-                          },
-                        )}
+                          })}
                       </div>
                     </td>
                     <td>
@@ -564,7 +577,7 @@ export function SkillsView(): React.JSX.Element {
                             title={`${item.label} observed usage`}
                           >
                             <i />
-                            <b>{!usageLoaded ? '—' : group.usesByAgent[item.id]}</b>
+                            <b>{!usageLoaded ? '—' : (group.usesByAgent[item.id] ?? 0)}</b>
                             {usageLoaded ? <small>×</small> : null}
                           </span>
                         ))}

@@ -21,7 +21,8 @@ import type {
 } from './orchestration-runtime-registry.js';
 import { missionWorkerPrompt } from './visible-terminal-runtime.js';
 
-export type AcpProvider = 'claude' | 'codex';
+/** Opaque Agent Catalog id. Provider behavior is resolved by the process command factory. */
+export type AcpProvider = string;
 
 export interface AcpProcessCommand {
   command: string;

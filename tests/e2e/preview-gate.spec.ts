@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { launchApp } from './helpers/launch';
 import { createGitFixture, createTsSmallFixture } from './helpers/fixtures';
@@ -153,6 +153,70 @@ test.describe('Preview gate (ADR-0022)', () => {
       wtServer?.kill();
       mainServer?.kill();
       controlServer?.kill();
+      await app.close();
+    }
+  });
+
+  test('a nested static index gets a one-click private preview without package scripts', async () => {
+    const fixture = createGitFixture();
+    const site = join(fixture, 'examples', 'meal-picker');
+    mkdirSync(site, { recursive: true });
+    writeFileSync(
+      join(site, 'index.html'),
+      '<!doctype html><html><body><h1>Static preview acceptance</h1></body></html>',
+    );
+    execFileSync('git', ['add', 'examples/meal-picker/index.html'], { cwd: fixture });
+    execFileSync('git', ['commit', '-qm', 'add static preview fixture'], { cwd: fixture });
+
+    const { app, page } = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+    });
+    try {
+      await startWorktreeTask(page, '[scenario:edit-basic] static preview discovery');
+      await page.getByTestId('review-bar-open').click();
+      await expect(page.getByTestId('review-view')).toBeVisible({ timeout: 15_000 });
+      await page.getByTestId('review-tab-preview').click({ timeout: 15_000 });
+
+      await expect(page.getByText('Static app ready to preview')).toBeVisible();
+      await expect(page.getByText('examples/meal-picker/index.html')).toBeVisible();
+      const start = page.getByTestId('preview-start-dev');
+      await expect(start).toHaveAttribute('data-preview-kind', 'static');
+      await expect(start).toContainText('Start static preview');
+      await page.screenshot({ path: '/tmp/charter-static-preview-ready-1440.png' });
+      await start.click();
+
+      const frame = page.getByTestId('preview-frame');
+      await expect(frame).toHaveAttribute('src', /http:\/\/localhost:\d+\//, {
+        timeout: 30_000,
+      });
+      await expect(
+        page.frameLocator('[data-testid="preview-frame"]').getByText('Static preview acceptance'),
+      ).toBeVisible({ timeout: 15_000 });
+      await page.screenshot({ path: '/tmp/charter-static-preview-1440.png' });
+
+      await app.evaluate(({ BrowserWindow }) => {
+        BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 980, height: 760 });
+      });
+      await expect(page.getByTestId('preview-frame')).toBeVisible();
+      await expect(
+        page.frameLocator('[data-testid="preview-frame"]').getByText('Static preview acceptance'),
+      ).toBeVisible();
+      await page.screenshot({ path: '/tmp/charter-static-preview-980.png' });
+    } finally {
+      await page
+        .evaluate(async () => {
+          const listed = (await window.product.rpc['terminal.list']!({})) as {
+            ok: boolean;
+            data?: { items: Array<{ id: string }> };
+          };
+          if (!listed.ok) return;
+          await Promise.all(
+            (listed.data?.items ?? []).map((terminal) =>
+              window.product.rpc['terminal.kill']!({ id: terminal.id, force: true }),
+            ),
+          );
+        })
+        .catch(() => undefined);
       await app.close();
     }
   });

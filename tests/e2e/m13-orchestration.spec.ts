@@ -143,6 +143,7 @@ function createFleetResumeDriver(options?: {
   workerLifetimeMs?: number;
   commanderLifetimeMs?: number;
   workerHeartbeat?: boolean;
+  workerCompletesTurn?: boolean;
 }): {
   bin: string;
   codexHome: string;
@@ -160,6 +161,7 @@ function createFleetResumeDriver(options?: {
   const workerLifetimeMs = options?.workerLifetimeMs ?? 2_200;
   const commanderLifetimeMs = options?.commanderLifetimeMs ?? 4_000;
   const workerHeartbeat = options?.workerHeartbeat ?? false;
+  const workerCompletesTurn = options?.workerCompletesTurn ?? false;
   writeFileSync(
     join(bin, '.zshenv'),
     `export PATH=${JSON.stringify(`${bin}:${process.env.PATH ?? ''}`)}\nexport CODEX_HOME=${JSON.stringify(codexHome)}\n`,
@@ -176,6 +178,9 @@ function createFleetResumeDriver(options?: {
       "console.log(resumed ? 'fleet-worker-resumed' : 'fleet-worker-started');",
       workerHeartbeat
         ? "setInterval(() => process.stdout.write('fleet-worker-working\\r'), 250);"
+        : '',
+      workerCompletesTurn
+        ? "setTimeout(() => console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'fleet-worker', result: 'done' })), 2500);"
         : '',
       `setTimeout(() => process.exit(0), resumed ? 15000 : ${workerLifetimeMs});`,
       '',
@@ -760,6 +765,7 @@ test.describe('M13 session orchestration', () => {
       PI_IDE_OPEN_WORKSPACE: fixture,
       PI_IDE_EXTERNAL_CLIS: 'claude,codex',
       PI_IDE_TERMINAL_PERSIST: '1',
+      PI_IDE_VISIBLE_MCP: '1',
       CODEX_HOME: driver.codexHome,
       PATH: `${driver.bin}:${process.env.PATH ?? ''}`,
       ZDOTDIR: driver.bin,
@@ -770,11 +776,10 @@ test.describe('M13 session orchestration', () => {
       const first = await launchApp({ env: environment });
       firstApp = first.app;
       await first.page.keyboard.press('Control+`');
-      const terminal = first.page.locator('.xterm').first();
-      await expect(terminal).toBeVisible();
-      await terminal.click();
-      await first.page.keyboard.type('codex');
-      await first.page.keyboard.press('Enter');
+      await expect(first.page.getByTestId('terminal-panel')).toBeVisible();
+      await first.page.getByTestId('terminal-new-menu').click();
+      await first.page.getByTestId('terminal-type-codex').click();
+      await first.page.getByTestId('terminal-create-submit').click();
       await expect(first.page.getByTestId('terminal-session-bar')).toContainText('Codex', {
         timeout: 20_000,
       });
@@ -841,6 +846,113 @@ test.describe('M13 session orchestration', () => {
       await expect(workerRow).toBeVisible();
       await expect(workerRow.locator('xpath=..')).toHaveClass(/sr-orch-worker/);
       await expect(workerRow).toHaveAttribute('data-working', 'true');
+    } finally {
+      if (firstApp) {
+        const page = firstApp.windows()[0];
+        if (page) await killAllTerminals(page).catch(() => undefined);
+        await firstApp.close().catch(() => undefined);
+      }
+      if (secondApp) {
+        const page = secondApp.windows()[0];
+        if (page) await killAllTerminals(page).catch(() => undefined);
+        await secondApp.close().catch(() => undefined);
+      }
+    }
+  });
+
+  test('stops animating an idle daemon worker after restart replay settles', async () => {
+    test.setTimeout(120_000);
+    const fixture = createTsSmallFixture();
+    const driver = createFleetResumeDriver({
+      workerLifetimeMs: 40_000,
+      commanderLifetimeMs: 40_000,
+      workerHeartbeat: false,
+      workerCompletesTurn: true,
+    });
+    const environment = {
+      PI_IDE_OPEN_WORKSPACE: fixture,
+      PI_IDE_EXTERNAL_CLIS: 'claude,codex',
+      PI_IDE_TERMINAL_PERSIST: '1',
+      PI_IDE_VISIBLE_MCP: '1',
+      CODEX_HOME: driver.codexHome,
+      PATH: `${driver.bin}:${process.env.PATH ?? ''}`,
+      ZDOTDIR: driver.bin,
+    };
+    let firstApp: ElectronApplication | null = null;
+    let secondApp: ElectronApplication | null = null;
+    try {
+      const first = await launchApp({ env: environment });
+      firstApp = first.app;
+      await first.page.keyboard.press('Control+`');
+      await expect(first.page.getByTestId('terminal-panel')).toBeVisible();
+      await first.page.getByTestId('terminal-new-menu').click();
+      await first.page.getByTestId('terminal-type-codex').click();
+      await first.page.getByTestId('terminal-create-submit').click();
+      await expect(first.page.getByTestId('terminal-session-bar')).toContainText('Codex', {
+        timeout: 20_000,
+      });
+      await first.page.getByTestId('session-bar-room').click();
+      const commanderTaskId = await first.page
+        .getByTestId('task-room')
+        .getAttribute('data-task-id');
+      expect(commanderTaskId).toBeTruthy();
+      await expect.poll(() => existsSync(driver.fleetProbe), { timeout: 20_000 }).toBe(true);
+      const workerId = (JSON.parse(readFileSync(driver.fleetProbe, 'utf8')) as { workerId: string })
+        .workerId;
+
+      // The worker emitted its one startup line and then settled while its CLI
+      // process stayed alive. Persist that completed turn before restarting.
+      await expect
+        .poll(async () => {
+          const state = await first.page.evaluate(async () => {
+            return window.product.rpc['orchestration.getState']!({});
+          });
+          return (
+            state.data as { workers: Array<{ terminalId: string; status: string }> }
+          ).workers.find((worker) => worker.terminalId === workerId)?.status;
+        })
+        .toBe('completed');
+
+      await quitFromAppMenu(first.app);
+      firstApp = null;
+
+      const second = await launchApp({ userDataDir: first.userDataDir, env: environment });
+      secondApp = second.app;
+      await expect
+        .poll(
+          async () => {
+            const state = await second.page.evaluate(async () => {
+              return window.product.rpc['orchestration.getState']!({});
+            });
+            return (
+              state.data as {
+                workers: Array<{
+                  terminalId: string;
+                  commanderTaskId: string;
+                  taskId: string | null;
+                  status: string;
+                }>;
+              }
+            ).workers.find((worker) => worker.terminalId === workerId);
+          },
+          { timeout: 20_000 },
+        )
+        .toMatchObject({ commanderTaskId, status: 'quiet' });
+
+      const state = await second.page.evaluate(async () => {
+        return window.product.rpc['orchestration.getState']!({});
+      });
+      const worker = (
+        state.data as {
+          workers: Array<{ terminalId: string; taskId: string | null; status: string }>;
+        }
+      ).workers.find((candidate) => candidate.terminalId === workerId);
+      if (!worker?.taskId) throw new Error('The restored idle worker lost its Session task.');
+
+      const workerRow = second.page.getByTestId(`home-task-${worker.taskId}`);
+      await expect(workerRow).toBeVisible();
+      await expect(workerRow).toHaveAttribute('data-working', 'false');
+      await expect(workerRow.locator('.sr-provider')).not.toHaveClass(/is-working/);
     } finally {
       if (firstApp) {
         const page = firstApp.windows()[0];

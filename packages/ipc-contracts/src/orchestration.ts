@@ -1,11 +1,12 @@
 import { z } from 'zod';
+import { AgentIdSchema } from './agents.js';
 
 export const OrchestrationWorkerSchema = z.object({
   terminalId: z.string(),
   commanderTaskId: z.string(),
   commanderTerminalId: z.string().nullable(),
   createdAt: z.string(),
-  launch: z.enum(['shell', 'claude', 'codex']),
+  launch: AgentIdSchema,
   title: z.string(),
   projectName: z.string(),
   taskId: z.string().nullable(),
@@ -68,7 +69,8 @@ export const AttemptStateSchema = z.enum([
   'CANCELLED',
   'STALE',
 ]);
-export const RuntimeKindSchema = z.enum(['managed', 'claude', 'codex', 'shell']);
+/** `managed`, `shell`, or an opaque external Agent id from Agent Catalog. */
+export const RuntimeKindSchema = AgentIdSchema;
 export const PrincipalKindSchema = z.enum([
   'user',
   'managed_agent',

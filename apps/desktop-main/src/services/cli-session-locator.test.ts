@@ -58,9 +58,66 @@ describe('claudeProjectDirName', () => {
 describe('isSafeCliSessionId', () => {
   it('accepts exactly UUIDs and nothing shell-shaped', () => {
     expect(isSafeCliSessionId(ID_A)).toBe(true);
+    expect(isSafeCliSessionId(`session_${ID_A}`)).toBe(true);
     expect(isSafeCliSessionId('abc; rm -rf .')).toBe(false);
     expect(isSafeCliSessionId('$(evil)')).toBe(false);
     expect(isSafeCliSessionId('')).toBe(false);
+  });
+});
+
+describe('discoverCliSessionId — Kimi session index', () => {
+  it('matches the indexed workDir and session lifetime', async () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'cli-loc-kimi-'));
+    const kimiHome = join(fixture, '.kimi-code');
+    const cwd = '/work/kimi-app';
+    const start = Date.now() - 5_000;
+    const sessionId = `session_${ID_A}`;
+    const sessionDir = join(kimiHome, 'sessions', 'wd_kimi_app', sessionId);
+    mkdirSync(sessionDir, { recursive: true });
+    writeFileSync(
+      join(kimiHome, 'session_index.jsonl'),
+      `${JSON.stringify({ sessionId, sessionDir, workDir: cwd })}\n`,
+    );
+    writeFileSync(
+      join(sessionDir, 'state.json'),
+      JSON.stringify({ workDir: cwd, updatedAt: new Date(start + 2_000).toISOString() }),
+    );
+
+    await expect(
+      discoverCliSessionId({
+        cli: 'kimi',
+        cwd,
+        startedAtMs: start,
+        endedAtMs: start + 3_000,
+        kimiHome,
+      }),
+    ).resolves.toBe(sessionId);
+  });
+
+  it('rejects an indexed session from another working directory', async () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'cli-loc-kimi-'));
+    const kimiHome = join(fixture, '.kimi-code');
+    const sessionId = `session_${ID_B}`;
+    const sessionDir = join(kimiHome, 'sessions', 'wd_other', sessionId);
+    mkdirSync(sessionDir, { recursive: true });
+    writeFileSync(
+      join(kimiHome, 'session_index.jsonl'),
+      `${JSON.stringify({ sessionId, sessionDir, workDir: '/work/other' })}\n`,
+    );
+    writeFileSync(
+      join(sessionDir, 'state.json'),
+      JSON.stringify({ workDir: '/work/other', updatedAt: new Date().toISOString() }),
+    );
+
+    await expect(
+      discoverCliSessionId({
+        cli: 'kimi',
+        cwd: '/work/wanted',
+        startedAtMs: Date.now() - 10_000,
+        endedAtMs: Date.now(),
+        kimiHome,
+      }),
+    ).resolves.toBeNull();
   });
 });
 

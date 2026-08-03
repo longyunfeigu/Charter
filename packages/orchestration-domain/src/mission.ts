@@ -44,7 +44,8 @@ export interface MissionExecutionPolicy {
   };
 }
 
-export type RuntimeKind = 'managed' | 'claude' | 'codex' | 'shell';
+/** `managed`, `shell`, or an opaque external Agent id resolved at runtime. */
+export type RuntimeKind = string;
 
 export function defaultMissionExecutionPolicy(workspaceRoot: string): MissionExecutionPolicy {
   return {

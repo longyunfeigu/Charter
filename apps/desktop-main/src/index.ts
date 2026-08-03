@@ -20,7 +20,7 @@ import {
 } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import {
@@ -121,6 +121,7 @@ import {
   AcpRuntimeAdapter,
   FallbackRuntimeAdapter,
 } from './services/acp-runtime.js';
+import { AgentRegistry } from './services/agent-registry.js';
 
 const DEV_SERVER_URL = process.env.PI_IDE_DEV_SERVER_URL;
 const isDev = Boolean(DEV_SERVER_URL);
@@ -164,6 +165,7 @@ let ctlServerRef: CtlServer | null = null;
 let missionOrchestrationRef: MissionOrchestrationService | null = null;
 let missionRecoveryRef: OrchestrationRecoveryService | null = null;
 let acpPoolRef: AcpProcessPool | null = null;
+let agentRegistryRef: AgentRegistry | null = null;
 export function getM5(): M5Services | null {
   return m5Ref;
 }
@@ -432,6 +434,10 @@ function registerCoreHandlers(bootstrap: Bootstrap): void {
   registerHandlers(
     {
       'app.getInfo': async () => getAppInfo(),
+      'agents.list': async ({ refresh }) => {
+        if (!agentRegistryRef) return { agents: [], scannedAt: new Date(0).toISOString() };
+        return refresh ? agentRegistryRef.refresh() : agentRegistryRef.catalog();
+      },
       'app.openExternal': async ({ url }) => ({ opened: await openExternalChecked(url, logger) }),
       'app.revealPath': async ({ path }) => {
         // Reveal in Finder/Explorer — absolute existing paths only.
@@ -642,6 +648,15 @@ if (!gotLock) {
       logger.error('startup degraded: database unavailable', { code: startupError.code });
     }
 
+    const agentHome = process.env.PI_IDE_E2E ? process.env.PI_IDE_AGENT_HOME : undefined;
+    agentRegistryRef = new AgentRegistry(logger.child('agent-registry'), {
+      ...(agentHome ? { homeDir: agentHome } : {}),
+      userManifestDir:
+        process.env.PI_IDE_AGENT_MANIFESTS ??
+        join(agentHome ?? app.getPath('home'), '.charter', 'agents'),
+      probeVersions: !process.env.PI_IDE_E2E,
+    });
+
     boot = { paths, logs, logger, settings, state, workspaceHost, startupError };
 
     updateServiceRef = new UpdateService({
@@ -717,14 +732,22 @@ if (!gotLock) {
         appPath: app.getAppPath(),
         logger: logger.child('terminal-mcp'),
       });
-      const resolveVisibleAgentExecutable = (launch: 'claude' | 'codex'): string | null => {
+      const resolveVisibleAgentExecutable = (launch: string): string | null => {
         const explicitMcpCompatibility =
           process.env.PI_IDE_VISIBLE_MCP === '1' || process.env.PI_IDE_ACP === '1';
         return (
-          (explicitMcpCompatibility
-            ? terminalIntegration?.mcpExecutableFor(launch)
-            : terminalIntegration?.executableFor(launch)) ?? null
+          (explicitMcpCompatibility ? terminalIntegration?.mcpExecutableFor(launch) : null) ??
+          agentRegistryRef!.executableFor(launch)
         );
+      };
+      const resolveVisibleAgentLaunch = (launch: string, initialPrompt: string | null) => {
+        const sessionId = agentRegistryRef!.preassignSessionId(launch) ? randomUUID() : null;
+        const spec = agentRegistryRef!.launchSpec(launch, { prompt: initialPrompt, sessionId });
+        if (!spec) return null;
+        return {
+          ...spec,
+          executable: resolveVisibleAgentExecutable(launch) ?? spec.executable,
+        };
       };
       const missionVirtualTasks = new Map<string, string>();
       m4 = new M4Services(
@@ -740,6 +763,7 @@ if (!gotLock) {
               }
             : {},
         terminalDaemon,
+        agentRegistryRef.terminalAgentIds(),
       );
       m4Ref = m4;
       terminalRecordingRef = new TerminalRecordingCoordinator(
@@ -754,7 +778,7 @@ if (!gotLock) {
         maxWorkers: () => settings.effective.orchestration.maxWorkers,
         maxSendsPerMinute: () => settings.effective.orchestration.maxSendsPerMinute,
         launchIntents: externalLaunchIntents,
-        resolveAgentExecutable: resolveVisibleAgentExecutable,
+        resolveAgentLaunch: resolveVisibleAgentLaunch,
         taskForTerminal: (id) => externalSessionsRef?.taskIdForTerminal(id) ?? null,
         taskTitleForTerminal: (id) => {
           const taskId = externalSessionsRef?.taskIdForTerminal(id);
@@ -914,7 +938,7 @@ if (!gotLock) {
         {
           create: (options) => sshServiceRef!.createRemoteTerminal(options),
         },
-        resolveVisibleAgentExecutable,
+        resolveVisibleAgentLaunch,
       );
       registerTerminalOpenHandlers(m4, workspaceHost, logger.child('ipc'));
       m5Ref = new M5Services(workspaceHost, state, paths, logger.child('m5'));
@@ -933,6 +957,7 @@ if (!gotLock) {
       const skillStore = new SkillStore(paths.skillsDir, logger.child('skills'), {
         discoverExternal: !process.env.PI_IDE_E2E || Boolean(skillHome),
         ...(skillHome ? { homeDir: skillHome } : {}),
+        agentSources: agentRegistryRef.skillSources(skillHome),
         onDidChange: (event) => broadcast('skills.changed', event),
       });
       skillStoreRef = skillStore;
@@ -943,6 +968,8 @@ if (!gotLock) {
         events: (windowDays) => taskServiceRef?.skillUsageEvents(windowDays) ?? [],
         externalEvents: async (windowDays) =>
           (await archaeologyRef?.skillUsageEvents(windowDays)) ?? [],
+        agentSurfaces: () =>
+          agentRegistryRef!.skillSources(skillHome).map(({ id, root }) => ({ target: id, root })),
       });
       // ADR-0028: project memory — shared rules source, review-correction
       // capture, managed-block sync, external private-memory management.
@@ -981,29 +1008,22 @@ if (!gotLock) {
       missionRuntimes.register(new ManagedAgentRuntime(taskService, settings));
       const acpCompatibilityEnabled =
         Boolean(terminalIntegration) &&
+        agentRegistryRef.acpAgentIds().length > 0 &&
         process.env.PI_IDE_ACP !== '0' &&
         (!process.env.PI_IDE_E2E || process.env.PI_IDE_ACP === '1');
       if (acpCompatibilityEnabled && terminalIntegration) {
         const runtimeAppPath = app.getAppPath().endsWith('app.asar')
           ? `${app.getAppPath()}.unpacked`
           : app.getAppPath();
-        const scriptFor = (provider: 'claude' | 'codex') =>
-          join(
+        const pool = new AcpProcessPool((provider) => {
+          const command = agentRegistryRef!.acpCommand(provider, {
             runtimeAppPath,
-            'node_modules',
-            '@agentclientprotocol',
-            provider === 'claude' ? 'claude-agent-acp' : 'codex-acp',
-            'dist',
-            'index.js',
-          );
-        const pool = new AcpProcessPool(
-          (provider) => ({
-            command: terminalIntegration.nodeExecutable,
-            args: [scriptFor(provider)],
+            nodeExecutable: terminalIntegration.nodeExecutable,
             env: terminalIntegration.environment(),
-          }),
-          logger.child('acp-pool'),
-        );
+          });
+          if (!command) throw new Error(`ACP Agent ${provider} is not available.`);
+          return command;
+        }, logger.child('acp-pool'));
         acpPoolRef = pool;
         const options = {
           missionMcp: (
@@ -1036,7 +1056,7 @@ if (!gotLock) {
           },
         };
         const useAcpForNewMissions = process.env.PI_IDE_ACP === '1';
-        for (const provider of ['claude', 'codex'] as const) {
+        for (const provider of agentRegistryRef.acpAgentIds()) {
           const acpRuntime = new AcpRuntimeAdapter(
             provider,
             pool,
@@ -1081,6 +1101,7 @@ if (!gotLock) {
         taskService,
         agentHostRef,
         terminalControlRef,
+        (agentId) => agentRegistryRef!.isKnown(agentId),
       );
       taskService.attachOrchestrationTools({
         control: missionOrchestration,
@@ -1220,6 +1241,7 @@ if (!gotLock) {
             },
           });
         },
+        agentRegistryRef,
       );
       registerExternalHandlers(externalSessionsRef, logger.child('ipc'), artifactService);
       // Daemon-backed PTYs outlive Electron, while worker relationships are a
@@ -1271,6 +1293,7 @@ if (!gotLock) {
         logger: logger.child('archaeology'),
         ...(archaeologyHome ? { homeDir: archaeologyHome } : {}),
         enabled: !process.env.PI_IDE_E2E || Boolean(archaeologyHome),
+        agentSources: agentRegistryRef.historySources(archaeologyHome),
         knownSessions: () => taskServiceRef?.externalSessionIndex() ?? new Map(),
         ignoredSessions: () => taskServiceRef?.deletedExternalSessionKeys() ?? new Set(),
         projects: () =>

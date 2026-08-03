@@ -32,7 +32,8 @@ export interface TerminalInfo {
   contextKind: 'focused' | 'recent' | 'task' | 'scratch';
   contextLabel: string;
   contextTaskId: string | null;
-  launch: 'shell' | 'claude' | 'codex';
+  /** `shell` or an opaque Agent id resolved by the host Agent Registry. */
+  launch: string;
   persistence: 'daemon' | 'process' | 'remote';
   /** Present only for SSH remote sessions (ADR-0047); absent for local PTYs. */
   remote?: TerminalRemoteInfo;
@@ -95,8 +96,8 @@ export interface AdoptBackendOptions {
   contextKind?: 'focused' | 'recent' | 'task' | 'scratch';
   contextLabel?: string;
   contextTaskId?: string | null;
-  launch?: 'shell' | 'claude' | 'codex';
-  knownAgent?: 'claude' | 'codex';
+  launch?: string;
+  knownAgent?: string;
   remote?: TerminalRemoteInfo;
 }
 
@@ -108,7 +109,7 @@ export interface CreateTerminalOptions {
   executable?: string;
   args?: string[];
   /** A directly spawned agent is known without foreground-process polling. */
-  knownAgent?: 'claude' | 'codex';
+  knownAgent?: string;
   cols?: number;
   rows?: number;
   scrollback?: number;
@@ -117,7 +118,7 @@ export interface CreateTerminalOptions {
   contextKind?: 'focused' | 'recent' | 'task' | 'scratch';
   contextLabel?: string;
   contextTaskId?: string | null;
-  launch?: 'shell' | 'claude' | 'codex';
+  launch?: string;
 }
 
 /** Fully resolved spawn request passed to an optional out-of-process PTY host. */
@@ -152,7 +153,7 @@ interface Session {
   tracker: AgentStateTracker;
   recentData: TerminalReplayBuffer;
   screen: HeadlessTerminal;
-  knownAgent: 'claude' | 'codex' | null;
+  knownAgent: string | null;
 }
 
 const TERMINAL_REPLAY_LIMIT = 64 * 1024;
@@ -1118,7 +1119,7 @@ export class TerminalManager {
     id: string,
     info: TerminalInfo,
     backend: TerminalBackend,
-    knownAgent: 'claude' | 'codex' | null,
+    knownAgent: string | null,
     pty?: IPty,
     cols = 80,
     rows = 24,

@@ -170,7 +170,9 @@ export function PreviewBadge({ task }: { task: TaskDto }): React.JSX.Element | n
         open
           ? 'Close the Session output panel'
           : hasLive
-            ? `A dev server is listening in this task's tree — open Session output`
+            ? firstPort !== null
+              ? `A preview server is listening in this task's tree — open Session output`
+              : 'A web app is ready to preview — open Session output to start it'
             : 'Open the Session artifacts'
       }
       onClick={() =>

@@ -44,10 +44,7 @@ export function shellSingleQuote(value: string): string {
  * `exec` replaces the shell so the CLI owns the channel — quitting it ends the
  * session, matching the local direct-launch semantics (knownAgent-until-exit).
  */
-export function remoteLaunchSequence(
-  cli: 'claude' | 'codex',
-  remoteWorkdir: string | null,
-): string {
+export function remoteLaunchSequence(cli: string, remoteWorkdir: string | null): string {
   const cd = remoteWorkdir ? `cd -- ${shellSingleQuote(remoteWorkdir)} && ` : '';
   return `${cd}exec ${cli}\r`;
 }

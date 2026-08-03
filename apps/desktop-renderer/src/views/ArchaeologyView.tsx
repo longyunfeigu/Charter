@@ -17,6 +17,7 @@ import {
   sessionHistoryMatches,
   type SessionHistoryItem,
 } from './session-history.js';
+import { agentDisplayName } from '../store/agentCatalogStore.js';
 
 /**
  * Session Archive is the user-facing form of ADR-0038 archaeology. It merges
@@ -42,18 +43,13 @@ function compactHome(path: string): string {
 
 function providerForItem(item: SessionHistoryItem): ProviderMarkKind {
   if (item.kind === 'discovered') return item.session.cli;
-  if (item.task.external?.cli === 'claude') return 'claude';
-  if (item.task.external?.cli === 'codex') return 'codex';
-  if (item.task.external) return 'shell';
+  if (item.task.external) return item.task.external.cli;
   return 'pi';
 }
 
 function providerLabel(item: SessionHistoryItem): string {
   const provider = providerForItem(item);
-  if (provider === 'pi') return 'Charter';
-  if (provider === 'claude') return 'Claude Code';
-  if (provider === 'codex') return 'Codex';
-  return 'Terminal';
+  return agentDisplayName(provider);
 }
 
 function itemTitle(item: SessionHistoryItem): string {

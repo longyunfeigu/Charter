@@ -4,7 +4,7 @@ import type { PreviewAttachmentDto } from '@pi-ide/ipc-contracts';
 import { registerHandlers } from './router.js';
 import { broadcast } from '../broadcast.js';
 import type { PreviewFeedbackMeta, TaskService } from '../services/task-service.js';
-import { devCommandForRoot, isWebishRoot, PreviewService } from '../services/preview-service.js';
+import { PreviewService } from '../services/preview-service.js';
 import { PICKER_CANCEL_JS, PICKER_JS, isLoopbackPreviewUrl } from '../services/preview-picker.js';
 
 const THUMB_WIDTH = 320;
@@ -145,15 +145,16 @@ export function registerPreviewHandlers(
         const sender = webContents.fromId(meta.senderId);
         if (sender) attachConsoleRelay(sender, logger);
         const root = task.worktree?.path ?? task.projectPath;
-        const [ports, webish, devCommand] = await Promise.all([
+        const [ports, launch] = await Promise.all([
           preview.detectPorts(root),
-          isWebishRoot(root),
-          devCommandForRoot(root),
+          preview.launchForRoot(root),
         ]);
         return {
           root,
-          webish,
-          devCommand,
+          webish: launch.webish,
+          devCommand: launch.command,
+          devCommandKind: launch.kind,
+          staticEntry: launch.staticEntry,
           ports: ports.map((p) => ({ ...p, url: `http://localhost:${p.port}/` })),
         };
       },

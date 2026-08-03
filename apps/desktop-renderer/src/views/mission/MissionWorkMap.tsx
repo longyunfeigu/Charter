@@ -8,10 +8,9 @@ import {
 } from './mission-view-model.js';
 
 function providerMark(provider: string | null, kind: string | undefined): ProviderMarkKind {
-  if (provider === 'claude') return 'claude';
-  if (provider === 'codex') return 'codex';
   if (provider === 'shell' || kind === 'shell_agent') return 'shell';
-  return 'pi';
+  if (!provider || provider === 'managed' || provider === 'pi') return 'pi';
+  return provider;
 }
 
 export function MissionWorkMap({

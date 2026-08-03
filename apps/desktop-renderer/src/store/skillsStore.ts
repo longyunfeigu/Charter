@@ -145,9 +145,7 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
           ? {
               ...skill,
               agentEnabled: enabled,
-              ...(!enabled && skill.source !== 'claude' && skill.source !== 'codex'
-                ? { enabled: false }
-                : {}),
+              ...(!enabled && skill.agentEnabled === undefined ? { enabled: false } : {}),
             }
           : skill,
       ),

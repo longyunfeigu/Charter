@@ -290,6 +290,9 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         (state === 'REVIEW_READY' || state === 'FAILED' || state === 'INTERRUPTED')
       ) {
         set({ streaming: null, streamingThinking: null });
+        // Worker writes are recorded on their own ledgers. The commander gets
+        // its complete projection when the run reaches an inspectable state.
+        void get().refreshChangeSet();
       }
     });
     onEvent('task.deleted', ({ taskId }) => {
@@ -362,6 +365,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
         return;
       }
       set({ tasks: nextTasks, timeline: res.data.timeline, loadingTimeline: false });
+      // The tool rail's file count must come from the durable change set, not
+      // only this task's activity events. Mission commanders can own files
+      // produced by bound worker Sessions whose write events live on those
+      // child ledgers, so hydrate the aggregate as soon as the room opens.
+      void get().refreshChangeSet();
     } else if (get().activeTaskId === taskId) {
       set({ loadingTimeline: false });
     }

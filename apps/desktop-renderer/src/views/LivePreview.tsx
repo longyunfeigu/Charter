@@ -129,6 +129,8 @@ export function LivePreview({
   const [note, setNote] = useState<PreviewNote | null>(null);
   const [sending, setSending] = useState(false);
   const [devCommand, setDevCommand] = useState<string | null>(null);
+  const [devCommandKind, setDevCommandKind] = useState<'package' | 'static' | null>(null);
+  const [staticEntry, setStaticEntry] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [frameLoaded, setFrameLoaded] = useState(false);
   // am.2: the background terminal we started the dev server in (if any), so
@@ -157,6 +159,8 @@ export function LivePreview({
     setPorts(res.data.ports);
     portCountRef.current = res.data.ports.length;
     setDevCommand(res.data.devCommand);
+    setDevCommandKind(res.data.devCommandKind);
+    setStaticEntry(res.data.staticEntry);
     setSelectedPort((current) => {
       if (current !== null && res.data.ports.some((p) => p.port === current)) return current;
       return res.data.ports[0]?.port ?? null;
@@ -172,6 +176,10 @@ export function LivePreview({
   const active = ports?.find((p) => p.port === selectedPort) ?? null;
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   const frameUrl = active ? `http://localhost:${active.port}${cleanPath}` : null;
+
+  useEffect(() => {
+    if (active) setStarting(false);
+  }, [active]);
 
   // A genuine navigation (URL change) resets the page's console + load state.
   // Not tied to the iframe onLoad — that fires for the FIRST load too and would
@@ -207,7 +215,9 @@ export function LivePreview({
     }, 700);
     app.pushToast(
       'info',
-      `Running \`${devCommand}\` in a background terminal — the preview appears here when the port is up.`,
+      devCommandKind === 'static'
+        ? `Starting a private static preview for ${staticEntry ?? 'index.html'}…`
+        : `Running \`${devCommand}\` in a background terminal — the preview appears here when the port is up.`,
     );
     window.setTimeout(() => {
       setStarting(false);
@@ -545,23 +555,44 @@ export function LivePreview({
     return (
       <div className="pv-pane" data-testid="preview-pane">
         <div className="pv-empty empty-state" data-testid="preview-empty">
-          <div className="es-title">No dev server running in this task’s tree</div>
+          <div className="es-title">
+            {devCommandKind === 'static'
+              ? 'Static app ready to preview'
+              : 'No dev server running in this task’s tree'}
+          </div>
           <div className="pv-empty-body">
-            The gate watches for processes listening on localhost from inside
-            <span className="mono pv-root"> {root || task.worktree?.path || task.projectPath}</span>
-            . It never owns the process — the server runs in a background terminal you can inspect
-            and stop; you stay right here.
+            {devCommandKind === 'static' ? (
+              <>
+                Found <span className="mono pv-root">{staticEntry}</span>. Start a local preview and
+                it will open here; no package setup is required.
+              </>
+            ) : (
+              <>
+                The gate watches for processes listening on localhost from inside
+                <span className="mono pv-root">
+                  {' '}
+                  {root || task.worktree?.path || task.projectPath}
+                </span>
+                . The server runs in a background terminal you can inspect and stop; you stay right
+                here.
+              </>
+            )}
           </div>
           <div className="pv-empty-row">
             {devCommand ? (
               <button
                 className="btn primary"
                 data-testid="preview-start-dev"
+                data-preview-kind={devCommandKind ?? 'package'}
                 disabled={starting}
                 onClick={() => void startDevServer()}
               >
                 <Ic name="play" size={12} />{' '}
-                {starting ? 'Starting — watching for the port…' : `Run ${devCommand} here`}
+                {starting
+                  ? 'Starting — watching for the port…'
+                  : devCommandKind === 'static'
+                    ? 'Start static preview'
+                    : `Run ${devCommand} here`}
               </button>
             ) : null}
             {devTerminalId ? (

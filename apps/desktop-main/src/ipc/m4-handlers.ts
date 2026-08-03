@@ -14,12 +14,10 @@ import {
   PYTHON_INSTALL_HINT,
   type PythonLspStatus,
 } from '@pi-ide/language-service';
-import { randomUUID } from 'node:crypto';
 import { registerHandlers, registerSendHandlers } from './router.js';
 import type { WorkspaceHost } from '../services/workspace-host.js';
 import type { SettingsService } from '../services/settings-service.js';
 import type { ExternalLaunchIntents } from '../services/external-launch-intents.js';
-import { isSafeCliSessionId } from '../services/cli-session-locator.js';
 import { broadcast } from '../broadcast.js';
 import type { TerminalDaemonClient } from '../services/terminal-daemon-client.js';
 import { TerminalOutputDispatcher } from '../services/terminal-output-dispatcher.js';
@@ -43,15 +41,12 @@ export interface TerminalContextResolvers {
   scratch(): TerminalContextResolution;
   /** ADR-0038: cwd of a discovered CLI session, resolved from the host-owned
    * discovery cache — the renderer only ever names (cli, sessionId). */
-  archaeology(
-    cli: 'claude' | 'codex',
-    sessionId: string,
-  ): Promise<TerminalContextResolution | null>;
+  archaeology(cli: string, sessionId: string): Promise<TerminalContextResolution | null>;
   /** Prepare a task-owned worktree before a visible external Agent PTY is
    * created. The returned task context is host-resolved; no path chosen by the
    * renderer becomes a terminal cwd directly. */
   prepareExternalWorktree(input: {
-    cli: 'claude' | 'codex';
+    cli: string;
     projectPath: string;
     title: string;
     setupCommand?: string;
@@ -67,18 +62,13 @@ export interface TerminalContextResolvers {
  * relying on transcript discovery. Only an exact UUID may reach PTY input.
  */
 export function terminalLaunchCommand(
-  launch: 'shell' | 'claude' | 'codex',
-  sessionId?: string | null,
+  launch: string,
   executable?: string | null,
+  args: readonly string[] = [],
 ): string | null {
-  const command = executable ? `'${executable.replaceAll("'", "'\\''")}'` : launch;
-  if (launch === 'claude') {
-    return sessionId && isSafeCliSessionId(sessionId)
-      ? `${command} --session-id ${sessionId}`
-      : command;
-  }
-  if (launch === 'codex') return command;
-  return null;
+  if (launch === 'shell' || !executable) return null;
+  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+  return [executable, ...args].map(quote).join(' ');
 }
 
 export class M4Services {
@@ -105,6 +95,7 @@ export class M4Services {
     shellIntegrationDir: string | null = null,
     terminalEnvironment?: (id: string) => Record<string, string>,
     private readonly terminalDaemon: TerminalDaemonClient | null = null,
+    detectedAgentIds?: readonly string[],
   ) {
     this.terminalOutput = new TerminalOutputDispatcher((delivery) => {
       if (broadcast('terminal.data', delivery) === 0) {
@@ -120,6 +111,7 @@ export class M4Services {
         release.unref();
       },
       {
+        ...(detectedAgentIds ? { agentClis: detectedAgentIds } : {}),
         // ADR-0021: resolved per spawn so a settings flip applies to the next terminal.
         shellIntegration: () => ({
           dir: shellIntegrationDir,
@@ -348,7 +340,7 @@ export class M4Services {
 /** ADR-0047: creates a terminal that runs on a remote SSH host. Injected so
  * m4-handlers stays free of ssh2 while terminal.create keeps one code path. */
 export interface RemoteTerminalLauncher {
-  create(options: { hostId: string; launch: 'shell' | 'claude' | 'codex' }): Promise<TerminalInfo>;
+  create(options: { hostId: string; launch: string }): Promise<TerminalInfo>;
 }
 
 export function registerM4Handlers(
@@ -362,7 +354,15 @@ export function registerM4Handlers(
   /** ADR-0047: present once SshService is assembled; enables ssh targets. */
   remoteTerminals?: RemoteTerminalLauncher,
   /** Host-resolved executable. Never rely on user shell PATH ordering for product launches. */
-  localAgentExecutable?: (launch: 'claude' | 'codex') => string | null,
+  localAgentLaunch?: (
+    launch: string,
+    initialPrompt: string | null,
+  ) => {
+    executable: string;
+    args: string[];
+    sessionId: string | null;
+    promptDelivery: 'argv' | 'deferred';
+  } | null,
 ): void {
   const resolveTerminalContext = async (
     requested:
@@ -370,7 +370,7 @@ export function registerM4Handlers(
       | { kind: 'recent'; projectPath: string }
       | { kind: 'task'; taskId: string }
       | { kind: 'scratch' }
-      | { kind: 'archaeology'; cli: 'claude' | 'codex'; sessionId: string },
+      | { kind: 'archaeology'; cli: string; sessionId: string },
   ): Promise<TerminalContextResolution> => {
     if (requested.kind === 'focused') {
       const ws = host.mustActive();
@@ -483,6 +483,18 @@ export function registerM4Handlers(
           }
           return remoteTerminals.create({ hostId: target.hostId, launch });
         }
+        const agentLaunch =
+          launch === 'shell'
+            ? null
+            : (localAgentLaunch?.(launch, initialPrompt?.trim() || null) ?? null);
+        if (launch !== 'shell' && !agentLaunch) {
+          throw new ProductFailure(
+            productError('AGENT_NOT_AVAILABLE', {
+              userMessage: `The ${launch} Agent is not installed or cannot be launched.`,
+              retryable: true,
+            }),
+          );
+        }
         let preparedTaskId: string | null = null;
         const resolved = worktree
           ? await (() => {
@@ -494,7 +506,7 @@ export function registerM4Handlers(
                 );
               }
               return contextResolvers.prepareExternalWorktree({
-                cli: launch === 'claude' ? 'claude' : 'codex',
+                cli: launch,
                 projectPath: worktree.projectPath,
                 title: worktree.title,
                 ...(worktree.setupCommand ? { setupCommand: worktree.setupCommand } : {}),
@@ -520,21 +532,16 @@ export function registerM4Handlers(
           throw error;
         }
         if (!info) throw new Error('Terminal creation did not return a terminal.');
-        const sessionId = launch === 'claude' ? randomUUID() : null;
-        const command = terminalLaunchCommand(
-          launch,
-          sessionId,
-          launch === 'shell' ? null : localAgentExecutable?.(launch),
-        );
+        const command = terminalLaunchCommand(launch, agentLaunch?.executable, agentLaunch?.args);
         if (command) {
           // The intent (pre-assigned conversation id + composer first prompt)
           // is consumed when agent detection confirms the CLI really started;
           // the prompt is delivered there, never as raw early PTY writes.
           externalLaunches?.register(info.id, {
             cli: launch,
-            sessionId,
+            sessionId: agentLaunch?.sessionId ?? null,
             prompt: initialPrompt?.trim() ? initialPrompt : null,
-            promptDelivery: 'deferred',
+            promptDelivery: agentLaunch?.promptDelivery ?? 'deferred',
           });
           // Let the renderer attach the xterm before the first TUI repaint.
           setTimeout(() => services.terminals.write(info.id, `${command}\r`), 350).unref();

@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, sep } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Logger } from '@pi-ide/foundation';
 import {
   CLI_SESSION_ID_RE,
@@ -284,6 +284,69 @@ export function parseCodexRollout(text: string): TranscriptSummary {
   return out;
 }
 
+/** Reduce Kimi Code's state.json + main wire stream without touching its store. */
+export function parseKimiSession(
+  wireText: string,
+  stateText: string,
+  fileSessionId: string,
+): TranscriptSummary {
+  const out: TranscriptSummary = {
+    sessionId: fileSessionId,
+    cwd: null,
+    title: '',
+    startedAt: null,
+    endedAt: null,
+    filesTouched: [],
+    skills: [],
+    skillEvents: [],
+    turnCount: 0,
+  };
+  try {
+    const state = record(JSON.parse(stateText));
+    out.cwd = asString(state.workDir);
+    out.title = clampTitle(asString(state.title) ?? '');
+    out.startedAt = asString(state.createdAt);
+    out.endedAt = asString(state.updatedAt);
+  } catch {
+    return out;
+  }
+  let firstUser: string | null = null;
+  for (const entry of jsonLines(wireText)) {
+    const time = typeof entry.time === 'number' ? new Date(entry.time).toISOString() : null;
+    if (time) {
+      out.startedAt ??= time;
+      out.endedAt = !out.endedAt || time > out.endedAt ? time : out.endedAt;
+    }
+    if (entry.type === 'turn.prompt') {
+      const input = Array.isArray(entry.input) ? entry.input : [];
+      const text = input
+        .map((part) => asString(record(part).text))
+        .filter((value): value is string => Boolean(value))
+        .join('\n')
+        .trim();
+      if (text) {
+        out.turnCount += 1;
+        firstUser ??= text;
+      }
+      continue;
+    }
+    if (entry.type !== 'context.append_loop_event') continue;
+    const event = record(entry.event);
+    if (event.type !== 'tool.call') continue;
+    const name = asString(event.name) ?? '';
+    const args = record(event.args);
+    if (['Write', 'Edit', 'ApplyPatch', 'MultiEdit'].includes(name)) {
+      const path = asString(args.path) ?? asString(args.file_path);
+      if (path && out.cwd) out.filesTouched.push(isAbsolute(path) ? path : join(out.cwd, path));
+    } else if (name === 'Skill') {
+      const skill = asString(args.skill);
+      if (skill) out.skills.push(skill);
+    }
+  }
+  out.title = out.title || clampTitle(firstUser ?? '');
+  return out;
+}
+
 /** Longest project whose directory contains `path` ('' = none). Projects must
  * be passed longest-first so nested checkouts resolve to the inner project. */
 function containingProject(path: string, projectsLongestFirst: string[]): string | null {
@@ -349,6 +412,14 @@ export interface ArchaeologyOptions {
   windowDays?: number;
   /** Never parse pathological transcripts into memory. */
   maxBytes?: number;
+  /** Manifest-selected history stores for currently installed Agents. */
+  agentSources?: readonly AgentHistorySource[];
+}
+
+export interface AgentHistorySource {
+  id: string;
+  connector: string;
+  dataHome: string;
 }
 
 interface CacheEntry {
@@ -359,16 +430,18 @@ interface CacheEntry {
 
 interface Candidate {
   cli: DiscoveredCli;
+  connector: string;
   path: string;
   /** Claude: the transcript file name IS the session uuid. */
   fileSessionId: string;
+  statePath?: string;
 }
 
 /** One external Skill invocation for the usage insight (ADR-0040). */
 export interface ExternalSkillUsageEvent {
   skill: string;
   at: string;
-  consumer: DiscoveredCli;
+  consumer: 'claude' | 'codex';
 }
 
 export class SessionArchaeologyService {
@@ -415,15 +488,13 @@ export class SessionArchaeologyService {
 
   private async collectSkillEventsOnce(windowDays: number): Promise<ExternalSkillUsageEvent[]> {
     const startedMs = Date.now();
-    const candidates = [
-      ...(await this.claudeCandidates()),
-      ...(await this.codexCandidates(windowDays)),
-    ];
+    const candidates = await this.candidates(windowDays);
     const ignoredSessions = this.options.ignoredSessions?.() ?? new Set<string>();
     const events: ExternalSkillUsageEvent[] = [];
     for (const candidate of candidates) {
       const summary = await this.summarize(candidate);
       if (!summary) continue;
+      if (candidate.cli !== 'claude' && candidate.cli !== 'codex') continue;
       const sessionId = (summary.sessionId ?? candidate.fileSessionId).toLowerCase();
       if (ignoredSessions.has(`${candidate.cli}:${sessionId}`)) continue;
       for (const event of summary.skillEvents) {
@@ -450,7 +521,7 @@ export class SessionArchaeologyService {
 
   private async scanOnce(): Promise<DiscoveredSessionDto[]> {
     const startedMs = Date.now();
-    const candidates = [...(await this.claudeCandidates()), ...(await this.codexCandidates())];
+    const candidates = await this.candidates();
     const sessions: DiscoveredSessionDto[] = [];
     const knownSessions = this.options.knownSessions();
     const ignoredSessions = this.options.ignoredSessions?.() ?? new Set<string>();
@@ -489,22 +560,51 @@ export class SessionArchaeologyService {
     return sessions;
   }
 
-  private async claudeCandidates(): Promise<Candidate[]> {
-    const root = join(this.home, '.claude', 'projects');
+  private historySources(): readonly AgentHistorySource[] {
+    return (
+      this.options.agentSources ?? [
+        { id: 'claude', connector: 'claude', dataHome: join(this.home, '.claude') },
+        { id: 'codex', connector: 'codex', dataHome: join(this.home, '.codex') },
+      ]
+    );
+  }
+
+  private async candidates(windowDays = this.options.windowDays ?? 30): Promise<Candidate[]> {
+    const groups = await Promise.all(
+      this.historySources().map((source) => {
+        if (source.connector === 'claude') return this.claudeCandidates(source);
+        if (source.connector === 'codex') return this.codexCandidates(source, windowDays);
+        if (source.connector === 'kimi') return this.kimiCandidates(source);
+        return Promise.resolve([]);
+      }),
+    );
+    return groups.flat();
+  }
+
+  private async claudeCandidates(source: AgentHistorySource): Promise<Candidate[]> {
+    const root = join(source.dataHome, 'projects');
     const out: Candidate[] = [];
     for (const dir of await this.listDirs(root)) {
       for (const name of await this.listNames(join(root, dir))) {
         if (!name.endsWith('.jsonl')) continue;
         const fileSessionId = name.slice(0, -'.jsonl'.length);
         if (!CLI_SESSION_ID_RE.test(fileSessionId)) continue;
-        out.push({ cli: 'claude', path: join(root, dir, name), fileSessionId });
+        out.push({
+          cli: source.id,
+          connector: source.connector,
+          path: join(root, dir, name),
+          fileSessionId,
+        });
       }
     }
     return out;
   }
 
-  private async codexCandidates(windowDays = this.options.windowDays ?? 30): Promise<Candidate[]> {
-    const root = join(this.home, '.codex', 'sessions');
+  private async codexCandidates(
+    source: AgentHistorySource,
+    windowDays = this.options.windowDays ?? 30,
+  ): Promise<Candidate[]> {
+    const root = join(source.dataHome, 'sessions');
     const out: Candidate[] = [];
     const oldest = new Date(Date.now() - windowDays * 86_400_000);
     const floor = `${oldest.getFullYear()}-${String(oldest.getMonth() + 1).padStart(2, '0')}-${String(oldest.getDate()).padStart(2, '0')}`;
@@ -519,13 +619,43 @@ export class SessionArchaeologyService {
             const match = CODEX_ROLLOUT_RE.exec(name);
             if (!match) continue;
             out.push({
-              cli: 'codex',
+              cli: source.id,
+              connector: source.connector,
               path: join(root, year, month, day, name),
               fileSessionId: match[1]!,
             });
           }
         }
       }
+    }
+    return out;
+  }
+
+  private async kimiCandidates(source: AgentHistorySource): Promise<Candidate[]> {
+    const sessionsRoot = resolve(source.dataHome, 'sessions');
+    let indexText = '';
+    try {
+      indexText = await readFile(join(source.dataHome, 'session_index.jsonl'), 'utf8');
+    } catch {
+      return [];
+    }
+    const out: Candidate[] = [];
+    for (const entry of jsonLines(indexText)) {
+      const sessionId = asString(entry.sessionId);
+      const sessionDirRaw = asString(entry.sessionDir);
+      if (!sessionId || !CLI_SESSION_ID_RE.test(sessionId) || !sessionDirRaw) continue;
+      const sessionDir = resolve(sessionDirRaw);
+      const rel = relative(sessionsRoot, sessionDir);
+      if (!rel || rel.startsWith('..') || isAbsolute(rel) || basename(sessionDir) !== sessionId) {
+        continue;
+      }
+      out.push({
+        cli: source.id,
+        connector: source.connector,
+        path: join(sessionDir, 'agents', 'main', 'wire.jsonl'),
+        statePath: join(sessionDir, 'state.json'),
+        fileSessionId: sessionId,
+      });
     }
     return out;
   }
@@ -542,8 +672,15 @@ export class SessionArchaeologyService {
       let summary: TranscriptSummary | null = null;
       if (info.size <= (this.options.maxBytes ?? 50 * 1024 * 1024)) {
         const text = await readFile(candidate.path, 'utf8');
-        summary =
-          candidate.cli === 'claude' ? parseClaudeTranscript(text) : parseCodexRollout(text);
+        if (candidate.connector === 'claude') summary = parseClaudeTranscript(text);
+        else if (candidate.connector === 'codex') summary = parseCodexRollout(text);
+        else if (candidate.connector === 'kimi' && candidate.statePath) {
+          summary = parseKimiSession(
+            text,
+            await readFile(candidate.statePath, 'utf8'),
+            candidate.fileSessionId,
+          );
+        }
       } else {
         this.options.logger.warn('archaeology transcript skipped (too large)', {
           path: candidate.path,

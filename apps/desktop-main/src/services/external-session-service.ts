@@ -20,6 +20,7 @@ import {
 } from './cli-session-locator.js';
 import type { ExternalLaunchIntents } from './external-launch-intents.js';
 import { TypedLineTracker } from './typed-line-tracker.js';
+import type { AgentRegistry, AgentTerminalExitAction } from './agent-registry.js';
 
 /** Paths never attributed to an external session (product/tooling noise). */
 const IGNORED_SEGMENTS = ['node_modules', '.git'];
@@ -56,6 +57,12 @@ const INITIAL_COMMAND_ATTRIBUTION_MS = 10_000;
 const PROMPT_ENTER_BASE_DELAY_MS = 250;
 const PROMPT_ENTER_MAX_DELAY_MS = 3_000;
 const PROMPT_ENTER_BYTES_PER_MS = 4;
+/** Correlate xterm mouse-wheel reports with the TUI repaint they trigger. */
+const VIEWPORT_SCROLL_REPAINT_MS = 750;
+const TERMINAL_EXIT_BYTES: Record<AgentTerminalExitAction, string> = {
+  interrupt: '\x03',
+  eof: '\x04',
+};
 
 interface ObservedTurnPresence {
   structuredStream: boolean;
@@ -78,6 +85,35 @@ export function externalPromptEnterDelayMs(prompt: string): number {
     PROMPT_ENTER_MAX_DELAY_MS,
     PROMPT_ENTER_BASE_DELAY_MS +
       Math.ceil(Buffer.byteLength(prompt, 'utf8') / PROMPT_ENTER_BYTES_PER_MS),
+  );
+}
+
+/**
+ * Full-screen CLIs enable xterm mouse reporting. In that mode the wheel is PTY
+ * input (rather than local xterm scrollback) and the CLI repaints its viewport.
+ * SGR is what current Claude/Codex use; X10 keeps the guard correct for older
+ * TUIs and custom external Agents.
+ */
+export function isTerminalViewportScrollInput(data: string): boolean {
+  for (const match of data.matchAll(/\x1b\[<(\d+);\d+;\d+[Mm]/g)) {
+    const button = Number(match[1]);
+    if (Number.isFinite(button) && (button & 64) !== 0) return true;
+  }
+
+  let offset = data.indexOf('\x1b[M');
+  while (offset >= 0) {
+    const encodedButton = data.charCodeAt(offset + 3);
+    if (Number.isFinite(encodedButton) && ((encodedButton - 32) & 64) !== 0) return true;
+    offset = data.indexOf('\x1b[M', offset + 3);
+  }
+  return false;
+}
+
+/** Cursor movement/erase (or synchronized-paint mode) identifies a TUI repaint,
+ * while ordinary colored output and structured JSON remain documentary output. */
+export function isTerminalViewportRepaint(data: string): boolean {
+  return (
+    /\x1b\[\?2026[hl]/.test(data) || /\x1b\[(?:\d{0,4}(?:[;:]\d{0,4})*)?[ABCDEFGHJKSTdf]/.test(data)
   );
 }
 
@@ -212,6 +248,10 @@ interface LiveSession {
   lastUserLine: string | null;
   /** >0 while the product itself writes the PTY (prompt/resume injection). */
   suppressInputCapture: number;
+  /** Recent terminal-generated wheel input that may provoke a full TUI repaint. */
+  viewportScrollUntilMs: number;
+  /** Once the correlated repaint starts, suppress all of its split PTY chunks. */
+  viewportRepaintUntilMs: number;
   /** Whether this live invocation, rather than an earlier resumed turn, exposed structured data. */
   structuredStream: boolean;
   captureGrade: 'structured' | 'observed';
@@ -244,11 +284,10 @@ export interface ExternalTurnStartedEvent {
 }
 
 /**
- * Only known CLIs get a host-written command; custom detected programs stay
- * review-only. With a recorded conversation id the command targets that exact
- * session. Codex deliberately fails closed without an id: `resume --last` can
- * silently attach the wrong conversation when several sessions coexist. Ids
- * are PTY-written text, so anything but an exact UUID is treated as absent.
+ * Production commands resolve through the trusted Agent Registry manifest.
+ * The provider-specific fallback below exists only for legacy callers/tests.
+ * With a recorded conversation id the command targets that exact session;
+ * ids are PTY-written text, so unsafe values are always treated as absent.
  */
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -258,7 +297,15 @@ export function externalResumeCommand(
   cli: string,
   sessionId?: string | null,
   codexHome?: string | null,
+  registry?: Pick<AgentRegistry, 'resumeCommand' | 'sessionIdSafe'> | null,
 ): string | null {
+  if (registry) {
+    const id = sessionId && registry.sessionIdSafe(cli, sessionId) ? sessionId : null;
+    const resolved = registry.resumeCommand(cli, id);
+    if (!resolved) return null;
+    const home = cli === 'codex' && codexHome ? `CODEX_HOME=${shellQuote(codexHome)} ` : '';
+    return `${home}${[resolved.executable, ...resolved.args].map(shellQuote).join(' ')}`;
+  }
   const id = sessionId && isSafeCliSessionId(sessionId) ? sessionId : null;
   if (cli === 'claude') return id ? `claude --resume ${id}` : 'claude --continue';
   if (cli === 'codex') {
@@ -380,15 +427,24 @@ export class ExternalSessionService {
           commanderTerminalId: string;
         }) => Promise<ExternalFleetResumeSummary>)
       | null = null,
+    /** Trusted Agent command/session policy. Provider details stay in manifests. */
+    private readonly agents: AgentRegistry | null = null,
   ) {
     this.unsubscribeManager = terminals.onAgentState(({ id, agent, cwd }) => {
       if (agent) void this.onAgentEnter(id, agent, cwd);
       else void this.onAgentExit(id);
     });
     this.unsubscribeData = terminals.onDataEvent(({ id, data }) => this.onTerminalData(id, data));
-    this.unsubscribeInput = terminals.onInputEvent(({ id, data }) =>
-      this.onTerminalInput(id, data),
-    );
+    this.unsubscribeInput = terminals.onSourcedInputEvent(({ id, data, source }) => {
+      // Xterm protocol replies (mouse, focus, device reports) are not user
+      // composer input. A mouse wheel is tracked only long enough to identify
+      // and exclude the viewport repaint it asks the external TUI to emit.
+      if (source === 'terminal') {
+        this.onTerminalProtocolInput(id, data);
+        return;
+      }
+      this.onTerminalInput(id, data);
+    });
     // Only sessions without a surviving daemon PTY are stranded. Reattached
     // terminal ids keep the same task and review baseline across app restarts.
     tasks.recoverExternalTasks(
@@ -468,8 +524,62 @@ export class ExternalSessionService {
     return this.byTerminal.get(terminalId)?.taskId ?? null;
   }
 
-  /** End the Agent process without closing the PTY, so its shell and scrollback survive. */
-  async end(taskId: string): Promise<{ terminalId: string; cli: string; ended: boolean }> {
+  private async forceEnd(
+    taskId: string,
+    terminalId: string,
+    cli: string,
+  ): Promise<{ terminalId: string; cli: string; ended: true }> {
+    const session = this.byTerminal.get(terminalId);
+    const hadLiveSession = Boolean(session && session.taskId === taskId && !session.ended);
+    // A force-confirmed global stop owns both sides of the transaction: remove
+    // the resident PTY and durably close the task. In particular, restored
+    // daemon PTYs can outlive the ExternalSessionService binding that normally
+    // projects an Agent exit into the task ledger.
+    this.terminals.kill(terminalId);
+
+    if (hadLiveSession) {
+      // terminal.kill emits the normal Agent-exit edge synchronously. The
+      // asynchronous final reconciliation may still be running, so wait for
+      // its durable task projection before reporting success.
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        const current = this.tasks.getTask(taskId);
+        if (current.external?.status === 'ended') {
+          return { terminalId, cli, ended: true };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+
+    const current = this.tasks.getTask(taskId);
+    if (current.external?.status !== 'ended') {
+      const files = session?.lastFiles ?? [];
+      const captureGrade = session?.captureGrade ?? current.external?.captureGrade ?? 'observed';
+      this.tasks.finishExternalSession(
+        taskId,
+        files.length || current.changedFiles || 0,
+        captureGrade,
+      );
+      broadcast('external.sessionChanged', {
+        taskId,
+        terminalId,
+        cli,
+        status: 'ended',
+        captureGrade,
+        snapshotRef: session?.snapshotRef ?? current.external?.snapshotRef ?? null,
+        files,
+      });
+      broadcast('terminal.agentState', { id: terminalId, agent: null, taskId });
+      this.logger.info('orphaned external session force-finished', { terminalId, taskId, cli });
+    }
+    return { terminalId, cli, ended: true };
+  }
+
+  /** End the Agent process without closing the PTY, unless a confirmed global stop requires force. */
+  async end(
+    taskId: string,
+    force = false,
+  ): Promise<{ terminalId: string; cli: string; ended: boolean }> {
     const task = this.tasks.getTask(taskId);
     const external = task.external;
     if (!external) {
@@ -481,6 +591,9 @@ export class ExternalSessionService {
     }
     const session = this.byTerminal.get(external.terminalId);
     if (!session || session.taskId !== taskId) {
+      if (force && external.status === 'active') {
+        return this.forceEnd(taskId, external.terminalId, external.cli);
+      }
       return {
         terminalId: external.terminalId,
         cli: external.cli,
@@ -492,15 +605,20 @@ export class ExternalSessionService {
     }
 
     this.tasks.recordEvent(taskId, 'external.sessionEndRequested', { cli: session.cli });
-    // Ctrl-C clears an active turn/input. Claude exits on a second Ctrl-C;
-    // Codex and unknown detected CLIs accept Ctrl-D. Keeping these host-owned
-    // avoids exposing arbitrary PTY writes.
-    this.writeProduct(session, '\x03');
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    this.terminals.pollOnce();
-    const afterInterrupt = this.byTerminal.get(external.terminalId);
-    if (afterInterrupt && afterInterrupt.taskId === taskId && !afterInterrupt.ended) {
-      this.writeProduct(afterInterrupt, afterInterrupt.cli === 'claude' ? '\x03' : '\x04');
+    // Keep raw terminal writes host-owned, but resolve each Agent's confirmation
+    // semantics from its trusted manifest. For example, Kimi requires repeated
+    // presses of the same key; mixing Ctrl-C and Ctrl-D clears its confirmation.
+    const exitSequence = this.agents?.terminalExitSequence(session.cli) ?? ['interrupt', 'eof'];
+    for (const [index, action] of exitSequence.entries()) {
+      const current = this.byTerminal.get(external.terminalId);
+      if (!current || current.taskId !== taskId || current.ended) {
+        return { terminalId: external.terminalId, cli: external.cli, ended: true };
+      }
+      this.writeProduct(current, TERMINAL_EXIT_BYTES[action]);
+      if (index < exitSequence.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        this.terminals.pollOnce();
+      }
     }
 
     const deadline = Date.now() + 4_000;
@@ -512,6 +630,7 @@ export class ExternalSessionService {
       this.terminals.pollOnce();
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+    if (force) return this.forceEnd(taskId, external.terminalId, external.cli);
     return { terminalId: external.terminalId, cli: external.cli, ended: false };
   }
 
@@ -534,13 +653,28 @@ export class ExternalSessionService {
   private onTerminalData(terminalId: string, data: string): void {
     const session = this.byTerminal.get(terminalId);
     if (!session || session.ended) return;
-    if (session.fileAttributionActive && cleanTerminalText(data).replace(/\s/g, '')) {
-      session.lastAgentActivityAtMs = Date.now();
-    }
 
     // A painting TUI is a booting TUI — keep deferring the first prompt until
     // its output settles, then deliver (see armPromptDelivery).
     if (session.pendingPrompt) this.notePromptReadiness(session);
+
+    const now = Date.now();
+    const correlatedRepaint =
+      !session.structuredStream &&
+      (now <= session.viewportRepaintUntilMs ||
+        (now <= session.viewportScrollUntilMs && isTerminalViewportRepaint(data)));
+    if (correlatedRepaint) {
+      // PTY recording and xterm rendering happen outside this semantic
+      // observer. Dropping the correlated paint here prevents a historical
+      // scroll from creating durable external.terminal events, activity
+      // broadcasts and renderer timeline copies.
+      session.viewportRepaintUntilMs = session.viewportScrollUntilMs;
+      return;
+    }
+
+    if (session.fileAttributionActive && cleanTerminalText(data).replace(/\s/g, '')) {
+      session.lastAgentActivityAtMs = now;
+    }
 
     const parsed = session.parser.feed(session.cli, data);
     // Structured streams reveal the conversation id directly — record it the
@@ -602,6 +736,15 @@ export class ExternalSessionService {
     this.noteObservedOutput(session, data);
 
     this.bufferTerminalText(session, parsed.terminalText);
+  }
+
+  private onTerminalProtocolInput(terminalId: string, data: string): void {
+    const session = this.byTerminal.get(terminalId);
+    if (!session || session.ended || !isTerminalViewportScrollInput(data)) return;
+    const now = Date.now();
+    const repaintAlreadyActive = now <= session.viewportRepaintUntilMs;
+    session.viewportScrollUntilMs = now + VIEWPORT_SCROLL_REPAINT_MS;
+    if (repaintAlreadyActive) session.viewportRepaintUntilMs = session.viewportScrollUntilMs;
   }
 
   /**
@@ -703,7 +846,7 @@ export class ExternalSessionService {
     // Product-created workers can submit their first prompt through argv before
     // process detection binds the ExternalSession. In that path no PTY input
     // event exists to arm the observed-TUI quiet edge. Start every real turn
-    // here (both input and launch) so an argv-first Claude/Codex worker can
+    // here (both input and launch) so an argv-first external Agent worker can
     // settle and receive a queued Mission continuation at its safe boundary.
     beginObservedTurnPresence(session);
     broadcast('external.activityStarted', {
@@ -1036,6 +1179,8 @@ export class ExternalSessionService {
       typedLine: new TypedLineTracker(),
       lastUserLine: null,
       suppressInputCapture: 0,
+      viewportScrollUntilMs: 0,
+      viewportRepaintUntilMs: 0,
       structuredStream: false,
       captureGrade: reattachedTask?.external?.captureGrade ?? 'observed',
       parser: new ExternalStructuredReplayParser(),
@@ -1337,8 +1482,9 @@ export class ExternalSessionService {
   }
 
   /**
-   * User-invoked continuation of an ended Claude/Codex TUI. The command is a
-   * fixed product mapping (never renderer-controlled shell text). Unsettled
+   * User-invoked continuation of an ended external Agent TUI. The command is
+   * resolved from a trusted host manifest (never renderer-controlled shell
+   * text). Unsettled
    * tasks (REVIEW_READY/INTERRUPTED/FAILED) resume against the SAME task
    * baseline; a settled round (ACCEPTED/ROLLED_BACK/CANCELLED) is a closed
    * record, so the same CLI conversation continues as a NEW task on a fresh
@@ -1415,6 +1561,7 @@ export class ExternalSessionService {
       sourceExternal.cli,
       sourceExternal.sessionId ?? null,
       codexLocation?.codexHome,
+      this.agents,
     );
     if (!command) {
       throw new ProductFailure(
@@ -1455,7 +1602,11 @@ export class ExternalSessionService {
         snapshotRef,
         title: source.title,
       });
-      if (sourceExternal.sessionId && isSafeCliSessionId(sourceExternal.sessionId)) {
+      if (
+        sourceExternal.sessionId &&
+        (this.agents?.sessionIdSafe(sourceExternal.cli, sourceExternal.sessionId) ??
+          isSafeCliSessionId(sourceExternal.sessionId))
+      ) {
         this.tasks.setExternalSessionId(task.id, sourceExternal.sessionId);
       }
       this.tasks.recordEvent(source.id, 'external.sessionContinued', {
@@ -1520,14 +1671,16 @@ export class ExternalSessionService {
     input: { cli: string; sessionId: string; cwd: string; projectPath: string; title: string },
     terminalId: string,
   ): Promise<{ terminalId: string; cli: string; taskId: string }> {
-    if (!isSafeCliSessionId(input.sessionId)) {
+    if (!(
+      this.agents?.sessionIdSafe(input.cli, input.sessionId) ?? isSafeCliSessionId(input.sessionId)
+    )) {
       throw new ProductFailure(
         productError('EXTERNAL_SESSION_ID_INVALID', {
           userMessage: 'That session id cannot be resumed safely.',
         }),
       );
     }
-    const command = externalResumeCommand(input.cli, input.sessionId);
+    const command = externalResumeCommand(input.cli, input.sessionId, null, this.agents);
     if (!command) {
       throw new ProductFailure(
         productError('EXTERNAL_RESUME_UNSUPPORTED', {
@@ -1627,9 +1780,9 @@ export class ExternalSessionService {
       // Native resume continues the SAME conversation id — keep it,
       // so an immediate exit without new transcript writes stays targetable.
       sessionId:
-        (external.cli === 'claude' || external.cli === 'codex') &&
         external.sessionId &&
-        isSafeCliSessionId(external.sessionId)
+        (this.agents?.sessionIdSafe(external.cli, external.sessionId) ??
+          isSafeCliSessionId(external.sessionId))
           ? external.sessionId
           : null,
       isGitRepo: git !== null,
@@ -1658,6 +1811,8 @@ export class ExternalSessionService {
       typedLine: new TypedLineTracker(),
       lastUserLine: null,
       suppressInputCapture: 0,
+      viewportScrollUntilMs: 0,
+      viewportRepaintUntilMs: 0,
       structuredStream: false,
       captureGrade: external.captureGrade === 'structured' ? 'structured' : 'observed',
       parser: new ExternalStructuredReplayParser(),
@@ -1750,7 +1905,7 @@ export class ExternalSessionService {
     if (!external) {
       throw new ProductFailure(
         productError('TASK_NOT_EXTERNAL', {
-          userMessage: 'This Session is not backed by Claude or Codex.',
+          userMessage: 'This Session is not backed by an external Agent.',
         }),
       );
     }

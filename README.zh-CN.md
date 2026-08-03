@@ -5,7 +5,7 @@
 ### 让 Agent 快速行动，让每一步始终可见。
 
 **Charter 是一款为“需要交付证据”的编码 Agent 打造的本地优先驾驶舱。**<br>
-在真实代码仓库中运行内置 Charter Agent、Claude Code 和 Codex；实时看见每一次修改，从正在运行的产品里直接反馈，并基于证据而不是承诺批准结果。
+在真实代码仓库中运行内置 Charter Agent，以及本机已安装的 Claude Code、Codex、Kimi Code 等编码 Agent CLI；实时看见每一次修改，从正在运行的产品里直接反馈，并基于证据而不是承诺批准结果。
 
 *Agent 说它做完了，Charter 告诉你为什么可以相信。*
 
@@ -75,13 +75,13 @@ Session = 项目 + Agent + Worktree + 对话 + 计划
 
 ### 一个 Composer，选择最适合的 Agent
 
-从同一个 Composer 启动受管 Charter Agent、Claude Code 或 Codex。开始前可以选择项目、权限模式、模型、思考级别和检查项。
+从同一个 Composer 启动受管 Charter Agent 或自动探测到的 Agent CLI。内置 Manifest 当前覆盖 Claude Code、Codex 和 Kimi Code，Picker 只展示这台电脑上实际安装的 CLI。开始前可以选择项目、权限模式、模型、思考级别和检查项。
 
 ![Charter Composer 在同一个 Agent Picker 中展示 Charter Agent、Claude Code 和 Codex](docs/assets/readme/agent-picker.png)
 
-受管 Agent 通过 Charter 的 Tool Gateway 工作。已安装的 Claude Code 与 Codex CLI 保留原生终端体验和原始会话身份；Charter 负责保留 PTY、核算仓库改动，并把结果带入同一套审查模型。
+受管 Agent 通过 Charter 的 Tool Gateway 工作。探测到的外部 Agent CLI 保留原生终端体验和原始会话身份；Charter 负责保留 PTY、核算仓库改动，并把结果带入同一套审查模型。
 
-一个 Session 还可以指挥由 shell、Claude Code 和 Codex 组成的可见 Worker 编队。Terminal 编排调用默认直接执行，不再逐次弹权限确认；身份校验、层级与频率限制、暂停/接管队列和证据账本仍然生效。Worker 的回合完成事件会立即唤醒等待中的协调者，不需要轮询状态。Worker 始终有明确归属，任务结束后也会保持打开以便追问，而不是消失在后台任务里。
+一个 Session 还可以指挥由 shell 和已探测 Agent 组成的可见 Worker 编队。Terminal 编排调用默认直接执行，不再逐次弹权限确认；身份校验、层级与频率限制、暂停/接管队列和证据账本仍然生效。Worker 的回合完成事件会立即唤醒等待中的协调者，不需要轮询状态。Worker 始终有明确归属，任务结束后也会保持打开以便追问，而不是消失在后台任务里。
 
 ### 在真实产品里预览，直接指出哪里不对
 
@@ -130,22 +130,22 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 | 我想做什么 | 从哪里开始 | Charter 会做什么 |
 | --- | --- | --- |
 | 让 Agent 修改一个仓库 | 点击 **New Session**，选择项目和 Agent | 建立独立 Session；按所选模式规划、修改、运行命令，并把全过程记入账本 |
-| 使用现成的 Claude Code / Codex | 在 Composer 的 Agent Picker 中选择对应 CLI | 打开真实交互终端，保留原生体验，同时记录会话身份、工作目录和文件改动 |
+| 使用本机已安装的 Agent CLI | 在 Composer 的 Agent Picker 中选择探测到的 Claude Code、Codex、Kimi Code 等 CLI | 打开真实交互终端，保留原生体验，同时记录会话身份、工作目录和文件改动 |
 | 看 Agent 此刻在改哪里 | 打开 Session Room | 实时显示当前工具、正在写入的文件、增删行、耗时和命令；点击文件即可看进行中的 Diff |
 | 检查网页修改效果 | 打开 Session 的 **Preview** | 识别当前任务的开发服务器；可以操作页面、选择元素、圈出区域并把反馈发回 Agent |
 | 决定是否保留改动 | 打开 **Review** | 按文件或 Hunk 查看 Diff 和验证历史，然后要求修改、批准、回滚或丢弃 Worktree |
-| 找回以前的 Agent 会话 | 点击项目旁的时钟，或进入 **Agent activity** | 只读扫描支持的 Claude Code / Codex 历史，按时间和项目归类，并可一键 Resume |
+| 找回以前的 Agent 会话 | 点击项目旁的时钟，或进入 **Agent activity** | 只读扫描支持的 Claude Code、Codex 与 Kimi Code 历史，按时间和项目归类，并可一键 Resume |
 | 管理长期规则和 Skills | 打开 **Memory** 或 **Skills** | 编辑项目规则、检查 Skill 安装位置和使用量，按 Agent 启用或停用 |
 
 ### Session 与 Agent 编排
 
-- **新建任务时一次选全：** 在 **New Session** Composer 中选择项目、Charter Agent / Claude Code / Codex、自主模式、模型、思考级别和预设验证项，然后直接描述目标。
+- **新建任务时一次选全：** 在 **New Session** Composer 中选择项目、Charter Agent 或探测到的外部 Agent、自主模式、模型、思考级别和预设验证项，然后直接描述目标。
 - **Charter Agent：** 由应用内模型循环执行，文件读取、写入、搜索和命令都经过 Tool Gateway；每一步都能进入权限判断和证据账本。
-- **Claude Code / Codex：** 直接启动本机已经安装的 CLI 和真实 PTY，不套一层假的聊天界面；Charter 会识别 CLI 进程、会话 ID、工作目录和结束状态，并把仓库改动带入 Review。
+- **外部 Agent CLI：** 直接启动本机已经安装的 Claude Code、Codex、Kimi Code 或用户 Manifest Agent 和真实 PTY，不套一层假的聊天界面；Charter 会识别 CLI 进程、会话 ID、工作目录和结束状态，并把仓库改动带入 Review。
 - **四种模式有明确区别：** `Read` 只回答问题，不写文件也不执行命令；`Approve` 先给计划，每次写入或命令都询问；`Auto` 自动执行低风险动作、遇到风险暂停；`Full` 自动执行并应用结果，但禁止动作、验证失败和合并冲突仍会被拦下，事后也可以回滚。
 - **计划不是一段普通回复：** 写入前会出现结构化计划卡；你可以查看步骤和验证方式，再点击 **Approve plan** 放行。计划未批准时，受计划保护的写入不会开始。
 - **一个 Session 可以指挥多个 Worker：** 主 Agent 可以创建 shell、Claude Code 或 Codex 子会话。Worker 回合完成后通过事件即时通知等待中的主 Agent；工作间会显示监看墙、当前输出、完成/失败状态，并提供 **Pause all**、单 Worker 暂停与接管。
-- **会话可以接着聊：** 受管 Session 完成后可在同一个 Room 继续追问；已结束的 Claude Code / Codex 会话会出现 **Resume Claude/Codex session**，使用记录下来的会话身份和目录继续工作。
+- **会话可以接着聊：** 受管 Session 完成后可在同一个 Room 继续追问；具有恢复能力的外部 Agent 会话会使用记录下来的会话身份和目录继续工作。
 - **多个仓库也不会混在一起：** 左侧会话栏按项目组织 Session，显示运行中、Needs you、Review 和 History；切换 Session 时，项目、Worktree、终端和 Preview 上下文会一起切换。
 
 ### 观察与干预
@@ -192,7 +192,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 - **规则是普通项目文件：** 已批准规则写入 `.charter/rules.md`，可以随 Git 审查和共享。Memory 页面会显示规则是否启用、注入过多少个任务，以及相同问题是否再次出现。
 - **按 Agent 和项目查看记忆：** Memory 顶层区分 Charter、Claude Code 与 Codex，再查看 Global 和各项目文件。受支持的外部记忆可以只读浏览、编辑或明确 Promote 为 Charter 候选，不会被暗中吸收。
 - **同步到指令文件前会检查漂移：** 可以把规则投射为 `CLAUDE.md` 或 `AGENTS.md` 中的受管区块；如果区块被手工编辑，Charter 会要求选择 Import、Overwrite 或 Stop，而不是静默覆盖。
-- **Skills 页面会列出真实安装情况：** 同一个逻辑 Skill 在 Charter、Claude Code、Codex 中有几份副本、哪些已启用、最后使用时间、总调用次数和对 Pi 上下文的 Token 开销都在一张表里。
+- **Skills 页面会列出真实安装情况：** 同一个逻辑 Skill 在 Charter 与探测到的 Agent（包括 Kimi Code）中有几份副本、哪些已启用、最后使用时间、总调用次数和对 Pi 上下文的 Token 开销都在一张表里。
 - **用量可以按消费方拆开：** 查看 Pi 的精确调用、Claude Code 转录中识别到的使用，以及 Codex 支持范围；按 Most used、Recently used、Highest Pi context 或名称排序，快速找到长期未用或上下文成本高的 Skill。
 - **启停不会删除原文件：** 可以按 Agent 单独启用或停用 Skill；外部 Skills 来源默认不受信任，明确连接后才参与实时扫描。来源文件变化后目录会更新，但 Charter 不会接管或改写原目录。
 - **运行 Skill 有明确入口：** 点击 **Run a Skill** 回到 Composer，再通过 `/` Picker 搜索并选择已启用 Skill；Agent 收到的是对应版本和内容，而不是仅凭名字猜测。
@@ -203,12 +203,12 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 - **API Key 不进入 Renderer：** Provider 凭据使用 Electron `safeStorage` 加密。设置界面只能拿到 Provider 名称、端点和脱敏状态，无法读取明文 Key。
 - **受管 Agent 不能绕过 Tool Gateway：** 模型循环运行在独立 Worker 中，没有直接文件系统、数据库或静态密钥权限。它提出的读写和命令请求必须回到 Electron Main，经过 Schema、项目路径和权限检查后才能执行。
 - **路径边界会在主进程再次确认：** Renderer 即使传入伪造路径，Workspace 服务仍会检查它是否位于当前项目或 Worktree 内；Workspace 外写入、读取密钥、`sudo`、`git push` 和大范围破坏性命令属于硬阻止项。
-- **外部 CLI 不假装受管：** Claude Code 与 Codex 的内部权限、网络请求和模型上下文仍由它们自己负责。Charter 能保留 PTY、记录外部观察到的改动并统一 Review，但不会声称控制了 CLI 内部没有暴露的行为。
+- **外部 CLI 不假装受管：** 外部 Agent 的内部权限、网络请求和模型上下文仍由它们自己负责。Charter 能保留 PTY、记录外部观察到的改动并统一 Review，但不会声称控制了 CLI 内部没有暴露的行为。
 - **Preview 只允许本机任务服务器：** 嵌入页面限于经过归属判断的回环地址，并限制任意导航、弹窗、权限请求和 Frame 能力；页面不能借 Preview 直接获得终端或文件权限。
 - **删除和回滚是不同动作：** 项目树中的普通删除进入系统废纸篓；Session Rollback 根据记录的基线恢复被 Agent 改过的内容；删除 Charter 中的项目记录不会删除磁盘上的仓库文件。
 
 > [!NOTE]
-> “本地优先”不等于“离线推理”。Prompt 和你附加的上下文会发送到所配置的模型端点，并遵循对应 Provider 的数据政策。外部 Claude Code 与 Codex 会话也继续使用它们自己的权限和网络模型。
+> “本地优先”不等于“离线推理”。Prompt 和你附加的上下文会发送到所配置的模型端点，并遵循对应 Provider 的数据政策。外部 Agent 会话也继续使用各自 CLI 的权限和网络模型。
 
 ## 快速开始
 
@@ -251,7 +251,7 @@ Charter 提供 Anthropic、OpenAI、OpenRouter 和 LiteLLM 预设，也支持自
 PI_IDE_FORCE_MOCK=1 npm run dev
 ```
 
-如果要使用外部 **Claude Code** 或 **Codex**，请先独立安装对应 CLI，并确保可执行文件已加入 `PATH`。
+如果要使用外部 **Claude Code**、**Codex** 或 **Kimi Code**，请先独立安装对应 CLI。Charter 会扫描 `PATH`、各家原生安装目录以及常见 Node 版本管理器目录，并在应用重新获得焦点时复检。额外的可信 Agent 定义可以放入 `~/.charter/agents/*.json`，无需在应用核心中新增 Provider 分支。
 
 ## 快捷键
 
@@ -277,13 +277,13 @@ Charter 将产品界面、模型循环、工具执行、项目服务和持久证
 | **01 - 体验层** | Session Rail、Room、Editor、Preview、Terminal、Review、Replay、Memory 与 Skills |
 | **02 - 信任桥** | 沙箱化 Preload 与带版本的 IPC Schema，是 Renderer 使用高权限能力的唯一通道 |
 | **03 - 控制层** | 任务状态、项目上下文、Tool Gateway、权限、Preview、Replay 与编排 |
-| **04 - 执行层** | 隔离的受管 Agent Worker，以及单独信任的 Claude Code/Codex PTY |
+| **04 - 执行层** | 隔离的受管 Agent Worker，以及由 Manifest 选择、单独信任的外部 Agent PTY/ACP Runtime |
 | **05 - Workspace 服务层** | 文档、搜索/语言、Git/变更追踪、终端与验证 |
 | **06 - 证据与数据层** | SQLite 账本、内容 Blob、附件、Worktree、项目规则和操作系统保护的密钥 |
 
 受管 **Agent Worker** 只负责模型循环，不能直接读取文件、运行命令或访问密钥。工具请求会返回 **Electron Main**，由 Tool Gateway 校验 Schema 与 Workspace 边界、应用权限策略、执行操作、脱敏敏感输出并记录证据。
 
-外部 Claude Code 与 Codex 有意保留不同的信任边界。Charter 会保存真实 PTY、观察生命周期与会话身份、核算仓库改动并把结果带入 Review；CLI 内部的权限模型仍由外部工具自身负责。
+外部 Agent 有意保留不同的信任边界。Charter 会保存真实 PTY、按 Manifest 与 Provider 适配器暴露的能力观察生命周期和会话身份、核算仓库改动并把结果带入 Review；CLI 内部的权限模型仍由外部工具自身负责。
 
 ### 权限模型
 
@@ -306,7 +306,7 @@ Charter 将产品界面、模型循环、工具执行、项目服务和持久证
 | 编辑 | Monaco Editor、MDXEditor、React Markdown |
 | 终端 | node-pty、xterm.js、WebGL、Unicode 11 支持 |
 | 搜索 | 基于 ripgrep 的 Workspace 搜索 |
-| Agent Runtime | Pi coding-agent 适配层，以及外部 Claude Code/Codex PTY |
+| Agent Runtime | Pi coding-agent 适配层，以及由 Manifest 选择的外部 Agent PTY 与 ACP Runtime |
 | 质量保障 | TypeScript、Vitest、Playwright Electron、安全与性能门禁 |
 | 分发 | electron-builder、校验和、SPDX SBOM、发布清单 |
 

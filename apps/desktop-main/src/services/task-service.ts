@@ -39,6 +39,7 @@ import type {
   VerificationCommand,
 } from '@pi-ide/ipc-contracts';
 import {
+  AgentIdSchema,
   fileRefsForEventPayload,
   formatPromptWithCodeContext,
   formatPromptWithArtifactFeedback,
@@ -197,7 +198,7 @@ export interface CreateTaskInput {
 export interface HistoricalOrchestrationWorker {
   terminalId: string;
   workerTaskId: string | null;
-  launch: 'shell' | 'claude' | 'codex';
+  launch: string;
   root: string;
   projectPath: string;
   title: string;
@@ -212,9 +213,54 @@ export interface HistoricalLiveOrchestrationWorker extends HistoricalOrchestrati
   turnPending: boolean;
 }
 
-interface HistoricalOrchestrationEvent {
+export interface HistoricalOrchestrationEvent {
   type: string;
   payload: Record<string, unknown>;
+}
+
+/**
+ * Every worker task ever bound below one commander. Unlike the resumable fleet
+ * projection, completed/killed workers stay in this list: their files remain
+ * part of the commander's delivered result and therefore belong in its Diff.
+ */
+export function projectHistoricalOrchestrationTaskIds(
+  events: readonly HistoricalOrchestrationEvent[],
+): string[] {
+  const taskIds = new Set<string>();
+  for (const event of events) {
+    if (
+      event.type !== 'orchestration.workerCreated' &&
+      event.type !== 'orchestration.workerBound'
+    ) {
+      continue;
+    }
+    const workerTaskId = event.payload.workerTaskId;
+    if (typeof workerTaskId === 'string' && workerTaskId.length > 0) taskIds.add(workerTaskId);
+  }
+  return [...taskIds];
+}
+
+/** Select the earliest task baseline for each path and project one net result. */
+export function mergeReviewChangeSets(
+  taskId: string,
+  changeSets: readonly ChangeSet[],
+  baselineOwners: ReadonlyMap<string, string>,
+): ChangeSet {
+  const files = new Map<string, ChangeSet['files'][number]>();
+  for (const changeSet of changeSets) {
+    for (const file of changeSet.files) {
+      const owner = baselineOwners.get(file.path);
+      if (owner && owner !== changeSet.taskId) continue;
+      if (!files.has(file.path)) files.set(file.path, file);
+    }
+  }
+  const ordered = [...files.values()].sort((a, b) => a.path.localeCompare(b.path));
+  return {
+    taskId,
+    files: ordered,
+    totalAdditions: ordered.reduce((total, file) => total + file.additions, 0),
+    totalDeletions: ordered.reduce((total, file) => total + file.deletions, 0),
+  };
 }
 
 interface HistoricalExternalTask {
@@ -243,7 +289,7 @@ export function projectHistoricalOrchestrationFleet(
     {
       terminalId: string;
       workerTaskId: string | null;
-      launch: 'shell' | 'claude' | 'codex';
+      launch: string;
       root: string | null;
       title: string | null;
       idempotencyKey: string | null;
@@ -255,7 +301,7 @@ export function projectHistoricalOrchestrationFleet(
     if (!terminalId) continue;
     if (event.type === 'orchestration.workerCreated') {
       const launch = event.payload.launch;
-      if (launch !== 'shell' && launch !== 'claude' && launch !== 'codex') continue;
+      if (typeof launch !== 'string' || !AgentIdSchema.safeParse(launch).success) continue;
       workers.set(terminalId, {
         terminalId,
         workerTaskId:
@@ -1097,17 +1143,106 @@ export class TaskService {
     taskId: string,
     path: string,
   ): Promise<{ baseline: string | null; current: string | null; binary: boolean }> {
-    const result = await this.contextForTask(taskId).changes.fileContents(taskId, path);
+    const scope = this.reviewScope(taskId);
+    const ownerTaskId = scope.baselineOwners.get(path) ?? taskId;
+    const result = await this.contextForTask(ownerTaskId).changes.fileContents(ownerTaskId, path);
     return result ?? { baseline: null, current: null, binary: false };
   }
 
-  async changeSetForReview(taskId: string): Promise<ChangeSetDto> {
-    const changes = this.contextForTask(taskId).changes;
-    let cs = await changes.changeSet(taskId);
-    if (cs.files.length === 0 && (this.getTask(taskId).changedFiles ?? 0) > 0) {
-      const durable = await changes.changeSetFromDisk(taskId);
-      if (durable.files.length > 0) cs = durable;
+  /**
+   * A commander Session owns the outcome produced by every terminal worker it
+   * launched, including workers that have already exited. Keep aggregation on
+   * the same physical mount so an isolated worktree can never leak changes
+   * from the main tree (or vice versa).
+   */
+  private reviewScope(taskId: string): {
+    taskIds: string[];
+    baselineOwners: Map<string, string>;
+  } {
+    const commander = this.getTask(taskId);
+    const mount = commander.worktree?.path ?? commander.projectPath;
+    const taskIds: string[] = [];
+    const seen = new Set<string>();
+    const queue = [taskId];
+
+    while (queue.length > 0) {
+      const currentTaskId = queue.shift()!;
+      if (seen.has(currentTaskId)) continue;
+      let current: TaskDto;
+      try {
+        current = this.getTask(currentTaskId);
+      } catch {
+        continue;
+      }
+      if ((current.worktree?.path ?? current.projectPath) !== mount) continue;
+      seen.add(currentTaskId);
+      taskIds.push(currentTaskId);
+
+      const rows = this.db
+        .prepare(
+          "SELECT type, payload_json FROM task_events WHERE task_id = ? AND type IN ('orchestration.workerCreated','orchestration.workerBound') ORDER BY sequence",
+        )
+        .all(currentTaskId) as Array<{ type: string; payload_json: string }>;
+      const events = rows.flatMap((row): HistoricalOrchestrationEvent[] => {
+        try {
+          const payload = JSON.parse(row.payload_json) as unknown;
+          if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return [];
+          return [{ type: row.type, payload: payload as Record<string, unknown> }];
+        } catch {
+          return [];
+        }
+      });
+      queue.push(...projectHistoricalOrchestrationTaskIds(events));
     }
+
+    const baselineOwners = new Map<string, string>();
+    if (taskIds.length > 0) {
+      const placeholders = taskIds.map(() => '?').join(',');
+      const rows = this.db
+        .prepare(
+          `SELECT task_id, relative_path
+           FROM file_baselines
+           WHERE task_id IN (${placeholders})
+           ORDER BY captured_at, rowid`,
+        )
+        .all(...taskIds) as Array<{ task_id: string; relative_path: string }>;
+      for (const row of rows) {
+        if (!baselineOwners.has(row.relative_path)) {
+          baselineOwners.set(row.relative_path, row.task_id);
+        }
+      }
+    }
+    return { taskIds, baselineOwners };
+  }
+
+  private async projectedReviewChangeSet(taskId: string): Promise<{
+    changeSet: ChangeSet;
+    taskIds: string[];
+    baselineOwners: Map<string, string>;
+  }> {
+    const scope = this.reviewScope(taskId);
+    const read = async (fromDisk: boolean): Promise<ChangeSet[]> =>
+      await Promise.all(
+        scope.taskIds.map((scopedTaskId) => {
+          const changes = this.contextForTask(scopedTaskId).changes;
+          return fromDisk
+            ? changes.changeSetFromDisk(scopedTaskId)
+            : changes.changeSet(scopedTaskId);
+        }),
+      );
+    let changeSet = mergeReviewChangeSets(taskId, await read(false), scope.baselineOwners);
+    if (
+      changeSet.files.length === 0 &&
+      scope.taskIds.some((scopedTaskId) => (this.getTask(scopedTaskId).changedFiles ?? 0) > 0)
+    ) {
+      const durable = mergeReviewChangeSets(taskId, await read(true), scope.baselineOwners);
+      if (durable.files.length > 0) changeSet = durable;
+    }
+    return { changeSet, ...scope };
+  }
+
+  async changeSetForReview(taskId: string): Promise<ChangeSetDto> {
+    const { changeSet: cs } = await this.projectedReviewChangeSet(taskId);
     const decisions = this.reviewDecisions(taskId);
     const files: ChangeSetFileDto[] = cs.files.map((file) => {
       const fileDecision = decisions.files.get(file.path);
@@ -1196,7 +1331,9 @@ export class TaskService {
         }),
       );
     }
-    const changes = this.contextForTask(input.taskId).changes;
+    const scope = this.reviewScope(input.taskId);
+    const ownerTaskId = scope.baselineOwners.get(input.path) ?? input.taskId;
+    const changes = this.contextForTask(ownerTaskId).changes;
     if (input.decision === 'reject') {
       try {
         if (input.scope === 'hunk') {
@@ -1207,13 +1344,13 @@ export class TaskService {
               }),
             );
           }
-          await changes.rejectHunk(input.taskId, null, {
+          await changes.rejectHunk(ownerTaskId, null, {
             path: input.path,
             hunkKey: input.hunkKey,
             expectedCurrentHash: input.expectedCurrentHash,
           });
         } else {
-          await changes.revertFile(input.taskId, null, {
+          await changes.revertFile(ownerTaskId, null, {
             path: input.path,
             ...(input.expectedCurrentHash !== undefined
               ? { expectedCurrentHash: input.expectedCurrentHash }
@@ -1298,7 +1435,7 @@ export class TaskService {
     const context = this.contextForTask(taskId);
     // Captured at accept: the PR draft's change list must describe exactly
     // the workspace state this settlement confirmed (ADR-0022).
-    const changeSetAtAccept = await context.changes.changeSet(taskId);
+    const { changeSet: changeSetAtAccept } = await this.projectedReviewChangeSet(taskId);
     const unsettledRun = options.runId
       ? this.db
           .prepare(
@@ -1588,7 +1725,55 @@ export class TaskService {
         restored: [],
       };
     }
-    const changes = this.contextForTask(taskId).changes;
+    const context = this.contextForTask(taskId);
+    const projected = await this.projectedReviewChangeSet(taskId);
+    if (projected.taskIds.length > 1) {
+      const changes = this.contextForTask(taskId).changes;
+      const targets = projected.changeSet.files.map((file) => ({
+        path: file.path,
+        toHash: file.baselineHash,
+        expectedCurrentHash: file.currentHash,
+      }));
+      const result = await changes.rollbackToStates(targets, {
+        force: options.force ?? false,
+      });
+      if (result.conflicts.length > 0 && !options.force) {
+        this.recordEvent(taskId, 'rollback.blocked', {
+          conflicts: result.conflicts.map((conflict) => ({
+            path: conflict.path,
+            reason: conflict.reason,
+          })),
+        });
+        return {
+          status: 'conflicts',
+          task: this.getTask(taskId),
+          conflicts: result.conflicts.map((conflict) => ({
+            path: conflict.path,
+            reason: conflict.reason,
+          })),
+        };
+      }
+      this.settleRuns(taskId, 'rolled_back');
+      this.recordEvent(taskId, 'task.rolledBack', {
+        ok: result.ok,
+        restored: result.restored,
+        conflictsOverridden: result.conflicts.map((conflict) => conflict.path),
+        failed: result.verified.filter((verification) => !verification.ok),
+        aggregatedTaskIds: projected.taskIds,
+      });
+      if (!result.ok) {
+        throw new ProductFailure(
+          productError('CHG_ROLLBACK_INCOMPLETE', {
+            userMessage:
+              'Some files could not be restored; snapshots are kept for manual recovery. See the timeline for details.',
+            context: { failed: result.verified.filter((verification) => !verification.ok) },
+          }),
+        );
+      }
+      context.verifications.markAllStale(taskId);
+      return { status: 'ok', task: this.safeSettleToIdle(taskId), restored: result.restored };
+    }
+    const changes = context.changes;
     const preflight = await changes.rollbackPreflight(taskId);
     if (preflight.conflicts.length > 0 && !options.force) {
       this.recordEvent(taskId, 'rollback.blocked', {
@@ -1790,8 +1975,7 @@ export class TaskService {
   /** Fingerprint of the task's current net change set (VER-008 stale detection). */
   private async codeRevision(taskId: string): Promise<string | null> {
     try {
-      const changes = this.contextForTask(taskId).changes;
-      const cs = await changes.changeSet(taskId);
+      const { changeSet: cs } = await this.projectedReviewChangeSet(taskId);
       const shape = cs.files.map((f) => [f.path, f.currentHash]);
       return createHash('sha256').update(JSON.stringify(shape)).digest('hex').slice(0, 24);
     } catch {
@@ -2636,7 +2820,7 @@ export class TaskService {
         commanderTerminalId: string | null;
         workerTaskId: string | null;
         terminalId: string;
-        launch: 'shell' | 'claude' | 'codex';
+        launch: string;
         root: string | null;
         title: string | null;
         idempotencyKey: string | null;
@@ -2657,7 +2841,7 @@ export class TaskService {
       if (!terminalId) continue;
       if (row.type === 'orchestration.workerCreated') {
         const launch = payload?.launch;
-        if (launch !== 'shell' && launch !== 'claude' && launch !== 'codex') continue;
+        if (typeof launch !== 'string' || !AgentIdSchema.safeParse(launch).success) continue;
         workers.set(terminalId, {
           commanderTaskId: row.task_id,
           commanderTerminalId:
@@ -2953,7 +3137,7 @@ export class TaskService {
   }
 
   /** External transcripts explicitly removed from Charter. The source files
-   * remain owned by Claude/Codex, but archaeology must not resurrect them as
+   * remain owned by their external Agent, but archaeology must not resurrect them as
    * new untracked Sessions after Charter's task ledger has been deleted. */
   deletedExternalSessionKeys(): Set<string> {
     const rows = this.db
@@ -3015,7 +3199,7 @@ export class TaskService {
       const external = JSON.parse(row.external_json!) as NonNullable<TaskDto['external']>;
       if (external.sessionId) continue;
       if (external.status !== 'ended') continue;
-      if (external.cli !== 'claude' && external.cli !== 'codex') continue;
+      if (!AgentIdSchema.safeParse(external.cli).success) continue;
       out.push({
         taskId: row.id,
         cli: external.cli,
@@ -3069,7 +3253,7 @@ export class TaskService {
     this.recordEvent(taskId, 'external.sessionResuming', {
       cli: external.cli,
       terminalId,
-      strategy: external.sessionId ? 'session-id' : external.cli === 'claude' ? 'continue' : 'last',
+      strategy: external.sessionId ? 'session-id' : 'manifest-fallback',
       captureGrade: external.captureGrade ?? 'observed',
     });
     return this.setState(taskId, 'IN_PROGRESS');
@@ -3559,7 +3743,7 @@ export class TaskService {
     const externalSessionId = task.external?.sessionId?.toLowerCase() ?? null;
     const externalCli = task.external?.cli ?? null;
     this.db.transaction(() => {
-      if (externalSessionId && (externalCli === 'claude' || externalCli === 'codex')) {
+      if (externalSessionId && externalCli && AgentIdSchema.safeParse(externalCli).success) {
         this.db
           .prepare(
             `INSERT INTO deleted_external_sessions (cli, session_id, deleted_at)

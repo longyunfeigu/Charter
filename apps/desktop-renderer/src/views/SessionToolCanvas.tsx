@@ -17,6 +17,8 @@ import { monaco } from '../monaco-setup.js';
 import { addCodeContext } from '../codeContext.js';
 import { CodeContextFloat } from './CodeContextFloat.js';
 import { useExternalStore } from '../store/externalStore.js';
+import { agentDisplayName } from '../store/agentCatalogStore.js';
+import { displayedDiffFiles } from './session-file-projection.js';
 import {
   isCurrentVerificationPass,
   latestFinalReport,
@@ -409,6 +411,10 @@ function SessionDiffReview(props: {
 
   const changeSet = store.changeSet?.taskId === props.task.id ? store.changeSet : null;
   const changeFiles = changeSet?.files ?? [];
+  // The detailed ChangeSet is the same source rendered by the rows below. Its
+  // count must win over the watcher-derived fallback or the heading can say
+  // "3 files" while the list visibly contains six aggregated worker changes.
+  const displayedFiles = displayedDiffFiles(changeFiles, props.files);
   const requestedPath = peek?.taskId === props.task.id ? peek.active : null;
   const selected =
     changeFiles.find((file) => file.path === requestedPath) ?? changeFiles[0] ?? null;
@@ -573,14 +579,14 @@ function SessionDiffReview(props: {
       <section className="session-diff-overview" aria-label="Changed files">
         <header>
           <h2>
-            {props.files.length} file{props.files.length === 1 ? '' : 's'} changed
+            {displayedFiles.length} file{displayedFiles.length === 1 ? '' : 's'} changed
           </h2>
           <span className="session-diff-grand-total mono">
             <i className="plus">+{additions}</i> <i className="minus">−{deletions}</i>
           </span>
         </header>
         <div className="session-diff-file-list">
-          {(changeFiles.length > 0 ? changeFiles : props.files).map((entry) => {
+          {displayedFiles.map((entry) => {
             const path = typeof entry === 'string' ? entry : entry.path;
             const stat = typeof entry === 'string' ? props.fileStats[path] : entry;
             const active = selected?.path === path;
@@ -1256,7 +1262,7 @@ export function SessionActionDock({
           >
             {resumingExternalTaskId === task.id
               ? 'Resuming…'
-              : `Resume ${task.external.cli === 'claude' ? 'Claude' : 'Codex'} session`}
+              : `Resume ${agentDisplayName(task.external.cli)} session`}
           </button>
         ) : !task.external ? (
           <button
@@ -1331,7 +1337,7 @@ export function SessionActionDock({
           >
             {resumingExternalTaskId === task.id
               ? 'Resuming…'
-              : `Resume ${task.external.cli === 'claude' ? 'Claude' : 'Codex'} session`}
+              : `Resume ${agentDisplayName(task.external.cli)} session`}
           </button>
         ) : null}
       </footer>

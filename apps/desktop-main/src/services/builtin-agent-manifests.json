@@ -1,0 +1,106 @@
+[
+  {
+    "id": "claude",
+    "displayName": "Claude Code",
+    "shortName": "Claude",
+    "description": "Anthropic's native coding Agent CLI",
+    "mark": "claude",
+    "accent": "#e0876a",
+    "discovery": {
+      "commands": ["claude"],
+      "knownPaths": ["{home}/.local/bin/claude", "{home}/.claude/bin/claude"],
+      "versionArgs": ["--version"]
+    },
+    "terminal": {
+      "promptDelivery": "deferred",
+      "newSessionArgs": ["--session-id", "{sessionId}"],
+      "exitSequence": ["interrupt", "interrupt"]
+    },
+    "acp": {
+      "kind": "bundled",
+      "package": "claude-agent-acp"
+    },
+    "sessions": {
+      "idPattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "preassignId": true,
+      "defaultHome": "{home}/.claude",
+      "resumeArgs": ["--resume", "{sessionId}"],
+      "continueArgs": ["--continue"],
+      "historyConnector": "claude"
+    },
+    "surfaces": {
+      "skillRoots": ["{home}/.claude/skills"],
+      "instructionRoots": ["{home}/.claude/CLAUDE.md"],
+      "remote": true
+    }
+  },
+  {
+    "id": "codex",
+    "displayName": "Codex",
+    "shortName": "Codex",
+    "description": "OpenAI's native coding Agent CLI",
+    "mark": "codex",
+    "accent": "#46b477",
+    "discovery": {
+      "commands": ["codex"],
+      "knownPaths": ["{home}/.local/bin/codex", "{home}/.codex/bin/codex"],
+      "versionArgs": ["--version"]
+    },
+    "terminal": {
+      "promptDelivery": "argv",
+      "initialPromptArgs": ["--", "{prompt}"],
+      "exitSequence": ["interrupt", "eof"]
+    },
+    "acp": {
+      "kind": "bundled",
+      "package": "codex-acp"
+    },
+    "sessions": {
+      "idPattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "preassignId": false,
+      "defaultHome": "{home}/.codex",
+      "resumeArgs": ["resume", "{sessionId}"],
+      "historyConnector": "codex"
+    },
+    "surfaces": {
+      "skillRoots": ["{home}/.codex/skills"],
+      "instructionRoots": ["{home}/.codex/AGENTS.md"],
+      "remote": true
+    }
+  },
+  {
+    "id": "kimi",
+    "displayName": "Kimi Code",
+    "shortName": "Kimi",
+    "description": "Moonshot AI's native coding Agent CLI",
+    "mark": "kimi",
+    "accent": "#5b7cfa",
+    "discovery": {
+      "commands": ["kimi"],
+      "knownPaths": ["{home}/.kimi-code/bin/kimi"],
+      "versionArgs": ["--version"]
+    },
+    "terminal": {
+      "promptDelivery": "deferred",
+      "exitSequence": ["interrupt", "interrupt", "interrupt"]
+    },
+    "acp": {
+      "kind": "native",
+      "args": ["acp"]
+    },
+    "sessions": {
+      "idPattern": "^session_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "preassignId": false,
+      "resumeArgs": ["--session", "{sessionId}"],
+      "continueArgs": ["--continue"],
+      "homeEnv": "KIMI_CODE_HOME",
+      "defaultHome": "{home}/.kimi-code",
+      "historyConnector": "kimi"
+    },
+    "surfaces": {
+      "skillRoots": ["{dataHome}/skills", "{home}/.agents/skills"],
+      "instructionRoots": ["{dataHome}/AGENTS.md", "{home}/.agents/AGENTS.md"],
+      "remote": true
+    }
+  }
+]

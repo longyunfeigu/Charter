@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAgentCatalogStore } from '../store/agentCatalogStore.js';
 
 /** Inline stroke icons for the Home surface (mockup parity — no emoji). */
 const PATHS: Record<string, React.JSX.Element> = {
@@ -336,7 +337,7 @@ const PATHS: Record<string, React.JSX.Element> = {
   ),
 };
 
-export type ProviderMarkKind = 'pi' | 'claude' | 'codex' | 'shell';
+export type ProviderMarkKind = string;
 
 /** Claude's sunburst logomark (filled, brand terracotta via CSS color). */
 const CLAUDE_MARK = (
@@ -355,7 +356,25 @@ const OPENAI_KNOT = (
   />
 );
 
-const PROVIDER_MARKS: Record<ProviderMarkKind, React.JSX.Element> = {
+/** Kimi Code mark from MoonshotAI/kimi-code apps/vscode/resources/kimi-icon.svg. */
+const KIMI_CODE_MARK = (
+  <>
+    <rect
+      x="3"
+      y="4.5"
+      width="18"
+      height="13"
+      rx="2.2"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+    />
+    <rect x="9.6" y="8" width="1.4" height="2.6" rx="0.45" fill="currentColor" />
+    <rect x="15.6" y="8" width="1.4" height="2.6" rx="0.45" fill="currentColor" />
+  </>
+);
+
+const PROVIDER_MARKS: Record<string, React.JSX.Element> = {
   claude: CLAUDE_MARK,
   codex: (
     <>
@@ -363,6 +382,7 @@ const PROVIDER_MARKS: Record<ProviderMarkKind, React.JSX.Element> = {
       {OPENAI_KNOT}
     </>
   ),
+  kimi: KIMI_CODE_MARK,
   pi: (
     <>
       <rect x="1" y="1" width="22" height="22" rx="6.5" fill="currentColor" />
@@ -396,6 +416,19 @@ const PROVIDER_MARKS: Record<ProviderMarkKind, React.JSX.Element> = {
   ),
 };
 
+const GENERIC_AGENT_MARK = (
+  <>
+    <rect x="1" y="1" width="22" height="22" rx="6.5" fill="currentColor" />
+    <path
+      d="M7 8.5h10M8.5 12h7M10 15.5h4"
+      fill="none"
+      stroke="var(--pm-hole, #fff)"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </>
+);
+
 /**
  * Brand mark identifying which agent owns a session (reference: the
  * icon-and-title session list style — a bare logomark, no letter chip).
@@ -408,6 +441,9 @@ export function ProviderMark(props: {
   className?: string;
 }): React.JSX.Element {
   const { provider, size = 17, className } = props;
+  const mark =
+    useAgentCatalogStore((state) => state.agents.find((agent) => agent.id === provider)?.mark) ??
+    provider;
   return (
     <span
       className={['sr-provider', provider, className].filter(Boolean).join(' ')}
@@ -415,7 +451,7 @@ export function ProviderMark(props: {
       aria-hidden
     >
       <svg viewBox="0 0 24 24" width={size} height={size} style={{ flex: 'none' }}>
-        {PROVIDER_MARKS[provider]}
+        {PROVIDER_MARKS[mark] ?? GENERIC_AGENT_MARK}
       </svg>
     </span>
   );

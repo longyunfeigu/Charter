@@ -9,7 +9,9 @@ import {
 
 describe('externalTerminalLifecycle', () => {
   for (const cli of ['codex', 'claude'] as const satisfies readonly ExternalCli[]) {
-    const provider = cli === 'codex' ? 'Codex' : 'Claude Code';
+    // Without a loaded runtime catalog, labels degrade from the opaque id
+    // rather than relying on a provider whitelist.
+    const provider = cli === 'codex' ? 'Codex' : 'Claude';
 
     it(`${cli}: distinguishes a running Agent from its live PTY`, () => {
       expect(

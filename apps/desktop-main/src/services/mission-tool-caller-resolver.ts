@@ -13,6 +13,7 @@ export class MissionToolCallerResolver {
     private readonly tasks: TaskService,
     private readonly host: AgentHost,
     private readonly terminals: TerminalControlService,
+    private readonly isKnownAgent: (agentId: string) => boolean = () => false,
   ) {}
 
   resolve(call: ToolCallRequest): OrchestrationCallerContext {
@@ -54,7 +55,7 @@ export class MissionToolCallerResolver {
 
   private runtimeFor(cli: string | null, terminal: boolean): RuntimeKind {
     if (!terminal) return 'managed';
-    if (cli === 'claude' || cli === 'codex') return cli;
+    if (cli && this.isKnownAgent(cli)) return cli;
     if (cli === null) return 'shell';
     throw new ProductFailure(
       productError('ORCHESTRATION_RUNTIME_UNSUPPORTED', {

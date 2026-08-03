@@ -16,6 +16,7 @@ import type {
 import { rpcResult } from '../bridge.js';
 import { useAppStore } from '../store/appStore.js';
 import { useDraftStore } from '../store/draftStore.js';
+import { agentDisplayName } from '../store/agentCatalogStore.js';
 import { ArtifactPdfViewer } from './ArtifactPdfViewer.js';
 import { Ic } from './home-icons.js';
 import '../styles/artifact.css';
@@ -66,10 +67,8 @@ function anchorLabel(anchor: ArtifactAnchorDto): string {
 }
 
 function producerLabel(producer: string): string {
-  if (producer.toLowerCase() === 'claude') return 'Claude Code';
-  if (producer.toLowerCase() === 'codex') return 'Codex';
   if (producer.toLowerCase() === 'charter') return 'Charter';
-  return producer;
+  return agentDisplayName(producer.toLowerCase());
 }
 
 function captureLabel(captureGrade: string): string {
@@ -80,7 +79,7 @@ function captureLabel(captureGrade: string): string {
 
 function targetLabel(task: TaskDto): string {
   if (!task.external) return 'next reply';
-  return task.external.cli === 'claude' ? 'Claude Code' : 'Codex';
+  return agentDisplayName(task.external.cli);
 }
 
 type SubmissionState =

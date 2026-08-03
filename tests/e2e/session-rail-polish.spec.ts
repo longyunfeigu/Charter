@@ -52,11 +52,15 @@ test.describe('Session rail and conversation role polish', () => {
 
       await expect(page.locator('.sr-state.answered')).toHaveText('Answered');
       await expect(page.locator('.sr-state.review')).toHaveText('Review');
-      await expect(page.locator('.sr-session.selected')).toHaveCount(1);
-      await expect(page.locator('.sr-session.selected')).toHaveAttribute(
-        'data-testid',
-        /^home-task-/,
+      const selectedSession = page.locator('.sr-session.selected');
+      await expect(selectedSession).toHaveCount(1);
+      await expect(selectedSession).toHaveAttribute('data-testid', /^home-task-/);
+      await expect(selectedSession).toHaveCSS('border-left-color', 'rgba(0, 0, 0, 0)');
+      const selectedShadow = await selectedSession.evaluate(
+        (element) => getComputedStyle(element).boxShadow,
       );
+      expect(selectedShadow).toContain('2px 0px 0px');
+      expect(selectedShadow).toContain('inset');
       await expect(page.getByTestId('rail-session-search')).toBeVisible();
       await expect(page.getByTestId('rail-needs-filter')).toBeVisible();
       await expect(page.getByTestId('rail-view-sessions')).toHaveClass(/active/);
@@ -77,6 +81,10 @@ test.describe('Session rail and conversation role polish', () => {
       const projectGroup = page
         .locator('.sr-group:has(.sr-group-items:not(.sr-history-groups))')
         .first();
+      await expect(projectGroup.locator('.sr-group-items').first()).toHaveCSS(
+        'border-left-width',
+        '0px',
+      );
       const projectFolder = projectGroup.locator('.sr-group-toggle > .app-icon').nth(1);
       const sessionProvider = compactSession.locator('.sr-provider');
       const [projectFolderBox, sessionProviderBox] = await Promise.all([

@@ -65,8 +65,10 @@ import {
   isExternalCli,
 } from './external-terminal-lifecycle.js';
 import { showExternalFilePreview } from './ExternalFilePreview.js';
+import { agentDisplayName, useAgentCatalogStore } from '../store/agentCatalogStore.js';
 
-export type TerminalLaunch = 'shell' | 'claude' | 'codex';
+/** `shell` or an opaque Agent id from the detected Agent Catalog. */
+export type TerminalLaunch = string;
 /** ADR-0047: identifies the remote SSH host a session runs on. */
 export interface TerminalRemote {
   hostId: string;
@@ -82,7 +84,7 @@ export type TerminalWorkingContext =
   | { kind: 'scratch' }
   // ADR-0038: adoption terminal — the host resolves the cwd from its own
   // discovery cache; the renderer only ever names the conversation.
-  | { kind: 'archaeology'; cli: 'claude' | 'codex'; sessionId: string };
+  | { kind: 'archaeology'; cli: string; sessionId: string };
 
 export interface TermInstance {
   id: string;
@@ -1153,12 +1155,6 @@ export function compactTerminalPath(path: string): string {
   return path;
 }
 
-function agentDisplayName(agent: string): string {
-  if (agent === 'claude') return 'Claude Code';
-  if (agent === 'codex') return 'Codex';
-  return agent;
-}
-
 function refitAndRefreshTerminal(item: Pick<TermInstance, 'term' | 'fit'>): void {
   requestAnimationFrame(() => {
     if (!item.term.element?.parentElement?.isConnected) return;
@@ -2057,6 +2053,8 @@ function NewTerminalDialog({
   const workspace = useWorkspaceStore((s) => s.workspace);
   const tasks = useTaskStore((s) => s.tasks);
   const sshHosts = useSshStore((s) => s.hosts);
+  const catalogAgents = useAgentCatalogStore((state) => state.agents);
+  const initAgentCatalog = useAgentCatalogStore((state) => state.init);
   const [recent, setRecent] = useState<RecentWorkspaceDto[]>([]);
   const [launch, setLaunch] = useState<TerminalLaunch>('shell');
   const [selectedKey, setSelectedKey] = useState('focused');
@@ -2066,6 +2064,7 @@ function NewTerminalDialog({
 
   useEffect(() => {
     if (!open) return;
+    initAgentCatalog();
     useSshStore.getState().init();
     void rpcResult('workspace.recent', {}).then((result) => {
       if (result.ok) setRecent(result.data.items);
@@ -2076,7 +2075,7 @@ function NewTerminalDialog({
     };
     window.addEventListener('keydown', escape);
     return () => window.removeEventListener('keydown', escape);
-  }, [open, onClose]);
+  }, [initAgentCatalog, open, onClose]);
 
   const contexts = useMemo<TerminalContextChoice[]>(() => {
     const choices: TerminalContextChoice[] = [];
@@ -2153,7 +2152,17 @@ function NewTerminalDialog({
           (selected.request.kind === 'task' && item.cwd === selected.cwd) ||
           (selected.projectPath !== null && item.projectPath === selected.projectPath),
       );
-  const launchLabel = launch === 'shell' ? 'Shell' : launch === 'claude' ? 'Claude Code' : 'Codex';
+  const launchLabel = launch === 'shell' ? 'Shell' : agentDisplayName(launch);
+  const launchOptions = [
+    { id: 'shell', title: 'Shell', detail: 'Open the default shell' },
+    ...catalogAgents
+      .filter((agent) => agent.installed && agent.capabilities.terminal)
+      .map((agent) => ({
+        id: agent.id,
+        title: agent.displayName,
+        detail: agent.description || `Run ${agent.shortName} after creation`,
+      })),
+  ];
   const createSelected = async (): Promise<void> => {
     setCreating(true);
     try {
@@ -2230,13 +2239,7 @@ function NewTerminalDialog({
               01 · Type <span>always a real shell + PTY</span>
             </div>
             <div className="terminal-type-grid">
-              {(
-                [
-                  ['shell', 'Shell', 'Open the default shell'],
-                  ['claude', 'Claude Code', 'Run claude after creation'],
-                  ['codex', 'Codex', 'Run codex after creation'],
-                ] as const
-              ).map(([value, title, detail]) => (
+              {launchOptions.map(({ id: value, title, detail }) => (
                 <button
                   key={value}
                   className={`terminal-type-option ${launch === value ? 'selected' : ''}`}

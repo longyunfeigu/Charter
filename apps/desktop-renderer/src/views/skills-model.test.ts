@@ -64,9 +64,10 @@ function usage(name: string, charterUses = 0, claudeUses = 0, codexUses = 0): Sk
 }
 
 describe('Agent-native Skill status', () => {
-  it('does not mistake Charter trust for Claude/Codex native availability', () => {
+  it('does not mistake Charter trust for external Agent native availability', () => {
     expect(isAgentEnabled(skill('claude'))).toBe(true);
     expect(isAgentEnabled(skill('codex'))).toBe(true);
+    expect(isAgentEnabled(skill('kimi'))).toBe(true);
     expect(isAgentEnabled(skill('managed'))).toBe(false);
   });
 
@@ -142,6 +143,21 @@ describe('Skills review evidence', () => {
 });
 
 describe('Agent-scoped Skills perspective', () => {
+  it('keeps a manifest-defined Agent copy in its own scope without invented usage', () => {
+    const kimi = skill('kimi', { agentEnabled: true });
+    const groups = groupSkills([kimi], [], true);
+
+    expect(groups[0]).toMatchObject({
+      agents: ['kimi'],
+      usesByAgent: { kimi: 0 },
+    });
+    expect(scopeSkillGroups(groups, 'kimi', true)[0]).toMatchObject({
+      agents: ['kimi'],
+      uses: 0,
+      noObservedUse: true,
+    });
+  });
+
   it('scopes copies, metrics and review decisions to the selected Agent', () => {
     const charter = skill('managed', {
       id: 'charter-copy',

@@ -24,7 +24,12 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {
-        launch: { type: 'string', enum: ['shell', 'claude', 'codex'], default: 'shell' },
+        launch: {
+          type: 'string',
+          pattern: '^[a-z0-9][a-z0-9._-]*$',
+          default: 'shell',
+          description: 'shell or an Agent id from Charter Agent Catalog',
+        },
         initialText: { type: 'string', minLength: 1, maxLength: 20000 },
         submit: { type: 'boolean', default: true },
       },

@@ -80,6 +80,7 @@ import {
   SshSecretKindSchema,
 } from './ssh.js';
 import { UpdateStateSchema } from './updates.js';
+import { AgentCatalogDtoSchema, AgentIdSchema } from './agents.js';
 
 const SettingsStateSchema = z.object({
   effective: SettingsSchema,
@@ -198,7 +199,7 @@ const TerminalInfoSchema = z.object({
   contextKind: z.enum(['focused', 'recent', 'task', 'scratch']),
   contextLabel: z.string(),
   contextTaskId: z.string().nullable(),
-  launch: z.enum(['shell', 'claude', 'codex']),
+  launch: AgentIdSchema,
   persistence: z.enum(['daemon', 'process', 'remote']).default('process'),
   remote: TerminalRemoteInfoSchema.optional(),
 });
@@ -260,6 +261,12 @@ function ch<Req extends z.ZodType, Res extends z.ZodType>(
  */
 export const CHANNELS = {
   'app.getInfo': ch('app.getInfo', 1, z.object({}).strict(), AppInfoSchema),
+  'agents.list': ch(
+    'agents.list',
+    1,
+    z.object({ refresh: z.boolean().default(false) }).strict(),
+    AgentCatalogDtoSchema,
+  ),
   'app.openExternal': ch(
     'app.openExternal',
     1,
@@ -713,7 +720,7 @@ export const CHANNELS = {
         /** The terminal owns this context independently from the focused editor workspace. */
         context: TerminalContextSchema.optional(),
         /** Fixed host-owned launch presets; arbitrary commands still go through terminal.write. */
-        launch: z.enum(['shell', 'claude', 'codex']).default('shell'),
+        launch: AgentIdSchema.default('shell'),
         /**
          * Composer text delivered to a claude/codex launch once its TUI is
          * ready (main-process paste + separate Enter). Never shell input —
@@ -847,7 +854,7 @@ export const CHANNELS = {
   'ssh.probeCli': ch(
     'ssh.probeCli',
     1,
-    z.object({ hostId: z.string().min(1), cli: z.enum(['claude', 'codex']) }).strict(),
+    z.object({ hostId: z.string().min(1), cli: AgentIdSchema }).strict(),
     z.object({ found: z.boolean(), path: z.string().nullable() }),
   ),
   'ssh.respondHostKey': ch(
@@ -1329,7 +1336,7 @@ export const CHANNELS = {
   'external.endSession': ch(
     'external.endSession',
     1,
-    z.object({ taskId: z.string().min(1) }).strict(),
+    z.object({ taskId: z.string().min(1), force: z.boolean().optional() }).strict(),
     z.object({ terminalId: z.string(), cli: z.string(), ended: z.boolean() }),
   ),
   /** Resume a known external CLI in a product-selected terminal. A settled
@@ -1797,7 +1804,7 @@ export const CHANNELS = {
    * Read-only — the gate never owns a server process. */
   'task.previewPorts': ch(
     'task.previewPorts',
-    2,
+    3,
     z.object({ taskId: z.string() }).strict(),
     z.object({
       /** The tree the detection ran against (worktree or project root). */
@@ -1806,6 +1813,10 @@ export const CHANNELS = {
       webish: z.boolean(),
       /** am.1: the project's own dev command for the one-click start (null: none). */
       devCommand: z.string().nullable(),
+      /** Package script or a bounded, built-in static-site launch suggestion. */
+      devCommandKind: z.enum(['package', 'static']).nullable(),
+      /** Root-relative static HTML entry when one was discovered. */
+      staticEntry: z.string().nullable(),
       ports: z.array(PreviewPortDtoSchema),
     }),
   ),

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AgentIdSchema } from './agents.js';
 
 /**
  * ADR-0038 — session archaeology. Charter discovers the CLI agents' own
@@ -8,12 +9,12 @@ import { z } from 'zod';
  * product terminal as a regular external Session.
  */
 
-export const DISCOVERED_CLIS = ['claude', 'codex'] as const;
-export const DiscoveredCliSchema = z.enum(DISCOVERED_CLIS);
+export const DiscoveredCliSchema = AgentIdSchema;
 export type DiscoveredCli = z.infer<typeof DiscoveredCliSchema>;
 
-/** Session ids are eventually written into a PTY — exact UUIDs only. */
-export const CLI_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Safe provider-owned forms currently supported by history connectors. */
+export const CLI_SESSION_ID_RE =
+  /^(?:session_)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const MAX_DISCOVERED_SESSIONS = 500;
 export const MAX_DISCOVERED_FILES = 200;

@@ -161,7 +161,7 @@ describe('IPC channel registry', () => {
     ).toBe(false);
   });
 
-  it('archaeology.adopt takes a cli, an exact session uuid and a terminal (ADR-0038)', () => {
+  it('archaeology.adopt takes a safe Agent id, provider session id and terminal (ADR-0038)', () => {
     const uuid = '6f3a92c1-1234-4abc-8def-0123456789ab';
     expect(
       validateChannelRequest('archaeology.adopt', {
@@ -170,7 +170,7 @@ describe('IPC channel registry', () => {
         terminalId: 'term_1',
       }).ok,
     ).toBe(true);
-    // Only exact UUIDs — the id is eventually written into a PTY.
+    // Only bounded provider session-id forms — the id is eventually written into a PTY.
     expect(
       validateChannelRequest('archaeology.adopt', {
         cli: 'claude',
@@ -184,7 +184,21 @@ describe('IPC channel registry', () => {
         sessionId: uuid,
         terminalId: 'term_1',
       }).ok,
+    ).toBe(true);
+    expect(
+      validateChannelRequest('archaeology.adopt', {
+        cli: 'Gemini Code!',
+        sessionId: uuid,
+        terminalId: 'term_1',
+      }).ok,
     ).toBe(false);
+    expect(
+      validateChannelRequest('archaeology.adopt', {
+        cli: 'kimi',
+        sessionId: `session_${uuid}`,
+        terminalId: 'term_1',
+      }).ok,
+    ).toBe(true);
     // strict(): no smuggling extra fields past the schema.
     expect(
       validateChannelRequest('archaeology.adopt', {

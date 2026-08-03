@@ -13,6 +13,7 @@ import { NewTaskDialog } from './NewTaskDialog.js';
 import { PathChips } from './PathLinks.js';
 import { useDraftStore } from '../store/draftStore.js';
 import { useExternalStore } from '../store/externalStore.js';
+import { agentDisplayName } from '../store/agentCatalogStore.js';
 import { restoreScroll, saveScroll } from './scrollMemory.js';
 import { Markdown } from './Markdown.js';
 import { Ic } from './home-icons.js';
@@ -26,6 +27,7 @@ import {
   toolActionLabel,
   toolStateWord,
   toolVerb,
+  canResumeExternal,
 } from './labels.js';
 
 const RISK_COLORS: Record<string, string> = {
@@ -1402,8 +1404,8 @@ export function AgentPanel(): React.JSX.Element {
 
   const running = task ? RUNNING_TASK_STATES.has(task.state) : false;
   const externalCanResume = Boolean(
-    task?.external?.status === 'ended' &&
-    (task.external.cli === 'claude' || task.external.cli === 'codex') &&
+    task &&
+    canResumeExternal(task) &&
     ['REVIEW_READY', 'INTERRUPTED', 'FAILED'].includes(task.state),
   );
   const externalResuming = task?.id === resumingExternalTaskId;
@@ -1460,7 +1462,7 @@ export function AgentPanel(): React.JSX.Element {
                     >
                       {externalResuming
                         ? 'Resuming…'
-                        : `Resume ${task.external!.cli === 'claude' ? 'Claude' : 'Codex'}`}
+                        : `Resume ${agentDisplayName(task.external!.cli)}`}
                     </button>
                   ) : null}
                   <button
@@ -1489,7 +1491,7 @@ export function AgentPanel(): React.JSX.Element {
                     {externalResuming
                       ? 'Resuming…'
                       : externalCanResume
-                        ? `Resume ${task.external!.cli === 'claude' ? 'Claude' : 'Codex'}`
+                        ? `Resume ${agentDisplayName(task.external!.cli)}`
                         : 'Resume'}
                   </button>
                   <button

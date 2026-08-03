@@ -29,7 +29,7 @@ export interface CharterCastMetadata {
   cwd: string;
   projectName: string;
   contextTaskId: string | null;
-  launch: 'shell' | 'claude' | 'codex';
+  launch: string;
   source: 'daemon' | 'process' | 'remote';
   hostLabel: string | null;
   startedAt: number;

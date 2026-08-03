@@ -7,11 +7,12 @@ import { PermissionCard } from './AgentPanel.js';
 import { directorCandidate, shouldDirectorCut } from './orchestration-director.js';
 import { mountTerminal, useTerminalStore, type TermInstance } from './TerminalPanel.js';
 import { terminalViewportText } from './terminal-viewport-text.js';
+import { agentDisplayName } from '../store/agentCatalogStore.js';
 
 const EMPTY_PERMISSIONS: PermissionCardDto[] = [];
 
 function workerProvider(worker: OrchestrationWorkerDto): string {
-  return worker.launch === 'shell' ? 'Shell' : worker.launch === 'claude' ? 'Claude' : 'Codex';
+  return worker.launch === 'shell' ? 'Shell' : agentDisplayName(worker.launch, true);
 }
 
 function workerName(worker: OrchestrationWorkerDto): string {

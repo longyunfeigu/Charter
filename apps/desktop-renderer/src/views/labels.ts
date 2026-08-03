@@ -116,7 +116,6 @@ export function canResumeExternal(task: ExternalishTask): boolean {
   return (
     task.external != null &&
     task.external.status === 'ended' &&
-    (task.external.cli === 'claude' || task.external.cli === 'codex') &&
     EXTERNAL_RESUMABLE_STATES.has(task.state)
   );
 }

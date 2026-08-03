@@ -25,11 +25,10 @@ import {
   isExternalCli,
 } from './external-terminal-lifecycle.js';
 import { canResumeExternal } from './labels.js';
+import { agentDisplayName } from '../store/agentCatalogStore.js';
 
-function launchName(launch: 'shell' | 'claude' | 'codex'): string {
-  if (launch === 'claude') return 'Claude Code';
-  if (launch === 'codex') return 'Codex';
-  return 'Terminal';
+function launchName(launch: string): string {
+  return launch === 'shell' ? 'Terminal' : agentDisplayName(launch);
 }
 
 /** ADR-0047: remote-session header controls (Reconnect / Disconnect). Reconnect
@@ -44,7 +43,7 @@ function RemoteControls({
 }: {
   hostId: string;
   hostLabel: string;
-  launch: 'shell' | 'claude' | 'codex';
+  launch: string;
   exited: boolean;
   onAllTerminals?(): void;
 }): React.JSX.Element {
@@ -335,10 +334,7 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
       data-terminal-state={lifecycle?.terminal}
     >
       <header className="stv-header">
-        <ProviderMark
-          provider={item.launch === 'claude' || item.launch === 'codex' ? item.launch : 'shell'}
-          size={19}
-        />
+        <ProviderMark provider={item.launch === 'shell' ? 'shell' : item.launch} size={19} />
         <div className="stv-title">
           <strong>{primaryTitle}</strong>
           <span>

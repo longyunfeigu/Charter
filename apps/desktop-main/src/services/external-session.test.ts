@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { CodeContextRefDto } from '@pi-ide/ipc-contracts';
 import {
   beginObservedTurnPresence,
@@ -11,10 +11,15 @@ import {
   externalResumeCommand,
   externalTitleFromPrompt,
   isAccountablePath,
+  isTerminalViewportRepaint,
+  isTerminalViewportScrollInput,
   selectFileAttributionOwner,
   shouldReconcileSnapshotPath,
+  ExternalSessionService,
 } from './external-session-service.js';
 import { ExternalLaunchIntents } from './external-launch-intents.js';
+
+vi.mock('../broadcast.js', () => ({ broadcast: vi.fn(() => 0) }));
 
 describe('isAccountablePath (ADR-0017)', () => {
   it('accepts ordinary project files', () => {
@@ -45,6 +50,31 @@ describe('isAccountablePath (ADR-0017)', () => {
     expect(isAccountablePath('notes.tmp.md')).toBe(true);
     expect(isAccountablePath('data.tmp.2.csv')).toBe(true);
     expect(isAccountablePath('src/tmp.7fa33.ts')).toBe(true);
+  });
+});
+
+describe('external TUI viewport scrolling', () => {
+  it('recognizes SGR and legacy X10 wheel reports, including modifier bits', () => {
+    expect(isTerminalViewportScrollInput('\u001b[<64;42;18M')).toBe(true);
+    expect(isTerminalViewportScrollInput('\u001b[<65;42;18M')).toBe(true);
+    expect(isTerminalViewportScrollInput('\u001b[<68;42;18M')).toBe(true);
+    expect(
+      isTerminalViewportScrollInput(`\u001b[M${String.fromCharCode(32 + 64, 32 + 42, 32 + 18)}`),
+    ).toBe(true);
+  });
+
+  it('does not confuse clicks, focus/device reports or keyboard input with scrolling', () => {
+    expect(isTerminalViewportScrollInput('\u001b[<0;42;18M')).toBe(false);
+    expect(isTerminalViewportScrollInput('\u001b[<32;42;18M')).toBe(false);
+    expect(isTerminalViewportScrollInput('\u001b[I\u001b[?1;2c')).toBe(false);
+    expect(isTerminalViewportScrollInput('finish this task\r')).toBe(false);
+  });
+
+  it('distinguishes full-screen repaint controls from ordinary documentary output', () => {
+    expect(isTerminalViewportRepaint('\u001b[?2026h\u001b[Hredraw\u001b[2K')).toBe(true);
+    expect(isTerminalViewportRepaint('\u001b[24;1Hredraw')).toBe(true);
+    expect(isTerminalViewportRepaint('\u001b[32mordinary colored output\u001b[0m\n')).toBe(false);
+    expect(isTerminalViewportRepaint('{"type":"turn.completed"}\n')).toBe(false);
   });
 });
 
@@ -145,6 +175,72 @@ describe('shouldReconcileSnapshotPath', () => {
   it('only refreshes watcher-owned paths when external Sessions share a root', () => {
     expect(shouldReconcileSnapshotPath(true, true)).toBe(true);
     expect(shouldReconcileSnapshotPath(true, false)).toBe(false);
+  });
+});
+
+describe('ExternalSessionService force stop', () => {
+  it('durably finishes an active task even when its restored PTY has no live service binding', async () => {
+    const external: {
+      cli: string;
+      terminalId: string;
+      status: 'active' | 'ended';
+      snapshotRef: null;
+      captureGrade: 'observed';
+    } = {
+      cli: 'claude',
+      terminalId: 'terminal-orphan',
+      status: 'active',
+      snapshotRef: null,
+      captureGrade: 'observed',
+    };
+    const task = {
+      id: 'task-orphan',
+      changedFiles: null,
+      external,
+    };
+    const kill = vi.fn();
+    const finishExternalSession = vi.fn(() => {
+      task.external.status = 'ended';
+      return task;
+    });
+    const terminals = {
+      onAgentState: vi.fn(() => () => {}),
+      onDataEvent: vi.fn(() => () => {}),
+      onSourcedInputEvent: vi.fn(() => () => {}),
+      list: vi.fn(() => []),
+      persistsAcrossAppRestart: vi.fn(() => false),
+      pollOnce: vi.fn(),
+      kill,
+    };
+    const tasks = {
+      getTask: vi.fn(() => task),
+      recoverExternalTasks: vi.fn(),
+      externalTasksMissingSessionId: vi.fn(() => []),
+      finishExternalSession,
+    };
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    };
+    const service = new ExternalSessionService(
+      terminals as never,
+      tasks as never,
+      {} as never,
+      logger as never,
+    );
+
+    await expect(service.end(task.id, true)).resolves.toEqual({
+      terminalId: 'terminal-orphan',
+      cli: 'claude',
+      ended: true,
+    });
+    expect(kill).toHaveBeenCalledWith('terminal-orphan');
+    expect(finishExternalSession).toHaveBeenCalledWith(task.id, 0, 'observed');
+    expect(task.external.status).toBe('ended');
+
+    service.dispose();
   });
 });
 
