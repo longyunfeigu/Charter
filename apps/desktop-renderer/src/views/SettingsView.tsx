@@ -425,6 +425,7 @@ function PrivacySection(props: {
     totalBytes: number;
     history: number;
     attachments: number;
+    terminalRecordings: number;
     logs: number;
     logRetentionDays: number;
     taskCount: number;
@@ -463,7 +464,7 @@ function PrivacySection(props: {
     if (res.ok) {
       pushToast(
         'success',
-        `Deleted ${res.data.clearedTasks} task${res.data.clearedTasks === 1 ? '' : 's'}, ${res.data.clearedLogFiles} log file(s) and ${res.data.clearedAttachmentDirs} attachment folder(s).`,
+        `Deleted ${res.data.clearedTasks} task${res.data.clearedTasks === 1 ? '' : 's'}, ${res.data.clearedRecordingFiles} terminal recording(s), ${res.data.clearedLogFiles} log file(s) and ${res.data.clearedAttachmentDirs} attachment folder(s).`,
       );
       await loadSummary();
     } else {
@@ -556,8 +557,8 @@ function PrivacySection(props: {
           <div className="st-kv">
             <span className="k">Retention</span>
             <span className="v">
-              Logs roll off after {summary.logRetentionDays} days; task history and attachments are
-              kept until you delete them.
+              Logs roll off after {summary.logRetentionDays} days; task history, terminal recordings
+              and attachments are kept until you delete them.
             </span>
           </div>
           <div className="st-privacy-usage">
@@ -568,6 +569,7 @@ function PrivacySection(props: {
             <div className="st-usage-legend">
               <span>History {formatBytes(summary.history)}</span>
               <span>Attachments {formatBytes(summary.attachments)}</span>
+              <span>Terminal recordings {formatBytes(summary.terminalRecordings)}</span>
               <span>Logs {formatBytes(summary.logs)}</span>
             </div>
           </div>

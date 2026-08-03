@@ -69,7 +69,16 @@ export function ExternalTerminalColumn({
         shellTitle: item?.title,
       })
     : null;
-  const terminalReadOnly = item !== null && (item.exited || lifecycle?.interactive === false);
+  const repairKey =
+    !live && item && lifecycle?.agent === 'ended' && lifecycle.terminal === 'live'
+      ? `${task.id}:${item.id}`
+      : null;
+  const [repairedInputKey, setRepairedInputKey] = useState<string | null>(null);
+  // Keep the adopted shell read-only during the short legacy-input check. It
+  // prevents the first user command from racing the cleanup Ctrl-C.
+  const inputRepairPending = repairKey !== null && repairedInputKey !== repairKey;
+  const terminalReadOnly =
+    item !== null && (item.exited || lifecycle?.interactive === false || inputRepairPending);
   const hostRef = useRef<HTMLDivElement>(null);
   const peekOpen = useAppStore((state) => state.peek?.taskId === task.id);
   const follow = useExternalStore((s) => s.follow[task.id] ?? true);
@@ -136,17 +145,25 @@ export function ExternalTerminalColumn({
   // line and gives the user a clean prompt; historical transcript rows remain
   // untouched and arbitrary user commands are never guessed at or erased.
   useEffect(() => {
-    if (live || !item || lifecycle?.agent !== 'ended' || lifecycle.terminal !== 'live') return;
+    if (!repairKey || !item || repairedInputKey === repairKey) return;
+    let cancelled = false;
     const timer = window.setTimeout(() => {
-      if (!isLeakedTerminalReply(activeTerminalInput(item))) return;
-      void rpcResult('terminal.write', {
-        id: item.id,
-        data: '\u0003',
-        userInitiated: false,
+      const repair = isLeakedTerminalReply(activeTerminalInput(item))
+        ? rpcResult('terminal.write', {
+            id: item.id,
+            data: '\u0003',
+            userInitiated: false,
+          })
+        : Promise.resolve();
+      void repair.finally(() => {
+        if (!cancelled) setRepairedInputKey(repairKey);
       });
     }, 160);
-    return () => window.clearTimeout(timer);
-  }, [item, lifecycle?.agent, lifecycle?.terminal, live]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [item, repairKey, repairedInputKey]);
 
   const acceptsDrag = (e: React.DragEvent): boolean =>
     hasDragRef(e) || e.dataTransfer.types.includes('Files');

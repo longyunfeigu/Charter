@@ -616,8 +616,14 @@ export class ExternalSessionService {
       }
       this.writeProduct(current, TERMINAL_EXIT_BYTES[action]);
       if (index < exitSequence.length - 1) {
+        // Process-tree detection is intentionally cached. Refresh it twice
+        // after the first exit signal (the tracker requires two misses) before
+        // sending a fallback EOF; otherwise that EOF can close the recovered
+        // shell instead of the Agent.
         await new Promise((resolve) => setTimeout(resolve, 350));
-        this.terminals.pollOnce();
+        await this.terminals.pollOnceFresh();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        await this.terminals.pollOnceFresh();
       }
     }
 

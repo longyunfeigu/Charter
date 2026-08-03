@@ -12,6 +12,7 @@ async function openMission(page: Page, missionId: string): Promise<void> {
   await page.getByTestId('rail-view-missions').click();
   await expect(page.getByTestId(`mission-center-card-${missionId}`)).toBeVisible();
   await page.getByTestId(`mission-center-card-${missionId}`).click();
+  await page.getByTestId('mission-view-graph').click();
   await expect(page.getByTestId('mission-work-map')).toBeVisible();
   await page.getByTestId('mission-work-map').locator('.mission-graph-node').first().click();
   await expect(page.getByTestId('mission-work-detail')).toBeVisible();

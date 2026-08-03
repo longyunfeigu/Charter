@@ -120,7 +120,7 @@ export function ActivityBar({
         className="sr-activity-item"
         data-testid="home-open-ide"
         aria-label="Editor"
-        title="Editor · ⌘E"
+        title="Editor"
         onClick={() => app.setSurface('workspace')}
       >
         <Ic name="layout" size={16} />

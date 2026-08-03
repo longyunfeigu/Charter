@@ -246,6 +246,7 @@ test.describe('External Session identity and presence', () => {
         await expect(page.getByTestId('external-terminal-lifecycle')).toHaveText('Shell available');
         const terminal = page.getByTestId('external-terminal-host');
         await expect(terminal.locator('.xterm')).toBeVisible({ timeout: 15_000 });
+        await expect(terminal).toHaveAttribute('aria-readonly', 'false');
         await terminal.locator('.xterm').click();
         const executionProof = join(fixture, `shell-after-${provider}.txt`);
         const quotedProof = executionProof.replaceAll("'", "'\\''");
@@ -264,8 +265,7 @@ test.describe('External Session identity and presence', () => {
           .poll(() => page.evaluate(() => window.innerWidth), { timeout: 15_000 })
           .toBeLessThanOrEqual(1024);
         await expect(page.getByTestId('external-terminal-lifecycle')).toHaveText('Shell available');
-        await expect(page.getByTestId('session-tool-close')).toBeVisible();
-        await page.getByTestId('session-tool-close').click();
+        await expect(page.getByTestId('session-tool-close')).toBeHidden();
         await expect(terminal.locator('.xterm')).toBeVisible();
         await page.screenshot({ path: `/tmp/charter-${provider}-ended-shell-980.png` });
         expect(rendererErrors).toEqual([]);
@@ -296,8 +296,13 @@ test.describe('External Session identity and presence', () => {
         // The user's Retina capture is 2736×1474 physical pixels, i.e. a
         // 1368×737 logical viewport. Match that frame for design comparison.
         await page.setViewportSize({ width: 1368, height: 737 });
+        await expect(page.getByTestId('surface-home')).toBeVisible({ timeout: 15_000 });
+        await page.getByTestId('surface-home').click();
         await page.keyboard.press('Control+`');
-        await expect(page.locator('.xterm')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId('terminal-panel')).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId('terminal-host').locator('.xterm')).toBeVisible({
+          timeout: 15_000,
+        });
         await page.getByTestId('terminal-host').locator('.xterm').click();
         await page.keyboard.type(join(bin, provider));
         await page.keyboard.press('Enter');

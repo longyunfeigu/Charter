@@ -133,7 +133,7 @@ describe('TerminalManager.pollOnce detection gating (ADR-0017 amendment)', () =>
     let shellPid = 0;
     const { m, events } = setup(
       () => title,
-      () => [{ pid: 99991, ppid: shellPid, command: 'claude' }],
+      () => (title === 'sh' ? [] : [{ pid: 99991, ppid: shellPid, command: 'claude' }]),
     );
     const info = m.create({ cwd: tmpdir(), shellPath: '/bin/sh' });
     shellPid = info.pid;
@@ -180,7 +180,7 @@ describe('TerminalManager.pollOnce detection gating (ADR-0017 amendment)', () =>
     expect(events).toEqual([{ id: info.id, agent: 'claude' }]);
   });
 
-  it('never reads the process table while the terminal sits at a shell prompt', () => {
+  it('checks the process tree at a shell prompt without creating a false Agent session', () => {
     let title = 'sh'; // the session's own shell
     const { m, events, readProcessTable } = setup(
       () => title,
@@ -192,7 +192,7 @@ describe('TerminalManager.pollOnce detection gating (ADR-0017 amendment)', () =>
       title = idle;
       m.pollOnce();
     }
-    expect(readProcessTable).not.toHaveBeenCalled();
+    expect(readProcessTable).toHaveBeenCalled();
     expect(events).toEqual([]);
   });
 

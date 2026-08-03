@@ -41,6 +41,26 @@ function dirSize(dir: string): number {
   return total;
 }
 
+function dirFileCount(dir: string): number {
+  if (!existsSync(dir)) return 0;
+  let total = 0;
+  const walk = (current: string): void => {
+    let entries;
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile()) total += 1;
+    }
+  };
+  walk(dir);
+  return total;
+}
+
 function fileSize(file: string): number {
   try {
     return existsSync(file) ? statSync(file).size : 0;
@@ -67,6 +87,7 @@ export interface DataSummary {
   totalBytes: number;
   history: number;
   attachments: number;
+  terminalRecordings: number;
   logs: number;
   logRetentionDays: number;
   taskCount: number;
@@ -75,6 +96,7 @@ export interface DataSummary {
 export function dataSummary(paths: AppPaths, db: SqlDatabase | null): DataSummary {
   const history = fileSize(paths.databaseFile);
   const attachments = attachmentDirs(paths).reduce((n, d) => n + dirSize(d), 0);
+  const terminalRecordings = dirSize(join(paths.userData, 'terminal-recordings'));
   const logs = dirSize(paths.logsDir) + dirSize(join(paths.userData, 'support'));
   let taskCount = 0;
   if (db) {
@@ -87,9 +109,10 @@ export function dataSummary(paths: AppPaths, db: SqlDatabase | null): DataSummar
   }
   return {
     dataDir: paths.userData,
-    totalBytes: history + attachments + logs,
+    totalBytes: history + attachments + terminalRecordings + logs,
     history,
     attachments,
+    terminalRecordings,
     logs,
     logRetentionDays: LOG_RETENTION_DAYS,
     taskCount,
@@ -156,6 +179,7 @@ export interface ClearResult {
   clearedBlobs: number;
   clearedAttachmentDirs: number;
   clearedLogFiles: number;
+  clearedRecordingFiles: number;
 }
 
 /**
@@ -203,5 +227,21 @@ export function clearHistory(paths: AppPaths, db: SqlDatabase | null): ClearResu
     }
   }
 
-  return { clearedTasks, clearedBlobs, clearedAttachmentDirs, clearedLogFiles };
+  const recordingDir = join(paths.userData, 'terminal-recordings');
+  const recordingFilesBefore = dirFileCount(recordingDir);
+  try {
+    rmSync(recordingDir, { recursive: true, force: true });
+  } catch {
+    // A currently closing PTY may briefly retain a recording handle on
+    // Windows. Report only the files that were actually removed.
+  }
+  const clearedRecordingFiles = Math.max(0, recordingFilesBefore - dirFileCount(recordingDir));
+
+  return {
+    clearedTasks,
+    clearedBlobs,
+    clearedAttachmentDirs,
+    clearedLogFiles,
+    clearedRecordingFiles,
+  };
 }

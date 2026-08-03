@@ -34,7 +34,7 @@ test.describe('M2 shell, settings and persistence', () => {
     // Change a setting through the Settings UI.
     await page.getByTestId('home-settings').click();
     await expect(page.getByTestId('overlay-settings')).toBeVisible();
-    await page.getByText('Editor', { exact: true }).click();
+    await page.getByTestId('settings-section-editor').click();
     const fontInput = page.locator('input[type="number"]').first();
     await fontInput.fill('15');
     await page.keyboard.press('Escape');

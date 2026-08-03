@@ -750,6 +750,11 @@ if (!gotLock) {
         };
       };
       const missionVirtualTasks = new Map<string, string>();
+      const detectedAgentIds = process.env.PI_IDE_EXTERNAL_CLIS
+        ? process.env.PI_IDE_EXTERNAL_CLIS.split(',')
+            .map((id) => id.trim().toLowerCase())
+            .filter(Boolean)
+        : agentRegistryRef.terminalAgentIds();
       m4 = new M4Services(
         workspaceHost,
         settings,
@@ -763,7 +768,7 @@ if (!gotLock) {
               }
             : {},
         terminalDaemon,
-        agentRegistryRef.terminalAgentIds(),
+        detectedAgentIds,
       );
       m4Ref = m4;
       terminalRecordingRef = new TerminalRecordingCoordinator(

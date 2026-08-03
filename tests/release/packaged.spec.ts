@@ -13,6 +13,27 @@ import { terminalPtySnapshot, waitForTerminalOutput } from '../e2e/helpers/termi
 // The status bar mirrors package.json — never hardcode the release here.
 const { version } = createRequire(import.meta.url)('../../package.json') as { version: string };
 
+function removeTestDirectory(path: string, maxRetries = 0): void {
+  try {
+    rmSync(path, {
+      recursive: true,
+      force: true,
+      maxRetries,
+      retryDelay: 500,
+    });
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (process.platform === 'win32' && code === 'EPERM') {
+      // The packaged app and daemon assertions have already completed. Windows
+      // Defender or the search indexer can retain the now-unused temp root even
+      // after all Charter processes and PTYs have exited; runner cleanup owns it.
+      console.warn(`[packaged-e2e] deferred locked temp cleanup: ${path}`);
+      return;
+    }
+    throw error;
+  }
+}
+
 async function openTerminalSession(
   launched: Awaited<ReturnType<typeof launchPackagedApp>>,
 ): Promise<void> {
@@ -73,12 +94,7 @@ test('E2E-024: packaged app starts on a clean profile and survives security chec
     expect(rendererErrors).toEqual([]);
   } finally {
     await launched.close();
-    rmSync(launched.userDataDir, {
-      recursive: true,
-      force: true,
-      maxRetries: process.platform === 'win32' ? 10 : 0,
-      retryDelay: 200,
-    });
+    removeTestDirectory(launched.userDataDir, process.platform === 'win32' ? 10 : 0);
   }
 });
 
@@ -149,15 +165,10 @@ test('packaged daemon keeps a PTY alive across a full app restart', async () => 
       if (process.platform === 'win32') {
         await new Promise((resolveWait) => setTimeout(resolveWait, 6_000));
       }
-      rmSync(userDataDir, {
-        recursive: true,
-        force: true,
-        // Windows may keep daemon, antivirus, or indexer handles alive after
-        // the documented grace period. Cleanup is not the product assertion,
-        // but it must eventually finish before the runner uninstalls the app.
-        maxRetries: process.platform === 'win32' ? 60 : 0,
-        retryDelay: 500,
-      });
+      // Cleanup is not the product assertion. On Windows, keep retrying long
+      // enough for the daemon's idle shutdown before deferring a locked root to
+      // the ephemeral runner cleanup.
+      removeTestDirectory(userDataDir, process.platform === 'win32' ? 60 : 0);
     }
     rmSync(fixture, { recursive: true, force: true });
   }

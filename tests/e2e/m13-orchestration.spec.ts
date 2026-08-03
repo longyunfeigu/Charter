@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { createTsSmallFixture } from './helpers/fixtures';
 import { launchApp } from './helpers/launch';
+import { waitForTerminalOutput } from './helpers/terminal';
 
 async function startOrchestrationTask(
   page: Page,
@@ -110,7 +111,7 @@ function createExternalDriver(): { bin: string; executable: string; probe: strin
       "  console.log('external-orchestration-driver-done');",
       '  mcp.kill();',
       '}',
-      'main().then(() => setTimeout(() => process.exit(0), 500)).catch((error) => { console.error(error); process.exit(1); });',
+      'main().then(() => setTimeout(() => process.exit(0), 10000)).catch((error) => { console.error(error); process.exit(1); });',
       '',
     ].join('\n'),
   );
@@ -159,7 +160,7 @@ function createFleetResumeDriver(options?: {
   const fleetProbe = join(bin, 'fleet.json');
   const workerArgvProbe = join(bin, 'worker-argv.ndjson');
   const workerLifetimeMs = options?.workerLifetimeMs ?? 2_200;
-  const commanderLifetimeMs = options?.commanderLifetimeMs ?? 4_000;
+  const commanderLifetimeMs = options?.commanderLifetimeMs ?? 12_000;
   const workerHeartbeat = options?.workerHeartbeat ?? false;
   const workerCompletesTurn = options?.workerCompletesTurn ?? false;
   writeFileSync(
@@ -573,7 +574,7 @@ test.describe('M13 session orchestration', () => {
     }
   });
 
-  test('external Codex-shaped driver uses the authenticated socket without terminal approvals', async () => {
+  test('explicit Codex compatibility driver uses the authenticated socket without terminal approvals', async () => {
     test.setTimeout(90_000);
     const fixture = createTsSmallFixture();
     const driver = createExternalDriver();
@@ -590,8 +591,12 @@ test.describe('M13 session orchestration', () => {
       const terminal = page.locator('.xterm').first();
       await expect(terminal).toBeVisible();
       await terminal.click();
-      await page.keyboard.type('codex');
+      await page.keyboard.type('echo commander-ready');
       await page.keyboard.press('Enter');
+      await waitForTerminalOutput(page, 'commander-ready');
+      await page.keyboard.type('charter-codex-mcp');
+      await page.keyboard.press('Enter');
+      await waitForTerminalOutput(page, 'external-orchestration-driver-ready', { timeout: 20_000 });
       await expect(page.getByTestId('terminal-session-bar')).toContainText('Codex', {
         timeout: 20_000,
       });
@@ -618,18 +623,27 @@ test.describe('M13 session orchestration', () => {
         'terminal_read',
         'terminal_kill',
         'orchestration_inspect',
+        'orchestration_sync',
         'orchestration_delegate',
+        'orchestration_delegate_many',
         'orchestration_message',
+        'orchestration_request',
+        'orchestration_request_decision',
+        'orchestration_resolve_request',
         'orchestration_reply',
+        'orchestration_ask',
         'orchestration_wait',
+        'orchestration_join',
+        'orchestration_park',
+        'orchestration_continue',
         'orchestration_progress',
         'orchestration_complete',
         'orchestration_escalate',
-        'orchestration_steer',
         'orchestration_pause',
         'orchestration_resume',
         'orchestration_cancel',
         'orchestration_retry',
+        'orchestration_steer',
         'orchestration_reassign',
       ]);
       expect(
@@ -671,8 +685,12 @@ test.describe('M13 session orchestration', () => {
       const terminal = page.locator('.xterm').first();
       await expect(terminal).toBeVisible();
       await terminal.click();
-      await page.keyboard.type('codex');
+      await page.keyboard.type('echo commander-ready');
       await page.keyboard.press('Enter');
+      await waitForTerminalOutput(page, 'commander-ready');
+      await page.keyboard.type('charter-codex-mcp');
+      await page.keyboard.press('Enter');
+      await waitForTerminalOutput(page, 'fleet-commander-created-worker', { timeout: 30_000 });
       await expect(page.getByTestId('terminal-session-bar')).toContainText('Codex', {
         timeout: 20_000,
       });

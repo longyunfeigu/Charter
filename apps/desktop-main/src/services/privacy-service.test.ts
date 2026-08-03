@@ -42,13 +42,19 @@ describe('privacy-service (M11-07, PRIV-003)', () => {
   it('dataSummary reports the data location, task count and sizes', () => {
     const { paths, db } = setup();
     writeFileSync(join(paths.logsDir, 'app.log'), 'line one\nline two\n');
+    const recordingDir = join(paths.userData, 'terminal-recordings');
+    mkdirSync(recordingDir, { recursive: true });
+    writeFileSync(join(recordingDir, 'session.cast'), 'terminal output\n');
     const summary = dataSummary(paths, db);
     expect(summary.dataDir).toBe(paths.userData);
     expect(summary.taskCount).toBe(1);
     expect(summary.history).toBeGreaterThan(0); // db file has bytes
     expect(summary.logs).toBeGreaterThan(0);
+    expect(summary.terminalRecordings).toBeGreaterThan(0);
     expect(summary.logRetentionDays).toBe(30);
-    expect(summary.totalBytes).toBe(summary.history + summary.attachments + summary.logs);
+    expect(summary.totalBytes).toBe(
+      summary.history + summary.attachments + summary.terminalRecordings + summary.logs,
+    );
   });
 
   it('clearHistory deletes task history + blobs + logs, keeps the workspace', () => {
@@ -58,12 +64,16 @@ describe('privacy-service (M11-07, PRIV-003)', () => {
     const attDir = join(paths.userData, 'workspaces', 'ws1', 'attachments', 't1');
     mkdirSync(attDir, { recursive: true });
     writeFileSync(join(attDir, 'shot.png'), 'x');
+    const recordingDir = join(paths.userData, 'terminal-recordings');
+    mkdirSync(recordingDir, { recursive: true });
+    writeFileSync(join(recordingDir, 'session.cast'), 'secret-looking terminal output\n');
 
     const result = clearHistory(paths, db);
     expect(result.clearedTasks).toBe(1);
     expect(result.clearedBlobs).toBe(1);
     expect(result.clearedAttachmentDirs).toBe(1);
     expect(result.clearedLogFiles).toBeGreaterThanOrEqual(1);
+    expect(result.clearedRecordingFiles).toBe(1);
 
     // task-scoped tables are empty…
     expect((db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number }).n).toBe(0);
@@ -73,6 +83,7 @@ describe('privacy-service (M11-07, PRIV-003)', () => {
     expect((db.prepare('SELECT COUNT(*) AS n FROM workspaces').get() as { n: number }).n).toBe(1);
     // attachment files are gone.
     expect(existsSync(attDir)).toBe(false);
+    expect(existsSync(recordingDir)).toBe(false);
     expect(readdirSync(paths.logsDir).length).toBe(0);
   });
 

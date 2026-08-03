@@ -9,16 +9,16 @@
 
 *Agent 说它做完了，Charter 告诉你为什么可以相信。*
 
-[![Beta 4](https://img.shields.io/badge/release-v1.0.0--beta.4-C47A19?style=flat-square)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.4)
+[![Beta 5](https://img.shields.io/badge/release-v1.0.0--beta.5-C47A19?style=flat-square)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5)
 [![CI](https://img.shields.io/github/actions/workflow/status/longyunfeigu/Charter/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/longyunfeigu/Charter/actions/workflows/ci.yml)
-[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1B1A16?style=flat-square&logo=apple&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.4)
-[![Windows](https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.4)
-[![Linux](https://img.shields.io/badge/Linux-x64-F4B728?style=flat-square&logo=linux&logoColor=111111)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.4)
+[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1B1A16?style=flat-square&logo=apple&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5)
+[![Windows](https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5)
+[![Linux](https://img.shields.io/badge/Linux-x64-F4B728?style=flat-square&logo=linux&logoColor=111111)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5)
 [![MIT License](https://img.shields.io/badge/license-MIT-2F855A?style=flat-square)](LICENSE)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-[下载 Beta](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.4) · [产品导览](#产品导览) · [功能全景](#功能全景) · [快速开始](#快速开始) · [架构](#架构)
+[下载 Beta](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5) · [产品导览](#产品导览) · [功能全景](#功能全景) · [快速开始](#快速开始) · [架构](#架构)
 
 </div>
 
@@ -214,7 +214,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 
 ### 下载 unsigned Beta
 
-从 [Beta 4 GitHub Release](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.4) 下载当前平台的安装包与 `SHA256SUMS.txt`。
+从 [Beta 5 GitHub Release](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5) 下载当前平台的安装包与 `SHA256SUMS.txt`。
 
 | 平台 | 安装包 | 预览目标 |
 | --- | --- | --- |
@@ -222,7 +222,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 | Windows | NSIS 安装程序 | `x64` |
 | Linux | `.tar.gz` | `x64` Preview |
 
-这些安装包尚未签名或公证。Gatekeeper、SmartScreen、Smart App Control、企业策略或杀毒软件都可能拒绝启动。请在重要仓库中使用前阅读[发布说明](docs/RELEASE_NOTES.md)、[已知限制](docs/KNOWN_LIMITATIONS.md)、[隐私声明](PRIVACY.md)和[安全策略](SECURITY.md)。Beta 4 会自动检查后续 GitHub Prerelease 并打开经验证的下载页；unsigned 应用替换仍需手动完成。
+这些安装包尚未签名或公证。Gatekeeper、SmartScreen、Smart App Control、企业策略或杀毒软件都可能拒绝启动。请在重要仓库中使用前阅读[发布说明](docs/RELEASE_NOTES.md)、[已知限制](docs/KNOWN_LIMITATIONS.md)、[隐私声明](PRIVACY.md)和[安全策略](SECURITY.md)。Beta 5 会自动检查后续 GitHub Prerelease 并打开经验证的下载页；unsigned 应用替换仍需手动完成。
 
 ### 从源码运行
 
@@ -374,12 +374,12 @@ CHARTER_README_SHOTS=1 npx playwright test \
 
 Charter 正在公开开发，并朝首个签名 Stable 桌面版本推进。
 
-- **当前已发布：** `v1.0.0-beta.4` 是当前 unsigned 公开预览版，支持 macOS Apple Silicon、Windows x64 和 Linux x64。
+- **当前已发布：** `v1.0.0-beta.5` 是当前 unsigned 公开预览版，支持 macOS Apple Silicon、Windows x64 和 Linux x64。
 - **当前源码树已实现：** Session-first 壳层、受管 Agent 路径、外部 CLI 核算与编排、实时文件现场、结构化上下文、Preview、Terminal、Verification、Review、Replay、Memory、Skills、桌面更新服务和核心安全边界。
 - **发布流水线：** 三平台打包、发布清单、校验和、SBOM/许可证清单、打包态启动测试、数据库升级/恢复演练、Stable/Beta updater feed 和无凭据门禁都已就绪。unsigned 预览版与 Linux 只通知并打开下载页；signed macOS/Windows 可以自动检查和后台下载，再等待用户明确重启安装。
 - **Stable 仍待完成：** Apple 公证、可信 Windows 签名、macOS/Windows 双平台 signed update qualification、固定任务真实 Provider 评估和项目负责人最终确认。
 
-本 README 描述当前源码树；可下载 Beta 可能落后于 `main` 上正在进行的工作。Beta 4 的准确内容请查看 [Beta 4 发布说明](docs/RELEASE_NOTES.md)，当前实施证据请查看 [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md)。
+本 README 描述当前源码树；可下载 Beta 可能落后于 `main` 上正在进行的工作。Beta 5 的准确内容请查看 [Beta 5 发布说明](docs/RELEASE_NOTES.md)，当前实施证据请查看 [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md)。
 
 ## 参与贡献
 

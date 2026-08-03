@@ -495,6 +495,7 @@ export const CHANNELS = {
       totalBytes: z.number(),
       history: z.number(),
       attachments: z.number(),
+      terminalRecordings: z.number(),
       logs: z.number(),
       logRetentionDays: z.number(),
       taskCount: z.number(),
@@ -517,6 +518,7 @@ export const CHANNELS = {
       clearedBlobs: z.number(),
       clearedAttachmentDirs: z.number(),
       clearedLogFiles: z.number(),
+      clearedRecordingFiles: z.number(),
     }),
   ),
   'app.reportClientError': ch(

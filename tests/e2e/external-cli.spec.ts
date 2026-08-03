@@ -54,19 +54,24 @@ function createFakeAgentBin(fixture: string): string {
       `const target = ${JSON.stringify(target)};`,
       `const generated = ${JSON.stringify(generated)};`,
       "console.log('✳ fake agent session started');",
-      'setTimeout(() => {',
+      "process.stdin.setEncoding('utf8');",
+      'let changed = false;',
+      "process.stdin.on('data', (input) => {",
+      "  if (changed || !input.includes('write-fake-change')) return;",
+      '  changed = true;',
       "  const src = fs.readFileSync(target, 'utf8');",
       "  fs.writeFileSync(target, src + 'export const externalTouch = 1;\\n');",
       "  fs.mkdirSync(require('path').dirname(generated), { recursive: true });",
       "  fs.writeFileSync(generated, 'generated build output\\n');",
       "  console.log('✏ edited src/util.ts');",
-      '}, 1500);',
+      '});',
       // Long enough to promote the pane and type into the live PTY mid-session.
-      'setTimeout(() => process.exit(0), 12000);',
+      'setTimeout(() => process.exit(0), 20000);',
       '',
     ].join('\n'),
   );
   chmodSync(join(bin, 'fakeagent'), 0o755);
+  pinFixtureCliPath(bin);
   return bin;
 }
 
@@ -112,11 +117,17 @@ function createHistoryClaudeBin(fixture: string): string {
       "const resumed = process.argv.includes('--continue') || process.argv.includes('--resume');",
       "console.log(resumed ? 'resumed-original-session' : 'original-session-started');",
       'if (!resumed) {',
-      '  setTimeout(() => {',
+      "  process.stdin.setEncoding('utf8');",
+      '  let changed = false;',
+      "  process.stdin.on('data', (input) => {",
+      "    if (changed || !input.includes('write-review-change')) return;",
+      '    changed = true;',
       "    fs.writeFileSync(target, fs.readFileSync(target, 'utf8') + 'export const externalTouch = 1;\\n');",
-      '  }, 900);',
+      "    console.log('history-change-written');",
+      '    setTimeout(() => process.exit(0), 1500);',
+      '  });',
       '}',
-      'setTimeout(() => process.exit(0), resumed ? 8000 : 3500);',
+      'setTimeout(() => process.exit(0), resumed ? 8000 : 20000);',
       '',
     ].join('\n'),
   );
@@ -135,9 +146,14 @@ function createActiveEditingCodexBin(fixture: string): string {
       "const fs = require('fs');",
       `const target = ${JSON.stringify(target)};`,
       "console.log('active-codex-started');",
-      'setTimeout(() => {',
+      "process.stdin.setEncoding('utf8');",
+      'let changed = false;',
+      "process.stdin.on('data', (input) => {",
+      "  if (changed || !input.includes('write-active-change')) return;",
+      '  changed = true;',
       "  fs.writeFileSync(target, fs.readFileSync(target, 'utf8') + 'export const activeCodexTouch = 1;\\n');",
-      '}, 900);',
+      "  console.log('active-codex-change-written');",
+      '});',
       'process.stdin.resume();',
       'setTimeout(() => process.exit(0), 30000);',
       '',
@@ -1069,7 +1085,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await page.getByTestId('session-bar-review').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
       const resume = page.getByTestId('task-resume');
-      await expect(resume).toContainText('Resume Claude session');
+      await expect(resume).toContainText('Resume Claude Code session');
 
       const taskIdBefore = await page.evaluate(async () => {
         const bridge = (
@@ -1114,7 +1130,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
 
       await expect(page.getByTestId('external-ended')).toBeVisible({ timeout: 20000 });
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY');
-      await expect(page.getByTestId('task-resume')).toContainText('Resume Claude session');
+      await expect(page.getByTestId('task-resume')).toContainText('Resume Claude Code session');
     } finally {
       await app.close();
     }
@@ -1141,6 +1157,10 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await expect(page.locator('[data-testid^="terminal-agent-"]')).toContainText('Claude Code', {
         timeout: 15000,
       });
+      await page.locator('.xterm').click();
+      await page.keyboard.type('write-review-change');
+      await page.keyboard.press('Enter');
+      await waitForTerminalOutput(page, 'history-change-written');
       await expect(page.getByTestId('session-bar-ended')).toBeVisible({ timeout: 25000 });
 
       // The session edited one file → review it and accept.
@@ -1202,8 +1222,9 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       // CLI conversation) — no continuation task is created.
       await row.hover();
       await page.getByTestId(`home-resume-${settledId}`).click();
-      await expect(page.getByTestId('task-room')).toBeVisible({ timeout: 30000 });
       await waitForTerminalOutput(page, 'resumed-original-session', { timeout: 30_000 });
+      await row.click();
+      await expect(page.getByTestId('task-room')).toBeVisible({ timeout: 30_000 });
 
       const after = await listExternal();
       expect(after).toHaveLength(1);
@@ -1274,7 +1295,9 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await expect(row).toBeVisible({ timeout: 15000 });
       await expect(row).toHaveAttribute('data-state', 'REVIEW_READY');
       await row.click();
-      await expect(second.page.getByTestId('task-resume')).toContainText('Resume Claude session');
+      await expect(second.page.getByTestId('task-resume')).toContainText(
+        'Resume Claude Code session',
+      );
 
       await second.page.getByTestId('task-resume').click();
       await waitForTerminalOutput(second.page, 'resumed-original-session', {
@@ -1331,6 +1354,10 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await expect(page.locator('[data-testid^="terminal-agent-"]')).toContainText('Codex', {
         timeout: 15000,
       });
+      await page.locator('.xterm').click();
+      await page.keyboard.type('write-active-change');
+      await page.keyboard.press('Enter');
+      await waitForTerminalOutput(page, 'active-codex-change-written');
       await expect(page.getByTestId('session-bar-files')).toContainText('1 file', {
         timeout: 15000,
       });
@@ -1390,13 +1417,10 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await endSession.click();
 
       await expect(page.getByTestId('external-ended')).toBeVisible({ timeout: 15000 });
-      await expect(page.getByTestId('external-terminal-readonly')).toContainText('Session stopped');
-      await expect(page.getByTestId('external-terminal-host')).toHaveAttribute(
-        'data-terminal-readonly',
-        'true',
-      );
-      await expect(page.getByTestId('external-terminal-readonly-resume')).toBeVisible();
-      await page.screenshot({ path: '/tmp/charter-stopped-session-readonly.png' });
+      await expect(page.getByTestId('external-terminal-lifecycle')).toHaveText('Shell available');
+      await expect(page.getByTestId('external-terminal-readonly')).toHaveCount(0);
+      await expect(page.getByTestId('external-terminal-host').locator('.xterm')).toBeVisible();
+      await page.screenshot({ path: '/tmp/charter-ended-session-shell-available.png' });
       await row.hover();
       await expect(page.getByTestId(`home-end-${taskId!}`)).toHaveCount(0);
       const resume = page.getByTestId(`home-resume-${taskId!}`);
@@ -1430,6 +1454,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
         PI_IDE_OPEN_WORKSPACE: fixture,
         PI_IDE_EXTERNAL_CLIS: 'fakeagent',
         PATH: `${bin}:${process.env.PATH ?? ''}`,
+        ZDOTDIR: bin,
       },
     });
     const rendererErrors: string[] = [];
@@ -1451,15 +1476,16 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       const terminalId = (await terminalPtySnapshot(page)).items[0]!.id;
       await page.keyboard.type('fakeagent');
       await page.keyboard.press('Enter');
+      await waitForTerminalOutput(page, 'fake agent session started', { terminalId });
 
       // Detection = decoration in place (ADR-0017 rev.2): badge + session bar
       // appear, but NOTHING moves — no side panel, the dock stays put.
-      await expect(page.locator('[data-testid^="terminal-agent-"]')).toContainText('fakeagent', {
+      await expect(page.locator('[data-testid^="terminal-agent-"]')).toContainText(/fakeagent/i, {
         timeout: 15000,
       });
       const bar = page.getByTestId('terminal-session-bar');
       await expect(bar).toBeVisible();
-      await expect(bar).toContainText('fakeagent');
+      await expect(bar).toContainText(/fakeagent/i);
       await expect(bar).toContainText('EXT');
       await expect(page.getByTestId('external-panel')).toHaveCount(0);
       await expect(page.getByTestId('bottom-panel')).toBeVisible();
@@ -1471,6 +1497,10 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       });
 
       // The CLI's edit lands in the bar's live counter.
+      await page.locator('.xterm').click();
+      await page.keyboard.type('write-fake-change');
+      await page.keyboard.press('Enter');
+      await waitForTerminalOutput(page, 'edited src/util.ts', { terminalId });
       await expect(page.getByTestId('session-bar-files')).toContainText('1 file', {
         timeout: 15000,
       });
@@ -1482,7 +1512,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await page.getByTestId('session-bar-promote').click();
       const panel = page.getByTestId('external-panel');
       await expect(panel).toBeVisible();
-      await expect(panel).toContainText('fakeagent');
+      await expect(panel).toContainText(/fakeagent/i);
       await expect(page.getByTestId('external-panel-terminal')).toHaveAttribute(
         'data-terminal-id',
         terminalId,
@@ -1572,7 +1602,7 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await expect(page.getByTestId('session-agent-chip')).not.toBeAttached();
       await page.getByTestId('session-more').click();
       await page.getByTestId('session-more-details').click();
-      await expect(page.getByTestId('session-agent-chip')).toContainText('fakeagent');
+      await expect(page.getByTestId('session-agent-chip')).toContainText(/fakeagent/i);
       await expect(page.getByTestId('task-room-external-chip')).toHaveText('External CLI');
       await page.getByTestId('session-more').click();
       await expect(page.getByTestId('external-terminal-column')).toBeVisible();
@@ -1692,16 +1722,18 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
         `  fs.appendFileSync(${JSON.stringify(target)}, 'export const externalTouch = 1;\\n');`,
         "  console.log('✏ edited src/util.ts');",
         '}, 2000);',
-        'setTimeout(() => process.exit(0), 3500);',
+        'setTimeout(() => process.exit(0), 12000);',
         '',
       ].join('\n'),
     );
+    pinFixtureCliPath(bin);
 
     const { app, page } = await launchApp({
       env: {
         PI_IDE_OPEN_WORKSPACE: fixture,
         PI_IDE_EXTERNAL_CLIS: 'fakeclaude',
         PATH: `${bin}:${process.env.PATH ?? ''}`,
+        ZDOTDIR: bin,
       },
     });
     try {
@@ -1714,9 +1746,10 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await waitForTerminalOutput(page, 'ready-marker');
       await page.keyboard.type(`fakeclaude ${join(bin, 'agent.js')}`);
       await page.keyboard.press('Enter');
+      await waitForTerminalOutput(page, 'fake versioned agent started');
 
       // Detection despite the foreground title reading "9.9.9".
-      await expect(page.locator('[data-testid^="terminal-agent-"]')).toContainText('fakeclaude', {
+      await expect(page.locator('[data-testid^="terminal-agent-"]')).toContainText(/fakeclaude/i, {
         timeout: 15000,
       });
 

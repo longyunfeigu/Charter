@@ -489,41 +489,6 @@ export function terminalPresentationEnv(
 /** Known coding-agent CLIs; overridable via PI_IDE_EXTERNAL_CLIS (tests). */
 export const DEFAULT_AGENT_CLIS = ['claude', 'codex'] as const;
 
-/**
- * Shell titles mean the terminal is idle at a prompt; any other foreground
- * title that misses the CLI list gets the process-tree fallback. A positive
- * interpreter list (node/bun/…) proved too narrow: the native claude/codex
- * installers run version-named binaries (`~/.local/bin/claude →
- * …/versions/2.1.209`), so the kernel short name node-pty reports never
- * equals the CLI name. Boundary: a non-exec shell-script wrapper keeps a
- * shell title and is still missed — acceptable, real installers exec or are
- * shebang scripts.
- */
-const KNOWN_SHELL_TITLES = new Set([
-  'sh',
-  'bash',
-  'zsh',
-  'fish',
-  'dash',
-  'ash',
-  'csh',
-  'tcsh',
-  'ksh',
-  'nu',
-  'xonsh',
-  'pwsh',
-  'powershell',
-  'cmd.exe',
-  'login',
-]);
-
-/** `-zsh` (login shell), `/bin/zsh` and the session's own shell all count as idle. */
-function isShellTitle(title: string, sessionShell: string): boolean {
-  const name = basename(title.trim()).toLowerCase().replace(/^-/, '');
-  if (KNOWN_SHELL_TITLES.has(name)) return true;
-  return name === basename(sessionShell).toLowerCase().replace(/^-/, '');
-}
-
 function basename(p: string): string {
   const clean = p.split('\\').join('/');
   return clean.slice(clean.lastIndexOf('/') + 1);
@@ -960,10 +925,9 @@ export class TerminalManager {
         if (session.backend.processTitle() === null) continue;
         const title = this.readTitle(session);
         match = titleMatchesAgent(title, this.agentClis);
-        if (!match && !isShellTitle(title, session.info.shell)) {
-          // Unrecognized foreground program: an interpreter (node/bun), a
-          // version-named installer binary, a wrapper script… the argv of
-          // the tree below the shell is the reliable signal.
+        if (!match) {
+          // Shell integrations and wrappers can leave the foreground title on
+          // the shell. The argv tree below the PTY root remains authoritative.
           if (table === undefined) table = this.readTable();
           if (
             this.asyncProcessTable &&
@@ -992,6 +956,17 @@ export class TerminalManager {
         }
       }
     }
+  }
+
+  /** Refresh the shared process snapshot before sampling. User-initiated Agent
+   * shutdown uses this path so a just-exited child is not mistaken for a live
+   * Agent until the next background cache cycle. */
+  async pollOnceFresh(): Promise<void> {
+    if (this.asyncProcessTable) {
+      this.cachedProcessTable = await readProcessTableAsync();
+      this.processTableCachedAt = Date.now();
+    }
+    this.pollOnce();
   }
 
   create(options: CreateTerminalOptions): TerminalInfo {

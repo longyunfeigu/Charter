@@ -9,7 +9,7 @@ import { createGitFixture } from './helpers/fixtures';
  * dock tab switching, and the Home ⇄ Editor surface round-trip.
  */
 test.describe('terminal re-mount regressions', () => {
-  test('tab switch A→B→A and ⌘E round-trip keep the pane alive', async () => {
+  test('tab switch A→B→A and Editor round-trip keep the pane alive', async () => {
     const fixture = createGitFixture();
     const { app, page } = await launchApp({ env: { PI_IDE_OPEN_WORKSPACE: fixture } });
     try {
@@ -91,7 +91,8 @@ test.describe('terminal re-mount regressions', () => {
       // Home ⇄ Editor round-trip: the active terminal survives the surface flip.
       await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-shell')).toBeVisible({ timeout: 10000 });
-      await page.keyboard.press('Meta+e');
+      await page.getByTestId('home-open-ide').click();
+      await page.keyboard.press('Control+`');
       await expect(page.getByTestId('terminal-panel')).toBeVisible({ timeout: 10000 });
       await expect(page.getByTestId('terminal-host')).toContainText('marker-terminal-B', {
         timeout: 10000,

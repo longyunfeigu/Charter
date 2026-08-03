@@ -23,7 +23,8 @@ test.describe('Signal Desk product visual structure', () => {
       await expect(page.getByTestId('rail-view-sessions')).toContainText('Sessions');
       await expect(page.getByTestId('rail-view-missions')).toContainText('Missions');
       await expect(page.locator('.hm-eyebrow')).toHaveText(/New session brief/i);
-      await expect(page.locator('.hm-brief-steps')).toContainText('Evidence');
+      await expect(page.locator('.hm-hero h1')).toHaveText('What should we build?');
+      await expect(page.getByTestId('home-intent')).toBeVisible();
       await expect(page.locator('.titlebar')).toHaveCSS('height', '52px');
       await expect(page.locator('.sr-rail')).toHaveCSS('width', '312px');
       await expect(page.locator('.sr-activity')).toHaveCSS('width', '78px');

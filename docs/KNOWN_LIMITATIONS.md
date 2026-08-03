@@ -1,4 +1,4 @@
-# Known limitations — Charter 1.0.0-beta.4
+# Known limitations — Charter 1.0.0-beta.5
 
 This is an unsigned public preview, not the signed Stable release defined by the original V1.0
 release gates.
@@ -30,8 +30,22 @@ release gates.
   intelligence remains available to the user.
 - Python intelligence depends on a compatible language server installed on the machine; otherwise the
   UI presents installation guidance.
-- External Claude Code and Codex sessions use the external CLI's permission and network model rather
-  than Charter's managed Tool Gateway policy.
+- External Claude Code, Codex, Kimi Code and custom Manifest sessions use the external CLI's
+  permission and network model rather than Charter's managed Tool Gateway policy.
+- Credential-free CI exercises Mission orchestration with deterministic runtimes. Real Claude Code
+  and Codex Mission suites are opt-in and require the owner's installed CLI/authentication; this Beta
+  does not claim a fixed large-scale real-model qualification.
+
+## Replay and Skills limits
+
+- Terminal Replay records real PTY output only. Managed non-PTY Agent Sessions do not receive a
+  synthetic recording.
+- Terminal recordings can contain commands and terminal output. They remain local under Charter's
+  application-data directory, are included in the Settings storage summary, and are removed by
+  **Delete history & cache**. The recorder keeps a bounded rolling set (up to 60 recordings or
+  800 MB).
+- Observable Skill usage is currently attributed to Charter, Claude Code and Codex. Kimi Code and
+  custom Agent usage is not yet counted, even when their installed Skills appear in the catalog.
 
 ## Product and release limits
 
