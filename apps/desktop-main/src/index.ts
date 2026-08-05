@@ -1221,6 +1221,8 @@ if (!gotLock) {
       const modelCatalog = new ModelCatalogService(
         (providerId) => secretService.catalogProvider(providerId),
         logger.child('models'),
+        undefined,
+        { cacheFile: join(paths.userData, 'verified-models.json') },
       );
       registerM6Handlers(
         taskService,

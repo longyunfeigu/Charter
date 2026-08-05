@@ -1,0 +1,1511 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Charter · External Work Inbox</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #191a18;
+      --ink-2: #2a2b28;
+      --paper: #fbfaf6;
+      --paper-2: #f4f1e9;
+      --paper-3: #ede9df;
+      --line: #d8d3c8;
+      --line-strong: #bcb6aa;
+      --muted: #737168;
+      --muted-2: #97938a;
+      --blue: #1f62c6;
+      --blue-soft: #e8f0fc;
+      --green: #267a4a;
+      --green-soft: #e6f3e9;
+      --orange: #a8581b;
+      --orange-soft: #faeddc;
+      --red: #b53e35;
+      --red-soft: #f8e7e4;
+      --purple: #6853a7;
+      --purple-soft: #eeebf8;
+      --shadow: 0 18px 55px rgba(29, 27, 22, .18), 0 2px 8px rgba(29, 27, 22, .08);
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --display: Iowan Old Style, Charter, Georgia, serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { width: 100%; height: 100%; }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #d7d2c8;
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 13px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input, select, textarea { font: inherit; }
+    button { color: inherit; }
+    button, select { cursor: pointer; }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+    svg { display: block; }
+    [hidden] { display: none !important; }
+
+    .app {
+      width: 100vw;
+      height: 100vh;
+      min-width: 980px;
+      min-height: 660px;
+      display: grid;
+      grid-template-rows: 42px minmax(0, 1fr);
+      background: var(--paper);
+    }
+
+    .titlebar {
+      display: grid;
+      grid-template-columns: 244px 1fr 280px;
+      align-items: center;
+      height: 42px;
+      border-bottom: 1px solid #343532;
+      background: #20211f;
+      color: #f5f3ec;
+      user-select: none;
+    }
+
+    .window-side,
+    .title-actions,
+    .title-context { display: flex; align-items: center; }
+    .window-side { gap: 15px; padding-left: 14px; }
+    .traffic { display: flex; gap: 7px; }
+    .traffic i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+    .traffic i:nth-child(1) { background: #ef6a5d; }
+    .traffic i:nth-child(2) { background: #e9bd4e; }
+    .traffic i:nth-child(3) { background: #61c454; }
+    .brand { font-weight: 730; letter-spacing: .08em; font-size: 11px; }
+    .brand span { color: #81aeea; }
+
+    .title-context {
+      justify-content: center;
+      gap: 7px;
+      min-width: 0;
+      color: #bdbdb6;
+      font-size: 12px;
+    }
+    .title-context strong { color: #f5f3ec; font-weight: 620; }
+    .title-context .slash { color: #5f605c; }
+    .branch-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      max-width: 180px;
+      padding: 4px 7px;
+      border: 1px solid #454642;
+      border-radius: 6px;
+      color: #cdccc5;
+      font-family: var(--mono);
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .title-actions { justify-content: flex-end; gap: 7px; padding-right: 11px; }
+    .title-button {
+      height: 27px;
+      padding: 0 9px;
+      display: inline-flex; align-items: center; gap: 6px;
+      border: 1px solid #454642;
+      border-radius: 6px;
+      background: #292a27;
+      color: #d8d7d0;
+      font-size: 11px;
+    }
+    .key {
+      padding: 1px 4px;
+      border: 1px solid #555651;
+      border-radius: 4px;
+      color: #aaa9a2;
+      font: 9px var(--mono);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 74px 322px minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    .activity-bar {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: #262724;
+      color: #a6a69e;
+      border-right: 1px solid #383935;
+    }
+
+    .activity-nav { padding: 7px 0; }
+    .activity-bottom { margin-top: auto; padding: 7px 0 8px; border-top: 1px solid #3b3c38; }
+    .activity-item {
+      position: relative;
+      width: 100%;
+      height: 49px;
+      padding: 5px 0 4px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      display: grid;
+      place-items: center;
+      gap: 2px;
+    }
+    .activity-item:hover { color: #f0efe9; background: #2e2f2c; }
+    .activity-item.active { color: #f9f8f2; background: #30312e; }
+    .activity-item.active::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 8px;
+      bottom: 8px;
+      width: 3px;
+      border-radius: 0 2px 2px 0;
+      background: #6b9ee3;
+    }
+    .activity-item .icon { width: 19px; height: 19px; }
+    .activity-item span { font-size: 9px; letter-spacing: .01em; }
+    .activity-item .badge-dot {
+      position: absolute;
+      top: 7px;
+      right: 15px;
+      min-width: 14px;
+      height: 14px;
+      padding: 0 3px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      background: #d2623b;
+      color: white;
+      font-size: 8px;
+      font-weight: 700;
+      box-shadow: 0 0 0 2px #262724;
+    }
+
+    .work-rail {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      background: var(--paper-2);
+      border-right: 1px solid var(--line);
+    }
+
+    .rail-head { padding: 17px 16px 11px; }
+    .rail-title-row { display: flex; align-items: center; justify-content: space-between; }
+    .rail-title {
+      margin: 0;
+      font: 600 23px/1.1 var(--display);
+      letter-spacing: -.025em;
+    }
+    .rail-tools { display: flex; gap: 5px; }
+    .icon-button {
+      width: 29px;
+      height: 29px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--paper);
+      color: #56564f;
+    }
+    .icon-button:hover { border-color: var(--line-strong); background: white; }
+    .icon-button .icon { width: 15px; height: 15px; }
+    .rail-subtitle { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      margin-top: 15px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ebe7dd;
+      padding: 3px;
+    }
+    .tab {
+      min-width: 0;
+      height: 28px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: #64635c;
+      font-size: 10px;
+      font-weight: 630;
+      white-space: nowrap;
+    }
+    .tab span { margin-left: 3px; color: #929088; font-family: var(--mono); font-size: 9px; }
+    .tab.active { background: var(--paper); color: var(--ink); box-shadow: 0 1px 3px rgba(35, 32, 26, .10); }
+    .tab.active span { color: var(--blue); }
+
+    .rail-filter { padding: 0 12px 10px; }
+    .search-wrap { position: relative; }
+    .search-wrap .icon {
+      position: absolute;
+      left: 9px;
+      top: 8px;
+      width: 14px;
+      height: 14px;
+      color: var(--muted-2);
+      pointer-events: none;
+    }
+    .search {
+      width: 100%;
+      height: 31px;
+      padding: 0 31px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #faf8f3;
+      color: var(--ink);
+      font-size: 11px;
+    }
+    .search::placeholder { color: #9a978e; }
+    .clear-search {
+      position: absolute;
+      right: 5px;
+      top: 4px;
+      width: 23px;
+      height: 23px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 16px;
+    }
+    .filter-row { display: flex; gap: 6px; margin-top: 7px; }
+    .compact-select {
+      min-width: 0;
+      height: 28px;
+      flex: 1;
+      padding: 0 25px 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--paper);
+      color: #5e5c55;
+      font-size: 10px;
+    }
+    .import-button {
+      height: 28px;
+      padding: 0 9px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: var(--ink);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 650;
+    }
+    .import-button .icon { width: 13px; height: 13px; }
+
+    .work-list {
+      min-height: 0;
+      overflow: auto;
+      padding: 0 8px 18px;
+      scrollbar-width: thin;
+      scrollbar-color: #c7c2b7 transparent;
+    }
+    .group-head {
+      height: 27px;
+      padding: 9px 8px 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #858279;
+      font-size: 9px;
+      font-weight: 750;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+    .group-head span:last-child { font: 9px var(--mono); color: #a29f96; }
+    .work-item {
+      width: 100%;
+      min-height: 76px;
+      padding: 10px 10px 9px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      text-align: left;
+      display: grid;
+      grid-template-columns: 25px minmax(0, 1fr);
+      gap: 8px;
+    }
+    .work-item:hover { background: rgba(255, 255, 255, .55); }
+    .work-item.selected {
+      background: #fff;
+      border-color: #c9c5bc;
+      box-shadow: 0 1px 3px rgba(36, 33, 27, .06);
+    }
+    .source-mark {
+      width: 25px;
+      height: 25px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 10px;
+      color: #fff;
+      background: #242522;
+    }
+    .source-mark.linear { background: #5f52a3; }
+    .source-mark.charter { background: #2d7950; }
+    .work-item-main { min-width: 0; }
+    .item-top, .item-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .item-ref {
+      min-width: 0;
+      color: #7b786f;
+      font: 9px var(--mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .time { flex: none; color: #aaa69d; font-size: 9px; }
+    .item-title {
+      margin-top: 5px;
+      color: #262724;
+      font-size: 11px;
+      font-weight: 635;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .item-foot { margin-top: 7px; justify-content: flex-start; }
+    .mini-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      height: 17px;
+      padding: 0 6px;
+      border-radius: 9px;
+      background: var(--paper-3);
+      color: #65635c;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+    .mini-status.ready { background: var(--blue-soft); color: #285b9f; }
+    .mini-status.running { background: var(--orange-soft); color: #955016; }
+    .mini-status.review { background: var(--purple-soft); color: var(--purple); }
+    .mini-status.done, .mini-status.posted { background: var(--green-soft); color: var(--green); }
+    .mini-status.blocked { background: var(--red-soft); color: var(--red); }
+    .mini-status .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    .item-meta { color: #939087; font-size: 9px; }
+
+    .rail-foot {
+      min-height: 44px;
+      padding: 9px 14px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #76736b;
+      font-size: 9px;
+      background: rgba(246, 243, 235, .96);
+    }
+    .sync { display: flex; align-items: center; gap: 6px; }
+    .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: #49a26c; box-shadow: 0 0 0 3px #dcecdf; }
+    .manage-link { border: 0; background: transparent; color: var(--blue); font-size: 9px; }
+
+    .main-surface {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      background: var(--paper);
+    }
+    .detail-head {
+      min-height: 126px;
+      padding: 21px 28px 17px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(251, 250, 246, .98);
+    }
+    .detail-kicker { display: flex; align-items: center; gap: 7px; color: #747169; font-size: 10px; }
+    .detail-kicker .source-mark { width: 19px; height: 19px; border-radius: 5px; font-size: 8px; }
+    .breadcrumb-arrow { color: #aaa69d; }
+    .detail-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; margin-top: 9px; }
+    .detail-title-wrap { min-width: 0; }
+    .detail-title {
+      margin: 0;
+      max-width: 830px;
+      font: 560 27px/1.14 var(--display);
+      letter-spacing: -.025em;
+    }
+    .detail-meta { margin-top: 9px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; color: #858178; font-size: 10px; }
+    .meta-sep { color: #c2beb5; }
+    .header-actions { display: flex; gap: 7px; flex: none; padding-top: 2px; }
+    .button {
+      min-height: 32px;
+      padding: 0 11px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      background: #fff;
+      color: #34342f;
+      font-size: 10px;
+      font-weight: 660;
+    }
+    .button:hover { border-color: #8f8b82; }
+    .button.primary { border-color: var(--ink); background: var(--ink); color: #fff; }
+    .button.primary:hover { background: #30312d; }
+    .button.blue { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .button.danger { border-color: #d5a19b; color: var(--red); background: #fff9f8; }
+    .button.ghost { border-color: transparent; background: transparent; color: #66645d; }
+    .button .icon { width: 14px; height: 14px; }
+
+    .detail-body {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #c7c2b7 transparent;
+    }
+    .body-inner { padding: 22px 28px 34px; }
+    .content-grid {
+      display: grid;
+      grid-template-columns: minmax(430px, 1fr) 355px;
+      gap: 20px;
+      align-items: start;
+      max-width: 1180px;
+      margin: 0 auto;
+    }
+    .column { display: grid; gap: 14px; }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+    }
+    .card.soft { background: #f8f6f0; }
+    .card-head {
+      min-height: 44px;
+      padding: 12px 15px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border-bottom: 1px solid #e6e2d9;
+    }
+    .card-title { margin: 0; font-size: 11px; font-weight: 740; letter-spacing: .01em; }
+    .card-caption { color: var(--muted); font-size: 9px; }
+    .card-body { padding: 15px; }
+    .prose { color: #45443f; font-size: 12px; line-height: 1.6; }
+    .prose p { margin: 0 0 10px; }
+    .prose p:last-child { margin-bottom: 0; }
+    .quote {
+      margin: 12px 0 0;
+      padding: 10px 12px;
+      border-left: 3px solid #b9cbe7;
+      background: #f4f7fb;
+      color: #565853;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .labels { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 13px; }
+    .label {
+      height: 20px;
+      padding: 0 7px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 10px;
+      background: var(--paper-3);
+      color: #64625a;
+      font: 9px var(--mono);
+    }
+    .label.blue { background: var(--blue-soft); color: #2d5f9d; }
+    .label.red { background: var(--red-soft); color: #9c443d; }
+    .label.green { background: var(--green-soft); color: var(--green); }
+
+    .context-list { display: grid; gap: 0; }
+    .context-row {
+      min-height: 43px;
+      display: grid;
+      grid-template-columns: 27px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid #ece8e0;
+    }
+    .context-row:last-child { border-bottom: 0; }
+    .context-icon {
+      width: 25px;
+      height: 25px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      color: #65635c;
+      background: #f0ede6;
+    }
+    .context-icon .icon { width: 13px; height: 13px; }
+    .context-name { display: block; color: #393a36; font-size: 10px; font-weight: 650; }
+    .context-note { display: block; margin-top: 2px; color: #939087; font-size: 9px; }
+    .context-state { color: var(--green); font-size: 9px; font-weight: 650; }
+
+    .comment {
+      display: grid;
+      grid-template-columns: 25px minmax(0, 1fr);
+      gap: 9px;
+      padding: 11px 0;
+      border-bottom: 1px solid #ece8e0;
+    }
+    .comment:last-child { border-bottom: 0; padding-bottom: 0; }
+    .avatar {
+      width: 25px;
+      height: 25px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #ded8cc;
+      color: #514e47;
+      font-size: 9px;
+      font-weight: 800;
+    }
+    .comment-head { display: block; color: #4d4c46; font-size: 9px; font-weight: 700; }
+    .comment-head span { margin-left: 5px; color: #9a978e; font-weight: 450; }
+    .comment-body { display: block; margin-top: 4px; color: #68665f; font-size: 10px; line-height: 1.45; }
+
+    .launch-card { overflow: hidden; }
+    .launch-intro {
+      padding: 14px 15px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      border-bottom: 1px solid #e5e1d8;
+      background: #f5f8fc;
+    }
+    .mapping-mark {
+      width: 29px;
+      height: 29px;
+      flex: none;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+    .mapping-mark .icon { width: 15px; height: 15px; }
+    .launch-intro strong { display: block; font-size: 11px; }
+    .launch-intro p { margin: 3px 0 0; color: #74736c; font-size: 9px; line-height: 1.45; }
+    .launch-body { padding: 14px 15px; }
+    .field { margin-bottom: 13px; }
+    .field:last-child { margin-bottom: 0; }
+    .field-label {
+      margin-bottom: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #66645d;
+      font-size: 9px;
+      font-weight: 690;
+    }
+    .field-label em { color: var(--green); font-style: normal; font-weight: 620; }
+    .control {
+      width: 100%;
+      min-height: 33px;
+      padding: 7px 9px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fbfaf7;
+      color: #31322f;
+      font-size: 10px;
+    }
+    textarea.control { min-height: 78px; resize: vertical; line-height: 1.45; }
+    .path-control { font-family: var(--mono); font-size: 9px; }
+    .repo-line {
+      min-height: 36px;
+      padding: 7px 9px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fbfaf7;
+    }
+    .repo-icon {
+      width: 21px;
+      height: 21px;
+      border-radius: 5px;
+      display: grid;
+      place-items: center;
+      background: #e8eee9;
+      color: var(--green);
+    }
+    .repo-icon .icon { width: 12px; height: 12px; }
+    .repo-main { min-width: 0; flex: 1; }
+    .repo-name { display: block; font: 9px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .repo-path { display: block; margin-top: 2px; color: #98958c; font: 8px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .confidence { color: var(--green); font-size: 8px; font-weight: 720; }
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+    }
+    .pipeline-step {
+      min-width: 0;
+      min-height: 46px;
+      padding: 7px 6px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f7f5ef;
+      text-align: center;
+      color: #575650;
+      font-size: 8px;
+      line-height: 1.35;
+    }
+    .pipeline-step b { display: block; color: #33342f; font-size: 9px; }
+    .launch-foot { padding: 12px 15px; border-top: 1px solid #e5e1d8; background: #f8f6f1; }
+    .launch-foot .button { width: 100%; height: 36px; }
+    .foot-note { margin-top: 7px; color: #98958c; font-size: 8px; line-height: 1.45; text-align: center; }
+
+    .check-list { display: grid; gap: 8px; }
+    .check-row { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 7px; align-items: start; color: #55544e; font-size: 10px; line-height: 1.4; }
+    .check-row input { width: 14px; height: 14px; margin: 0; accent-color: var(--blue); }
+
+    .running-card { border-color: #d8b78f; background: #fffaf3; }
+    .running-top { padding: 16px; display: flex; gap: 11px; align-items: flex-start; }
+    .running-pulse {
+      width: 31px;
+      height: 31px;
+      flex: none;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--orange-soft);
+      color: var(--orange);
+    }
+    .running-pulse .icon { width: 15px; height: 15px; }
+    .running-title { font-size: 12px; font-weight: 740; }
+    .running-copy { margin-top: 4px; color: #747168; font-size: 10px; line-height: 1.45; }
+    .running-stats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid #ead6bd; border-bottom: 1px solid #ead6bd; }
+    .running-stat { padding: 10px; text-align: center; border-right: 1px solid #ead6bd; }
+    .running-stat:last-child { border-right: 0; }
+    .running-stat b { display: block; font: 700 12px var(--mono); }
+    .running-stat span { color: #8e806d; font-size: 8px; }
+    .running-actions { padding: 12px 15px; display: flex; gap: 7px; }
+    .running-actions .button { flex: 1; }
+
+    .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+    .metric {
+      min-height: 74px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+    }
+    .metric-label { color: #858178; font-size: 8px; font-weight: 680; letter-spacing: .06em; text-transform: uppercase; }
+    .metric-value { margin-top: 8px; font: 650 18px var(--display); }
+    .metric-note { margin-top: 2px; color: #929088; font-size: 8px; }
+    .metric.good .metric-value { color: var(--green); }
+
+    .file-row {
+      min-height: 42px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #ece8e0;
+    }
+    .file-row:last-child { border-bottom: 0; }
+    .file-name { display: flex; align-items: center; gap: 7px; min-width: 0; font: 9px var(--mono); }
+    .file-name .icon { width: 13px; height: 13px; color: #858178; flex: none; }
+    .file-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .diff-stat { display: flex; gap: 5px; font: 9px var(--mono); }
+    .plus { color: var(--green); }
+    .minus { color: var(--red); }
+
+    .verification-row {
+      min-height: 48px;
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid #ece8e0;
+    }
+    .verification-row:last-child { border-bottom: 0; }
+    .verify-icon { width: 23px; height: 23px; border-radius: 50%; display: grid; place-items: center; background: var(--green-soft); color: var(--green); }
+    .verify-icon .icon { width: 12px; height: 12px; }
+    .verify-name { font-size: 10px; font-weight: 660; }
+    .verify-command { margin-top: 2px; color: #97948b; font: 8px var(--mono); }
+    .verify-result { color: var(--green); font: 9px var(--mono); font-weight: 700; }
+
+    .evidence-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .evidence {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      overflow: hidden;
+      background: #f7f5f0;
+    }
+    .evidence-preview { height: 76px; padding: 8px; background: #e7e5df; }
+    .shot-window { height: 100%; border: 1px solid #bdb9b0; border-radius: 3px; background: #fdfcf8; overflow: hidden; }
+    .shot-bar { height: 10px; background: #2a2b28; }
+    .shot-body { display: grid; grid-template-columns: 19px 1fr; height: calc(100% - 10px); }
+    .shot-rail { background: #f0ede5; border-right: 1px solid #d7d2c8; }
+    .shot-lines { padding: 7px 6px; }
+    .shot-lines i { display: block; width: 84%; height: 3px; margin-bottom: 5px; border-radius: 2px; background: #d5d1c8; }
+    .shot-lines i:nth-child(2) { width: 58%; background: #9fbbe2; }
+    .shot-lines i:nth-child(3) { width: 72%; }
+    .terminal-preview { height: 100%; border-radius: 3px; padding: 8px; background: #242522; color: #a9d8b8; font: 6px/1.6 var(--mono); }
+    .log-preview { height: 100%; border-radius: 3px; padding: 8px; background: #f9f7f1; border: 1px solid #c9c5bc; font: 6px/1.6 var(--mono); color: #68665f; }
+    .evidence-info { padding: 7px 8px; }
+    .evidence-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 9px; font-weight: 680; }
+    .evidence-meta { margin-top: 2px; color: #949087; font-size: 8px; }
+
+    .ship-card .card-body { padding: 14px 15px; }
+    .publish-target {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #f8f6f1;
+    }
+    .publish-target .source-mark { width: 25px; height: 25px; }
+    .publish-target strong { display: block; font: 9px var(--mono); }
+    .publish-target span { display: block; margin-top: 2px; color: #969289; font-size: 8px; }
+    .summary-preview {
+      margin-top: 11px;
+      padding: 11px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      color: #66645d;
+      font-size: 9px;
+      line-height: 1.55;
+    }
+    .summary-preview strong { color: #33342f; }
+    .publish-checks { display: grid; gap: 7px; margin: 12px 0; }
+    .published-box { padding: 13px; border: 1px solid #bcd4c2; border-radius: 8px; background: var(--green-soft); color: #376a49; }
+    .published-box strong { display: block; color: var(--green); font-size: 11px; }
+    .published-box p { margin: 4px 0 0; font-size: 9px; line-height: 1.45; }
+
+    .attention-banner {
+      padding: 15px;
+      display: flex;
+      gap: 11px;
+      border: 1px solid #e2c09c;
+      border-radius: 9px;
+      background: #fff8ef;
+    }
+    .attention-banner .mapping-mark { background: var(--orange-soft); color: var(--orange); }
+    .attention-banner strong { display: block; font-size: 12px; }
+    .attention-banner p { margin: 4px 0 0; color: #71685d; font-size: 10px; line-height: 1.45; }
+
+    .empty {
+      min-height: 220px;
+      display: grid;
+      place-items: center;
+      color: #8b887f;
+      text-align: center;
+    }
+    .empty .icon { width: 24px; height: 24px; margin: 0 auto 8px; color: #aaa69d; }
+    .empty strong { display: block; color: #55544e; font-size: 11px; }
+    .empty p { margin: 5px 0 0; font-size: 9px; }
+
+    .modal-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(19, 20, 18, .48);
+    }
+    .modal {
+      width: min(530px, calc(100vw - 48px));
+      max-height: calc(100vh - 48px);
+      overflow: auto;
+      border: 1px solid #aaa59a;
+      border-radius: 12px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+    .modal.wide { width: min(650px, calc(100vw - 48px)); }
+    .modal-head {
+      padding: 17px 18px 14px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .modal-kicker { margin-bottom: 4px; color: var(--blue); font-size: 8px; font-weight: 760; letter-spacing: .09em; text-transform: uppercase; }
+    .modal-title { margin: 0; font: 600 21px/1.2 var(--display); letter-spacing: -.02em; }
+    .modal-copy { margin: 5px 0 0; color: #77746c; font-size: 10px; line-height: 1.45; }
+    .modal-body { padding: 17px 18px; }
+    .modal-foot {
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border-top: 1px solid var(--line);
+      background: #f4f1e9;
+    }
+    .modal-foot-right { display: flex; gap: 7px; margin-left: auto; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-grid .span-2 { grid-column: 1 / -1; }
+    .choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .choice {
+      position: relative;
+      min-height: 74px;
+      padding: 11px 11px 10px 34px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .choice:has(input:checked) { border-color: #8badde; background: #f4f8fe; }
+    .choice input { position: absolute; left: 11px; top: 13px; accent-color: var(--blue); }
+    .choice strong { display: block; font-size: 10px; }
+    .choice p { margin: 4px 0 0; color: #838078; font-size: 9px; line-height: 1.4; }
+    .preview-note {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      font-size: 10px;
+      line-height: 1.55;
+      color: #55544e;
+    }
+    .preview-note h4 { margin: 0 0 8px; color: #252622; font-size: 11px; }
+    .preview-note ul { margin: 8px 0 0 18px; padding: 0; }
+    .preview-note code { font-family: var(--mono); font-size: 9px; }
+
+    .toast {
+      position: fixed;
+      z-index: 70;
+      right: 20px;
+      bottom: 18px;
+      max-width: 360px;
+      min-height: 42px;
+      padding: 10px 13px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      border: 1px solid #b8b3a8;
+      border-radius: 8px;
+      background: #262724;
+      color: #f6f4ee;
+      box-shadow: 0 8px 28px rgba(20, 20, 18, .24);
+      font-size: 10px;
+    }
+    .toast .icon { width: 15px; height: 15px; color: #7dba8e; }
+
+    .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    @media (max-width: 1160px) {
+      .workspace { grid-template-columns: 66px 292px minmax(0, 1fr); }
+      .content-grid { grid-template-columns: minmax(380px, 1fr) 320px; gap: 14px; }
+      .detail-head, .body-inner { padding-left: 20px; padding-right: 20px; }
+      .metric-grid { grid-template-columns: repeat(2, 1fr); }
+      .activity-item span { font-size: 8px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .001ms !important; transition-duration: .001ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <symbol id="i-session" viewBox="0 0 24 24"><path d="M5 5h14v11H8l-3 3z"/><path d="M8 9h8M8 12h5"/></symbol>
+    <symbol id="i-mission" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M22 12h-3"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 14h5l2 2h2l2-2h5"/></symbol>
+    <symbol id="i-project" viewBox="0 0 24 24"><path d="M3 7h7l2 2h9v10H3z"/><path d="M3 7V5h7l2 2"/></symbol>
+    <symbol id="i-remote" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="11" rx="2"/><path d="M8 20h8M12 15v5"/></symbol>
+    <symbol id="i-memory" viewBox="0 0 24 24"><path d="M9 5a3 3 0 0 0-5 2 3 3 0 0 0 1 5 4 4 0 0 0 4 6"/><path d="M15 5a3 3 0 0 1 5 2 3 3 0 0 1-1 5 4 4 0 0 1-4 6M9 5v14M15 5v14M9 9h3M12 14h3"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 2 1.7 6.3L20 10l-6.3 1.7L12 18l-1.7-6.3L4 10l6.3-1.7z"/><path d="m19 17 .6 2.4L22 20l-2.4.6L19 23l-.6-2.4L16 20l2.4-.6z"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.4 1A7 7 0 0 0 15 6l-.3-2.5h-4L10.5 6A7 7 0 0 0 9 7L6.5 6l-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5L9 17a7 7 0 0 0 1.5 1l.3 2.5h4L15 18a7 7 0 0 0 1.5-1l2.4 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5"/><path d="M19 12a7 7 0 1 0-2 5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8"/><path d="M18 13v6H5V6h6"/></symbol>
+    <symbol id="i-git" viewBox="0 0 24 24"><circle cx="7" cy="5" r="2"/><circle cx="7" cy="19" r="2"/><circle cx="17" cy="12" r="2"/><path d="M7 7v10M7 10h5a5 5 0 0 1 5 2"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="6" r="2"/><path d="M6 7v10M8 15c6 0 10-3 10-7"/></symbol>
+    <symbol id="i-comment" viewBox="0 0 24 24"><path d="M4 5h16v12H9l-5 4z"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m4 17 5-5 4 4 2-2 5 4"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 5 3 8 7 10 4-2 7-5 7-10V6z"/><path d="m9 12 2 2 4-5"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="m13 2-8 12h7l-1 8 8-12h-7z"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5H5v11h3"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2.5 20h19z"/><path d="M12 9v5M12 17h.01"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
+  </svg>
+
+  <div class="app">
+    <header class="titlebar">
+      <div class="window-side">
+        <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="brand"><span>CHARTER</span> DESKTOP</div>
+      </div>
+      <div class="title-context">
+        <span>Work</span><span class="slash">/</span><strong>External inbox</strong>
+        <span class="branch-pill"><svg class="icon"><use href="#i-branch"></use></svg> charter-test · master</span>
+      </div>
+      <div class="title-actions">
+        <button type="button" class="title-button" data-action="prototype-action"><svg class="icon"><use href="#i-bolt"></use></svg> Quick console <span class="key">⌘J</span></button>
+        <button type="button" class="title-button" data-action="prototype-action">Commands <span class="key">⌘K</span></button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="activity-bar" aria-label="Primary navigation">
+        <nav class="activity-nav">
+          <button type="button" class="activity-item" data-activity="Sessions" aria-label="Sessions"><svg class="icon"><use href="#i-session"></use></svg><span>Sessions</span></button>
+          <button type="button" class="activity-item" data-activity="Missions" aria-label="Missions"><svg class="icon"><use href="#i-mission"></use></svg><span>Missions</span></button>
+          <button type="button" class="activity-item active" data-activity="Work" aria-current="page" aria-label="Work"><svg class="icon"><use href="#i-inbox"></use></svg><span>Work</span><b class="badge-dot" id="activity-badge">2</b></button>
+          <button type="button" class="activity-item" data-activity="Projects" aria-label="Projects"><svg class="icon"><use href="#i-project"></use></svg><span>Projects</span></button>
+          <button type="button" class="activity-item" data-activity="Remotes" aria-label="Remotes"><svg class="icon"><use href="#i-remote"></use></svg><span>Remotes</span></button>
+          <button type="button" class="activity-item" data-activity="Memory" aria-label="Memory"><svg class="icon"><use href="#i-memory"></use></svg><span>Memory</span></button>
+          <button type="button" class="activity-item" data-activity="Skills" aria-label="Skills"><svg class="icon"><use href="#i-spark"></use></svg><span>Skills</span></button>
+        </nav>
+        <div class="activity-bottom">
+          <button type="button" class="activity-item" data-activity="Editor" aria-label="Editor"><svg class="icon"><use href="#i-code"></use></svg><span>Editor</span></button>
+          <button type="button" class="activity-item" data-activity="Settings" aria-label="Settings"><svg class="icon"><use href="#i-settings"></use></svg><span>Settings</span></button>
+        </div>
+      </aside>
+
+      <aside class="work-rail" aria-label="External work inbox">
+        <div id="rail-head"></div>
+        <div id="rail-filter"></div>
+        <div class="work-list" id="work-list" aria-live="polite"></div>
+        <div class="rail-foot">
+          <span class="sync"><i class="sync-dot"></i> GitHub + Linear synced just now</span>
+          <button type="button" class="manage-link" data-action="manage-connections">Manage</button>
+        </div>
+      </aside>
+
+      <main class="main-surface" id="main-surface"></main>
+    </div>
+  </div>
+
+  <div class="modal-layer" id="modal-layer" hidden></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script>
+    (() => {
+      const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
+
+      const state = {
+        activeTab: 'incoming',
+        selectedId: 'gh-128',
+        query: '',
+        source: 'all',
+        modal: null,
+        importUrl: '',
+        startDraft: null,
+        toastTimer: null,
+        items: [
+          {
+            id: 'att-12', bucket: 'attention', project: 'CHARTER', source: 'charter', ref: 'MISSION M-1042', time: 'now',
+            title: 'Permission needed to publish a GitHub update', status: 'blocked', meta: 'Claude Code · checkout-flow',
+            detail: 'The implementation and validation are complete. Charter is waiting for your approval before posting the Evidence Pack to GitHub issue #117.'
+          },
+          {
+            id: 'att-9', bucket: 'attention', project: 'WEBSITE', source: 'charter', ref: 'MISSION M-1038', time: '18m',
+            title: 'Choose which acceptance criterion wins', status: 'blocked', meta: 'Codex · pricing-page',
+            detail: 'The Linear description and the latest design comment disagree about mobile breakpoint behavior.'
+          },
+          {
+            id: 'gh-128', bucket: 'incoming', project: 'CHARTER', source: 'github', ref: 'edy/charter · #128', time: '6m',
+            title: 'Mission state does not update after closing all Sessions', status: 'ready', meta: 'bug · 4 comments',
+            author: 'edy', created: 'Today at 13:18', repo: 'edy/charter', localProject: 'Charter',
+            path: '/Users/edy/git/charter-test', branch: 'master', confidence: '98% match',
+            labels: ['bug', 'missions', 'state-sync'],
+            description: 'When I start a Mission and then close every Session that belongs to it, the Mission remains in Running. Its state should be derived again after the final child Session closes.',
+            quote: 'Repro: start any multi-agent Mission → close every Session from the rail → return to Mission detail. Header still says Running with 0 active Sessions.',
+            comments: [
+              ['ED', 'edy', '6m ago', 'This also happens when the last Session is stopped from the terminal toolbar.'],
+              ['CL', 'claude-code', '2m ago', 'Likely missing a Mission aggregate refresh after session.lifecycle.closed.']
+            ],
+            acceptance: ['Mission leaves Running when its final Session closes', 'Completed work remains Completed; abandoned work becomes Stopped', 'State updates without reopening the Mission page']
+          },
+          {
+            id: 'lin-342', bucket: 'incoming', project: 'CHARTER', source: 'linear', ref: 'CHARTER-342', time: '21m',
+            title: 'Add a permission checkpoint before publishing evidence', status: 'ready', meta: 'feature · P1',
+            author: 'Nora', created: 'Today at 12:56', repo: 'edy/charter', localProject: 'Charter', path: '/Users/edy/git/charter-test', branch: 'master', confidence: 'Saved rule',
+            labels: ['feature', 'evidence-pack'], description: 'Before Charter posts a result back to an external tracker, show the exact payload and require an explicit confirmation.',
+            quote: 'No external write should happen implicitly when a Mission finishes.', comments: [['NO', 'nora', '18m ago', 'The preview should include links, markdown, and attached evidence names.']],
+            acceptance: ['Preview exact outgoing update', 'Require explicit confirmation', 'Keep a local audit event']
+          },
+          {
+            id: 'gh-121', bucket: 'incoming', project: 'CHARTER', source: 'github', ref: 'edy/charter · #121', time: '43m',
+            title: 'Working Agent icon stops spinning while terminal is active', status: 'ready', meta: 'ui · 2 comments',
+            author: 'edy', created: 'Today at 12:34', repo: 'edy/charter', localProject: 'Charter', path: '/Users/edy/git/charter-test', branch: 'master', confidence: '98% match',
+            labels: ['bug', 'ui'], description: 'The Claude Code Session continues producing output, but the activity icon in the rail no longer animates.',
+            quote: 'The running indicator must reflect process activity, not the age of the last renderer event.', comments: [],
+            acceptance: ['Animation continues while process is active', 'Stopped Sessions remain static']
+          },
+          {
+            id: 'gh-88', bucket: 'incoming', project: 'WEBSITE', source: 'github', ref: 'acme/web · #88', time: '1h',
+            title: 'Pricing cards wrap incorrectly at 1180px', status: 'ready', meta: 'frontend · 1 comment',
+            author: 'Mina', created: 'Today at 11:51', repo: 'acme/web', localProject: 'Marketing website', path: '/Users/edy/git/acme-web', branch: 'main', confidence: '97% match',
+            labels: ['bug', 'responsive'], description: 'The enterprise pricing card drops below the first row between tablet and desktop breakpoints.',
+            quote: 'Keep all three tiers on one row down to 1080px.', comments: [], acceptance: ['Three cards at 1080px', 'No horizontal scroll']
+          },
+          {
+            id: 'lin-401', bucket: 'incoming', project: 'UNMAPPED', source: 'linear', ref: 'OPS-401', time: '2h',
+            title: 'Rotate staging API credentials', status: 'blocked', meta: 'needs project · P0',
+            author: 'Ops', created: 'Today at 10:20', repo: '', localProject: '', path: '', branch: 'main', confidence: 'No mapping',
+            labels: ['security'], description: 'Rotate the staging service token and verify dependent jobs.', quote: 'No local Project is mapped to the Linear OPS team.', comments: [], acceptance: ['New token active', 'Old token revoked']
+          },
+          {
+            id: 'gh-117', bucket: 'review', project: 'CHARTER', source: 'github', ref: 'edy/charter · #117', time: '4m',
+            title: 'Persist terminal transcript in Evidence Pack', status: 'review', meta: 'M-1042 · ready to publish',
+            author: 'edy', created: 'Today at 10:04', repo: 'edy/charter', localProject: 'Charter', path: '/Users/edy/git/charter-test', branch: 'master', confidence: '98% match',
+            labels: ['feature', 'evidence'], description: 'Capture the relevant terminal transcript when a Mission produces a reviewable Evidence Pack.',
+            quote: '', comments: [], acceptance: ['Transcript is captured', 'Secrets are redacted', 'Evidence survives Session closure'], mission: 'M-1042'
+          },
+          {
+            id: 'lin-298', bucket: 'review', project: 'WEBSITE', source: 'linear', ref: 'WEB-298', time: '37m',
+            title: 'Restore keyboard focus after closing command palette', status: 'done', meta: 'M-1036 · local only',
+            author: 'Mina', created: 'Today at 09:42', repo: 'acme/web', localProject: 'Marketing website', path: '/Users/edy/git/acme-web', branch: 'main', confidence: 'Saved rule',
+            labels: ['accessibility'], description: 'Return focus to the initiating control after the command palette closes.', quote: '', comments: [], acceptance: ['Focus restored', 'Escape path covered'], mission: 'M-1036'
+          }
+        ]
+      };
+
+      const sourceName = (source) => source === 'github' ? 'GitHub' : source === 'linear' ? 'Linear' : 'Charter';
+      const sourceShort = (source) => source === 'github' ? 'GH' : source === 'linear' ? 'LI' : 'C';
+      const statusLabel = (status) => ({ ready: 'Ready', running: 'Mission running', review: 'Review', done: 'Done', posted: 'Posted', blocked: 'Needs input' }[status] || status);
+      const tabLabel = (tab) => ({ attention: 'Attention', incoming: 'Incoming', review: 'Review' }[tab]);
+
+      function currentItem() {
+        return state.items.find(item => item.id === state.selectedId) || state.items.find(item => item.bucket === state.activeTab);
+      }
+
+      function counts() {
+        return ['attention', 'incoming', 'review'].reduce((acc, key) => {
+          acc[key] = state.items.filter(item => item.bucket === key).length;
+          return acc;
+        }, {});
+      }
+
+      function visibleItems() {
+        const query = state.query.trim().toLowerCase();
+        return state.items.filter(item => {
+          if (item.bucket !== state.activeTab) return false;
+          if (state.source !== 'all' && item.source !== state.source) return false;
+          if (!query) return true;
+          return [item.title, item.ref, item.project, item.meta].join(' ').toLowerCase().includes(query);
+        });
+      }
+
+      function renderRail() {
+        const c = counts();
+        document.querySelector('#rail-head').innerHTML = `
+          <div class="rail-head">
+            <div class="rail-title-row">
+              <h1 class="rail-title">Work</h1>
+              <div class="rail-tools">
+                <button type="button" class="icon-button" data-action="refresh" aria-label="Refresh external work" title="Refresh external work">${icon('refresh')}</button>
+                <button type="button" class="icon-button" data-action="import" aria-label="Import issue from URL" title="Import issue from URL">${icon('plus')}</button>
+              </div>
+            </div>
+            <p class="rail-subtitle">Requests, decisions, and finished work in one queue.</p>
+            <div class="tabs" role="tablist" aria-label="Work buckets">
+              ${['attention', 'incoming', 'review'].map(tab => `<button type="button" class="tab ${state.activeTab === tab ? 'active' : ''}" role="tab" aria-selected="${state.activeTab === tab}" data-tab="${tab}">${tabLabel(tab)} <span>${c[tab]}</span></button>`).join('')}
+            </div>
+          </div>`;
+        document.querySelector('#rail-filter').innerHTML = `
+          <div class="rail-filter">
+            <div class="search-wrap">
+              ${icon('search')}
+              <input class="search" id="work-search" type="search" autocomplete="off" placeholder="Find issue, project, or repo" value="${escapeHtml(state.query)}" aria-label="Search work" />
+              <button type="button" class="clear-search" data-action="clear-search" aria-label="Clear search" ${state.query ? '' : 'hidden'}>×</button>
+            </div>
+            <div class="filter-row">
+              <select class="compact-select" id="source-filter" aria-label="Filter by source">
+                <option value="all" ${state.source === 'all' ? 'selected' : ''}>All sources</option>
+                <option value="github" ${state.source === 'github' ? 'selected' : ''}>GitHub</option>
+                <option value="linear" ${state.source === 'linear' ? 'selected' : ''}>Linear</option>
+                <option value="charter" ${state.source === 'charter' ? 'selected' : ''}>Charter</option>
+              </select>
+              <button type="button" class="import-button" data-action="import">${icon('link')} Import URL</button>
+            </div>
+          </div>`;
+        document.querySelector('#activity-badge').textContent = c.attention;
+        renderList();
+      }
+
+      function renderList() {
+        const list = document.querySelector('#work-list');
+        const items = visibleItems();
+        if (!items.length) {
+          list.innerHTML = `<div class="empty"><div>${icon('search')}<strong>No matching work</strong><p>Try another source or search term.</p></div></div>`;
+          return;
+        }
+        const groups = items.reduce((acc, item) => {
+          (acc[item.project] ||= []).push(item);
+          return acc;
+        }, {});
+        list.innerHTML = Object.entries(groups).map(([project, group]) => `
+          <section aria-label="${escapeHtml(project)} work">
+            <div class="group-head"><span>${escapeHtml(project)}</span><span>${group.length}</span></div>
+            ${group.map(item => `
+              <button type="button" class="work-item ${state.selectedId === item.id ? 'selected' : ''}" data-select="${item.id}" aria-pressed="${state.selectedId === item.id}">
+                <span class="source-mark ${item.source}">${sourceShort(item.source)}</span>
+                <span class="work-item-main">
+                  <span class="item-top"><span class="item-ref">${escapeHtml(item.ref)}</span><span class="time">${escapeHtml(item.time)}</span></span>
+                  <span class="item-title">${escapeHtml(item.title)}</span>
+                  <span class="item-foot"><span class="mini-status ${item.status}"><i class="dot"></i>${statusLabel(item.status)}</span><span class="item-meta">${escapeHtml(item.meta)}</span></span>
+                </span>
+              </button>`).join('')}
+          </section>`).join('');
+      }
+
+      function renderMain() {
+        const item = currentItem();
+        const surface = document.querySelector('#main-surface');
+        if (!item) {
+          surface.innerHTML = `<div></div><div class="empty"><div>${icon('inbox')}<strong>Select a work item</strong><p>Choose an item from the queue to inspect it.</p></div></div>`;
+          return;
+        }
+        if (item.bucket === 'review') renderEvidence(item, surface);
+        else if (item.bucket === 'attention') renderAttention(item, surface);
+        else renderIncoming(item, surface);
+      }
+
+      function headerHtml(item, options = {}) {
+        return `
+          <header class="detail-head">
+            <div class="detail-kicker">
+              <span class="source-mark ${item.source}">${sourceShort(item.source)}</span>
+              <span>${sourceName(item.source)}</span><span class="breadcrumb-arrow">›</span><span>${escapeHtml(item.ref)}</span>
+            </div>
+            <div class="detail-title-row">
+              <div class="detail-title-wrap">
+                <h2 class="detail-title">${escapeHtml(item.title)}</h2>
+                <div class="detail-meta">
+                  <span class="mini-status ${item.status}"><i class="dot"></i>${statusLabel(item.status)}</span>
+                  <span>${escapeHtml(item.author || 'Charter')}</span><span class="meta-sep">·</span><span>${escapeHtml(item.created || item.time)}</span>
+                  ${item.repo ? `<span class="meta-sep">·</span><span>${escapeHtml(item.repo)}</span>` : ''}
+                </div>
+              </div>
+              <div class="header-actions">
+                ${options.secondary || ''}
+                <button type="button" class="button" data-action="open-source">${icon('external')} Open in ${sourceName(item.source)}</button>
+              </div>
+            </div>
+          </header>`;
+      }
+
+      function issueContextHtml(item) {
+        return `
+          <section class="card">
+            <div class="card-head"><h3 class="card-title">Issue context</h3><span class="card-caption">Imported without flattening the source</span></div>
+            <div class="card-body prose">
+              <p>${escapeHtml(item.description)}</p>
+              ${item.quote ? `<div class="quote">${escapeHtml(item.quote)}</div>` : ''}
+              <div class="labels">${(item.labels || []).map((label, index) => `<span class="label ${index === 0 ? 'blue' : ''}">${escapeHtml(label)}</span>`).join('')}</div>
+            </div>
+          </section>
+          <section class="card">
+            <div class="card-head"><h3 class="card-title">Context Charter will carry in</h3><span class="card-caption">4 objects</span></div>
+            <div class="card-body context-list">
+              <div class="context-row"><span class="context-icon">${icon('file')}</span><span><span class="context-name">Issue body and metadata</span><span class="context-note">Title, labels, author, and source link</span></span><span class="context-state">Included</span></div>
+              <div class="context-row"><span class="context-icon">${icon('comment')}</span><span><span class="context-name">${(item.comments || []).length} source comments</span><span class="context-note">Thread preserved in chronological order</span></span><span class="context-state">Included</span></div>
+              <div class="context-row"><span class="context-icon">${icon('check')}</span><span><span class="context-name">Acceptance criteria</span><span class="context-note">${(item.acceptance || []).length} testable outcomes inferred</span></span><span class="context-state">Editable</span></div>
+              <div class="context-row"><span class="context-icon">${icon('git')}</span><span><span class="context-name">Repository context</span><span class="context-note">README, AGENTS.md, recent related changes</span></span><span class="context-state">At start</span></div>
+            </div>
+          </section>
+          ${(item.comments || []).length ? `
+          <section class="card">
+            <div class="card-head"><h3 class="card-title">Recent discussion</h3><span class="card-caption">${item.comments.length} comments</span></div>
+            <div class="card-body">${item.comments.map(comment => `<div class="comment"><span class="avatar">${escapeHtml(comment[0])}</span><span><span class="comment-head">${escapeHtml(comment[1])}<span>${escapeHtml(comment[2])}</span></span><span class="comment-body">${escapeHtml(comment[3])}</span></span></div>`).join('')}</div>
+          </section>` : ''}`;
+      }
+
+      function startCardHtml(item) {
+        if (item.status === 'running') {
+          return `
+            <section class="card running-card">
+              <div class="running-top"><span class="running-pulse">${icon('play')}</span><span><span class="running-title">Mission ${escapeHtml(item.mission || 'M-1047')} is running</span><span class="running-copy">Charter created a durable Mission from this issue. Source context and the repo mapping are attached.</span></span></div>
+              <div class="running-stats"><span class="running-stat"><b>3</b><span>Sessions</span></span><span class="running-stat"><b>2</b><span>Active</span></span><span class="running-stat"><b>0</b><span>Waiting</span></span></div>
+              <div class="running-actions"><button type="button" class="button primary" data-action="open-mission">${icon('mission')} Open Mission</button><button type="button" class="button" data-action="copy-mission">${icon('copy')} Copy ID</button></div>
+            </section>
+            <section class="card soft">
+              <div class="card-head"><h3 class="card-title">Execution plan</h3><span class="mini-status running"><i class="dot"></i>Live</span></div>
+              <div class="card-body"><div class="pipeline"><div class="pipeline-step"><b>Implement</b>Claude Code</div><div class="pipeline-step"><b>Verify</b>Codex</div><div class="pipeline-step"><b>Review</b>Independent</div></div></div>
+            </section>`;
+        }
+        if (!item.path) {
+          return `
+            <section class="card launch-card">
+              <div class="launch-intro" style="background:#fff5f3"><span class="mapping-mark" style="background:var(--red-soft);color:var(--red)">${icon('alert')}</span><span><strong>No local repository mapping</strong><p>Charter knows the source issue, but not where this work should run.</p></span></div>
+              <div class="launch-body"><div class="field"><div class="field-label">Local Project</div><select class="control"><option>Choose a Project…</option><option>Charter</option><option>Marketing website</option></select></div><div class="field"><div class="field-label">Repository</div><button type="button" class="button" style="width:100%" data-action="locate-repo">${icon('project')} Locate or clone repository</button></div></div>
+            </section>`;
+        }
+        return `
+          <section class="card launch-card">
+            <div class="launch-intro"><span class="mapping-mark">${icon('link')}</span><span><strong>Ready to start in ${escapeHtml(item.localProject)}</strong><p>${sourceName(item.source)} source mapped to a local Project and repository. Verify once, then Charter remembers it.</p></span></div>
+            <div class="launch-body">
+              <div class="field"><div class="field-label"><span>Project & repository</span><em>${escapeHtml(item.confidence)}</em></div><div class="repo-line"><span class="repo-icon">${icon('git')}</span><span class="repo-main"><span class="repo-name">${escapeHtml(item.repo)}</span><span class="repo-path">${escapeHtml(item.path)}</span></span><span class="confidence">✓</span></div></div>
+              <div class="field"><div class="field-label"><span>Base branch</span><span>clean · up to date</span></div><div class="repo-line"><span class="repo-icon">${icon('branch')}</span><span class="repo-main"><span class="repo-name">${escapeHtml(item.branch)}</span><span class="repo-path">New worktree will be created at Mission start</span></span></div></div>
+              <div class="field"><div class="field-label"><span>Suggested collaboration</span><span>3 agents</span></div><div class="pipeline"><div class="pipeline-step"><b>Implement</b>Claude Code</div><div class="pipeline-step"><b>Test</b>Codex</div><div class="pipeline-step"><b>Review</b>Independent</div></div></div>
+              <div class="field"><div class="field-label"><span>Acceptance</span><span>${(item.acceptance || []).length} criteria</span></div><div class="check-list">${(item.acceptance || []).map(text => `<label class="check-row"><input type="checkbox" checked /><span>${escapeHtml(text)}</span></label>`).join('')}</div></div>
+            </div>
+            <div class="launch-foot"><button type="button" class="button primary" data-action="start-mission">${icon('mission')} Review and start Mission</button><div class="foot-note">Nothing is posted back to ${sourceName(item.source)} until you approve an Evidence Pack.</div></div>
+          </section>
+          <section class="card soft">
+            <div class="card-head"><h3 class="card-title">Mapping rule</h3><button type="button" class="button ghost" data-action="edit-mapping">Edit</button></div>
+            <div class="card-body" style="font-size:9px;color:#706e66;line-height:1.55"><code style="font-family:var(--mono);color:#3f403b">${sourceName(item.source)} · ${escapeHtml(item.repo)}</code><br>→ Project <strong>${escapeHtml(item.localProject)}</strong> · repo <strong>${escapeHtml(item.path.split('/').pop())}</strong></div>
+          </section>`;
+      }
+
+      function renderIncoming(item, surface) {
+        surface.innerHTML = `${headerHtml(item)}<div class="detail-body"><div class="body-inner"><div class="content-grid"><div class="column">${issueContextHtml(item)}</div><aside class="column">${startCardHtml(item)}</aside></div></div></div>`;
+      }
+
+      function renderEvidence(item, surface) {
+        const posted = item.status === 'posted';
+        surface.innerHTML = `
+          ${headerHtml(item, { secondary: `<button type="button" class="button" data-action="open-mission">${icon('mission')} ${escapeHtml(item.mission || 'Mission')}</button>` })}
+          <div class="detail-body"><div class="body-inner"><div class="content-grid">
+            <div class="column">
+              <div class="metric-grid">
+                <div class="metric"><div class="metric-label">Change</div><div class="metric-value">3 files</div><div class="metric-note"><span class="plus">+128</span> <span class="minus">−31</span></div></div>
+                <div class="metric good"><div class="metric-label">Tests</div><div class="metric-value">14 / 14</div><div class="metric-note">all checks passed</div></div>
+                <div class="metric good"><div class="metric-label">Electron E2E</div><div class="metric-value">3 / 3</div><div class="metric-note">repeated stable</div></div>
+                <div class="metric good"><div class="metric-label">Review</div><div class="metric-value">0 major</div><div class="metric-note">1 minor note</div></div>
+              </div>
+              <section class="card">
+                <div class="card-head"><h3 class="card-title">Outcome</h3><span class="mini-status done"><i class="dot"></i>Verified</span></div>
+                <div class="card-body prose"><p>Terminal transcript segments are now captured as structured Mission evidence when a Session completes. Secret-like values are redacted before persistence, and the Evidence Pack keeps working after its source Session is closed.</p><div class="quote">Independent review found no critical or major issues. One minor naming note remains non-blocking.</div></div>
+              </section>
+              <section class="card">
+                <div class="card-head"><h3 class="card-title">Files changed</h3><button type="button" class="button ghost" data-action="prototype-action">Open diff</button></div>
+                <div class="card-body" style="padding-top:0;padding-bottom:0">
+                  <div class="file-row"><span class="file-name">${icon('file')}<span>packages/main/src/evidence/transcript-capture.ts</span></span><span class="diff-stat"><i class="plus">+71</i><i class="minus">−8</i></span></div>
+                  <div class="file-row"><span class="file-name">${icon('file')}<span>packages/main/src/session/session-lifecycle.ts</span></span><span class="diff-stat"><i class="plus">+39</i><i class="minus">−17</i></span></div>
+                  <div class="file-row"><span class="file-name">${icon('file')}<span>tests/e2e/evidence-pack.spec.ts</span></span><span class="diff-stat"><i class="plus">+18</i><i class="minus">−6</i></span></div>
+                </div>
+              </section>
+              <section class="card">
+                <div class="card-head"><h3 class="card-title">Verification</h3><span class="card-caption">Run from Mission worktree</span></div>
+                <div class="card-body" style="padding-top:0;padding-bottom:0">
+                  <div class="verification-row"><span class="verify-icon">${icon('check')}</span><span><span class="verify-name">Unit and integration suite</span><span class="verify-command">npm test -- evidence-pack</span></span><span class="verify-result">14 passed</span></div>
+                  <div class="verification-row"><span class="verify-icon">${icon('check')}</span><span><span class="verify-name">Electron workflow</span><span class="verify-command">playwright · evidence-pack.spec.ts ×3</span></span><span class="verify-result">3 passed</span></div>
+                  <div class="verification-row"><span class="verify-icon">${icon('shield')}</span><span><span class="verify-name">Independent code review</span><span class="verify-command">Codex validator · commit 8f42c6a</span></span><span class="verify-result">approved</span></div>
+                </div>
+              </section>
+              <section class="card">
+                <div class="card-head"><h3 class="card-title">Evidence</h3><span class="card-caption">3 artifacts · locally retained</span></div>
+                <div class="card-body evidence-grid">
+                  <button type="button" class="evidence" data-action="prototype-action"><div class="evidence-preview"><div class="shot-window"><div class="shot-bar"></div><div class="shot-body"><div class="shot-rail"></div><div class="shot-lines"><i></i><i></i><i></i></div></div></div></div><div class="evidence-info"><div class="evidence-name">Evidence Pack UI</div><div class="evidence-meta">PNG · 1440×900</div></div></button>
+                  <button type="button" class="evidence" data-action="prototype-action"><div class="evidence-preview"><div class="terminal-preview">✓ captures transcript<br>✓ redacts api token<br>✓ persists after close<br><br>14 passed · 1.82s</div></div><div class="evidence-info"><div class="evidence-name">Test transcript</div><div class="evidence-meta">LOG · 24 KB</div></div></button>
+                  <button type="button" class="evidence" data-action="prototype-action"><div class="evidence-preview"><div class="log-preview">00:00 open mission<br>00:03 select evidence<br>00:05 close session<br>00:07 reopen pack<br>00:09 assertion pass</div></div><div class="evidence-info"><div class="evidence-name">Interaction replay</div><div class="evidence-meta">TRACE · 9 sec</div></div></button>
+                </div>
+              </section>
+            </div>
+            <aside class="column">
+              <section class="card ship-card">
+                <div class="card-head"><h3 class="card-title">Ship result</h3><span class="card-caption">External write requires approval</span></div>
+                <div class="card-body">
+                  <div class="publish-target"><span class="source-mark ${item.source}">${sourceShort(item.source)}</span><span><strong>${escapeHtml(item.ref)}</strong><span>Comment with Evidence Pack summary</span></span></div>
+                  ${posted ? `<div class="published-box" style="margin-top:11px"><strong>Update posted</strong><p>Published to ${sourceName(item.source)} just now. Charter retained the exact payload in the Mission audit log.</p></div><button type="button" class="button" style="width:100%;margin-top:11px" data-action="open-source">${icon('external')} View published update</button>` : `
+                    <div class="summary-preview"><strong>Ready for review</strong><br>Implemented transcript capture, redaction, and persistence. All 14 checks pass; Electron E2E is stable across three runs.</div>
+                    <div class="publish-checks"><label class="check-row"><input type="checkbox" checked /><span>Include verification summary</span></label><label class="check-row"><input type="checkbox" checked /><span>Attach screenshot and trace links</span></label><label class="check-row"><input type="checkbox" /><span>Create pull request after posting</span></label></div>
+                    <button type="button" class="button primary" style="width:100%;height:36px" data-action="post-preview">${icon('external')} Preview ${sourceName(item.source)} update…</button>`}
+                </div>
+              </section>
+              <section class="card soft">
+                <div class="card-head"><h3 class="card-title">Mission audit</h3><span class="card-caption">${escapeHtml(item.mission || 'M-1042')}</span></div>
+                <div class="card-body context-list">
+                  <div class="context-row"><span class="context-icon">${icon('clock')}</span><span><span class="context-name">Completed in 18m 42s</span><span class="context-note">3 Sessions · 2 agents</span></span><span class="context-state">Done</span></div>
+                  <div class="context-row"><span class="context-icon">${icon('git')}</span><span><span class="context-name">Commit 8f42c6a</span><span class="context-note">mission/m-1042-evidence</span></span><span class="context-state">Clean</span></div>
+                  <div class="context-row"><span class="context-icon">${icon('shield')}</span><span><span class="context-name">No external writes yet</span><span class="context-note">Awaiting your approval</span></span><span class="context-state">Safe</span></div>
+                </div>
+              </section>
+            </aside>
+          </div></div></div>`;
+      }
+
+      function renderAttention(item, surface) {
+        surface.innerHTML = `
+          ${headerHtml(item, { secondary: `<button type="button" class="button" data-action="open-mission">${icon('mission')} Open Mission</button>` })}
+          <div class="detail-body"><div class="body-inner"><div class="content-grid">
+            <div class="column">
+              <div class="attention-banner"><span class="mapping-mark">${icon('alert')}</span><span><strong>Charter is waiting for a decision</strong><p>${escapeHtml(item.detail)}</p></span></div>
+              <section class="card"><div class="card-head"><h3 class="card-title">Proposed external update</h3><span class="card-caption">No action taken yet</span></div><div class="card-body"><div class="preview-note"><h4>Implementation complete · Evidence Pack ready</h4><p>The change is implemented and independently reviewed. Unit and Electron E2E checks pass.</p><ul><li>3 files changed (<code>+128 −31</code>)</li><li>14/14 automated checks passed</li><li>0 critical or major review findings</li></ul></div></div></section>
+            </div>
+            <aside class="column"><section class="card launch-card"><div class="launch-intro" style="background:#fff8ef"><span class="mapping-mark" style="background:var(--orange-soft);color:var(--orange)">${icon('shield')}</span><span><strong>Your approval is the boundary</strong><p>Charter never posts to GitHub or Linear just because a Mission completed.</p></span></div><div class="launch-body"><div class="check-list"><label class="check-row"><input type="checkbox" checked /><span>Include verification results</span></label><label class="check-row"><input type="checkbox" checked /><span>Include evidence links</span></label></div></div><div class="launch-foot" style="display:grid;grid-template-columns:1fr 1.35fr;gap:7px"><button type="button" class="button" data-action="keep-local">Keep local</button><button type="button" class="button primary" data-action="approve-attention">Approve & post</button></div></section></aside>
+          </div></div></div>`;
+      }
+
+      function renderModal() {
+        const layer = document.querySelector('#modal-layer');
+        if (!state.modal) {
+          layer.hidden = true;
+          layer.innerHTML = '';
+          return;
+        }
+        layer.hidden = false;
+        if (state.modal === 'import') {
+          layer.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <div class="modal-head"><div><div class="modal-kicker">External work</div><h2 class="modal-title" id="modal-title">Import from a URL</h2><p class="modal-copy">Paste a GitHub Issue or Linear Issue. Charter resolves its Project and repository before any work starts.</p></div><button type="button" class="icon-button" data-action="close-modal" aria-label="Close">${icon('x')}</button></div>
+            <form id="import-form"><div class="modal-body"><div class="field"><label class="field-label" for="import-url">Issue URL</label><input class="control path-control" id="import-url" name="url" placeholder="https://github.com/owner/repo/issues/128" value="${escapeHtml(state.importUrl)}" autofocus /></div><div class="quote">Imports are read-only. Charter will show the exact Project, repository, and branch before creating a Session or Mission.</div></div><div class="modal-foot"><span class="card-caption">GitHub and Linear connections are healthy</span><div class="modal-foot-right"><button type="button" class="button" data-action="close-modal">Cancel</button><button type="submit" class="button primary">Resolve issue</button></div></div></form>
+          </div>`;
+        } else if (state.modal === 'start') {
+          const item = currentItem();
+          const draft = state.startDraft;
+          layer.innerHTML = `<div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <div class="modal-head"><div><div class="modal-kicker">Final check</div><h2 class="modal-title" id="modal-title">Start work from ${escapeHtml(item.ref)}</h2><p class="modal-copy">This creates local work only. Nothing will be posted back to ${sourceName(item.source)}.</p></div><button type="button" class="icon-button" data-action="close-modal" aria-label="Close">${icon('x')}</button></div>
+            <form id="start-form"><div class="modal-body"><div class="form-grid">
+              <div class="field"><label class="field-label" for="start-project">Charter Project</label><select class="control" id="start-project" name="project"><option ${draft.project === 'Charter' ? 'selected' : ''}>Charter</option><option ${draft.project === 'Marketing website' ? 'selected' : ''}>Marketing website</option></select></div>
+              <div class="field"><label class="field-label" for="start-branch">Base branch</label><input class="control path-control" id="start-branch" name="branch" value="${escapeHtml(draft.branch)}" /></div>
+              <div class="field span-2"><label class="field-label" for="start-repo">Local repository</label><input class="control path-control" id="start-repo" name="repo" value="${escapeHtml(draft.path)}" /></div>
+              <div class="field span-2"><div class="field-label">Execution shape</div><div class="choice-grid"><label class="choice"><input type="radio" name="shape" value="mission" ${draft.shape === 'mission' ? 'checked' : ''}/><strong>Mission · recommended</strong><p>Durable multi-agent work with implementation, verification, and independent review.</p></label><label class="choice"><input type="radio" name="shape" value="session" ${draft.shape === 'session' ? 'checked' : ''}/><strong>Single Session</strong><p>One agent in one Session. Best for a small, obvious change.</p></label></div></div>
+              <div class="field span-2"><label class="field-label" for="start-acceptance"><span>Acceptance criteria</span><span>Editable before start</span></label><textarea class="control" id="start-acceptance" name="acceptance">${escapeHtml(draft.acceptance)}</textarea></div>
+            </div></div><div class="modal-foot"><span class="card-caption">A new isolated worktree will be created.</span><div class="modal-foot-right"><button type="button" class="button" data-action="close-modal">Cancel</button><button type="submit" class="button primary">${icon('mission')} Start Mission</button></div></div></form>
+          </div>`;
+        } else if (state.modal === 'post') {
+          const item = currentItem();
+          layer.innerHTML = `<div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <div class="modal-head"><div><div class="modal-kicker">External write preview</div><h2 class="modal-title" id="modal-title">Post update to ${sourceName(item.source)}</h2><p class="modal-copy">This is the exact payload Charter will publish to ${escapeHtml(item.ref)}.</p></div><button type="button" class="icon-button" data-action="close-modal" aria-label="Close">${icon('x')}</button></div>
+            <div class="modal-body"><div class="preview-note"><h4>Implementation complete · Evidence Pack</h4><p>Terminal transcript evidence is now captured, redacted, and retained after its Session closes.</p><ul><li><strong>Change:</strong> 3 files, <code>+128 −31</code></li><li><strong>Verification:</strong> 14/14 checks and 3/3 Electron E2E runs passed</li><li><strong>Review:</strong> no critical or major findings</li><li><strong>Evidence:</strong> UI screenshot, test log, 9-second interaction trace</li></ul><p style="margin-bottom:0">Mission: <code>${escapeHtml(item.mission || 'M-1042')}</code> · Commit: <code>8f42c6a</code></p></div><div class="quote">After publishing, Charter records this exact payload and the source response in the Mission audit log.</div></div>
+            <div class="modal-foot"><span class="card-caption">One comment will be created. No PR yet.</span><div class="modal-foot-right"><button type="button" class="button" data-action="close-modal">Cancel</button><button type="button" class="button primary" data-action="confirm-post">${icon('external')} Post update</button></div></div>
+          </div>`;
+        }
+        requestAnimationFrame(() => {
+          const focusable = layer.querySelector('[autofocus], input, select, textarea, button');
+          if (focusable) focusable.focus();
+        });
+      }
+
+      function selectTab(tab) {
+        state.activeTab = tab;
+        state.query = '';
+        state.source = 'all';
+        const first = state.items.find(item => item.bucket === tab);
+        if (first) state.selectedId = first.id;
+        renderRail();
+        renderMain();
+      }
+
+      function openStart() {
+        const item = currentItem();
+        state.startDraft = {
+          project: item.localProject,
+          branch: item.branch,
+          path: item.path,
+          shape: 'mission',
+          acceptance: (item.acceptance || []).map(text => `• ${text}`).join('\n')
+        };
+        state.modal = 'start';
+        renderModal();
+      }
+
+      function showToast(message) {
+        const toast = document.querySelector('#toast');
+        toast.innerHTML = `${icon('check')}<span>${escapeHtml(message)}</span>`;
+        toast.hidden = false;
+        clearTimeout(state.toastTimer);
+        state.toastTimer = setTimeout(() => { toast.hidden = true; }, 3200);
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
+      }
+
+      document.addEventListener('click', (event) => {
+        const tab = event.target.closest('[data-tab]');
+        if (tab) { selectTab(tab.dataset.tab); return; }
+        const selection = event.target.closest('[data-select]');
+        if (selection) { state.selectedId = selection.dataset.select; renderList(); renderMain(); return; }
+        const activity = event.target.closest('[data-activity]');
+        if (activity && activity.dataset.activity !== 'Work') { showToast(`${activity.dataset.activity} is outside this focused Work prototype.`); return; }
+        const actionEl = event.target.closest('[data-action]');
+        if (!actionEl) return;
+        const action = actionEl.dataset.action;
+        if (action === 'import') { state.modal = 'import'; renderModal(); }
+        else if (action === 'close-modal') { state.modal = null; renderModal(); }
+        else if (action === 'clear-search') { state.query = ''; document.querySelector('#work-search').value = ''; actionEl.hidden = true; renderList(); }
+        else if (action === 'refresh') { showToast('GitHub and Linear are up to date.'); }
+        else if (action === 'start-mission') { openStart(); }
+        else if (action === 'post-preview') { state.modal = 'post'; renderModal(); }
+        else if (action === 'confirm-post') {
+          const item = currentItem(); item.status = 'posted'; state.modal = null; renderModal(); renderRail(); renderMain(); showToast(`Update posted to ${item.ref}.`);
+        }
+        else if (action === 'approve-attention') {
+          const item = currentItem(); item.bucket = 'review'; item.status = 'posted'; state.activeTab = 'review'; state.selectedId = item.id; renderRail(); renderMain(); showToast('Update approved and posted.');
+        }
+        else if (action === 'keep-local') { showToast('Evidence Pack kept local. No external update was posted.'); }
+        else if (action === 'copy-mission') { showToast('Mission ID copied: M-1047'); }
+        else if (action === 'open-mission') { showToast('Mission detail would open in the main surface.'); }
+        else if (action === 'open-source') { showToast('Source issue would open in your connected account.'); }
+        else if (action === 'locate-repo') { showToast('Repository picker would open here.'); }
+        else if (action === 'edit-mapping') { showToast('Mapping rule is editable from Project settings.'); }
+        else if (action === 'manage-connections') { showToast('GitHub and Linear connection settings would open.'); }
+        else { showToast('Prototype interaction acknowledged.'); }
+      });
+
+      document.addEventListener('input', (event) => {
+        if (event.target.id === 'work-search') {
+          state.query = event.target.value;
+          const clear = document.querySelector('.clear-search');
+          if (clear) clear.hidden = !state.query;
+          renderList();
+        }
+      });
+
+      document.addEventListener('change', (event) => {
+        if (event.target.id === 'source-filter') { state.source = event.target.value; renderList(); }
+      });
+
+      document.addEventListener('submit', (event) => {
+        event.preventDefault();
+        if (event.target.id === 'import-form') {
+          const url = new FormData(event.target).get('url').trim();
+          if (!url) { showToast('Paste a GitHub or Linear issue URL first.'); return; }
+          const isLinear = url.toLowerCase().includes('linear');
+          const id = `imported-${Date.now()}`;
+          state.items.splice(3, 0, {
+            id, bucket: 'incoming', project: 'CHARTER', source: isLinear ? 'linear' : 'github', ref: isLinear ? 'CHARTER-509' : 'edy/charter · #209', time: 'now',
+            title: 'Imported external work item', status: 'ready', meta: 'new · mapping confirmed', author: 'external', created: 'Just now', repo: 'edy/charter', localProject: 'Charter',
+            path: '/Users/edy/git/charter-test', branch: 'master', confidence: '98% match', labels: ['imported'],
+            description: 'This issue was resolved from the URL you pasted. The source body, comments, and attachments are ready to carry into a Mission.',
+            quote: url, comments: [], acceptance: ['Confirm the requested behavior', 'Add focused verification']
+          });
+          state.activeTab = 'incoming'; state.selectedId = id; state.query = ''; state.source = 'all'; state.modal = null; state.importUrl = '';
+          renderModal(); renderRail(); renderMain(); showToast('Issue imported and mapped to Charter.');
+        }
+        if (event.target.id === 'start-form') {
+          const form = new FormData(event.target);
+          const item = currentItem();
+          item.localProject = form.get('project'); item.branch = form.get('branch'); item.path = form.get('repo'); item.status = 'running'; item.mission = 'M-1047'; item.meta = 'M-1047 · 2 active';
+          state.modal = null; renderModal(); renderRail(); renderMain(); showToast(`Mission M-1047 started from ${item.ref}.`);
+        }
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && state.modal) { state.modal = null; renderModal(); }
+      });
+
+      renderRail();
+      renderMain();
+      renderModal();
+      window.__mockReady = true;
+      window.__mockState = state;
+    })();
+  </script>
+</body>
+</html>

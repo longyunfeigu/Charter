@@ -1,4 +1,5 @@
 import { productError, ProductFailure, toProductError, type Logger } from '@pi-ide/foundation';
+import type { ModelDescriptor } from '@pi-ide/agent-contract';
 import { providerPreset } from '@pi-ide/ipc-contracts';
 import { registerHandlers } from './router.js';
 import { processPreviewAttachment } from './preview-handlers.js';
@@ -137,7 +138,7 @@ export function registerM6Handlers(
           const registry = await host.listModels(useMock ? 'mock' : 'pi');
           // PIVOT-009: remotely fetched models join the registry list.
           const models = useMock ? registry : catalog.merge(registry);
-          const configured = new Set(secrets.list().map((s) => s.providerId));
+          const configured = new Set(secrets.configuredProviderIds());
           return {
             models: models.map((m) => ({
               ...m,
@@ -164,9 +165,62 @@ export function registerM6Handlers(
           return { models: [], workerAlive: host.alive };
         }
       },
-      'models.fetchRemote': async ({ providerId }) => ({
-        models: await catalog.fetchRemote(providerId),
-      }),
+      'models.fetchRemote': async ({ providerId }) => {
+        let registryCandidates: ModelDescriptor[] = [];
+        try {
+          // The provider's /models endpoint can be stale or incomplete. Pi's
+          // same-provider registry supplies additional ids to verify against
+          // the configured endpoint; verification still decides visibility.
+          registryCandidates = await host.listModels('pi');
+        } catch (e) {
+          // A registry failure must not prevent verification of ids the
+          // provider does advertise.
+          const err = toProductError(e, 'AG_LIST_MODELS_FAILED');
+          logger.warn('Pi registry unavailable during model verification', {
+            providerId,
+            code: err.code,
+            error: err.userMessage,
+          });
+        }
+        const routes = secrets.catalogRoutes(providerId);
+        const routeIds = routes.length > 0 ? routes.map((route) => route.providerId) : [providerId];
+        const settled = await Promise.allSettled(
+          routeIds.map((routeProviderId) =>
+            catalog.fetchRemote(routeProviderId, registryCandidates),
+          ),
+        );
+        const primary = settled[0];
+        if (!primary || primary.status === 'rejected') {
+          throw primary?.reason;
+        }
+        const successful = settled.flatMap((result) =>
+          result.status === 'fulfilled' ? [result.value] : [],
+        );
+        const failedRouteIds = settled.flatMap((result, index) => {
+          if (result.status === 'fulfilled') return [];
+          const failedProviderId = routeIds[index]!;
+          const err = toProductError(result.reason, 'MODELS_FETCH_FAILED');
+          logger.warn('model verification route unavailable', {
+            sourceProviderId: providerId,
+            providerId: failedProviderId,
+            code: err.code,
+            error: err.userMessage,
+          });
+          return [failedProviderId];
+        });
+        return {
+          models: successful.flatMap((result) => result.models),
+          advertisedCount: successful.reduce((sum, result) => sum + result.advertisedCount, 0),
+          registryCandidateCount: successful.reduce(
+            (sum, result) => sum + result.registryCandidateCount,
+            0,
+          ),
+          candidateCount: successful.reduce((sum, result) => sum + result.candidateCount, 0),
+          unavailableModelIds: successful.flatMap((result) => result.unavailableModelIds),
+          routeCount: routeIds.length,
+          failedRouteIds,
+        };
+      },
       'secrets.set': async ({ providerId, apiKey, baseUrl, api, displayName }) => {
         // Custom (non-preset) providers must say how to talk to them.
         const preset = providerPreset(providerId);
@@ -197,13 +251,19 @@ export function registerM6Handlers(
           ...(effectiveApi ? { api: effectiveApi } : {}),
           ...(displayName ? { displayName } : {}),
         });
+        // A key, endpoint or protocol change invalidates point-in-time model
+        // verification. The provider remains hidden until Fetch & verify runs.
+        for (const relatedProviderId of secrets.relatedProviderIds(providerId)) {
+          catalog.evict(relatedProviderId);
+        }
         // Worker must be restarted to pick up new credentials.
         await host.stopWorker();
         return { configured: true };
       },
       'secrets.delete': async ({ providerId }) => {
+        const relatedProviderIds = secrets.relatedProviderIds(providerId);
         const deleted = secrets.delete(providerId);
-        catalog.evict(providerId);
+        for (const relatedProviderId of relatedProviderIds) catalog.evict(relatedProviderId);
         await host.stopWorker(); // ONB-008: invalidate immediately
         return { deleted };
       },

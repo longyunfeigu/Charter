@@ -202,17 +202,25 @@
 .sr-tab {
   position: relative;
   flex: 1;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   min-height: 25px;
+  padding: 0 7px;
   border: 1px solid transparent;
   border-radius: 7px;
   background: none;
   color: var(--fg-muted);
   font-size: 11px;
   cursor: pointer;
+}
+
+.sr-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sr-tab.active {

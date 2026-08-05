@@ -86,7 +86,10 @@ test('skills: manager (toggle/audit) + "/" picker + /skill: task through the moc
     await page.getByTestId('home-mode-ask').click();
     await intent.pressSequentially('[scenario:ask-basic] what is this project?');
     await intent.press('Enter');
-    await expect(page.getByTestId('tl-answered')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
+      timeout: 30000,
+    });
+    await expect(page.getByTestId('tl-answered')).toHaveCount(0);
     // The timeline shows what the user typed — the raw command, not the expansion.
     await expect(page.getByTestId('task-room')).toContainText('/skill:pdf-fill');
     await page.getByTestId('task-room-back').click();

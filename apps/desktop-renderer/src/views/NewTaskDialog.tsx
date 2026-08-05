@@ -34,15 +34,17 @@ export function NewTaskDialog(): React.JSX.Element {
   const configuredModels = useMemo(() => store.models.filter((m) => m.configured), [store.models]);
 
   useEffect(() => {
-    if (!modelKey && configuredModels.length > 0) {
-      const preferred =
-        configuredModels.find(
-          (m) =>
-            m.providerId === settings?.models.defaultProviderId &&
-            m.modelId === settings?.models.defaultModelId,
-        ) ?? configuredModels[0]!;
-      setModelKey(`${preferred.providerId}::${preferred.modelId}`);
-    }
+    const selectedIsVerified = configuredModels.some(
+      (model) => `${model.providerId}::${model.modelId}` === modelKey,
+    );
+    if (selectedIsVerified) return;
+    const preferred =
+      configuredModels.find(
+        (model) =>
+          model.providerId === settings?.models.defaultProviderId &&
+          model.modelId === settings?.models.defaultModelId,
+      ) ?? configuredModels[0];
+    setModelKey(preferred ? `${preferred.providerId}::${preferred.modelId}` : '');
   }, [configuredModels, modelKey, settings]);
 
   const saveKey = async () => {

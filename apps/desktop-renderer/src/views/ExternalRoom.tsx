@@ -33,6 +33,76 @@ function activeTerminalInput(item: Pick<TermInstance, 'term'>): string {
 }
 
 /**
+ * Compact external-Agent identity for the shared Session header. Keeping this
+ * beside the Session title gives the terminal back the full height that used
+ * to be consumed by a second, terminal-only header row.
+ */
+export function ExternalSessionIdentity({ task }: { task: TaskDto }): React.JSX.Element {
+  const external = task.external!;
+  const session = useExternalStore((state) => state.sessions[task.id]);
+  const ownerTaskId = useExternalStore((state) => state.taskByTerminal[external.terminalId]);
+  const terminal = useTerminalStore((state) =>
+    state.items.find((item) => item.id === external.terminalId),
+  );
+  const live = (session?.status ?? external.status) === 'active';
+  const superseded = !live && ownerTaskId !== undefined && ownerTaskId !== task.id;
+  const item = superseded ? null : terminal;
+  const lifecycle = isExternalCli(external.cli)
+    ? externalTerminalLifecycle({
+        cli: external.cli,
+        agent: externalAgentLifecycle(session?.status ?? external.status, task.state),
+        terminalExited: item?.exited ?? true,
+        shellTitle: item?.title,
+      })
+    : null;
+  const peekOpen = useAppStore((state) => state.peek?.taskId === task.id);
+  const follow = useExternalStore((state) => state.follow[task.id] ?? true);
+  const provider = isExternalCli(external.cli) ? externalCliLabel(external.cli) : external.cli;
+
+  return (
+    <div
+      className="session-external-identity"
+      data-testid="session-external-identity"
+      aria-label={live ? `${provider} running` : lifecycle?.summary}
+      title="External Agent session — execution is outside Charter's Tool Gateway"
+    >
+      <span
+        className={`tr-extdot ${live ? 'live' : ''}`}
+        data-testid={live ? 'external-live' : undefined}
+        aria-label={live ? 'External Agent live' : undefined}
+      />
+      <span className="tr-extname">✳ {provider}</span>
+      {live && peekOpen ? (
+        <button
+          className={`tr-extlive ${follow ? '' : 'paused'}`}
+          data-testid="external-follow"
+          title={
+            follow
+              ? 'The peek follows what the CLI is writing. Click to pin the current file.'
+              : 'Auto-follow is pinned off. Click to follow live changes again.'
+          }
+          onClick={() => useExternalStore.getState().setFollow(task.id, !follow)}
+        >
+          {follow ? 'Following changes' : 'Follow latest change'}
+        </button>
+      ) : !live ? (
+        <>
+          <span className="tr-extended" data-testid="external-ended">
+            {lifecycle?.agentLabel ?? 'Agent ended'}
+          </span>
+          <span
+            className={`tr-extterminal ${lifecycle?.terminal === 'live' ? 'available' : ''}`}
+            data-testid="external-terminal-lifecycle"
+          >
+            {lifecycle?.terminalLabel ?? 'Terminal ended'}
+          </span>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * ADR-0017 — the center column of an external CLI session's Task Room: the
  * session's real terminal (same xterm instance as the dock, PTY uninterrupted)
  * in the place where the timeline + composer normally live. ADR-0030: the
@@ -195,46 +265,6 @@ export function ExternalTerminalColumn({
         void injectDroppedRefs(task.id, sameProject, e).then(() => item?.term.focus());
       }}
     >
-      <div className="tr-exthead">
-        <span
-          className={`tr-extdot ${live ? 'live' : ''}`}
-          data-testid={live ? 'external-live' : undefined}
-          aria-label={live ? 'External Agent live' : undefined}
-        />
-        <span
-          className="tr-extname"
-          title="External Agent session — execution is outside Charter's Tool Gateway"
-        >
-          ✳ {isExternalCli(external.cli) ? externalCliLabel(external.cli) : external.cli}
-        </span>
-        <span className="tr-sp" />
-        {live && peekOpen ? (
-          <button
-            className={`tr-extlive ${follow ? '' : 'paused'}`}
-            data-testid="external-follow"
-            title={
-              follow
-                ? 'The peek follows what the CLI is writing. Click to pin the current file.'
-                : 'Auto-follow is pinned off. Click to follow live changes again.'
-            }
-            onClick={() => useExternalStore.getState().setFollow(task.id, !follow)}
-          >
-            {follow ? 'Following changes' : 'Follow latest change'}
-          </button>
-        ) : !live ? (
-          <>
-            <span className="tr-extended" data-testid="external-ended">
-              {lifecycle?.agentLabel ?? 'Agent ended'}
-            </span>
-            <span
-              className={`tr-extterminal ${lifecycle?.terminal === 'live' ? 'available' : ''}`}
-              data-testid="external-terminal-lifecycle"
-            >
-              {lifecycle?.terminalLabel ?? 'Terminal ended'}
-            </span>
-          </>
-        ) : null}
-      </div>
       <div className="tr-extbody">
         {item ? (
           <div

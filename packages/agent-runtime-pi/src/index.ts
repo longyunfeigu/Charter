@@ -244,6 +244,29 @@ export interface PiRuntimeOptions {
   credentials: WorkerCredential[];
 }
 
+interface RegistryModelShape {
+  provider: string;
+  id: string;
+  name?: string;
+  reasoning?: boolean;
+  input?: Array<'text' | 'image'>;
+  cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  contextWindow?: number;
+  maxTokens?: number;
+  thinkingLevelMap?: Partial<Record<ThinkingLevel, string | null>>;
+}
+
+interface RegisteredGatewayModel {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  input: Array<'text' | 'image'>;
+  cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  contextWindow: number;
+  maxTokens: number;
+  thinkingLevelMap?: Partial<Record<ThinkingLevel, string | null>>;
+}
+
 export class PiAgentRuntime implements AgentRuntime {
   private readonly toolExecutor: ToolExecutor;
   private readonly credentials: WorkerCredential[];
@@ -285,10 +308,21 @@ export class PiAgentRuntime implements AgentRuntime {
     });
     // Gateway/proxy support: a credential base URL re-points every model of
     // that provider at the custom endpoint (pi keeps the provider's API shape).
-    // Providers unknown to the registry (openrouter/litellm/custom gateways)
-    // are created lazily in ensureModel() with their wire protocol.
+    // A derived multi-protocol route clones canonical model metadata under its
+    // own provider id and API, so (for example) GPT uses chat/completions while
+    // the source credential's Claude models continue using messages.
     for (const credential of this.credentials) {
-      if (credential.baseUrl && this.isKnownProvider(credential.providerId)) {
+      if (credential.baseUrl && credential.registryProviderId) {
+        const models = this.registeredModelsFor(credential.registryProviderId);
+        if (models.length > 0) {
+          this.registry.registerProvider(credential.providerId, {
+            baseUrl: credential.baseUrl,
+            api: this.apiFor(credential.providerId),
+            apiKey: credential.value,
+            models,
+          });
+        }
+      } else if (credential.baseUrl && this.isKnownProvider(credential.providerId)) {
         this.registry.registerProvider(credential.providerId, { baseUrl: credential.baseUrl });
       }
     }
@@ -310,6 +344,27 @@ export class PiAgentRuntime implements AgentRuntime {
     return providerId === 'openai' ? 'openai-completions' : 'anthropic-messages';
   }
 
+  private registeredModelsFor(providerId: string): RegisteredGatewayModel[] {
+    const source = (this.registry.getModels() as unknown as RegistryModelShape[]).filter(
+      (model) => model.provider === providerId,
+    );
+    return source.map((model) => ({
+      id: model.id,
+      name: model.name ?? model.id,
+      reasoning: Boolean(model.reasoning),
+      input: model.input ?? ['text'],
+      cost: {
+        input: model.cost?.input ?? 0,
+        output: model.cost?.output ?? 0,
+        cacheRead: model.cost?.cacheRead ?? 0,
+        cacheWrite: model.cost?.cacheWrite ?? 0,
+      },
+      contextWindow: model.contextWindow ?? 200000,
+      maxTokens: model.maxTokens ?? 8192,
+      ...(model.thinkingLevelMap ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
+    }));
+  }
+
   /**
    * A custom gateway may list model ids pi's registry does not know built-in.
    * Synthesize a registration for the missing id (keeping every existing model
@@ -319,41 +374,7 @@ export class PiAgentRuntime implements AgentRuntime {
     if (this.registry.getModel(providerId, modelId)) return;
     const credential = this.credentials.find((c) => c.providerId === providerId);
     if (!credential?.baseUrl) return; // only synthesize for custom endpoints
-    type RegisteredModel = {
-      id: string;
-      name: string;
-      reasoning: boolean;
-      input: Array<'text' | 'image'>;
-      cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
-      contextWindow: number;
-      maxTokens: number;
-    };
-    const existing = (
-      this.registry.getModels() as unknown as Array<{
-        provider: string;
-        id: string;
-        name?: string;
-        reasoning?: boolean;
-        input?: Array<'text' | 'image'>;
-        cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
-        contextWindow?: number;
-        maxTokens?: number;
-      }>
-    ).filter((m) => m.provider === providerId);
-    const models: RegisteredModel[] = existing.map((m) => ({
-      id: m.id,
-      name: m.name ?? m.id,
-      reasoning: Boolean(m.reasoning),
-      input: m.input ?? ['text'],
-      cost: {
-        input: m.cost?.input ?? 0,
-        output: m.cost?.output ?? 0,
-        cacheRead: m.cost?.cacheRead ?? 0,
-        cacheWrite: m.cost?.cacheWrite ?? 0,
-      },
-      contextWindow: m.contextWindow ?? 200000,
-      maxTokens: m.maxTokens ?? 8192,
-    }));
+    const models = this.registeredModelsFor(providerId);
     models.push({
       id: modelId,
       name: modelId,

@@ -19,7 +19,7 @@ async function createAskTask(
 }
 
 test.describe('M6 read-only agent with deterministic runtime', () => {
-  test('E2E-009: ask task streams an answer, reads through the gateway, ends REVIEW_READY', async () => {
+  test('E2E-009: ask task streams an answer, reads through the gateway, settles IDLE', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
@@ -46,11 +46,10 @@ test.describe('M6 read-only agent with deterministic runtime', () => {
       // review bar (nothing to review), the light Answered dock instead.
       await expect(page.getByTestId('review-bar')).toHaveCount(0);
       await expect(page.getByTestId('task-room-answered')).toBeVisible();
-      // Usage remains recorded but is summarized once instead of interrupting
-      // each turn in the conversation.
-      const details = page.getByTestId('tl-run-details');
-      await details.locator('summary').click();
-      await expect(details).toContainText('Tokens');
+      // Completion and usage telemetry remain recorded off-surface; the
+      // conversation only shows messages and actual tool activity.
+      await expect(page.getByTestId('tl-answered')).toHaveCount(0);
+      await expect(page.getByTestId('tl-run-details')).toHaveCount(0);
     } finally {
       await app.close();
     }

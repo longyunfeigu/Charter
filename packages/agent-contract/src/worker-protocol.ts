@@ -20,6 +20,12 @@ export interface WorkerCredential {
   baseUrl?: string | null;
   /** Wire protocol for non-builtin providers (openrouter/litellm/custom gateways). */
   api?: 'anthropic' | 'openai' | null;
+  /**
+   * Built-in Pi provider whose model metadata should seed this derived route.
+   * The route keeps its own providerId/API while reusing names, limits and
+   * reasoning capabilities from the canonical provider.
+   */
+  registryProviderId?: string | null;
 }
 
 export type WorkerInbound =

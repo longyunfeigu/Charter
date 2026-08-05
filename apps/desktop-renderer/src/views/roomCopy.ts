@@ -9,12 +9,6 @@ export interface RoomCopy {
   previousConversation: string;
   plan: string;
   steps: (count: number) => string;
-  activity: string;
-  actions: (count: number) => string;
-  runDetails: string;
-  duration: string;
-  tokens: string;
-  cost: string;
   thinking: string;
   thought: string;
   reviewReady: string;
@@ -43,12 +37,6 @@ const EN: RoomCopy = {
   previousConversation: 'Previous Session context attached',
   plan: 'Plan',
   steps: (count) => `${count} step${count === 1 ? '' : 's'}`,
-  activity: 'Activity',
-  actions: (count) => `${count} action${count === 1 ? '' : 's'}`,
-  runDetails: 'Run details',
-  duration: 'Duration',
-  tokens: 'Tokens',
-  cost: 'Cost',
   thinking: 'Thinking',
   thought: 'Thought',
   reviewReady: 'Ready to review',
@@ -78,12 +66,6 @@ const ZH: RoomCopy = {
   previousConversation: '已附带上一 Session 的上下文',
   plan: '计划',
   steps: (count) => `${count} 步`,
-  activity: '活动',
-  actions: (count) => `${count} 项操作`,
-  runDetails: '运行详情',
-  duration: '耗时',
-  tokens: 'Token',
-  cost: '费用',
   thinking: 'Thinking',
   thought: 'Thinking',
   reviewReady: '待审查',

@@ -207,7 +207,7 @@ test.describe('Session rail and conversation role polish', () => {
 
       const summary = page.getByTestId('rail-running-summary');
       await expect(summary).toHaveAttribute('aria-label', '1 session running');
-      await expect(summary).toHaveText('1');
+      await expect(summary.locator('.sr-running-count')).toHaveText('1');
       await summary.click();
       const confirm = page.getByTestId('rail-stop-all-confirm');
       await expect(confirm).toBeVisible();
@@ -245,6 +245,80 @@ test.describe('Session rail and conversation role polish', () => {
         'Stopped 1 running session. Records remain in Session Archive.',
       );
       await expect(page.locator('button[data-testid^="home-task-"]')).toHaveCount(1);
+      expect(errors).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('keeps navigation and running status distinct at the minimum rail width', async () => {
+    const fixture = createGitFixture();
+    const { app, page } = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+      home: 'keep',
+    });
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(`console: ${message.text()}`);
+    });
+
+    try {
+      await page.setViewportSize({ width: 1220, height: 780 });
+      await startMockTask(
+        page,
+        'Waiting for narrow rail input',
+        '[scenario:ask-clarify] wait for input while the rail is resized',
+      );
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'AWAITING_USER', {
+        timeout: 20_000,
+      });
+
+      const resizeHandle = page.getByTestId('rail-resize-handle');
+      await resizeHandle.focus();
+      await resizeHandle.press('ArrowLeft');
+      await resizeHandle.press('ArrowLeft');
+      await resizeHandle.press('ArrowLeft');
+
+      const rail = page.locator('.sr-rail');
+      await expect(rail).toHaveCSS('width', '288px');
+      await expect(rail).toHaveAttribute('data-rail-density', 'compact');
+      await expect(page.getByTestId('rail-tab-sessions')).toContainText('Sessions');
+      await expect(page.getByTestId('rail-tab-files')).toContainText('Files');
+      await expect(page.getByTestId('rail-running-summary')).toContainText('running');
+
+      const layout = await page.evaluate(() => {
+        const rect = (selector: string): DOMRect =>
+          document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+        const line = rect('.sr-session-tabs-line');
+        const tabs = rect('.sr-tabs');
+        const running = rect('[data-testid="rail-running-summary"]');
+        const sessionsLabel = document.querySelector<HTMLElement>(
+          '[data-testid="rail-tab-sessions"] .sr-tab-label',
+        )!;
+        const filesLabel = document.querySelector<HTMLElement>(
+          '[data-testid="rail-tab-files"] .sr-tab-label',
+        )!;
+        return {
+          line: { left: line.left, right: line.right },
+          tabs: { left: tabs.left, right: tabs.right, bottom: tabs.bottom },
+          running: { left: running.left, right: running.right, top: running.top },
+          labelsFit:
+            sessionsLabel.scrollWidth <= sessionsLabel.clientWidth &&
+            filesLabel.scrollWidth <= filesLabel.clientWidth,
+        };
+      });
+      expect(layout.tabs.left).toBeGreaterThanOrEqual(layout.line.left);
+      expect(layout.tabs.right).toBeLessThanOrEqual(layout.line.right);
+      expect(layout.running.left).toBeGreaterThanOrEqual(layout.line.left);
+      expect(layout.running.right).toBeLessThanOrEqual(layout.line.right);
+      expect(layout.running.top).toBeGreaterThanOrEqual(layout.tabs.bottom);
+      expect(layout.labelsFit).toBe(true);
+
+      await page.screenshot({
+        path: join(tmpdir(), 'charter-session-rail-resized-minimum.png'),
+        fullPage: true,
+      });
       expect(errors).toEqual([]);
     } finally {
       await app.close();

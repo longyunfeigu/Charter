@@ -62,7 +62,11 @@ test('shell v4 visual walk', async () => {
     await page.getByTestId('home-mode-ask').click();
     await page.getByTestId('home-intent').fill('[scenario:ask-basic] what is this project?');
     await page.getByTestId('home-submit').click();
-    await expect(page.getByTestId('tl-answered')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
+      timeout: 30000,
+    });
+    await expect(page.getByTestId('tl-answered')).toHaveCount(0);
+    await expect(page.getByTestId('tl-run-details')).toHaveCount(0);
     await page.screenshot({ path: `${OUT}/v4-7-room-answered.png` });
   } finally {
     await app.close();

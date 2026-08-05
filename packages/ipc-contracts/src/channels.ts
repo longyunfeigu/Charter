@@ -2150,7 +2150,15 @@ export const CHANNELS = {
     'models.fetchRemote',
     1,
     z.object({ providerId: z.string().min(1).max(100) }).strict(),
-    z.object({ models: z.array(ModelDescriptorDtoSchema) }),
+    z.object({
+      models: z.array(ModelDescriptorDtoSchema),
+      advertisedCount: z.number().int().nonnegative(),
+      registryCandidateCount: z.number().int().nonnegative(),
+      candidateCount: z.number().int().nonnegative(),
+      unavailableModelIds: z.array(z.string()),
+      routeCount: z.number().int().positive(),
+      failedRouteIds: z.array(z.string()),
+    }),
   ),
   'secrets.set': ch(
     'secrets.set',

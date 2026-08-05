@@ -268,6 +268,7 @@ html.sr-resizing * {
 }
 .sr-running-compact-wrap {
   position: static;
+  flex: none;
 }
 .sr-running-compact {
   height: 24px;
@@ -281,6 +282,10 @@ html.sr-resizing * {
   color: var(--fg-muted);
   font: 600 10px var(--font-mono);
   cursor: pointer;
+}
+.sr-running-label {
+  display: none;
+  font-family: var(--font-ui);
 }
 .sr-running-dot {
   width: 6px;
@@ -299,6 +304,44 @@ html.sr-resizing * {
 .sr-running-compact:disabled {
   cursor: wait;
   opacity: 0.55;
+}
+
+/* At the minimum resizable rail width, the status pill otherwise reads like a
+ * Files badge. Give navigation and runtime status their own rows so neither
+ * control truncates or changes meaning as the rail contracts. */
+.sr-rail.is-narrow .sr-sessions-head {
+  padding-right: 10px;
+  padding-left: 10px;
+}
+.sr-rail.is-narrow .sr-session-tabs-line {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sr-rail.is-narrow .sr-session-tabs-line .sr-tabs {
+  flex: 1 0 100%;
+}
+.sr-rail.is-narrow .sr-tab {
+  gap: 4px;
+  padding-right: 5px;
+  padding-left: 5px;
+}
+.sr-rail.is-narrow [data-testid='rail-tab-sessions'] {
+  flex-grow: 1.35;
+}
+.sr-rail.is-narrow [data-testid='rail-tab-files'] {
+  flex-grow: 0.75;
+}
+.sr-rail.is-narrow .sr-running-compact-wrap {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+}
+.sr-rail.is-narrow .sr-running-compact {
+  gap: 5px;
+  padding: 0 9px;
+}
+.sr-rail.is-narrow .sr-running-label {
+  display: inline;
 }
 .sr-stop-all-popover {
   position: absolute;

@@ -187,15 +187,17 @@ export function HomeView(): React.JSX.Element {
     [taskStore.models],
   );
   useEffect(() => {
-    if (!modelKey && configuredModels.length > 0) {
-      const preferred =
-        configuredModels.find(
-          (m) =>
-            m.providerId === app.settings?.models.defaultProviderId &&
-            m.modelId === app.settings?.models.defaultModelId,
-        ) ?? configuredModels[0]!;
-      setModelKey(`${preferred.providerId}::${preferred.modelId}`);
-    }
+    const selectedIsVerified = configuredModels.some(
+      (model) => `${model.providerId}::${model.modelId}` === modelKey,
+    );
+    if (selectedIsVerified) return;
+    const preferred =
+      configuredModels.find(
+        (model) =>
+          model.providerId === app.settings?.models.defaultProviderId &&
+          model.modelId === app.settings?.models.defaultModelId,
+      ) ?? configuredModels[0];
+    setModelKey(preferred ? `${preferred.providerId}::${preferred.modelId}` : '');
   }, [configuredModels, modelKey, app.settings]);
 
   // Effort × model linkage lives inside ModelEffortControl now (it clamps the

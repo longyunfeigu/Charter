@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import { errorMessage, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import type { WorkerCredential } from '@pi-ide/agent-contract';
 import {
+  alternateProviderApi,
   effectiveBaseUrl,
+  gatewayBaseUrlForApi,
+  gatewayRouteProviderId,
+  parseGatewayRouteProviderId,
   providerPreset,
   type ProviderApi,
   type ProviderInfoDto,
@@ -14,6 +18,16 @@ export interface ProviderMeta {
   baseUrl?: string | null;
   api?: ProviderApi;
   displayName?: string;
+}
+
+export interface CatalogProviderRoute {
+  providerId: string;
+  displayName: string;
+  api: ProviderApi;
+  apiKey: string;
+  baseUrl: string | null;
+  /** Canonical Pi provider used to seed unadvertised model candidates. */
+  registryProviderId?: string;
 }
 
 /** Legacy meta files (pre multi-provider) only knew anthropic/openai. */
@@ -144,15 +158,8 @@ export class SecretService {
     }
   }
 
-  /** Full provider record for the model catalog (main-process only). */
-  catalogProvider(providerId: string): {
-    providerId: string;
-    displayName: string;
-    api: ProviderApi;
-    apiKey: string;
-    baseUrl: string | null;
-  } | null {
-    const info = this.list().find((i) => i.providerId === providerId);
+  private explicitCatalogProvider(providerId: string): CatalogProviderRoute | null {
+    const info = this.list().find((item) => item.providerId === providerId);
     if (!info) return null;
     const secret = this.decrypt(providerId);
     if (!secret) return null;
@@ -162,7 +169,68 @@ export class SecretService {
       api: info.api,
       apiKey: secret.value,
       baseUrl: effectiveBaseUrl(providerId, info.api, info.baseUrl),
+      ...(providerPreset(providerId)?.builtin ? { registryProviderId: providerId } : {}),
     };
+  }
+
+  private derivedCatalogProvider(
+    sourceProviderId: string,
+    targetApi: ProviderApi,
+  ): CatalogProviderRoute | null {
+    const sourceInfo = this.list().find((item) => item.providerId === sourceProviderId);
+    // Only explicit endpoint overrides are gateways. Never derive a second
+    // protocol route from an official Anthropic/OpenAI endpoint.
+    if (!sourceInfo?.baseUrl || sourceInfo.api === targetApi) return null;
+    const secret = this.decrypt(sourceProviderId);
+    if (!secret) return null;
+    const registryProviderId = targetApi === 'openai' ? 'openai' : 'anthropic';
+    return {
+      providerId: gatewayRouteProviderId(sourceProviderId, targetApi),
+      displayName: `${targetApi === 'openai' ? 'OpenAI' : 'Claude'} via ${sourceInfo.displayName} gateway`,
+      api: targetApi,
+      apiKey: secret.value,
+      baseUrl: gatewayBaseUrlForApi(sourceInfo.baseUrl, sourceInfo.api, targetApi),
+      registryProviderId,
+    };
+  }
+
+  /** Full provider record for the model catalog (main-process only). */
+  catalogProvider(providerId: string): CatalogProviderRoute | null {
+    const explicit = this.explicitCatalogProvider(providerId);
+    if (explicit) return explicit;
+    const derived = parseGatewayRouteProviderId(providerId);
+    return derived ? this.derivedCatalogProvider(derived.sourceProviderId, derived.api) : null;
+  }
+
+  /** Primary route plus the alternate wire protocol for a custom endpoint. */
+  catalogRoutes(providerId: string): CatalogProviderRoute[] {
+    const primary = this.explicitCatalogProvider(providerId);
+    if (!primary) {
+      const route = this.catalogProvider(providerId);
+      return route ? [route] : [];
+    }
+    const alternate = this.derivedCatalogProvider(providerId, alternateProviderApi(primary.api));
+    return alternate ? [primary, alternate] : [primary];
+  }
+
+  /** Cache ids affected when this source credential changes or is deleted. */
+  relatedProviderIds(providerId: string): string[] {
+    return [
+      providerId,
+      gatewayRouteProviderId(providerId, 'anthropic'),
+      gatewayRouteProviderId(providerId, 'openai'),
+    ];
+  }
+
+  /** Includes ephemeral protocol routes; contains no secret material. */
+  configuredProviderIds(): string[] {
+    const ids = new Set<string>();
+    for (const item of this.list()) {
+      ids.add(item.providerId);
+      if (item.baseUrl)
+        ids.add(gatewayRouteProviderId(item.providerId, alternateProviderApi(item.api)));
+    }
+    return [...ids];
   }
 
   /** Decrypted credentials for the agent worker (never crosses to the renderer). */
@@ -185,6 +253,17 @@ export class SecretService {
           : effectiveBaseUrl(item.providerId, item.api, secret.baseUrl),
         api: item.api,
       });
+      if (item.baseUrl) {
+        const routeApi = alternateProviderApi(item.api);
+        credentials.push({
+          providerId: gatewayRouteProviderId(item.providerId, routeApi),
+          kind: 'api-key',
+          value: secret.value,
+          baseUrl: gatewayBaseUrlForApi(item.baseUrl, item.api, routeApi),
+          api: routeApi,
+          registryProviderId: routeApi === 'openai' ? 'openai' : 'anthropic',
+        });
+      }
     }
     return credentials;
   }

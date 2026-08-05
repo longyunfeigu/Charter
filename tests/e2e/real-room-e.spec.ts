@@ -53,8 +53,8 @@ test('real gateway: conversation-first room — real write task, worklog evidenc
     // Live model list through the gateway — the Home picker only offers
     // fetched models.
     await page.getByTestId('provider-fetch-anthropic').click();
-    await expect(page.locator('.toast').filter({ hasText: 'models fetched' })).toBeVisible({
-      timeout: 20000,
+    await expect(page.locator('.toast').filter({ hasText: 'models verified' })).toBeVisible({
+      timeout: 180000,
     });
     await page.keyboard.press('Escape');
 

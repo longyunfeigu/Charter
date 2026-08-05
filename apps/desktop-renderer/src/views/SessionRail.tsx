@@ -1570,7 +1570,7 @@ export function SessionRail(): React.JSX.Element {
         onClick={() => setView('sessions')}
       >
         <Ic name="terminal" size={12} />
-        <span>Sessions</span>
+        <span className="sr-tab-label">Sessions</span>
         {inbox.length > 0 ? (
           <span
             className="sr-tab-dot"
@@ -1587,7 +1587,7 @@ export function SessionRail(): React.JSX.Element {
         onClick={() => setView('files')}
       >
         <Ic name="folder" size={12} />
-        <span>Files</span>
+        <span className="sr-tab-label">Files</span>
       </button>
     </div>
   );
@@ -1630,7 +1630,10 @@ export function SessionRail(): React.JSX.Element {
           onClick={() => setStopAllConfirmOpen((open) => !open)}
         >
           <span className="sr-running-dot" />
-          <span aria-live="polite">{stoppingAll ? '…' : runningTargets.length}</span>
+          <span className="sr-running-count" aria-live="polite">
+            {stoppingAll ? '…' : runningTargets.length}
+          </span>
+          <span className="sr-running-label">running</span>
         </button>
         {stopAllConfirmOpen ? (
           <div
@@ -2166,9 +2169,10 @@ export function SessionRail(): React.JSX.Element {
   return (
     <aside
       ref={railRef}
-      className={`sr-rail view-${view} ${projectsPanelOpen ? 'projects-panel-open' : ''} ${
-        compactPanelOpen ? 'compact-open' : ''
-      } ${railResizing ? 'is-resizing' : ''}`}
+      className={`sr-rail view-${view} ${railWidth < RAIL_WIDTH_DEFAULT ? 'is-narrow' : ''} ${
+        projectsPanelOpen ? 'projects-panel-open' : ''
+      } ${compactPanelOpen ? 'compact-open' : ''} ${railResizing ? 'is-resizing' : ''}`}
+      data-rail-density={railWidth < RAIL_WIDTH_DEFAULT ? 'compact' : 'comfortable'}
       data-testid="home-sidebar"
       aria-label={
         view === 'skills'

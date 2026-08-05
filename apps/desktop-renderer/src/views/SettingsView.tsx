@@ -108,7 +108,27 @@ function ProvidersBlock(): React.JSX.Element {
     const res = await rpcResult('models.fetchRemote', { providerId: id });
     setBusy(null);
     if (res.ok) {
-      pushToast('success', `${res.data.models.length} models fetched from ${id}.`);
+      const available = res.data.models.length;
+      const unavailable = res.data.unavailableModelIds.length;
+      if (res.data.candidateCount === 0) {
+        pushToast('warning', `No model candidates were found for ${id}.`);
+      } else if (available === 0) {
+        pushToast(
+          'warning',
+          `0/${res.data.candidateCount} models verified for ${id}; none are currently available.`,
+        );
+      } else {
+        const routeSummary =
+          res.data.routeCount > 1 ? ` across ${res.data.routeCount} protocol routes` : '';
+        const failedSummary =
+          res.data.failedRouteIds.length > 0
+            ? `; ${res.data.failedRouteIds.length} route unavailable`
+            : '';
+        pushToast(
+          'success',
+          `${available}/${res.data.candidateCount} models verified for ${id}${routeSummary} (${res.data.advertisedCount} advertised, ${res.data.registryCandidateCount} Pi registry candidates${unavailable > 0 ? `; ${unavailable} unavailable` : ''}${failedSummary}).`,
+        );
+      }
       await useTaskStore.getState().refreshModels();
     } else {
       pushToast('error', res.error.userMessage);
@@ -122,7 +142,9 @@ function ProvidersBlock(): React.JSX.Element {
         <div>
           <div className="st-card-title">Providers</div>
           <div className="st-card-sub">
-            Keys live in the encrypted OS keychain scope — never in files, the renderer or logs.
+            Keys live in the encrypted OS keychain scope. Fetch &amp; verify sends one minimal
+            request per unique provider/registry candidate across compatible protocol routes; only
+            models that respond appear in Charter.
           </div>
         </div>
       </div>
@@ -256,9 +278,9 @@ function ProvidersBlock(): React.JSX.Element {
               data-testid={`provider-fetch-${item.providerId}`}
               disabled={busy === `fetch-${item.providerId}`}
               onClick={() => void fetchModels(item.providerId)}
-              title="Pull the live model list from this endpoint"
+              title="Fetch provider and Pi registry candidates across compatible Anthropic/OpenAI routes, then show only verified models"
             >
-              {busy === `fetch-${item.providerId}` ? 'Fetching…' : 'Fetch models'}
+              {busy === `fetch-${item.providerId}` ? 'Verifying…' : 'Fetch & verify'}
             </button>
             <button
               className="btn quiet-danger"

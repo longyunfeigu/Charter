@@ -56,8 +56,8 @@ test('live model: colloquial intent alone drives terminal.create → send/wait/r
     await page.getByTestId('provider-key-save').click();
     await expect(page.getByTestId('provider-row-anthropic')).toBeVisible();
     await page.getByTestId('provider-fetch-anthropic').click();
-    await expect(page.locator('.toast').filter({ hasText: 'models fetched' })).toBeVisible({
-      timeout: 20000,
+    await expect(page.locator('.toast').filter({ hasText: 'models verified' })).toBeVisible({
+      timeout: 180000,
     });
     await page.keyboard.press('Escape');
 

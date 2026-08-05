@@ -9,11 +9,13 @@ import { createTsSmallFixture } from './helpers/fixtures';
  */
 const KEY = process.env.CHARTER_TEST_KEY ?? '';
 const BASEURL = process.env.CHARTER_TEST_BASEURL ?? '';
-const MODEL = process.env.CHARTER_TEST_MODEL ?? 'claude-haiku-4-5-20251001';
+const CLAUDE_MODEL = process.env.CHARTER_TEST_MODEL ?? 'claude-haiku-4-5-20251001';
+const GPT_MODEL = process.env.CHARTER_TEST_GPT_MODEL ?? 'gpt-5.6-sol';
+const OPENAI_ROUTE = 'anthropic__openai';
 
-test('real gateway: configure key+baseUrl, fetch models, run a real ask task', async () => {
+test('real mixed gateway: one credential verifies and runs Claude + GPT Charter sessions', async () => {
   test.skip(!KEY || !BASEURL, 'no real credentials in env');
-  test.setTimeout(300000);
+  test.setTimeout(480000);
   const fixture = createTsSmallFixture();
   const { app, page } = await launchApp({
     env: { PI_IDE_OPEN_WORKSPACE: fixture },
@@ -32,8 +34,8 @@ test('real gateway: configure key+baseUrl, fetch models, run a real ask task', a
 
     // 2) Live model list through the gateway.
     await page.getByTestId('provider-fetch-anthropic').click();
-    await expect(page.locator('.toast').filter({ hasText: 'models fetched' })).toBeVisible({
-      timeout: 20000,
+    await expect(page.locator('.toast').filter({ hasText: 'models verified' })).toBeVisible({
+      timeout: 180000,
     });
     await page.screenshot({ path: '/tmp/ui-shots/real-1-settings.png' });
     await page.keyboard.press('Escape');
@@ -43,7 +45,13 @@ test('real gateway: configure key+baseUrl, fetch models, run a real ask task', a
     const model = page.getByTestId('home-model');
     await expect(model).toBeVisible();
     await model.click();
-    await page.getByTestId(`home-model-opt-anthropic::${MODEL}`).click();
+    const claudeOption = page.getByTestId(`home-model-opt-anthropic::${CLAUDE_MODEL}`);
+    const gptOption = page.getByTestId(`home-model-opt-${OPENAI_ROUTE}::${GPT_MODEL}`);
+    await expect(claudeOption).toBeVisible();
+    await expect(gptOption).toBeVisible();
+    await gptOption.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: '/tmp/ui-shots/real-2-model-picker-gpt.png' });
+    await claudeOption.click();
     await page.getByTestId('home-mode-ask').click();
     await page
       .getByTestId('home-intent')
@@ -52,14 +60,18 @@ test('real gateway: configure key+baseUrl, fetch models, run a real ask task', a
 
     // 4) The Task Room shows the real provider/model and the real answer.
     await expect(page.getByTestId('task-room')).toBeVisible();
-    await expect(page.locator('.tr-mode')).toContainText(`anthropic/${MODEL}`);
-    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+    await expect(page.getByTestId('reply-model')).toHaveAttribute(
+      'data-model-key',
+      `anthropic::${CLAUDE_MODEL}`,
+    );
+    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
       timeout: 180000,
     });
     await expect(page.getByTestId('tl-agent').last()).toContainText('PONG');
     // Zero-change ask task → light completion (PIVOT-031).
-    await expect(page.getByTestId('tl-answered')).toBeVisible();
-    await page.screenshot({ path: '/tmp/ui-shots/real-2-task-room.png' });
+    await expect(page.getByTestId('tl-answered')).toHaveCount(0);
+    await expect(page.getByTestId('tl-run-details')).toHaveCount(0);
+    await page.screenshot({ path: '/tmp/ui-shots/real-3-claude-task-room.png' });
 
     // 5) Identity (PIVOT-008/ADR-0009): the preamble now reaches the model —
     // the agent introduces itself as Charter's agent, not as internal tooling.
@@ -68,10 +80,35 @@ test('real gateway: configure key+baseUrl, fetch models, run a real ask task', a
     const reply = page.getByTestId('tl-agent').last();
     await expect(reply).toContainText(/Charter/i, { timeout: 180000 });
     await expect(reply).not.toContainText(/Claude Code/i);
-    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
       timeout: 60000,
     });
-    await page.screenshot({ path: '/tmp/ui-shots/real-3-identity.png' });
+    await page.screenshot({ path: '/tmp/ui-shots/real-4-claude-identity.png' });
+
+    // 6) The same stored credential also drives a real GPT session through
+    // the derived OpenAI-compatible streaming route.
+    await page.getByTestId('surface-home').click();
+    await expect(page.getByTestId('home-view')).toBeVisible();
+    await page.getByTestId('home-model').click();
+    await page.getByTestId(`home-model-opt-${OPENAI_ROUTE}::${GPT_MODEL}`).dispatchEvent('click');
+    await page.getByTestId('home-mode-ask').click();
+    await page
+      .getByTestId('home-intent')
+      .fill('Reply with exactly GPT_PONG and nothing else. Do not use any tools.');
+    await page.getByTestId('home-submit').click();
+
+    await expect(page.getByTestId('task-room')).toBeVisible();
+    await expect(page.getByTestId('reply-model')).toHaveAttribute(
+      'data-model-key',
+      `${OPENAI_ROUTE}::${GPT_MODEL}`,
+    );
+    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
+      timeout: 180000,
+    });
+    await expect(page.getByTestId('tl-agent').last()).toContainText('GPT_PONG');
+    await expect(page.getByTestId('tl-answered')).toHaveCount(0);
+    await expect(page.getByTestId('tl-run-details')).toHaveCount(0);
+    await page.screenshot({ path: '/tmp/ui-shots/real-5-gpt-session.png' });
   } finally {
     await app.close();
   }
@@ -79,7 +116,7 @@ test('real gateway: configure key+baseUrl, fetch models, run a real ask task', a
 
 test('real gateway: LiteLLM preset over the OpenAI-compatible surface (PIVOT-033)', async () => {
   test.skip(!KEY || !BASEURL, 'no real credentials in env');
-  test.setTimeout(300000);
+  test.setTimeout(480000);
   const openAiBase = `${BASEURL.replace(/\/+$/, '')}/v1`;
   const fixture = createTsSmallFixture();
   const { app, page } = await launchApp({
@@ -98,8 +135,8 @@ test('real gateway: LiteLLM preset over the OpenAI-compatible surface (PIVOT-033
 
     // Live model list over GET <base>/models with Bearer auth — real network.
     await page.getByTestId('provider-fetch-litellm').click();
-    await expect(page.locator('.toast').filter({ hasText: 'models fetched' })).toBeVisible({
-      timeout: 20000,
+    await expect(page.locator('.toast').filter({ hasText: 'models verified' })).toBeVisible({
+      timeout: 180000,
     });
     await page.keyboard.press('Escape');
 
@@ -108,7 +145,7 @@ test('real gateway: LiteLLM preset over the OpenAI-compatible surface (PIVOT-033
     const model = page.getByTestId('home-model');
     await expect(model).toBeVisible();
     await model.click();
-    await page.getByTestId(`home-model-opt-litellm::${MODEL}`).click();
+    await page.getByTestId(`home-model-opt-litellm::${CLAUDE_MODEL}`).click();
     await page.getByTestId('home-mode-ask').click();
     await page
       .getByTestId('home-intent')
@@ -116,12 +153,16 @@ test('real gateway: LiteLLM preset over the OpenAI-compatible surface (PIVOT-033
     await page.getByTestId('home-submit').click();
 
     await expect(page.getByTestId('task-room')).toBeVisible();
-    await expect(page.locator('.tr-mode')).toContainText(`litellm/${MODEL}`);
-    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+    await expect(page.getByTestId('reply-model')).toHaveAttribute(
+      'data-model-key',
+      `litellm::${CLAUDE_MODEL}`,
+    );
+    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
       timeout: 180000,
     });
     await expect(page.getByTestId('tl-agent').last()).toContainText('PONG');
-    await expect(page.getByTestId('tl-answered')).toBeVisible();
+    await expect(page.getByTestId('tl-answered')).toHaveCount(0);
+    await expect(page.getByTestId('tl-run-details')).toHaveCount(0);
     await page.screenshot({ path: '/tmp/ui-shots/real-4-litellm.png' });
   } finally {
     await app.close();

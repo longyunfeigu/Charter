@@ -342,6 +342,52 @@ test.describe('External Session identity and presence', () => {
         await row.click();
         await expect(row).toHaveClass(/selected/);
         await expect(page.getByTestId('external-terminal-host')).toBeVisible();
+        const sessionHeader = page.locator('.session-identity-head');
+        const externalIdentity = page.getByTestId('session-external-identity');
+        await expect(externalIdentity).toBeVisible();
+        await expect(externalIdentity).toContainText(
+          provider === 'claude' ? 'Claude Code' : 'Codex',
+        );
+        await expect(sessionHeader).toContainText(provider === 'claude' ? 'Claude Code' : 'Codex');
+        await expect(page.locator('.tr-exthead')).toHaveCount(0);
+
+        // The provider identity belongs to the shared Session header now, so
+        // the external terminal begins at the very top of its content column.
+        const terminalOffset = await page.evaluate(() => {
+          const column = document.querySelector<HTMLElement>(
+            '[data-testid="external-terminal-column"]',
+          );
+          const host = document.querySelector<HTMLElement>(
+            '[data-testid="external-terminal-host"]',
+          );
+          if (!column || !host) return null;
+          return host.getBoundingClientRect().top - column.getBoundingClientRect().top;
+        });
+        expect(terminalOffset).not.toBeNull();
+        expect(Math.abs(terminalOffset!)).toBeLessThanOrEqual(1);
+        await page.screenshot({
+          path: `/tmp/charter-${provider}-session-identity-in-header-wide.png`,
+        });
+
+        await page.setViewportSize({ width: 975, height: 813 });
+        await expect(externalIdentity).toBeVisible();
+        expect(
+          await sessionHeader.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+        ).toBe(true);
+        const [headerBox, identityBox] = await Promise.all([
+          sessionHeader.boundingBox(),
+          externalIdentity.boundingBox(),
+        ]);
+        expect(headerBox).not.toBeNull();
+        expect(identityBox).not.toBeNull();
+        expect(identityBox!.x).toBeGreaterThanOrEqual(headerBox!.x);
+        expect(identityBox!.x + identityBox!.width).toBeLessThanOrEqual(
+          headerBox!.x + headerBox!.width + 1,
+        );
+        await page.screenshot({
+          path: `/tmp/charter-${provider}-session-identity-in-header-narrow.png`,
+        });
+        await page.setViewportSize({ width: 1368, height: 737 });
         await page.locator('.toast button[aria-label="Dismiss"]').evaluateAll((buttons) => {
           for (const button of buttons) (button as HTMLButtonElement).click();
         });

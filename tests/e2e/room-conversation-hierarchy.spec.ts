@@ -5,7 +5,7 @@ import { createTsSmallFixture } from './helpers/fixtures.js';
 
 const OUT = '/tmp/charter-room-conversation-qa';
 
-test('task room prioritizes the conversation and folds execution metadata', async () => {
+test('task room prioritizes the conversation and omits summary chrome', async () => {
   test.setTimeout(120000);
   mkdirSync(OUT, { recursive: true });
   const fixture = createTsSmallFixture();
@@ -80,10 +80,7 @@ test('task room prioritizes the conversation and folds execution metadata', asyn
     );
 
     await expect(page.getByTestId('tl-usage')).toHaveCount(0);
-    const details = page.getByTestId('tl-run-details');
-    await expect(details).toBeVisible();
-    await details.locator('summary').click();
-    await expect(details).toContainText('Token');
+    await expect(page.getByTestId('tl-run-details')).toHaveCount(0);
 
     await expect(page.getByTestId('tl-worklog-toggle')).toHaveCount(0);
     await expect(page.locator('[data-testid^="tl-tool-"]').first()).toBeVisible();
@@ -102,7 +99,6 @@ test('task room prioritizes the conversation and folds execution metadata', asyn
     await page.getByTestId('review-close').click();
     await expect(page.getByTestId('review-view')).toHaveCount(0);
 
-    await details.locator('summary').click();
     await planToggle.click();
 
     await page.screenshot({ path: `${OUT}/desktop.png` });
@@ -115,6 +111,71 @@ test('task room prioritizes the conversation and folds execution metadata', asyn
     }));
     expect(narrowOverflow.scrollWidth).toBeLessThanOrEqual(narrowOverflow.clientWidth + 1);
     await page.screenshot({ path: `${OUT}/narrow.png` });
+
+    expect(consoleErrors).toEqual([]);
+    expect(pageErrors).toEqual([]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('answered multi-turn conversation contains messages without repeated completion rows', async () => {
+  test.setTimeout(120000);
+  mkdirSync(OUT, { recursive: true });
+  const fixture = createTsSmallFixture();
+  const { app, page } = await launchApp({
+    env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+  });
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+
+  const sendFollowUp = async (message: string): Promise<void> => {
+    const priorReplies = await page.getByTestId('tl-agent').count();
+    await page.getByTestId('agent-input').fill(message);
+    await page.getByTestId('agent-send').click();
+    await expect(page.getByTestId('tl-agent')).toHaveCount(priorReplies + 1, {
+      timeout: 30000,
+    });
+    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
+      timeout: 30000,
+    });
+  };
+
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.getByTestId('surface-home').click();
+    await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
+    await page.getByTestId('home-mode-ask').click();
+    await page.getByTestId('home-intent').fill('who are you');
+    await page.getByTestId('home-submit').click();
+    await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
+      timeout: 30000,
+    });
+    await expect(page.getByTestId('tl-agent')).toHaveCount(1);
+
+    await sendFollowUp('1 + 1 = ?');
+    await sendFollowUp('2 + 2 = ?');
+
+    const timeline = page.getByTestId('timeline');
+    await expect(page.getByTestId('tl-user')).toHaveCount(3);
+    await expect(page.getByTestId('tl-agent')).toHaveCount(3);
+    await expect(page.getByTestId('tl-answered')).toHaveCount(0);
+    await expect(page.getByTestId('tl-run-details')).toHaveCount(0);
+    await expect(timeline).not.toContainText('nothing changed on disk');
+    await expect(timeline).not.toContainText('Run details');
+    await page.screenshot({ path: `${OUT}/answered-clean-desktop.png` });
+
+    await page.setViewportSize({ width: 900, height: 760 });
+    const narrowOverflow = await page.locator('.tr-main').evaluate((main) => ({
+      clientWidth: main.clientWidth,
+      scrollWidth: main.scrollWidth,
+    }));
+    expect(narrowOverflow.scrollWidth).toBeLessThanOrEqual(narrowOverflow.clientWidth + 1);
+    await page.screenshot({ path: `${OUT}/answered-clean-narrow.png` });
 
     expect(consoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);

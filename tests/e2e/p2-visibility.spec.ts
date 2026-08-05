@@ -42,10 +42,7 @@ test.describe('P2 visibility — thinking + live activity (ADR-0011)', () => {
         timeout: 20000,
       });
       await expect(page.getByTestId('tl-agent').last()).toBeVisible();
-      const answered = page.getByTestId('tl-answered');
-      if (await answered.isVisible().catch(() => false)) {
-        await expect(answered).not.toContainText('mock thinking');
-      }
+      await expect(page.getByTestId('tl-answered')).toHaveCount(0);
     } finally {
       await app.close();
     }

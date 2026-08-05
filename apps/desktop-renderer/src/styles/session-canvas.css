@@ -52,6 +52,39 @@
   overflow: hidden;
 }
 
+.session-identity-name > .tr-title {
+  flex: 0 1 auto;
+  min-width: 24px;
+}
+
+.session-external-identity {
+  flex: none;
+  min-width: 0;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  padding-left: 9px;
+  border-left: 1px solid var(--chrome-line);
+  color: var(--chrome-paper-muted);
+  font: 10.5px/1 var(--font-shell);
+  white-space: nowrap;
+}
+
+.session-external-identity .tr-extname {
+  overflow: hidden;
+  color: var(--chrome-paper-muted);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+}
+
+.session-external-identity .tr-extlive,
+.session-external-identity .tr-extended,
+.session-external-identity .tr-extterminal {
+  font-family: var(--font-shell);
+}
+
 .session-identity-name [data-testid='task-state'] {
   height: 20px;
   display: inline-flex;
@@ -1749,6 +1782,12 @@ button.hm-board-now:hover {
 
   .session-identity-title .tr-title {
     max-width: none;
+  }
+
+  .session-external-identity .tr-extended,
+  .session-external-identity .tr-extterminal,
+  .session-external-identity .tr-extlive {
+    display: none;
   }
 
   /* The follow-up composer reuses Home's card inside the room. */

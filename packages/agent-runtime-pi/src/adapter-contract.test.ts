@@ -104,6 +104,52 @@ describe('Pi adapter contract (AG-013 / ADR-0001)', () => {
     await runtime.dispose();
   });
 
+  it('registers a derived OpenAI-compatible route with canonical GPT metadata', async () => {
+    const runtime = new PiAgentRuntime({
+      toolExecutor: executor,
+      credentials: [
+        {
+          providerId: 'anthropic__openai',
+          kind: 'api-key',
+          value: 'sk-test-gateway',
+          baseUrl: 'http://gateway.test/api/v1',
+          api: 'openai',
+          registryProviderId: 'openai',
+        },
+      ],
+    });
+    await runtime.initialize({ runtimeDataDir: dataDir, appVersion: '1.0.0' });
+    const models = await runtime.listModels();
+    const gpt = models.find(
+      (model) => model.providerId === 'anthropic__openai' && model.modelId === 'gpt-5.6-sol',
+    );
+    expect(gpt).toMatchObject({
+      displayName: 'GPT-5.6 Sol',
+      configured: true,
+      supportsThinking: true,
+    });
+
+    const ref = await runtime.createSession({
+      taskId: 'mixed-gateway-route',
+      workspaceRoot: dataDir,
+      mode: 'ask',
+      model: {
+        providerId: 'anthropic__openai',
+        modelId: 'gpt-5.6-sol',
+        thinkingLevel: 'medium',
+      },
+      tools: [],
+      systemPreamble: 'contract test',
+    });
+    expect(runtime.sessionForTest(ref.sessionId)?.model).toMatchObject({
+      provider: 'anthropic__openai',
+      id: 'gpt-5.6-sol',
+      api: 'openai-completions',
+      baseUrl: 'http://gateway.test/api/v1',
+    });
+    await runtime.dispose();
+  });
+
   it('SECURITY CONTRACT: sessions expose ONLY gateway tools — no pi built-ins (TOOL-001)', async () => {
     const runtime = new PiAgentRuntime({
       toolExecutor: executor,

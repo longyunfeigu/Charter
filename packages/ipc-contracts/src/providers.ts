@@ -9,6 +9,46 @@ import { z } from 'zod';
 export const ProviderApiSchema = z.enum(['anthropic', 'openai']);
 export type ProviderApi = z.infer<typeof ProviderApiSchema>;
 
+/**
+ * Internal provider ids used when one configured gateway exposes more than
+ * one wire protocol. The separator contains `_`, which Settings never allows
+ * in user-created provider ids, so derived routes cannot collide with a
+ * persisted credential.
+ */
+const GATEWAY_ROUTE_SEPARATOR = '__';
+
+export function gatewayRouteProviderId(sourceProviderId: string, api: ProviderApi): string {
+  return `${sourceProviderId}${GATEWAY_ROUTE_SEPARATOR}${api}`;
+}
+
+export function parseGatewayRouteProviderId(
+  providerId: string,
+): { sourceProviderId: string; api: ProviderApi } | null {
+  const separator = providerId.lastIndexOf(GATEWAY_ROUTE_SEPARATOR);
+  if (separator <= 0) return null;
+  const sourceProviderId = providerId.slice(0, separator);
+  const api = providerId.slice(separator + GATEWAY_ROUTE_SEPARATOR.length);
+  return api === 'anthropic' || api === 'openai' ? { sourceProviderId, api } : null;
+}
+
+export function alternateProviderApi(api: ProviderApi): ProviderApi {
+  return api === 'anthropic' ? 'openai' : 'anthropic';
+}
+
+/** Translate the user-entered endpoint between Anthropic and OpenAI bases. */
+export function gatewayBaseUrlForApi(
+  baseUrl: string,
+  sourceApi: ProviderApi,
+  targetApi: ProviderApi,
+): string {
+  const normalized = baseUrl.replace(/\/+$/, '');
+  if (sourceApi === targetApi) return normalized;
+  if (targetApi === 'openai') {
+    return normalized.endsWith('/v1') ? normalized : `${normalized}/v1`;
+  }
+  return normalized.endsWith('/v1') ? normalized.slice(0, -3) : normalized;
+}
+
 export interface ProviderPreset {
   providerId: string;
   displayName: string;

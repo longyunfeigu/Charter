@@ -114,7 +114,7 @@ test.describe('Shell v4 — global tasks on a multi-mount engine (ADR-0009)', ()
         timeout: 30000,
       });
       await expect(page.getByTestId('task-room-answered')).toBeVisible();
-      await expect(page.getByTestId('tl-answered')).toBeVisible();
+      await expect(page.getByTestId('tl-answered')).toHaveCount(0);
       // ADR-0016: no Done ceremony and no review bar for an answered task.
       await expect(page.getByTestId('tl-done')).toHaveCount(0);
       await expect(page.getByTestId('tl-accepted')).toHaveCount(0);

@@ -558,22 +558,10 @@ function eventNode(
   switch (event.type) {
     case 'task.stateChanged': {
       const to = String(payload.to);
-      // Terminal "Answered" milestone replaces the review-ready ceremony.
-      // ADR-0032: answered turns settle straight to IDLE — same milestone.
-      // For external CLIs the edge is the process exit, not an answer.
+      // Answered state remains available in the room header/rail, but repeating
+      // it after every conversational turn adds noise between messages.
       if ((to === 'REVIEW_READY' || to === 'IDLE') && isAnswered(task)) {
-        const endedLabel = copy.locale === 'zh' ? '会话已结束' : 'Session ended';
-        const answeredLabel = copy.locale === 'zh' ? '已回答' : 'Answered';
-        return (
-          <Milestone
-            key={event.id}
-            tone="ok"
-            label={task.external ? endedLabel : answeredLabel}
-            meta={copy.locale === 'zh' ? '未改动磁盘文件' : 'nothing changed on disk'}
-            testid="tl-answered"
-            dataState={to}
-          />
-        );
+        return null;
       }
       // Routine phases already have a live activity strip, a plan/permission
       // surface, or the review bar. Repeating them as ceremony adds scroll but
@@ -811,8 +799,8 @@ function eventNode(
       );
     }
     case 'agent.usage': {
-      // Usage is aggregated once in RunDetails instead of interrupting every
-      // conversational turn with token and price telemetry.
+      // Usage remains in the durable timeline data, but telemetry does not
+      // interrupt the conversation surface.
       return null;
     }
     case 'review.decision':
@@ -1207,65 +1195,6 @@ function ActivityGroup({ children }: { children: React.ReactNode }): React.JSX.E
   );
 }
 
-function formatDuration(ms: number): string {
-  const seconds = Math.max(0, Math.round(ms / 1000));
-  if (seconds < 90) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${String(seconds - minutes * 60).padStart(2, '0')}s`;
-}
-
-function RunDetails({
-  actionCount,
-  durationMs,
-  inputTokens,
-  outputTokens,
-  costUsd,
-  copy,
-}: {
-  actionCount: number;
-  durationMs: number;
-  inputTokens: number;
-  outputTokens: number;
-  costUsd: number;
-  copy: RoomCopy;
-}): React.JSX.Element | null {
-  if (actionCount === 0 && inputTokens + outputTokens === 0 && durationMs < 1000) return null;
-  return (
-    <details className="rt-run-details" data-testid="tl-run-details">
-      <summary>{copy.runDetails}</summary>
-      <dl>
-        {actionCount > 0 ? (
-          <div>
-            <dt>{copy.activity}</dt>
-            <dd>{copy.actions(actionCount)}</dd>
-          </div>
-        ) : null}
-        {durationMs >= 1000 ? (
-          <div>
-            <dt>{copy.duration}</dt>
-            <dd>{formatDuration(durationMs)}</dd>
-          </div>
-        ) : null}
-        {inputTokens + outputTokens > 0 ? (
-          <div>
-            <dt>{copy.tokens}</dt>
-            <dd>
-              {inputTokens.toLocaleString()} {copy.locale === 'zh' ? '输入' : 'in'} ·{' '}
-              {outputTokens.toLocaleString()} {copy.locale === 'zh' ? '输出' : 'out'}
-            </dd>
-          </div>
-        ) : null}
-        {costUsd > 0 ? (
-          <div>
-            <dt>{copy.cost}</dt>
-            <dd>${costUsd.toFixed(4)}</dd>
-          </div>
-        ) : null}
-      </dl>
-    </details>
-  );
-}
-
 export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
   const store = useTaskStore();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1344,68 +1273,42 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
     store.streamingThinking?.text.length,
   ]);
 
-  // Tool evidence stays available on demand, while repeated usage events are
-  // aggregated into one quiet run-details disclosure. Derived per timeline
-  // change, not per render: streaming deltas re-render this component many
-  // times a second and must not rebuild every event node (the streaming tail
-  // itself renders below, outside this memo).
-  const { grouped, runDurationMs, inputTokens, outputTokens, costUsd, actionCount, olderCount } =
-    useMemo(() => {
-      const total = store.timeline.length;
-      const runStartMs = total > 0 ? Date.parse(store.timeline[0]!.at) : Date.now();
-      const runEndMs = total > 0 ? Date.parse(store.timeline[total - 1]!.at) : runStartMs;
-      // Summary stats reflect the WHOLE run (cheap numeric loop), independent of
-      // the render window — a folded older event still counts toward totals.
-      let inputTokens = 0;
-      let outputTokens = 0;
-      let costUsd = 0;
-      let actionCount = 0;
-      for (const event of store.timeline) {
-        if (isLogRow(event)) actionCount += 1;
-        if (event.type !== 'agent.usage') continue;
-        const usage = (
-          event.payload as {
-            usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number | null };
-          }
-        ).usage;
-        inputTokens += usage?.inputTokens ?? 0;
-        outputTokens += usage?.outputTokens ?? 0;
-        costUsd += usage?.costUsd ?? 0;
+  // Tool evidence stays available inline. Derived per timeline change, not per
+  // render: streaming deltas re-render this component many times a second and
+  // must not rebuild every event node (the streaming tail itself renders below,
+  // outside this memo).
+  const { grouped, olderCount } = useMemo(() => {
+    const total = store.timeline.length;
+    const runStartMs = total > 0 ? Date.parse(store.timeline[0]!.at) : Date.now();
+    // Only the tail is turned into React nodes — this is the expensive part.
+    const { startIndex, olderCount } = computeWindow(total, visibleCount);
+    const windowed = startIndex > 0 ? store.timeline.slice(startIndex) : store.timeline;
+    const grouped: React.JSX.Element[] = [];
+    let logGroup: React.JSX.Element[] = [];
+    let logGroupKey = '';
+    const flushLog = (): void => {
+      if (logGroup.length > 0) {
+        grouped.push(<ActivityGroup key={`wl-${logGroupKey}`}>{logGroup}</ActivityGroup>);
+        logGroup = [];
       }
-      // Only the tail is turned into React nodes — this is the expensive part.
-      const { startIndex, olderCount } = computeWindow(total, visibleCount);
-      const windowed = startIndex > 0 ? store.timeline.slice(startIndex) : store.timeline;
-      const grouped: React.JSX.Element[] = [];
-      let logGroup: React.JSX.Element[] = [];
-      let logGroupKey = '';
-      const flushLog = (): void => {
-        if (logGroup.length > 0) {
-          grouped.push(<ActivityGroup key={`wl-${logGroupKey}`}>{logGroup}</ActivityGroup>);
-          logGroup = [];
-        }
-      };
-      for (const event of windowed) {
-        const node = eventNode(event, context, task, runStartMs, copy);
-        if (node === null) continue; // silent events never break a worklog
-        if (isLogRow(event)) {
-          if (logGroup.length === 0) logGroupKey = event.id;
-          logGroup.push(node);
-        } else {
-          flushLog();
-          grouped.push(node);
-        }
+    };
+    for (const event of windowed) {
+      const node = eventNode(event, context, task, runStartMs, copy);
+      if (node === null) continue; // silent events never break a worklog
+      if (isLogRow(event)) {
+        if (logGroup.length === 0) logGroupKey = event.id;
+        logGroup.push(node);
+      } else {
+        flushLog();
+        grouped.push(node);
       }
-      flushLog();
-      return {
-        grouped,
-        runDurationMs: Math.max(0, runEndMs - runStartMs),
-        inputTokens,
-        outputTokens,
-        costUsd,
-        actionCount,
-        olderCount,
-      };
-    }, [store.timeline, context, task, copy, visibleCount]);
+    }
+    flushLog();
+    return {
+      grouped,
+      olderCount,
+    };
+  }, [store.timeline, context, task, copy, visibleCount]);
 
   return (
     <div
@@ -1457,14 +1360,6 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
                 )}
               </Bubble>
             ) : null}
-            <RunDetails
-              actionCount={actionCount}
-              durationMs={runDurationMs}
-              inputTokens={inputTokens}
-              outputTokens={outputTokens}
-              costUsd={costUsd}
-              copy={copy}
-            />
           </>
         )}
       </div>

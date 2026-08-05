@@ -37,7 +37,11 @@ import {
 } from './roomFileRefs.js';
 import { PreviewBadge } from './RoomPreviewRail.js';
 import { buildPreviewFeedbackText } from './preview-feedback.js';
-import { ExternalTerminalColumn, useExternalFiles } from './ExternalRoom.js';
+import {
+  ExternalSessionIdentity,
+  ExternalTerminalColumn,
+  useExternalFiles,
+} from './ExternalRoom.js';
 import { roomCopyFor } from './roomCopy.js';
 import { SessionActionDock, SessionToolCanvas, type SessionFileStat } from './SessionToolCanvas.js';
 import { isCurrentVerificationPass, useVerificationEvidence } from './verification-evidence.js';
@@ -310,6 +314,7 @@ export function TaskRoomView(): React.JSX.Element {
                     ? { label: 'Review required · checks failed', tone: 'err' as const }
                     : {})}
               />
+              {task.external ? <ExternalSessionIdentity task={task} /> : null}
             </div>
           </div>
           <div className="session-identity-secondary">

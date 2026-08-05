@@ -1,7 +1,25 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ModelDescriptorDto } from '@pi-ide/ipc-contracts';
 import { Ic } from './home-icons.js';
 import { THINKING_LEVELS, type ThinkingLevelId, clampThinkingLevelTo } from './labels.js';
+
+function visiblePopoverTop(trigger: HTMLElement): number {
+  const titlebarBottom =
+    document.querySelector<HTMLElement>('.titlebar')?.getBoundingClientRect().bottom ?? 0;
+  let top = Math.max(0, titlebarBottom);
+  for (let parent = trigger.parentElement; parent; parent = parent.parentElement) {
+    const overflowY = window.getComputedStyle(parent).overflowY;
+    if (
+      overflowY === 'auto' ||
+      overflowY === 'scroll' ||
+      overflowY === 'hidden' ||
+      overflowY === 'clip'
+    ) {
+      top = Math.max(top, parent.getBoundingClientRect().top);
+    }
+  }
+  return top;
+}
 
 /**
  * Two-step destructive action (ADR-0008 §3): first click arms the button,
@@ -188,19 +206,35 @@ export function ModelEffortControl(props: {
     if (clamped !== thinking) onThinking(clamped);
   }, [supported, thinking, onThinking]);
 
-  // The pop opens upward: clamp it to the space actually above the trigger so
-  // it never extends past the window top (which clipped long gateway model
-  // lists unreachably and cut the pinned effort chips).
+  // The pop opens upward. Its usable space begins below the title bar and the
+  // nearest clipping/scrolling surface, not at window y=0. Measuring only the
+  // viewport let long gateway model lists extend behind Home's clipped top.
   const [popMaxHeight, setPopMaxHeight] = useState<number | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
     const measure = (): void => {
-      const top = triggerRef.current?.getBoundingClientRect().top ?? window.innerHeight;
-      setPopMaxHeight(Math.max(200, Math.min(top - 16, window.innerHeight * 0.6)));
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const triggerTop = trigger.getBoundingClientRect().top;
+      // 8px is the CSS gap above the trigger; the second 8px keeps the card
+      // visibly detached from the clipping edge.
+      const availableAbove = Math.max(0, triggerTop - visiblePopoverTop(trigger) - 16);
+      setPopMaxHeight(Math.floor(Math.min(availableAbove, window.innerHeight * 0.6)));
     };
     measure();
+    const onScroll = (event: Event): void => {
+      const target = event.target;
+      // Scrolling the model rows does not move the anchor; avoid doing layout
+      // reads on every wheel frame. Ancestor-page scrolls still remeasure.
+      if (target instanceof Node && ref.current?.contains(target)) return;
+      measure();
+    };
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', onScroll, true);
+    };
   }, [open]);
 
   // Close on any outside interaction (it overlays the composer).
@@ -236,6 +270,7 @@ export function ModelEffortControl(props: {
         type="button"
         className="me-btn"
         data-testid={`${testid}-model`}
+        data-model-key={modelKey}
         title={
           selected
             ? `${selected.displayName} · reasoning effort ${effortDisabled ? 'n/a' : thinking}`
