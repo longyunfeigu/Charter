@@ -31,6 +31,11 @@ describe('MissionOrchestrationService', () => {
        (id, canonical_path, display_name, last_opened_at, created_at)
        VALUES ('ws-1', '/repo', 'Repo', ?, ?)`,
     ).run(at, at);
+    db.prepare(
+      `INSERT INTO tasks
+       (id, workspace_id, title, goal_md, mode, state, model_json, created_at, updated_at)
+       VALUES ('task-origin', 'ws-1', 'Promoted work', 'Implement and review independently', 'edit', 'IN_PROGRESS', '{}', ?, ?)`,
+    ).run(at, at);
     const repository = new MissionRepository(db);
     const registry = new OrchestrationRuntimeRegistry();
     runtime = new MockOrchestrationRuntimeAdapter();
@@ -43,6 +48,150 @@ describe('MissionOrchestrationService', () => {
     service.shutdown();
     db.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('repairs and publishes a legacy Mission with no live Assignment Sessions on start', () => {
+    const adopted = service.adopt({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Repair stopped Mission',
+      goal: 'Do not leave a Mission running after every Session closed.',
+      principal: { id: 'repair-lead', kind: 'managed_agent', displayName: 'Repair Lead' },
+      runtimeSessionId: 'runtime-repair-lead',
+      requestedRuntime: 'managed',
+    });
+    const assignment = adopted.snapshot.assignments[0]!;
+    const attempt = adopted.snapshot.attempts[0]!;
+    db.prepare("UPDATE execution_attempts SET state = 'CANCELLED' WHERE id = ?").run(attempt.id);
+    db.prepare("UPDATE assignments SET state = 'CANCELLED' WHERE id = ?").run(assignment.id);
+    db.prepare("UPDATE mission_tasks SET state = 'CANCELLED' WHERE id = ?").run(assignment.taskId);
+
+    const changed = vi.fn();
+    service.shutdown();
+    service = new MissionOrchestrationService(service.repository, runner, changed);
+    service.start();
+
+    expect(service.repository.getMission(adopted.snapshot.mission.id)?.state).toBe('CANCELLED');
+    expect(changed).toHaveBeenCalledWith(adopted.snapshot.mission.id);
+  });
+
+  it('promotes an ordinary Session and publishes only the complete validated plan', async () => {
+    const changed = vi.fn();
+    service.shutdown();
+    service = new MissionOrchestrationService(service.repository, runner, changed, {
+      maxPromotionWorkers: () => 2,
+    });
+    service.start();
+
+    const promoted = service.promote(
+      {
+        workspaceId: 'ws-1',
+        workspaceRoot: '/repo',
+        originConversationTaskId: 'task-origin',
+        title: 'Promoted work',
+        goal: 'Implement and review independently',
+        principal: { id: 'A', kind: 'managed_agent', displayName: 'Lead' },
+        runtimeSessionId: 'runtime-A',
+        requestedRuntime: 'managed',
+      },
+      {
+        reason: 'Implementation and review are independently verifiable.',
+        children: [
+          {
+            key: 'implementation',
+            goal: 'Implement the feature.',
+            acceptanceCriteria: ['Tests pass.'],
+            requestedRuntime: 'managed',
+            workMode: 'read-only',
+            reason: 'Bounded implementation work.',
+            idempotencyKey: 'promotion-implementation',
+          },
+          {
+            key: 'review',
+            dependsOn: ['implementation'],
+            goal: 'Review the implementation.',
+            acceptanceCriteria: ['Report findings.'],
+            requestedRuntime: 'managed',
+            workMode: 'read-only',
+            reason: 'Independent review reduces risk.',
+            idempotencyKey: 'promotion-review',
+          },
+        ],
+        integration: { mode: 'none' },
+      },
+    );
+
+    expect(promoted.alreadyPromoted).toBe(false);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(changed).toHaveBeenCalledWith(promoted.mission.id);
+    const snapshot = service.repository.snapshot(promoted.mission.id);
+    expect(snapshot.assignments).toHaveLength(3);
+    expect(snapshot.dependencies).toHaveLength(1);
+    const repeated = service.promote(
+      {
+        workspaceId: 'ws-1',
+        workspaceRoot: '/repo',
+        originConversationTaskId: 'task-origin',
+        title: 'Promoted work',
+        goal: 'Implement and review independently',
+        principal: { id: 'A', kind: 'managed_agent', displayName: 'Lead' },
+        runtimeSessionId: 'runtime-A',
+        requestedRuntime: 'managed',
+      },
+      {
+        reason: 'Retry after a lost response.',
+        children: [
+          {
+            goal: 'This child must not be created twice.',
+            acceptanceCriteria: [],
+            reason: 'Network retry.',
+            idempotencyKey: 'promotion-retry',
+          },
+        ],
+      },
+    );
+    expect(repeated.alreadyPromoted).toBe(true);
+    expect(repeated.delegation).toBeNull();
+    expect(service.repository.snapshot(promoted.mission.id).assignments).toHaveLength(3);
+    expect(changed).toHaveBeenCalledTimes(1);
+    await runner.drain();
+    expect(runtime.starts).toHaveLength(1);
+  });
+
+  it('rejects an over-budget promotion without creating hidden Mission state', () => {
+    service.shutdown();
+    service = new MissionOrchestrationService(service.repository, runner, () => {}, {
+      maxPromotionWorkers: () => 1,
+    });
+
+    expect(() =>
+      service.promote(
+        {
+          workspaceId: 'ws-1',
+          workspaceRoot: '/repo',
+          originConversationTaskId: 'task-over-budget',
+          title: 'Too many workers',
+          goal: 'Stay a Session on validation failure',
+          principal: { id: 'A', kind: 'managed_agent', displayName: 'Lead' },
+          runtimeSessionId: 'runtime-A',
+          requestedRuntime: 'managed',
+        },
+        {
+          reason: 'Attempt too much delegation.',
+          children: ['one', 'two'].map((key) => ({
+            key,
+            goal: key,
+            acceptanceCriteria: [],
+            requestedRuntime: 'managed' as const,
+            workMode: 'read-only' as const,
+            reason: 'parallel',
+            idempotencyKey: `over-budget-${key}`,
+          })),
+          integration: { mode: 'none' },
+        },
+      ),
+    ).toThrow(/host limit is 1/i);
+    expect(service.repository.getMissionForOriginTask('task-over-budget')).toBeNull();
   });
 
   it('runs recursive A -> B -> D through the same service and runtime outbox', async () => {
@@ -83,6 +232,175 @@ describe('MissionOrchestrationService', () => {
       snapshot.assignments.find((item) => item.id === d.assignment.id)?.supervisorAssignmentId,
     ).toBe(b.assignment.id);
     expect(runtime.starts).toHaveLength(2);
+  });
+
+  it('returns a compact runtime catalog and rejects unavailable runtimes before mutation', () => {
+    service.shutdown();
+    service = new MissionOrchestrationService(service.repository, runner, () => {}, {
+      runtimeCatalog: () => [
+        {
+          id: 'managed',
+          displayName: 'Charter Agent',
+          available: true,
+          installed: true,
+          transport: 'native',
+          capabilities: { worktree: true },
+        },
+        {
+          id: 'claude',
+          displayName: 'Claude Code',
+          available: false,
+          installed: false,
+          transport: 'terminal',
+          capabilities: { worktree: false },
+          unavailableReason: 'Claude Code is not installed.',
+        },
+      ],
+    });
+    const adopted = service.adopt({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Runtime preflight',
+      goal: 'Fail before probes or partial delegation',
+      principal: { id: 'A', kind: 'managed_agent', displayName: 'Lead' },
+      runtimeSessionId: 'runtime-A',
+      requestedRuntime: 'managed',
+    });
+    const inspected = service.inspect(adopted.caller, { view: 'compact' });
+    expect('compact' in inspected && inspected.compact).toBe(true);
+    expect(inspected.runtimeCatalog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'managed', available: true }),
+        expect.objectContaining({ id: 'claude', available: false }),
+      ]),
+    );
+
+    expect(() =>
+      service.delegateMany(adopted.caller, {
+        children: [
+          {
+            key: 'valid',
+            goal: 'Would otherwise be valid',
+            acceptanceCriteria: [],
+            reason: 'preflight all children',
+            idempotencyKey: 'preflight-valid',
+          },
+          {
+            key: 'unavailable',
+            goal: 'Cannot start',
+            acceptanceCriteria: [],
+            requestedRuntime: 'claude',
+            reason: 'prove preflight',
+            idempotencyKey: 'preflight-unavailable',
+          },
+        ],
+      }),
+    ).toThrow(/not installed/i);
+    expect(service.repository.snapshot(adopted.snapshot.mission.id).assignments).toHaveLength(1);
+  });
+
+  it('chooses truthful automatic work modes and rejects fake external isolation', () => {
+    service.shutdown();
+    service = new MissionOrchestrationService(service.repository, runner, () => {}, {
+      runtimeCatalog: () => [
+        {
+          id: 'managed',
+          displayName: 'Charter Agent',
+          available: true,
+          installed: true,
+          transport: 'native',
+          capabilities: { worktree: true },
+        },
+        {
+          id: 'claude',
+          displayName: 'Claude Code',
+          available: true,
+          installed: true,
+          transport: 'terminal',
+          capabilities: { worktree: false },
+        },
+      ],
+    });
+    const adopted = service.adopt({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Work strategy',
+      goal: 'Resolve write isolation from actual capabilities',
+      principal: { id: 'A', kind: 'managed_agent', displayName: 'Lead' },
+      runtimeSessionId: 'runtime-A',
+      requestedRuntime: 'managed',
+    });
+    const managed = service.delegate(adopted.caller, {
+      goal: 'Managed isolated change',
+      acceptanceCriteria: [],
+      reason: 'automatic worktree',
+      idempotencyKey: 'auto-managed',
+    });
+    const external = service.delegate(adopted.caller, {
+      goal: 'External scoped change',
+      acceptanceCriteria: [],
+      requestedRuntime: 'claude',
+      writeScope: ['src/ui/**'],
+      reason: 'shared visible terminal',
+      idempotencyKey: 'auto-claude',
+    });
+    expect(managed.task.workMode).toBe('isolated-write');
+    expect(external.task.workMode).toBe('shared-write');
+    expect(() =>
+      service.delegate(adopted.caller, {
+        goal: 'Unsupported isolation',
+        acceptanceCriteria: [],
+        requestedRuntime: 'claude',
+        workMode: 'isolated-write',
+        reason: 'must not pretend a worktree exists',
+        idempotencyKey: 'isolated-claude',
+      }),
+    ).toThrow(/cannot create an isolated Mission worktree/i);
+  });
+
+  it('creates a dependency-gated integration Assignment for isolated batch writes', () => {
+    const adopted = service.adopt({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Integrated batch',
+      goal: 'Implement in parallel and integrate once',
+      principal: { id: 'A', kind: 'managed_agent', displayName: 'Lead' },
+      runtimeSessionId: 'runtime-A',
+      requestedRuntime: 'managed',
+    });
+    const delegated = service.delegateMany(adopted.caller, {
+      children: [
+        {
+          key: 'frontend',
+          goal: 'Implement the UI',
+          acceptanceCriteria: ['UI test passes'],
+          reason: 'parallel change',
+          idempotencyKey: 'integrated-frontend',
+        },
+        {
+          key: 'backend',
+          goal: 'Implement the API',
+          acceptanceCriteria: ['API test passes'],
+          reason: 'parallel change',
+          idempotencyKey: 'integrated-backend',
+        },
+      ],
+      integration: { mode: 'auto' },
+    });
+
+    expect(delegated.results).toHaveLength(2);
+    expect(delegated.integration).not.toBeNull();
+    expect(delegated.integration?.task).toMatchObject({
+      title: 'Integrate delegated changes',
+      state: 'BLOCKED',
+      workMode: 'shared-write',
+    });
+    const snapshot = service.repository.snapshot(adopted.snapshot.mission.id);
+    expect(
+      snapshot.dependencies.filter(
+        (dependency) => dependency.taskId === delegated.integration?.task.id,
+      ),
+    ).toHaveLength(2);
   });
 
   it('separates Agent requests from user decisions and enforces hierarchical control', async () => {
@@ -496,6 +814,72 @@ describe('MissionOrchestrationService', () => {
       reason: 'The user changed the owner.',
     });
     expect(runtime.starts).toHaveLength(2);
+  });
+
+  it('keeps a reassigned child behind its unfinished Mission dependencies', async () => {
+    const adopted = service.adopt({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Dependency-safe handoff',
+      goal: 'Do not start replacement work before its input is ready',
+      principal: { id: 'A', kind: 'managed_agent', displayName: 'Lead A' },
+      runtimeSessionId: 'runtime-A',
+      requestedRuntime: 'managed',
+    });
+    const foundation = service.delegate(adopted.caller, {
+      title: 'Foundation contract',
+      goal: 'Publish the contract first',
+      acceptanceCriteria: [],
+      requestedRuntime: 'managed',
+      workMode: 'read-only',
+      reason: 'The consumer needs this input.',
+      idempotencyKey: 'handoff-foundation',
+    });
+    const consumer = service.delegate(adopted.caller, {
+      title: 'Dependent consumer',
+      goal: 'Consume the completed contract',
+      acceptanceCriteria: [],
+      dependencies: [foundation.task.id],
+      requestedRuntime: 'managed',
+      workMode: 'read-only',
+      reason: 'Run only after the foundation.',
+      idempotencyKey: 'handoff-consumer',
+    });
+
+    const replacement = service.reassign(adopted.caller, {
+      assignmentId: consumer.assignment.id,
+      assignee: {
+        kind: 'managed_agent',
+        provider: 'managed',
+        displayName: 'Replacement consumer',
+      },
+      requestedRuntime: 'managed',
+      reason: 'The user handed the blocked work to another Agent.',
+    });
+
+    expect(service.repository.getAttempt(consumer.attempt.id)?.state).toBe('STALE');
+    expect(
+      service.repository
+        .snapshot(adopted.snapshot.mission.id)
+        .tasks.find((task) => task.id === consumer.task.id)?.state,
+    ).toBe('BLOCKED');
+
+    await runner.drain();
+    expect(runtime.starts.map((start) => start.assignment.id)).toEqual([foundation.assignment.id]);
+    expect(service.repository.getAttempt(replacement.attempt.id)?.state).toBe('PLANNED');
+
+    const foundationCaller = service.contextForAssignment(foundation.assignment.id, 'managed-run');
+    service.complete(foundationCaller, {
+      outcome: 'success',
+      summary: 'The contract is ready.',
+    });
+    await runner.drain();
+
+    expect(service.repository.getAttempt(replacement.attempt.id)?.state).toBe('RUNNING');
+    expect(runtime.starts.map((start) => start.assignment.id)).toEqual([
+      foundation.assignment.id,
+      consumer.assignment.id,
+    ]);
   });
 
   it('parks the Lead turn and automatically resumes the exact Session after child completion', async () => {

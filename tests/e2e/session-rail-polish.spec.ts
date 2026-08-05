@@ -6,7 +6,7 @@ import { launchApp } from './helpers/launch';
 import { createGitFixture } from './helpers/fixtures';
 
 async function startMockTask(page: Page, title: string, intent: string): Promise<void> {
-  await page.getByTestId('home-new-task').click();
+  await page.getByTestId('surface-home').click();
   await expect(page.getByTestId('home-view')).toBeVisible();
   await page.getByTestId('home-advanced-toggle').click();
   await page.getByTestId('home-adv-title').fill(title);
@@ -61,8 +61,13 @@ test.describe('Session rail and conversation role polish', () => {
       );
       expect(selectedShadow).toContain('2px 0px 0px');
       expect(selectedShadow).toContain('inset');
-      await expect(page.getByTestId('rail-session-search')).toBeVisible();
-      await expect(page.getByTestId('rail-needs-filter')).toBeVisible();
+      await expect(page.getByTestId('rail-session-search')).toHaveCount(0);
+      await expect(page.getByTestId('rail-needs-filter')).toHaveCount(0);
+      await expect(page.getByTestId('home-new-task')).toHaveCount(0);
+      await expect(page.locator('.sr-session-heading')).toHaveCount(0);
+      const sessionsHead = await page.locator('.sr-sessions-head').boundingBox();
+      expect(sessionsHead).not.toBeNull();
+      expect(sessionsHead!.height).toBeLessThanOrEqual(56);
       await expect(page.getByTestId('rail-view-sessions')).toHaveClass(/active/);
       await expect(page.locator('.sr-rail')).toHaveCSS('width', '312px');
       await expect(page.locator('.sr-activity')).toHaveCSS('width', '78px');
@@ -77,7 +82,7 @@ test.describe('Session rail and conversation role polish', () => {
       // Session metadata uses the fast in-app tooltip, not Chromium's delayed title popup.
       const compactSession = page.locator('.sr-session:not(.has-detail)').first();
       await expect(compactSession).toBeVisible();
-      await expect(compactSession).toHaveCSS('min-height', '38px');
+      await expect(compactSession).toHaveCSS('min-height', '34px');
       const projectGroup = page
         .locator('.sr-group:has(.sr-group-items:not(.sr-history-groups))')
         .first();
@@ -102,12 +107,11 @@ test.describe('Session rail and conversation role polish', () => {
       await page.mouse.move(700, 600);
       await expect(page.getByRole('tooltip')).toBeHidden();
 
-      await page.getByTestId('rail-session-search').fill('earth animation');
-      await expect(page.locator('button[data-testid^="home-task-"]')).toHaveCount(1);
-      await page.getByTestId('rail-session-search').fill('');
-      await page.getByTestId('rail-needs-filter').click();
-      await expect(page.getByTestId('rail-needs-filter')).toHaveAttribute('aria-pressed', 'true');
-      await page.getByTestId('rail-needs-filter').click();
+      const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+      await page.keyboard.press(`${mod}+k`);
+      await page.getByTestId('qk-input').fill('earth animation');
+      await expect(page.locator('[data-testid^="qk-task-"]')).toHaveCount(1);
+      await page.keyboard.press('Escape');
 
       const userColors: string[] = [];
       for (const skin of ['studio', 'archive', 'terminal', 'index']) {
@@ -155,8 +159,12 @@ test.describe('Session rail and conversation role polish', () => {
       await page.setViewportSize({ width: 963, height: 749 });
       await page.getByTestId('rail-view-sessions').click();
       await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '1');
-      await page.getByTestId('home-new-task').click();
+      await page
+        .getByRole('button', { name: /New session in/ })
+        .first()
+        .click();
       await expect(page.getByTestId('home-view')).toBeVisible();
+      await expect(page.getByTestId('home-intent')).toBeFocused();
       await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
       await expect(page.locator('.hm-mc')).toHaveCount(0);
       await expect(page.getByTestId('home-mc-needs')).toHaveCount(0);
@@ -198,9 +206,9 @@ test.describe('Session rail and conversation role polish', () => {
       });
 
       const summary = page.getByTestId('rail-running-summary');
-      await expect(summary).toContainText('1 session running');
-      await expect(page.getByTestId('rail-stop-all')).toContainText('Stop all 1');
-      await page.getByTestId('rail-stop-all').click();
+      await expect(summary).toHaveAttribute('aria-label', '1 session running');
+      await expect(summary).toHaveText('1');
+      await summary.click();
       const confirm = page.getByTestId('rail-stop-all-confirm');
       await expect(confirm).toBeVisible();
       await expect(confirm).toContainText('Session records and changes stay available');
@@ -217,7 +225,7 @@ test.describe('Session rail and conversation role polish', () => {
       await page.setViewportSize({ width: 960, height: 720 });
       await page.getByTestId('rail-view-sessions').click();
       await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '1');
-      await page.getByTestId('rail-stop-all').click();
+      await summary.click();
       await expect(confirm).toBeVisible();
       const confirmBox = await confirm.boundingBox();
       expect(confirmBox).not.toBeNull();

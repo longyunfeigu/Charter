@@ -483,10 +483,9 @@ export function registerM4Handlers(
           }
           return remoteTerminals.create({ hostId: target.hostId, launch });
         }
+        const userPrompt = initialPrompt?.trim() ? initialPrompt : null;
         const agentLaunch =
-          launch === 'shell'
-            ? null
-            : (localAgentLaunch?.(launch, initialPrompt?.trim() || null) ?? null);
+          launch === 'shell' ? null : (localAgentLaunch?.(launch, userPrompt) ?? null);
         if (launch !== 'shell' && !agentLaunch) {
           throw new ProductFailure(
             productError('AGENT_NOT_AVAILABLE', {
@@ -532,19 +531,22 @@ export function registerM4Handlers(
           throw error;
         }
         if (!info) throw new Error('Terminal creation did not return a terminal.');
-        const command = terminalLaunchCommand(launch, agentLaunch?.executable, agentLaunch?.args);
-        if (command) {
+        if (agentLaunch) {
           // The intent (pre-assigned conversation id + composer first prompt)
           // is consumed when agent detection confirms the CLI really started;
           // the prompt is delivered there, never as raw early PTY writes.
           externalLaunches?.register(info.id, {
             cli: launch,
             sessionId: agentLaunch?.sessionId ?? null,
-            prompt: initialPrompt?.trim() ? initialPrompt : null,
+            prompt: userPrompt,
             promptDelivery: agentLaunch?.promptDelivery ?? 'deferred',
           });
-          // Let the renderer attach the xterm before the first TUI repaint.
-          setTimeout(() => services.terminals.write(info.id, `${command}\r`), 350).unref();
+          const command = terminalLaunchCommand(launch, agentLaunch.executable, agentLaunch.args);
+          if (command) {
+            // Preserve the user's login-shell environment while the host-owned
+            // launch intent waits for the Agent composer before delivery.
+            setTimeout(() => services.terminals.write(info!.id, `${command}\r`), 350).unref();
+          }
         }
         return info;
       },

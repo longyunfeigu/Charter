@@ -42,7 +42,7 @@ export function MissionStatusStrip({
         </span>
       </span>
       <span className="mission-strip-presence">
-        {summary.active > 0 ? <span>{summary.active} working</span> : null}
+        {summary.active > 0 ? <span>{summary.active} active</span> : null}
         {summary.waiting > 0 ? <span>{summary.waiting} waiting</span> : null}
         {summary.attention > 0 ? <strong>{summary.attention} for you</strong> : null}
         {summary.issues > 0 ? <strong>{summary.issues} issues</strong> : null}

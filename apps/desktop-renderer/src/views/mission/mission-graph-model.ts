@@ -43,6 +43,8 @@ export interface MissionGraphEdge {
   targetId: string;
   messageIds: string[];
   count: number;
+  pendingCount: number;
+  failedCount: number;
   bidirectional: boolean;
   pending: boolean;
   failed: boolean;
@@ -547,6 +549,8 @@ export function buildMissionGraph(
       targetId: edge.taskId,
       messageIds: [],
       count: 1,
+      pendingCount: 0,
+      failedCount: 0,
       bidirectional: false,
       pending: false,
       failed: failedIds.has(edge.dependsOnTaskId),
@@ -555,16 +559,7 @@ export function buildMissionGraph(
     });
   }
   for (const task of visible) {
-    if (
-      task.parentTaskId &&
-      visibleById.has(task.parentTaskId) &&
-      !edges.some(
-        (edge) =>
-          edge.kind === 'dependency' &&
-          edge.sourceId === task.parentTaskId &&
-          edge.targetId === task.id,
-      )
-    ) {
+    if (task.parentTaskId && visibleById.has(task.parentTaskId)) {
       edges.push({
         id: `delegation:${task.parentTaskId}:${task.id}`,
         kind: 'delegation',
@@ -572,6 +567,8 @@ export function buildMissionGraph(
         targetId: task.id,
         messageIds: [],
         count: 1,
+        pendingCount: 0,
+        failedCount: 0,
         bidirectional: false,
         pending: false,
         failed: false,
@@ -649,6 +646,21 @@ export function buildMissionGraph(
         (left, right) => (timestamp(left.createdAt) ?? 0) - (timestamp(right.createdAt) ?? 0),
       )
       .at(-1)!;
+    const pendingRequestIds = new Set(
+      group.messages.flatMap((message) =>
+        message.actionRequestId && openAgentRequestIds.has(message.actionRequestId)
+          ? [message.actionRequestId]
+          : [],
+      ),
+    );
+    const failedMessageIds = new Set(
+      (snapshot.messageDeliveries ?? []).flatMap((delivery) =>
+        delivery.state === 'failed' &&
+        group.messages.some((message) => message.id === delivery.messageId)
+          ? [delivery.messageId]
+          : [],
+      ),
+    );
     edges.push({
       id: `communication:${key}`,
       kind: 'communication',
@@ -662,15 +674,11 @@ export function buildMissionGraph(
           : assignmentTask.get(group.messages[0]!.toAssignmentId!)!,
       messageIds: group.messages.map((message) => message.id),
       count: new Set(group.messages.map((message) => message.threadId ?? message.id)).size,
+      pendingCount: pendingRequestIds.size,
+      failedCount: failedMessageIds.size,
       bidirectional: group.directions.size > 1,
-      pending: group.messages.some(
-        (message) => message.actionRequestId && openAgentRequestIds.has(message.actionRequestId),
-      ),
-      failed: (snapshot.messageDeliveries ?? []).some(
-        (delivery) =>
-          group.messages.some((message) => message.id === delivery.messageId) &&
-          delivery.state === 'failed',
-      ),
+      pending: pendingRequestIds.size > 0,
+      failed: failedMessageIds.size > 0,
       urgent: Math.max(...group.messages.map((message) => priorityRank(message.priority))) > 0,
       label: latest.subject || `${group.messages.length} messages`,
     });
@@ -690,6 +698,8 @@ export function buildMissionGraph(
       targetId: 'mission-human',
       messageIds: messages.map((message) => message.id),
       count: Math.max(1, messages.length),
+      pendingCount: Math.max(1, messages.length),
+      failedCount: 0,
       bidirectional: false,
       pending: true,
       failed: messages.length === 0,

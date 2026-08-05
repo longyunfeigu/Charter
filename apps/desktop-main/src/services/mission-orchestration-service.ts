@@ -1,4 +1,5 @@
 import { errorMessage, newId, productError, ProductFailure } from '@pi-ide/foundation';
+import { createHash } from 'node:crypto';
 import type {
   ActionRequestBlockingScope,
   ActionRequestKind,
@@ -39,6 +40,9 @@ export interface AdoptMissionInput {
   terminalId?: string | null;
   requestedRuntime: RuntimeKind;
   requestedModel?: string | null;
+  /** Internal batching seam used by Session promotion to avoid a transient
+   * one-item Mission snapshot before its validated children exist. */
+  notify?: boolean;
 }
 
 export interface DelegateRequest {
@@ -49,10 +53,30 @@ export interface DelegateRequest {
   expectedArtifacts?: string[];
   requestedRuntime?: RuntimeKind;
   requestedModel?: string | null;
-  workMode?: AssignmentWorkMode;
+  workMode?: AssignmentWorkMode | 'auto';
   writeScope?: string[] | null;
   reason: string;
   idempotencyKey: string;
+}
+
+export interface BatchDelegateRequest extends DelegateRequest {
+  key?: string;
+  dependsOn?: string[];
+}
+
+export interface DelegateManyRequest {
+  children: BatchDelegateRequest[];
+  integration?: {
+    mode?: 'auto' | 'none';
+    title?: string;
+    requestedRuntime?: RuntimeKind;
+    requestedModel?: string | null;
+    acceptanceCriteria?: string[];
+  };
+}
+
+export interface PromoteMissionInput extends DelegateManyRequest {
+  reason: string;
 }
 
 export interface ActionRequestInput {
@@ -105,6 +129,52 @@ export interface InspectResult {
   parent: MissionSnapshot['assignments'][number] | null;
   children: MissionSnapshot['assignments'];
   unreadMessages: MissionSnapshot['messages'];
+  runtimeCatalog: OrchestrationRuntimeAvailability[];
+}
+
+export interface CompactInspectResult {
+  compact: true;
+  caller: OrchestrationCallerContext;
+  mission: Pick<
+    MissionSnapshot['mission'],
+    'id' | 'title' | 'goal' | 'state' | 'leadAssignmentId' | 'version' | 'executionPolicy'
+  >;
+  current: {
+    assignment: MissionSnapshot['assignments'][number] | null;
+    attempt: MissionSnapshot['attempts'][number] | null;
+    task: MissionSnapshot['tasks'][number] | null;
+    parent: MissionSnapshot['assignments'][number] | null;
+  };
+  snapshot: {
+    principals: MissionSnapshot['principals'];
+    tasks: Array<
+      Pick<
+        MissionSnapshot['tasks'][number],
+        'id' | 'parentTaskId' | 'title' | 'state' | 'workMode' | 'writeScope'
+      >
+    >;
+    dependencies: MissionSnapshot['dependencies'];
+    assignments: MissionSnapshot['assignments'];
+    attempts: MissionSnapshot['attempts'];
+  };
+  children: MissionSnapshot['assignments'];
+  unreadMessages: MissionSnapshot['messages'];
+  runtimeCatalog: OrchestrationRuntimeAvailability[];
+}
+
+export interface OrchestrationRuntimeAvailability {
+  id: RuntimeKind;
+  displayName: string;
+  available: boolean;
+  installed: boolean;
+  transport: 'native' | 'terminal' | 'acp';
+  capabilities?: Record<string, boolean>;
+  unavailableReason?: string | null;
+}
+
+export interface MissionOrchestrationServiceOptions {
+  runtimeCatalog?: () => OrchestrationRuntimeAvailability[];
+  maxPromotionWorkers?: () => number;
 }
 
 export class MissionOrchestrationService {
@@ -114,11 +184,15 @@ export class MissionOrchestrationService {
     readonly repository: MissionRepository,
     private readonly outbox: OrchestrationOutboxRunner,
     private readonly onChanged: (missionId: string) => void = () => {},
+    private readonly options: MissionOrchestrationServiceOptions = {},
   ) {
     this.messages = new OrchestrationMessageBus(repository);
   }
 
   start(): void {
+    for (const missionId of this.repository.reconcileMissionsWithoutActiveAssignments()) {
+      this.changed(missionId);
+    }
     this.outbox.start();
   }
 
@@ -188,11 +262,58 @@ export class MissionOrchestrationService {
         ...(input.requestedModel !== undefined ? { requestedModel: input.requestedModel } : {}),
       },
     });
-    this.changed(snapshot.mission.id);
+    if (input.notify !== false) this.changed(snapshot.mission.id);
     return {
       caller: this.contextForAssignment(snapshot.mission.leadAssignmentId!, this.originFor(input)),
       snapshot,
     };
+  }
+
+  promote(adoptInput: AdoptMissionInput, input: PromoteMissionInput) {
+    const existing = adoptInput.originConversationTaskId
+      ? this.repository.getMissionForOriginTask(adoptInput.originConversationTaskId)
+      : null;
+    if (existing) {
+      const rebound = this.adopt(adoptInput);
+      return {
+        alreadyPromoted: true,
+        reason: input.reason,
+        mission: rebound.snapshot.mission,
+        delegation: null,
+      };
+    }
+
+    const limit = Math.max(1, this.options.maxPromotionWorkers?.() ?? 5);
+    if (input.children.length > limit) {
+      throw this.failure(
+        'ORCHESTRATION_PROMOTION_BUDGET',
+        `Promotion requested ${input.children.length} workers, but the host limit is ${limit}.`,
+      );
+    }
+    const prepared = this.prepareDelegateMany(input);
+    if (
+      (input.integration?.mode ?? 'none') === 'auto' &&
+      prepared.some((item) => item.workMode === 'isolated-write')
+    ) {
+      this.preflightRuntime(input.integration?.requestedRuntime ?? adoptInput.requestedRuntime);
+    }
+
+    const adopted = this.adopt({ ...adoptInput, notify: false });
+    try {
+      const delegation = this.delegateMany(adopted.caller, input);
+      return {
+        alreadyPromoted: false,
+        reason: input.reason,
+        mission: this.repository.snapshot(adopted.snapshot.mission.id).mission,
+        delegation,
+      };
+    } catch (error) {
+      // The plan is preflighted before adoption, so this is a persistence or
+      // runtime failure. Publish the durable Lead instead of leaving a hidden
+      // Mission that the user cannot recover or stop.
+      this.changed(adopted.snapshot.mission.id);
+      throw error;
+    }
   }
 
   contextForRuntime(
@@ -224,7 +345,10 @@ export class MissionOrchestrationService {
     };
   }
 
-  inspect(callerInput: OrchestrationCallerContext): InspectResult {
+  inspect(
+    callerInput: OrchestrationCallerContext,
+    input?: { view?: 'compact' | 'full' },
+  ): InspectResult | CompactInspectResult {
     const caller = this.requireCaller(callerInput);
     if (!caller.missionId)
       throw this.failure('ORCHESTRATION_MISSION_REQUIRED', 'No Mission is attached.');
@@ -235,26 +359,71 @@ export class MissionOrchestrationService {
     const attempt = caller.attemptId
       ? (snapshot.attempts.find((item) => item.id === caller.attemptId) ?? null)
       : null;
+    const parent = assignment?.supervisorAssignmentId
+      ? (snapshot.assignments.find((item) => item.id === assignment.supervisorAssignmentId) ?? null)
+      : null;
+    const children = assignment
+      ? snapshot.assignments.filter((item) => item.supervisorAssignmentId === assignment.id)
+      : [];
+    const unreadMessages = assignment
+      ? this.repository.listInbox(assignment.id, { unreadOnly: true, limit: 100 })
+      : [];
+    const runtimeCatalog = this.runtimeCatalog();
+    if (input?.view === 'compact') {
+      return {
+        compact: true,
+        caller,
+        mission: {
+          id: snapshot.mission.id,
+          title: snapshot.mission.title,
+          goal: snapshot.mission.goal,
+          state: snapshot.mission.state,
+          leadAssignmentId: snapshot.mission.leadAssignmentId,
+          version: snapshot.mission.version,
+          executionPolicy: snapshot.mission.executionPolicy,
+        },
+        current: {
+          assignment,
+          attempt,
+          task: assignment
+            ? (snapshot.tasks.find((item) => item.id === assignment.taskId) ?? null)
+            : null,
+          parent,
+        },
+        snapshot: {
+          principals: snapshot.principals,
+          tasks: snapshot.tasks.map((task) => ({
+            id: task.id,
+            parentTaskId: task.parentTaskId,
+            title: task.title,
+            state: task.state,
+            workMode: task.workMode,
+            writeScope: task.writeScope,
+          })),
+          dependencies: snapshot.dependencies,
+          assignments: snapshot.assignments,
+          attempts: snapshot.attempts,
+        },
+        children,
+        unreadMessages,
+        runtimeCatalog,
+      };
+    }
     return {
       caller,
       snapshot,
       assignment,
       attempt,
-      parent: assignment?.supervisorAssignmentId
-        ? (snapshot.assignments.find((item) => item.id === assignment.supervisorAssignmentId) ??
-          null)
-        : null,
-      children: assignment
-        ? snapshot.assignments.filter((item) => item.supervisorAssignmentId === assignment.id)
-        : [],
-      unreadMessages: assignment
-        ? this.repository.listInbox(assignment.id, { unreadOnly: true, limit: 100 })
-        : [],
+      parent,
+      children,
+      unreadMessages,
+      runtimeCatalog,
     };
   }
 
   delegate(callerInput: OrchestrationCallerContext, input: DelegateRequest) {
     const caller = this.requireMember(callerInput);
+    this.preflightRuntime(input.requestedRuntime ?? 'managed');
     const result = this.repository.delegate({
       missionId: caller.missionId!,
       supervisorAssignmentId: caller.assignmentId!,
@@ -266,7 +435,7 @@ export class MissionOrchestrationService {
       ...(input.expectedArtifacts ? { expectedArtifacts: input.expectedArtifacts } : {}),
       requestedRuntime: input.requestedRuntime ?? 'managed',
       ...(input.requestedModel !== undefined ? { requestedModel: input.requestedModel } : {}),
-      workMode: input.workMode ?? 'isolated-write',
+      workMode: this.resolveWorkMode(input),
       ...(input.writeScope !== undefined ? { writeScope: input.writeScope } : {}),
       reason: input.reason,
       idempotencyKey: input.idempotencyKey,
@@ -276,29 +445,128 @@ export class MissionOrchestrationService {
     return result;
   }
 
-  delegateMany(callerInput: OrchestrationCallerContext, input: { children: DelegateRequest[] }) {
+  delegateMany(callerInput: OrchestrationCallerContext, input: DelegateManyRequest) {
     const caller = this.requireMember(callerInput);
-    const results = this.repository.delegateMany(
-      input.children.map((child) => ({
+    const prepared = this.prepareDelegateMany(input);
+    const keys = new Set(prepared.map((item) => item.key));
+    const repositoryInputs = prepared.map(({ child, key, workMode }) => ({
+      missionId: caller.missionId!,
+      supervisorAssignmentId: caller.assignmentId!,
+      actorPrincipalId: caller.principalId,
+      goal: child.goal,
+      ...(child.title ? { title: child.title } : {}),
+      acceptanceCriteria: child.acceptanceCriteria,
+      ...(child.dependencies ? { dependencies: child.dependencies } : {}),
+      ...(child.expectedArtifacts ? { expectedArtifacts: child.expectedArtifacts } : {}),
+      requestedRuntime: child.requestedRuntime ?? 'managed',
+      ...(child.requestedModel !== undefined ? { requestedModel: child.requestedModel } : {}),
+      workMode,
+      ...(child.writeScope !== undefined ? { writeScope: child.writeScope } : {}),
+      reason: child.reason,
+      idempotencyKey: child.idempotencyKey,
+      batchKey: key,
+      ...(child.dependsOn ? { dependsOnKeys: child.dependsOn } : {}),
+    }));
+
+    const isolated = prepared.filter((item) => item.workMode === 'isolated-write');
+    let integrationKey: string | null = null;
+    if ((input.integration?.mode ?? 'none') === 'auto' && isolated.length > 0) {
+      integrationKey = '__integration__';
+      if (keys.has(integrationKey)) {
+        throw this.failure(
+          'ORCHESTRATION_BATCH_KEY_RESERVED',
+          `delegate_many child key "${integrationKey}" is reserved for automatic integration.`,
+        );
+      }
+      const callerAttempt = caller.attemptId ? this.repository.getAttempt(caller.attemptId) : null;
+      const requestedRuntime =
+        input.integration?.requestedRuntime ?? callerAttempt?.requestedRuntime ?? 'managed';
+      this.preflightRuntime(requestedRuntime);
+      const writeChildren = prepared.filter((item) => item.workMode !== 'read-only');
+      const writeScope = [...new Set(writeChildren.flatMap((item) => item.child.writeScope ?? []))];
+      const digest = createHash('sha256')
+        .update(
+          prepared
+            .map((item) => item.child.idempotencyKey)
+            .sort()
+            .join('\n'),
+        )
+        .digest('hex')
+        .slice(0, 16);
+      repositoryInputs.push({
         missionId: caller.missionId!,
         supervisorAssignmentId: caller.assignmentId!,
         actorPrincipalId: caller.principalId,
-        goal: child.goal,
-        ...(child.title ? { title: child.title } : {}),
-        acceptanceCriteria: child.acceptanceCriteria,
-        ...(child.dependencies ? { dependencies: child.dependencies } : {}),
-        ...(child.expectedArtifacts ? { expectedArtifacts: child.expectedArtifacts } : {}),
-        requestedRuntime: child.requestedRuntime ?? 'managed',
-        ...(child.requestedModel !== undefined ? { requestedModel: child.requestedModel } : {}),
-        workMode: child.workMode ?? 'isolated-write',
-        ...(child.writeScope !== undefined ? { writeScope: child.writeScope } : {}),
-        reason: child.reason,
-        idempotencyKey: child.idempotencyKey,
-      })),
-    );
+        title: input.integration?.title ?? 'Integrate delegated changes',
+        goal: [
+          'Integrate the completed isolated-write Assignments into the Mission target workspace.',
+          'Use their persisted worktree and artifact lineage, preserve existing target changes, resolve conflicts explicitly, and run post-integration verification.',
+          'Report the integrated files and verification evidence before completing.',
+        ].join(' '),
+        acceptanceCriteria: input.integration?.acceptanceCriteria ?? [
+          'All successful delegated changes are present in the Mission target workspace.',
+          'No pre-existing target changes are discarded.',
+          'Post-integration verification passes or failures are reported with evidence.',
+        ],
+        expectedArtifacts: ['Integrated files', 'Post-integration verification evidence'],
+        requestedRuntime,
+        ...(input.integration?.requestedModel !== undefined
+          ? { requestedModel: input.integration.requestedModel }
+          : {}),
+        workMode: 'shared-write',
+        ...(writeScope.length > 0 ? { writeScope } : {}),
+        reason: 'Automatic integration is required for isolated-write Assignment outputs.',
+        idempotencyKey: `integration:${caller.assignmentId}:${digest}`,
+        batchKey: integrationKey,
+        dependsOnKeys: writeChildren.map((item) => item.key),
+      });
+    }
+    const created = this.repository.delegateMany(repositoryInputs);
+    const results = created.filter((result) => result.batchKey !== integrationKey);
+    const integration = integrationKey
+      ? (created.find((result) => result.batchKey === integrationKey) ?? null)
+      : null;
     this.changed(caller.missionId!);
     this.outbox.wake();
-    return { results };
+    return {
+      results,
+      integration,
+      plan: prepared.map((item) => ({
+        key: item.key,
+        workMode: item.workMode,
+        dependsOn: item.child.dependsOn ?? [],
+      })),
+    };
+  }
+
+  private prepareDelegateMany(input: DelegateManyRequest) {
+    for (const child of input.children) {
+      this.preflightRuntime(child.requestedRuntime ?? 'managed');
+    }
+    const prepared = input.children.map((child, index) => ({
+      child,
+      key: child.key ?? `child-${index + 1}`,
+      workMode: this.resolveWorkMode(child),
+    }));
+    const keys = new Set<string>();
+    for (const item of prepared) {
+      if (keys.has(item.key)) {
+        throw this.failure(
+          'ORCHESTRATION_BATCH_KEY_DUPLICATE',
+          `delegate_many child key "${item.key}" is duplicated.`,
+        );
+      }
+      keys.add(item.key);
+      for (const dependency of item.child.dependsOn ?? []) {
+        if (!input.children.some((candidate) => candidate.key === dependency)) {
+          throw this.failure(
+            'ORCHESTRATION_BATCH_DEPENDENCY_NOT_FOUND',
+            `delegate_many dependency key "${dependency}" does not identify a child in this batch.`,
+          );
+        }
+      }
+    }
+    return prepared;
   }
 
   sync(
@@ -753,6 +1021,7 @@ export class MissionOrchestrationService {
 
   retry(callerInput: OrchestrationCallerContext, assignmentId: string, runtime?: RuntimeKind) {
     this.requireControlTarget(callerInput, assignmentId);
+    if (runtime) this.preflightRuntime(runtime);
     const attempt = this.repository.createRetry(assignmentId, runtime);
     const assignment = this.repository.getAssignment(assignmentId)!;
     this.changed(assignment.missionId);
@@ -816,6 +1085,7 @@ export class MissionOrchestrationService {
     },
   ) {
     const caller = this.requireControlTarget(callerInput, input.assignmentId);
+    if (input.requestedRuntime) this.preflightRuntime(input.requestedRuntime);
     const result = this.repository.reassign({
       assignmentId: input.assignmentId,
       actorPrincipalId: caller.principalId,
@@ -997,6 +1267,52 @@ export class MissionOrchestrationService {
     if (input.principal.kind === 'managed_agent') return 'managed-run';
     if (input.terminalId) return 'charter-terminal';
     return 'attached-cli';
+  }
+
+  private runtimeCatalog(): OrchestrationRuntimeAvailability[] {
+    return this.options.runtimeCatalog?.() ?? [];
+  }
+
+  private resolveWorkMode(
+    input: Pick<DelegateRequest, 'requestedRuntime' | 'workMode' | 'writeScope'>,
+  ): AssignmentWorkMode {
+    const requestedRuntime = input.requestedRuntime ?? 'managed';
+    const worktreeAvailable = this.runtimeCatalog().find(
+      (candidate) => candidate.id === requestedRuntime,
+    )?.capabilities?.worktree;
+    if (input.workMode && input.workMode !== 'auto') {
+      if (input.workMode === 'isolated-write' && worktreeAvailable === false) {
+        throw this.failure(
+          'ORCHESTRATION_WORK_MODE_UNSUPPORTED',
+          `Runtime "${requestedRuntime}" cannot create an isolated Mission worktree. Use workMode "shared-write" with an explicit writeScope, or choose the managed runtime.`,
+        );
+      }
+      return input.workMode;
+    }
+    if (input.writeScope && input.writeScope.length > 0) return 'shared-write';
+    return worktreeAvailable === false ? 'shared-write' : 'isolated-write';
+  }
+
+  private preflightRuntime(runtime: RuntimeKind): void {
+    if (!this.options.runtimeCatalog) return;
+    const catalog = this.runtimeCatalog();
+    const entry = catalog.find((candidate) => candidate.id === runtime);
+    const available = catalog
+      .filter((candidate) => candidate.available)
+      .map((candidate) => candidate.id);
+    if (!entry) {
+      throw this.failure(
+        'ORCHESTRATION_RUNTIME_UNKNOWN',
+        `Runtime "${runtime}" is not registered. Available runtimes: ${available.join(', ') || 'none'}.`,
+      );
+    }
+    if (!entry.available) {
+      throw this.failure(
+        'ORCHESTRATION_RUNTIME_UNAVAILABLE',
+        entry.unavailableReason?.trim() ||
+          `Runtime "${runtime}" is installed but cannot be launched right now.`,
+      );
+    }
   }
 
   private failure(code: string, userMessage: string): ProductFailure {

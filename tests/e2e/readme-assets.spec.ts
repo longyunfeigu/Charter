@@ -136,7 +136,7 @@ test.describe('README product images', () => {
 
       // Capture the in-progress file heat surface, then leave the Room so the
       // completion notice and Session-rail ripple are visible together.
-      await page.getByTestId('home-new-task').click();
+      await page.getByTestId('surface-home').click();
       await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-live] refine recovery notes');
       await page.getByTestId('home-submit').click();

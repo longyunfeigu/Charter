@@ -26,7 +26,7 @@ import {
 } from './terminal-replay-model.js';
 
 type TimingPreset = 'smart-30' | 'smart-60' | 'smart-90' | 'smart-120' | 'original';
-type ExportFormat = 'mp4' | 'gif' | 'webm';
+type ExportFormat = 'mp4' | 'webm';
 type ExportStatus = 'choose' | 'recording' | 'saving' | 'canceling' | 'error';
 
 interface ExportState {
@@ -1228,15 +1228,6 @@ export function TerminalReplayPlayer({ task }: { task: TaskDto }): React.JSX.Ele
                 >
                   <strong>MP4</strong>
                   <span>Best for sharing</span>
-                  <small>Uses local ffmpeg</small>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void exportReplay('gif')}
-                  data-testid="terminal-replay-export-gif"
-                >
-                  <strong>GIF</strong>
-                  <span>Quick visual preview</span>
                   <small>Uses local ffmpeg</small>
                 </button>
                 <button

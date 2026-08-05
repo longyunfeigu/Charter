@@ -36,6 +36,7 @@ test('Mission History supports recoverable deletion while preserving the origin 
     migrations: MIGRATIONS,
   });
   let missionId = '';
+  let cancelledMissionId = '';
   let childAssignmentId = '';
   try {
     const workspace = database.db
@@ -76,6 +77,26 @@ test('Mission History supports recoverable deletion while preserving the origin 
         "UPDATE missions SET state = 'COMPLETED', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
       )
       .run(missionId);
+    const cancelled = repository.createMission({
+      workspaceId: workspace!.id,
+      workspaceRoot: fixture,
+      originConversationTaskId: taskId,
+      title: 'Cancelled outcome remains legible',
+      goal: 'Keep terminal outcomes visually distinct in Mission History.',
+      lead: {
+        principalId: 'cancelled-retention-lead',
+        kind: 'managed_agent',
+        displayName: 'Cancelled Mission Lead',
+        runtimeSessionId: `managed-task:${taskId}`,
+        requestedRuntime: 'managed',
+      },
+    });
+    cancelledMissionId = cancelled.mission.id;
+    database.db
+      .prepare(
+        "UPDATE missions SET state = 'CANCELLED', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+      )
+      .run(cancelledMissionId);
   } finally {
     database.db.close();
   }
@@ -97,6 +118,23 @@ test('Mission History supports recoverable deletion while preserving the origin 
     await second.page.getByTestId('rail-view-missions').click();
     await second.page.getByRole('tab', { name: /History/ }).click();
     await expect(second.page.getByTestId(`mission-rail-${missionId}`)).toBeVisible();
+    const acceptedStatus = second.page.getByTestId(`mission-history-status-${missionId}`);
+    await expect(acceptedStatus).toHaveText('Accepted');
+    await expect(acceptedStatus).toHaveClass(/tone-success/);
+    await expect(acceptedStatus.locator('[data-icon="check"]')).toBeVisible();
+    const cancelledStatus = second.page.getByTestId(`mission-history-status-${cancelledMissionId}`);
+    await expect(cancelledStatus).toHaveText('Cancelled');
+    await expect(cancelledStatus).toHaveClass(/tone-neutral/);
+    await expect(cancelledStatus.locator('[data-icon="ban"]')).toBeVisible();
+    await second.page.setViewportSize({ width: 1440, height: 900 });
+    await second.page.screenshot({ path: '/tmp/charter-mission-history-status-wide.png' });
+    await second.page.setViewportSize({ width: 900, height: 760 });
+    await second.page.getByTestId('rail-view-missions').click();
+    await expect(second.page.getByTestId('mission-rail-panel')).toBeVisible();
+    await expect(acceptedStatus).toBeVisible();
+    await expect(cancelledStatus).toBeVisible();
+    await second.page.screenshot({ path: '/tmp/charter-mission-history-status-narrow.png' });
+    await second.page.setViewportSize({ width: 1440, height: 900 });
     await second.page.getByTestId(`mission-trash-${missionId}`).click();
     await expect(second.page.getByTestId('mission-delete-dialog')).toContainText(
       'The original Session and every project file remain untouched.',

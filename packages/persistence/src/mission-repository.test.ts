@@ -286,6 +286,102 @@ describe('MissionRepository', () => {
     opened.db.close();
   });
 
+  it('resolves same-batch dependency keys atomically regardless of request order', () => {
+    const opened = open();
+    seedWorkspace(opened.db);
+    const repository = new MissionRepository(opened.db);
+    const created = repository.createMission({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Batch DAG',
+      goal: 'Resolve aliases before creating tasks',
+      lead: {
+        principalId: 'lead',
+        kind: 'managed_agent',
+        displayName: 'Lead',
+        runtimeSessionId: 'lead-runtime',
+        requestedRuntime: 'managed',
+      },
+    });
+    const lead = created.assignments[0]!;
+    const base = {
+      missionId: created.mission.id,
+      supervisorAssignmentId: lead.id,
+      actorPrincipalId: 'lead',
+      acceptanceCriteria: [],
+      requestedRuntime: 'managed' as const,
+      workMode: 'read-only' as const,
+      reason: 'ordered batch',
+    };
+    const [consumer, foundation] = repository.delegateMany([
+      {
+        ...base,
+        batchKey: 'consumer',
+        dependsOnKeys: ['foundation'],
+        goal: 'Consume the contract',
+        idempotencyKey: 'batch-consumer',
+      },
+      {
+        ...base,
+        batchKey: 'foundation',
+        goal: 'Define the contract',
+        idempotencyKey: 'batch-foundation',
+      },
+    ]);
+
+    expect([consumer?.batchKey, foundation?.batchKey]).toEqual(['consumer', 'foundation']);
+    expect(consumer?.task.state).toBe('BLOCKED');
+    expect(repository.snapshot(created.mission.id).dependencies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          taskId: consumer?.task.id,
+          dependsOnTaskId: foundation?.task.id,
+        }),
+      ]),
+    );
+    opened.db.close();
+  });
+
+  it('rejects cyclic same-batch dependency keys without leaving partial tasks', () => {
+    const opened = open();
+    seedWorkspace(opened.db);
+    const repository = new MissionRepository(opened.db);
+    const created = repository.createMission({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Cyclic batch',
+      goal: 'Reject cycles',
+      lead: {
+        principalId: 'lead',
+        kind: 'managed_agent',
+        displayName: 'Lead',
+        runtimeSessionId: 'lead-runtime',
+        requestedRuntime: 'managed',
+      },
+    });
+    const lead = created.assignments[0]!;
+    const child = (key: string, dependsOnKeys: string[]) => ({
+      missionId: created.mission.id,
+      supervisorAssignmentId: lead.id,
+      actorPrincipalId: 'lead',
+      batchKey: key,
+      dependsOnKeys,
+      goal: key,
+      acceptanceCriteria: [],
+      requestedRuntime: 'managed' as const,
+      workMode: 'read-only' as const,
+      reason: 'cycle test',
+      idempotencyKey: `cycle-${key}`,
+    });
+
+    expect(() =>
+      repository.delegateMany([child('first', ['second']), child('second', ['first'])]),
+    ).toThrow(/cycle/i);
+    expect(repository.snapshot(created.mission.id).assignments).toHaveLength(1);
+    expect(repository.listPendingOutbox()).toHaveLength(0);
+    opened.db.close();
+  });
+
   it('keeps raw runtime events for audit while bounding Mission snapshots', () => {
     const opened = open();
     seedWorkspace(opened.db);
@@ -600,6 +696,90 @@ describe('MissionRepository', () => {
     expect(repository.listRecoverableMissions().map((mission) => mission.id)).not.toContain(
       first.mission.id,
     );
+    opened.db.close();
+  });
+
+  it('cancels the Mission when its last live Assignment Session is cancelled', () => {
+    const opened = open();
+    seedWorkspace(opened.db);
+    const repository = new MissionRepository(opened.db);
+    const created = repository.createMission({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Stop every Session',
+      goal: 'The aggregate must not remain running without a runtime.',
+      lead: {
+        principalId: 'stop-lead',
+        kind: 'managed_agent',
+        displayName: 'Stop Lead',
+        runtimeSessionId: 'runtime-stop-lead',
+        requestedRuntime: 'managed',
+      },
+    });
+    const lead = created.assignments[0]!;
+    const child = repository.delegate({
+      missionId: created.mission.id,
+      supervisorAssignmentId: lead.id,
+      actorPrincipalId: lead.assigneePrincipalId,
+      goal: 'Child work',
+      acceptanceCriteria: [],
+      requestedRuntime: 'managed',
+      workMode: 'read-only',
+      reason: 'parallel work',
+      idempotencyKey: 'stop-all-child',
+    });
+
+    repository.cancelAssignment(child.assignment.id, lead.assigneePrincipalId, 'Stop child');
+    expect(repository.getMission(created.mission.id)?.state).toBe('RUNNING');
+
+    repository.cancelAssignment(lead.id, lead.assigneePrincipalId, 'Stop remaining Session');
+    expect(repository.getMission(created.mission.id)).toMatchObject({
+      state: 'CANCELLED',
+      completedAt: expect.any(String),
+    });
+    const events = opened.db
+      .prepare(
+        "SELECT type, payload_json FROM mission_events WHERE mission_id = ? AND type = 'mission.cancelled'",
+      )
+      .all(created.mission.id) as Array<{ type: string; payload_json: string }>;
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0]!.payload_json)).toMatchObject({
+      source: 'assignments_exhausted',
+    });
+    opened.db.close();
+  });
+
+  it('repairs a legacy RUNNING Mission whose Sessions were already all stopped', () => {
+    const opened = open();
+    seedWorkspace(opened.db);
+    const repository = new MissionRepository(opened.db);
+    const created = repository.createMission({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Legacy stopped Mission',
+      goal: 'Repair the aggregate on startup.',
+      lead: {
+        principalId: 'legacy-lead',
+        kind: 'managed_agent',
+        displayName: 'Legacy Lead',
+        runtimeSessionId: 'runtime-legacy-lead',
+        requestedRuntime: 'managed',
+      },
+    });
+    const assignment = created.assignments[0]!;
+    const attempt = created.attempts[0]!;
+    opened.db
+      .prepare("UPDATE execution_attempts SET state = 'CANCELLED' WHERE id = ?")
+      .run(attempt.id);
+    opened.db.prepare("UPDATE assignments SET state = 'CANCELLED' WHERE id = ?").run(assignment.id);
+    opened.db
+      .prepare("UPDATE mission_tasks SET state = 'CANCELLED' WHERE id = ?")
+      .run(assignment.taskId);
+
+    expect(repository.getMission(created.mission.id)?.state).toBe('RUNNING');
+    expect(repository.reconcileMissionsWithoutActiveAssignments()).toEqual([created.mission.id]);
+    expect(repository.getMission(created.mission.id)?.state).toBe('CANCELLED');
+    expect(repository.reconcileMissionsWithoutActiveAssignments()).toEqual([]);
     opened.db.close();
   });
 

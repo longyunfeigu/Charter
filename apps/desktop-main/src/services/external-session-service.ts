@@ -36,10 +36,12 @@ const IGNORED_PREFIXES = ['.pi-ide-chg.'];
 const ATOMIC_WRITE_TMP = /\.tmp\.\d+\.[0-9a-f]+$/i;
 const MAX_TERMINAL_REPLAY_BYTES = 2 * 1024 * 1024;
 const TERMINAL_EVENT_CHARS = 12_000;
-// 1s of true quiet is enough: interactive TUIs animate a spinner continuously
-// while working, so output only settles once the reply is really finished.
-// The previous 1.8s read as "the notification lags the agent" in field use.
+// Observed TUIs without an explicit busy title fall back to 1s of documentary
+// output quiet. Claude/Codex window-title spinners are handled separately: OSC
+// title traffic is stripped from documentary text, but remains authoritative
+// until the TUI paints its non-spinning title again.
 const OBSERVED_REPLY_QUIET_MS = 1_000;
+const MAX_OBSERVED_TITLE_FRAGMENT_CHARS = 1_024;
 /** First-prompt delivery: the TUI is treated as ready once its paint settles. */
 const PROMPT_SETTLE_QUIET_MS = 600;
 /** A quiet TUI gets a deadline, but startup trust gates still block delivery. */
@@ -69,6 +71,40 @@ interface ObservedTurnPresence {
   presenceTimer: ReturnType<typeof setTimeout> | null;
   presenceAwaitingReply: boolean;
   presenceSawOutput: boolean;
+  presenceTuiBusy: boolean;
+  presenceTitleBuffer: string;
+}
+
+export type ObservedTuiTitleActivity = 'busy' | 'idle';
+
+/**
+ * Claude and Codex expose their real interactive turn boundary through OSC
+ * 0/2 window titles. Their working titles begin with a Braille spinner frame;
+ * the idle edge is a normal title (Claude's `✳ …`, Codex's plain cwd title).
+ * Return the last complete title edge in a PTY chunk so a repaint cannot make
+ * a completed observed turn start again by itself.
+ */
+export function observedTuiTitleActivity(data: string): ObservedTuiTitleActivity | null {
+  let activity: ObservedTuiTitleActivity | null = null;
+  for (const match of data.matchAll(
+    /(?:\u001b\]|\u009d)(?:0|2);([^\u0007\u001b\u009c]*)(?:\u0007|\u001b\\|\u009c)/g,
+  )) {
+    activity = /^[\u2800-\u28ff]/u.test((match[1] ?? '').trimStart()) ? 'busy' : 'idle';
+  }
+  return activity;
+}
+
+/** Preserve only an incomplete OSC title across arbitrary PTY chunk splits. */
+function trailingObservedTuiTitleFragment(data: string): string {
+  const start = Math.max(data.lastIndexOf('\u001b]'), data.lastIndexOf('\u009d'));
+  if (start >= 0) {
+    const candidate = data.slice(start);
+    if (!/(?:\u0007|\u001b\\|\u009c)/.test(candidate)) {
+      return candidate.length <= MAX_OBSERVED_TITLE_FRAGMENT_CHARS ? candidate : '';
+    }
+  }
+  // ESC and `]` may themselves arrive in separate PTY chunks.
+  return data.endsWith('\u001b') ? '\u001b' : '';
 }
 
 /** Arm the completion edge for both PTY-submitted and argv-submitted turns. */
@@ -78,6 +114,8 @@ export function beginObservedTurnPresence(state: ObservedTurnPresence): void {
   state.presenceTimer = null;
   state.presenceAwaitingReply = true;
   state.presenceSawOutput = false;
+  state.presenceTuiBusy = false;
+  state.presenceTitleBuffer = '';
 }
 
 export function externalPromptEnterDelayMs(prompt: string): number {
@@ -172,6 +210,20 @@ export function codexStartupUpdateGateActive(output: string): boolean {
   return updateGate >= 0 && updateGate > ready;
 }
 
+/**
+ * Deferred prompts are sent as bracketed paste. Process detection alone is not
+ * a composer-ready signal: Kimi (and occasionally Claude) is detectable while
+ * its PTY is still in cooked shell mode. Writing at that point echoes
+ * `^[[200~...` as ordinary input and the subsequent TUI paint discards the
+ * assignment. Compare the last enable/disable edge so stale shell scrollback
+ * cannot make a newly launched Agent look ready.
+ */
+export function bracketedPasteComposerReady(output: string): boolean {
+  const enabled = output.lastIndexOf('\u001b[?2004h');
+  const disabled = output.lastIndexOf('\u001b[?2004l');
+  return enabled >= 0 && enabled > disabled;
+}
+
 export interface ExternalSessionSnapshot {
   terminalId: string;
   taskId: string;
@@ -233,6 +285,10 @@ interface LiveSession {
   presenceTimer: ReturnType<typeof setTimeout> | null;
   presenceAwaitingReply: boolean;
   presenceSawOutput: boolean;
+  /** Explicit OSC title activity for full-screen Claude/Codex turns. */
+  presenceTuiBusy: boolean;
+  /** Bounded tail for an OSC title split across PTY data events. */
+  presenceTitleBuffer: string;
   /** Filesystem observations may belong to this terminal only during a real turn. */
   fileAttributionActive: boolean;
   lastAgentActivityAtMs: number;
@@ -797,13 +853,7 @@ export class ExternalSessionService {
     }
   }
 
-  private noteObservedOutput(session: LiveSession, data: string): void {
-    if (session.structuredStream || !cleanTerminalText(data).replace(/\s/g, '')) return;
-    // A completed observed turn can still receive idle TUI repaints, cursor
-    // updates, or focus/status traffic. Only submitted input (or launch) may
-    // start a turn; output by itself must never make an idle Session work again.
-    if (!session.presenceAwaitingReply) return;
-    session.presenceSawOutput = true;
+  private armObservedSettlement(session: LiveSession): void {
     if (session.presenceTimer) clearTimeout(session.presenceTimer);
     session.presenceTimer = setTimeout(() => {
       session.presenceTimer = null;
@@ -811,7 +861,8 @@ export class ExternalSessionService {
         session.ended ||
         session.structuredStream ||
         !session.presenceAwaitingReply ||
-        !session.presenceSawOutput
+        !session.presenceSawOutput ||
+        session.presenceTuiBusy
       ) {
         return;
       }
@@ -840,11 +891,51 @@ export class ExternalSessionService {
     session.presenceTimer.unref?.();
   }
 
+  private noteObservedOutput(session: LiveSession, data: string): void {
+    if (session.structuredStream) return;
+
+    const titleData = `${session.presenceTitleBuffer}${data}`;
+    const titleActivity = observedTuiTitleActivity(titleData);
+    session.presenceTitleBuffer = trailingObservedTuiTitleFragment(titleData);
+
+    if (titleActivity === 'busy') {
+      session.presenceTuiBusy = true;
+      if (session.presenceAwaitingReply) {
+        // OSC titles are real agent activity even though documentary replay
+        // intentionally strips them. Hold the working edge through arbitrary
+        // silent reasoning/tool gaps until the TUI explicitly returns idle.
+        session.presenceSawOutput = true;
+        if (session.presenceTimer) clearTimeout(session.presenceTimer);
+        session.presenceTimer = null;
+      }
+    } else if (titleActivity === 'idle' && session.presenceTuiBusy) {
+      session.presenceTuiBusy = false;
+      if (session.presenceAwaitingReply && session.presenceSawOutput) {
+        this.armObservedSettlement(session);
+      }
+    }
+
+    if (!cleanTerminalText(data).replace(/\s/g, '')) return;
+    // A completed observed turn can still receive idle TUI repaints, cursor
+    // updates, or focus/status traffic. Only submitted input (or launch) may
+    // start a turn; output by itself must never make an idle Session work again.
+    if (!session.presenceAwaitingReply) return;
+    session.presenceSawOutput = true;
+    if (session.presenceTuiBusy) {
+      if (session.presenceTimer) clearTimeout(session.presenceTimer);
+      session.presenceTimer = null;
+      return;
+    }
+    this.armObservedSettlement(session);
+  }
+
   private clearObservedPresence(session: LiveSession): void {
     if (session.presenceTimer) clearTimeout(session.presenceTimer);
     session.presenceTimer = null;
     session.presenceAwaitingReply = false;
     session.presenceSawOutput = false;
+    session.presenceTuiBusy = false;
+    session.presenceTitleBuffer = '';
   }
 
   private startTurn(session: LiveSession, source: ExternalTurnStartedEvent['source']): void {
@@ -942,6 +1033,13 @@ export class ExternalSessionService {
       // Process detection and the shell's command echo both precede the first
       // Codex screen. Wait for the actual composer, not merely an absent gate.
       // Keep this deadline independent of continuously animated MCP startup.
+      this.schedulePromptDeadline(session, PROMPT_SETTLE_QUIET_MS);
+      return;
+    }
+    if (session.cli !== 'codex' && !bracketedPasteComposerReady(recent)) {
+      // Deferred-prompt Agents own their full-screen composer. Wait for the
+      // terminal mode they use to accept multiline paste rather than racing
+      // process discovery or a partially painted welcome screen.
       this.schedulePromptDeadline(session, PROMPT_SETTLE_QUIET_MS);
       return;
     }
@@ -1171,6 +1269,8 @@ export class ExternalSessionService {
       presenceTimer: null,
       presenceAwaitingReply: false,
       presenceSawOutput: false,
+      presenceTuiBusy: false,
+      presenceTitleBuffer: '',
       // A daemon-backed reattach means the same agent turn continued while
       // the desktop was absent; a freshly prepared worktree launch has not
       // begun its first turn yet.
@@ -1806,6 +1906,8 @@ export class ExternalSessionService {
       presenceTimer: null,
       presenceAwaitingReply: false,
       presenceSawOutput: false,
+      presenceTuiBusy: false,
+      presenceTitleBuffer: '',
       fileAttributionActive: false,
       lastAgentActivityAtMs: Date.now(),
       fileAttributionGraceUntilMs: Date.now() + INITIAL_COMMAND_ATTRIBUTION_MS,

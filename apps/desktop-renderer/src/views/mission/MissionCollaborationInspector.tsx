@@ -215,7 +215,9 @@ export function MissionCollaborationInspector({
             {targetNode?.principal?.displayName ?? 'Agent'}
           </strong>
         </div>
-        <b>{edge.count}</b>
+        <b>
+          {edge.count} {edge.count === 1 ? 'thread' : 'threads'}
+        </b>
       </header>
       <section className="mission-collaboration-intro">
         <h2>{edge.label}</h2>

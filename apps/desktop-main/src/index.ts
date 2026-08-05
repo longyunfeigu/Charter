@@ -59,6 +59,9 @@ import { registerM9Handlers } from './ipc/m9-handlers.js';
 import { SecretService } from './services/secret-service.js';
 import { SkillStore } from './services/skill-store.js';
 import { registerSkillsHandlers } from './ipc/skills-handlers.js';
+import { installCharterTerminalSurfaces } from './services/charter-terminal-surfaces.js';
+import { CHARTER_TERMINAL_SKILL } from './services/terminal-control-manual.js';
+import { CHARTER_ORCHESTRATION_SKILL } from './services/orchestration-manual.js';
 import { MemoryService } from './services/memory-service.js';
 import { registerMemoryHandlers } from './ipc/memory-handlers.js';
 import { ModelCatalogService } from './services/model-catalog.js';
@@ -742,11 +745,19 @@ if (!gotLock) {
       };
       const resolveVisibleAgentLaunch = (launch: string, initialPrompt: string | null) => {
         const sessionId = agentRegistryRef!.preassignSessionId(launch) ? randomUUID() : null;
-        const spec = agentRegistryRef!.launchSpec(launch, { prompt: initialPrompt, sessionId });
+        const spec = agentRegistryRef!.launchSpec(launch, {
+          prompt: initialPrompt,
+          sessionId,
+        });
         if (!spec) return null;
         return {
           ...spec,
-          executable: resolveVisibleAgentExecutable(launch) ?? spec.executable,
+          executable:
+            (settings.effective.orchestration.enabled
+              ? terminalIntegration?.mcpExecutableFor(launch)
+              : null) ??
+            resolveVisibleAgentExecutable(launch) ??
+            spec.executable,
         };
       };
       const missionVirtualTasks = new Map<string, string>();
@@ -959,12 +970,36 @@ if (!gotLock) {
       // project directories opt-in (AG-014). E2E only discovers an explicitly
       // supplied fake home, never the developer machine's real home folder.
       const skillHome = process.env.PI_IDE_SKILLS_HOME;
+      const charterAgentSurfaces = agentRegistryRef.skillSources(skillHome).map(({ id, root }) => ({
+        target: id,
+        root,
+      }));
+      // These two generated Skills are part of Charter's control protocol, not
+      // user-authored content. Keep detected Agent surfaces current before any
+      // new external Session can select terminal.create over Mission promotion.
+      // E2E never writes to a developer home unless the test supplied an
+      // isolated Agent/Skills home explicitly.
+      if (!process.env.PI_IDE_E2E || Boolean(skillHome) || Boolean(process.env.PI_IDE_AGENT_HOME)) {
+        const synchronized = installCharterTerminalSurfaces(charterAgentSurfaces);
+        const failed = synchronized.filter((surface) => surface.error);
+        if (failed.length > 0) {
+          logger.warn('charter Agent control Skills partially synchronized', {
+            failed: failed.map((surface) => surface.target),
+          });
+        } else {
+          logger.info('charter Agent control Skills synchronized', {
+            targets: synchronized.map((surface) => surface.target),
+          });
+        }
+      }
       const skillStore = new SkillStore(paths.skillsDir, logger.child('skills'), {
         discoverExternal: !process.env.PI_IDE_E2E || Boolean(skillHome),
         ...(skillHome ? { homeDir: skillHome } : {}),
         agentSources: agentRegistryRef.skillSources(skillHome),
         onDidChange: (event) => broadcast('skills.changed', event),
       });
+      skillStore.installManaged('charter-terminal', CHARTER_TERMINAL_SKILL);
+      skillStore.installManaged('charter-orchestration', CHARTER_ORCHESTRATION_SKILL);
       skillStoreRef = skillStore;
       skillStore.startWatching();
       registerSkillsHandlers(skillStore, logger.child('ipc'), {
@@ -973,8 +1008,7 @@ if (!gotLock) {
         events: (windowDays) => taskServiceRef?.skillUsageEvents(windowDays) ?? [],
         externalEvents: async (windowDays) =>
           (await archaeologyRef?.skillUsageEvents(windowDays)) ?? [],
-        agentSurfaces: () =>
-          agentRegistryRef!.skillSources(skillHome).map(({ id, root }) => ({ target: id, root })),
+        agentSurfaces: () => charterAgentSurfaces,
       });
       // ADR-0028: project memory — shared rules source, review-correction
       // capture, managed-block sync, external private-memory management.
@@ -1007,9 +1041,21 @@ if (!gotLock) {
       taskServiceRef = taskService;
       const missionRepository = new MissionRepository(state.db);
       const missionRuntimes = new OrchestrationRuntimeRegistry();
-      const visibleMissionRuntime = new VisibleTerminalRuntime(terminalControlRef);
+      const settleVisibleMissionSession = async (terminalId: string): Promise<void> => {
+        const sessions = externalSessionsRef;
+        if (!sessions) return;
+        const taskId =
+          sessions.taskIdForTerminal(terminalId) ??
+          taskService.activeExternalTaskForTerminal(terminalId)?.id ??
+          null;
+        if (taskId) await sessions.end(taskId, true);
+      };
+      const visibleMissionRuntime = new VisibleTerminalRuntime(
+        terminalControlRef,
+        settleVisibleMissionSession,
+      );
       missionRuntimes.register(visibleMissionRuntime);
-      missionRuntimes.register(new ShellRuntime(terminalControlRef));
+      missionRuntimes.register(new ShellRuntime(terminalControlRef, settleVisibleMissionSession));
       missionRuntimes.register(new ManagedAgentRuntime(taskService, settings));
       const acpCompatibilityEnabled =
         Boolean(terminalIntegration) &&
@@ -1089,6 +1135,55 @@ if (!gotLock) {
         missionRepository,
         missionOutbox,
         (missionId) => broadcast('mission.changed', missionRepository.snapshot(missionId)),
+        {
+          maxPromotionWorkers: () => settings.effective.orchestration.maxWorkers,
+          runtimeCatalog: () => [
+            {
+              id: 'managed',
+              displayName: 'Charter Agent',
+              available: true,
+              installed: true,
+              transport: 'native' as const,
+              capabilities: { steer: true, pause: true, resume: true, worktree: true },
+            },
+            {
+              id: 'shell',
+              displayName: 'Shell Agent',
+              available: true,
+              installed: true,
+              transport: 'terminal' as const,
+              capabilities: { steer: true, pause: true, resume: true, worktree: false },
+            },
+            ...agentRegistryRef!.catalog().agents.map((agent) => {
+              const available =
+                agent.installed &&
+                (agent.capabilities.terminal ||
+                  (acpCompatibilityEnabled && agent.capabilities.acp));
+              return {
+                id: agent.id,
+                displayName: agent.displayName,
+                available,
+                installed: agent.installed,
+                transport:
+                  process.env.PI_IDE_ACP === '1' && agent.capabilities.acp
+                    ? ('acp' as const)
+                    : ('terminal' as const),
+                capabilities: {
+                  terminal: agent.capabilities.terminal,
+                  acp: agent.capabilities.acp,
+                  mcp: agent.capabilities.mcp,
+                  exactResume: agent.capabilities.exactResume,
+                  worktree: false,
+                },
+                unavailableReason: available
+                  ? null
+                  : agent.installed
+                    ? `${agent.displayName} has no enabled Mission transport.`
+                    : `${agent.displayName} is not installed or was not found on PATH.`,
+              };
+            }),
+          ],
+        },
       );
       missionOrchestrationRef = missionOrchestration;
       missionRecoveryRef = new OrchestrationRecoveryService(
@@ -1111,6 +1206,7 @@ if (!gotLock) {
       taskService.attachOrchestrationTools({
         control: missionOrchestration,
         callerForCall: (call) => missionCaller.resolve(call),
+        promoteForCall: (call, input) => missionCaller.promote(call, input),
       });
       missionOrchestration.start();
       registerMissionHandlers(missionOrchestration, logger.child('mission-ipc'));

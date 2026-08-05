@@ -33,8 +33,8 @@ test.describe('Shell v4 — persistent shell (PIVOT-028)', () => {
       const row = page.locator('[data-testid^="home-task-"]').first();
       await expect(row).toHaveClass(/sel/);
 
-      // "New task" returns to the launcher without losing the room's task.
-      await page.getByTestId('home-new-task').click();
+      // The Sessions destination returns to the launcher without losing the room's task.
+      await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-view')).toBeVisible();
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
 

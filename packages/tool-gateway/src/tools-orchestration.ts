@@ -19,8 +19,10 @@ import {
   OrchestrationDelegateSchema,
   OrchestrationEscalateSchema,
   OrchestrationJoinSchema,
+  OrchestrationInspectSchema,
   OrchestrationMessageSchema,
   OrchestrationParkSchema,
+  OrchestrationPromoteSchema,
   OrchestrationProgressSchema,
   OrchestrationReassignSchema,
   OrchestrationReplySchema,
@@ -45,7 +47,10 @@ export {
 const AutoAllow = 'auto-allow' as const;
 
 export interface OrchestrationControlPort {
-  inspect(caller: OrchestrationCallerContext): unknown;
+  inspect(
+    caller: OrchestrationCallerContext,
+    input?: z.infer<typeof OrchestrationInspectSchema>,
+  ): unknown;
   delegate(
     caller: OrchestrationCallerContext,
     input: z.infer<typeof OrchestrationDelegateSchema>,
@@ -173,6 +178,7 @@ export interface OrchestrationControlPort {
 export interface OrchestrationToolServices {
   control: OrchestrationControlPort;
   callerForCall(call: ToolCallRequest): OrchestrationCallerContext;
+  promoteForCall(call: ToolCallRequest, input: z.infer<typeof OrchestrationPromoteSchema>): unknown;
 }
 
 export function registerOrchestrationTools(
@@ -183,6 +189,29 @@ export function registerOrchestrationTools(
   const register = <I>(tool: GatewayTool<I>): void => gateway.register(tool);
 
   register({
+    name: 'orchestration.promote',
+    version: 1,
+    permissionPolicy: AutoAllow,
+    description:
+      'Promote this ordinary Session into a Mission and start the supplied Agent work plan immediately.',
+    promptGuidance:
+      'Use semantic judgment, not keyword matching. Call only when one or more independently verifiable delegated workstreams materially improve the outcome, and never when the user prohibited Mission orchestration.',
+    inputSchema: OrchestrationPromoteSchema,
+    risk: () => ({
+      level: 'R2',
+      reasons: ['creates a Mission and starts multiple host-authorized Agent runtimes'],
+    }),
+    preview: async (input) => ({
+      summary: `Promote Session and start ${input.children.length} Mission worker${input.children.length === 1 ? '' : 's'}`,
+    }),
+    execute: async (input, _signal, call) => ({
+      code: 'OK',
+      summary: 'Session promoted to Mission and delegation started.',
+      data: services.promoteForCall(call, input),
+    }),
+  });
+
+  register({
     name: 'orchestration.inspect',
     version: 1,
     permissionPolicy: AutoAllow,
@@ -190,13 +219,13 @@ export function registerOrchestrationTools(
       'Inspect your durable Mission, Assignment tree, Task graph, active Attempt, and unread messages.',
     promptGuidance:
       'Call before delegating. Every Mission member may delegate recursively without asking its parent to proxy.',
-    inputSchema: z.object({}).strict(),
+    inputSchema: OrchestrationInspectSchema,
     risk: () => ({ level: 'R0', reasons: ['reads Mission state'] }),
     preview: async () => ({ summary: 'Inspect Mission' }),
-    execute: async (_input, _signal, call) => ({
+    execute: async (input, _signal, call) => ({
       code: 'OK',
       summary: 'Inspected Mission.',
-      data: services.control.inspect(caller(call)),
+      data: services.control.inspect(caller(call), input),
     }),
   });
   register({

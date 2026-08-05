@@ -44,7 +44,7 @@ test('rail provider marks — light/dark + dialog', async () => {
   try {
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(page.getByTestId('home-sidebar')).toBeVisible();
-    await page.getByTestId('home-new-task').click();
+    await page.getByTestId('surface-home').click();
     await expect(page.getByTestId('home-view')).toBeVisible();
     await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
 
@@ -59,7 +59,7 @@ test('rail provider marks — light/dark + dialog', async () => {
     });
 
     // A second Pi task so the rail reads as a list.
-    await page.getByTestId('home-new-task').click();
+    await page.getByTestId('surface-home').click();
     await expect(page.getByTestId('home-view')).toBeVisible();
     await page.getByTestId('home-mode-auto').click();
     await page
@@ -72,7 +72,7 @@ test('rail provider marks — light/dark + dialog', async () => {
 
     // External Claude + Codex terminal sessions (brand marks).
     for (const kind of ['claude', 'codex'] as const) {
-      await page.getByTestId('home-new-task').click();
+      await page.getByTestId('surface-home').click();
       await page.getByTestId('home-agent').click();
       await expect(page.getByTestId('home-agent-menu')).toBeVisible();
       if (kind === 'codex') {

@@ -92,6 +92,7 @@ describe('missionRuntimeStatusByTerminal', () => {
   it('stops presence animation once Mission work settles but not while it remains active', () => {
     expect(missionAwareWorking(true, null)).toBe(true);
     expect(missionAwareWorking(true, 'active')).toBe(true);
+    expect(missionAwareWorking(false, 'active')).toBe(false);
     expect(missionAwareWorking(true, 'succeeded')).toBe(false);
     expect(missionAwareWorking(true, 'failed')).toBe(false);
     expect(missionAwareWorking(true, 'stopped')).toBe(false);

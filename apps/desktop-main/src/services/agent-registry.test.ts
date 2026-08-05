@@ -72,6 +72,26 @@ describe('AgentRegistry', () => {
     expect(registry.terminalExitSequence('codex')).toEqual(['interrupt', 'eof']);
   });
 
+  it('delivers Codex composer prompts after its TUI is ready', () => {
+    const root = mkdtempSync(join(tmpdir(), 'charter-agent-registry-'));
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    const codex = join(bin, 'codex');
+    writeFileSync(codex, '#!/bin/sh\nexit 0\n');
+    chmodSync(codex, 0o755);
+    const registry = new AgentRegistry(logger(), {
+      homeDir: root,
+      pathValue: bin,
+      probeVersions: false,
+    });
+
+    expect(registry.launchSpec('codex', { prompt: 'review this' })).toMatchObject({
+      executable: codex,
+      args: [],
+      promptDelivery: 'deferred',
+    });
+  });
+
   it('moves Kimi session, Skill and instruction surfaces with KIMI_CODE_HOME', () => {
     const root = mkdtempSync(join(tmpdir(), 'charter-agent-registry-'));
     const bin = join(root, 'bin');

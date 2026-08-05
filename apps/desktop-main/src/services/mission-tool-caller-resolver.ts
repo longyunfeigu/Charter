@@ -2,7 +2,10 @@ import { productError, ProductFailure } from '@pi-ide/foundation';
 import type { ToolCallRequest } from '@pi-ide/agent-contract';
 import type { OrchestrationCallerContext, RuntimeKind } from '@pi-ide/orchestration-domain';
 import type { AgentHost } from './agent-host.js';
-import type { MissionOrchestrationService } from './mission-orchestration-service.js';
+import type {
+  MissionOrchestrationService,
+  PromoteMissionInput,
+} from './mission-orchestration-service.js';
 import type { TaskService } from './task-service.js';
 import type { TerminalControlService } from './terminal-control-service.js';
 
@@ -32,25 +35,66 @@ export class MissionToolCallerResolver {
     );
     if (existing) return existing;
 
-    const task = this.tasks.getTask(call.taskId);
-    return this.missions.adopt({
-      workspaceId: task.workspaceId,
-      workspaceRoot: task.worktree?.path ?? task.projectPath,
-      originConversationTaskId: task.id,
-      title: task.title,
-      goal: task.goalMd,
-      acceptanceCriteria: task.acceptance,
-      principal: {
-        kind: terminalId ? 'external_agent' : 'managed_agent',
-        provider: task.external?.cli ?? task.model.providerId,
-        externalIdentity: task.external?.sessionId ?? null,
-        displayName: terminalId ? `${task.external?.cli ?? 'External'} Lead` : 'Charter Lead',
-      },
+    return {
+      principalId: `pending:${call.taskId}`,
       runtimeSessionId,
-      ...(terminalId ? { terminalId } : {}),
-      requestedRuntime: this.runtimeFor(task.external?.cli ?? null, terminalId !== null),
-      requestedModel: terminalId ? null : `${task.model.providerId}::${task.model.modelId}`,
-    }).caller;
+      missionId: null,
+      assignmentId: null,
+      attemptId: null,
+      origin: terminalId ? 'charter-terminal' : 'managed-run',
+    };
+  }
+
+  promote(call: ToolCallRequest, input: PromoteMissionInput) {
+    const attached = this.resolve(call);
+    if (attached.missionId && attached.assignmentId) {
+      const mission = this.missions.repository.getMission(attached.missionId);
+      if (mission?.leadAssignmentId !== attached.assignmentId) {
+        throw new ProductFailure(
+          productError('ORCHESTRATION_ALREADY_ATTACHED', {
+            userMessage:
+              'This Session is already a Mission worker. Inspect the current Mission and delegate within your Assignment instead of promoting again.',
+          }),
+        );
+      }
+    }
+    const terminalId = this.terminals.callerTerminalForCall(call.callId);
+    const runtimeSessionId = terminalId ? `terminal:${terminalId}` : `managed-run:${call.runId}`;
+    const task = this.tasks.getTask(call.taskId);
+    const result = this.missions.promote(
+      {
+        workspaceId: task.workspaceId,
+        workspaceRoot: task.worktree?.path ?? task.projectPath,
+        originConversationTaskId: task.id,
+        title: task.title,
+        goal: this.tasks.latestUserMessage(task.id) ?? task.goalMd,
+        acceptanceCriteria: task.acceptance,
+        principal: {
+          kind: terminalId ? 'external_agent' : 'managed_agent',
+          provider: task.external?.cli ?? task.model.providerId,
+          externalIdentity: task.external?.sessionId ?? null,
+          displayName: terminalId ? `${task.external?.cli ?? 'External'} Lead` : 'Charter Lead',
+        },
+        runtimeSessionId,
+        ...(terminalId ? { terminalId } : {}),
+        requestedRuntime: this.runtimeFor(task.external?.cli ?? null, terminalId !== null),
+        requestedModel: terminalId ? null : `${task.model.providerId}::${task.model.modelId}`,
+      },
+      input,
+    );
+    if (!result.alreadyPromoted) {
+      this.tasks.recordEvent(task.id, 'mission.promoted', {
+        missionId: result.mission.id,
+        reason: input.reason,
+        workers: input.children.map((child) => ({
+          key: child.key ?? null,
+          title: child.title ?? null,
+          requestedRuntime: child.requestedRuntime ?? 'managed',
+          dependsOn: child.dependsOn ?? [],
+        })),
+      });
+    }
+    return result;
   }
 
   private runtimeFor(cli: string | null, terminal: boolean): RuntimeKind {

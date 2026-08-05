@@ -293,10 +293,12 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
           }${fleetNote}`,
         );
       await useTaskStore.getState().refreshTasks();
-      if (continuedAs) {
-        void useTaskStore.getState().openTask(continuedAs);
-        useAppStore.getState().openTaskRoom(continuedAs);
-      }
+      // Resume can continue either in the existing Task or in a newly-created
+      // continuation Task. In both cases, follow the live Session explicitly;
+      // setting only the active terminal leaves rail-triggered resumes with an
+      // empty right pane because no Task room is mounted.
+      await useTaskStore.getState().openTask(result.data.taskId);
+      useAppStore.getState().openTaskRoom(result.data.taskId);
     } finally {
       set({ resumingTaskId: null });
     }

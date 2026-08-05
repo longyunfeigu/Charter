@@ -1,13 +1,125 @@
 import { readFileSync } from 'node:fs';
-import { ORCHESTRATION_COMMANDS } from '@pi-ide/tool-gateway';
+import {
+  ORCHESTRATION_COMMAND_REGISTRY,
+  ORCHESTRATION_COMMANDS,
+  orchestrationCommand,
+} from '@pi-ide/tool-gateway';
+import { z } from 'zod';
 
 export type TerminalControlCliInvocation =
   | { kind: 'help' }
+  | { kind: 'orchestration-help'; command: string | null; json: boolean }
+  | { kind: 'dry-run'; command: string; input: Record<string, unknown> }
   | { kind: 'error'; message: string }
   | { kind: 'call'; name: string; input: Record<string, unknown> };
 
 export const TERMINAL_CONTROL_CLI_USAGE =
-  'Usage: charter <orchestration COMMAND> [--request-file FILE|--request-json JSON] [--json]\n       charter-terminal <list|create|send|wait|read|kill> [arguments]';
+  'Usage: charter orchestration <COMMAND> [--request-file FILE|--request-json JSON] [--dry-run] [--json]\n       charter orchestration <COMMAND> --help [--json]\n       charter-terminal <list|create|send|wait|read|kill> [arguments]';
+
+export interface OrchestrationCliHelp {
+  command: string | null;
+  usage: string;
+  commands?: Array<{ command: string; description: string }>;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+  example?: Record<string, unknown>;
+}
+
+function schemaExample(schema: Record<string, unknown>, field = 'value'): unknown {
+  if ('default' in schema) return schema.default;
+  if (Array.isArray(schema.enum) && schema.enum.length > 0) return schema.enum[0];
+  if (Array.isArray(schema.anyOf)) {
+    const candidate = schema.anyOf.find(
+      (item): item is Record<string, unknown> =>
+        Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+    );
+    if (candidate) return schemaExample(candidate, field);
+  }
+  if (schema.type === 'array') {
+    const item =
+      schema.items && typeof schema.items === 'object' && !Array.isArray(schema.items)
+        ? schemaExample(schema.items as Record<string, unknown>, field)
+        : 'value';
+    return [item];
+  }
+  if (schema.type === 'object' || schema.properties) {
+    const properties =
+      schema.properties &&
+      typeof schema.properties === 'object' &&
+      !Array.isArray(schema.properties)
+        ? (schema.properties as Record<string, Record<string, unknown>>)
+        : {};
+    const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+    return Object.fromEntries(
+      Object.entries(properties)
+        .filter(([name, value]) => required.has(name) || 'default' in value)
+        .map(([name, value]) => [name, schemaExample(value, name)]),
+    );
+  }
+  if (schema.type === 'boolean') return true;
+  if (schema.type === 'integer' || schema.type === 'number') return schema.minimum ?? 1;
+  if (/id$/i.test(field)) return `${field.replace(/Id$/i, '').toLowerCase()}_123`;
+  if (/key$/i.test(field)) return `${field.replace(/Key$/i, '').toLowerCase()}-1`;
+  if (field === 'goal') return 'Describe the bounded delegated outcome.';
+  if (field === 'reason') return 'Explain why delegation is useful.';
+  return `<${field}>`;
+}
+
+export function orchestrationCliHelp(command: string | null): OrchestrationCliHelp {
+  if (!command) {
+    return {
+      command: null,
+      usage: TERMINAL_CONTROL_CLI_USAGE,
+      commands: ORCHESTRATION_COMMAND_REGISTRY.map((entry) => ({
+        command: entry.command,
+        description: entry.description,
+      })),
+    };
+  }
+  const entry = orchestrationCommand(command);
+  if (!entry) {
+    return { command, usage: TERMINAL_CONTROL_CLI_USAGE };
+  }
+  const inputSchema = z.toJSONSchema(entry.schema, { target: 'draft-7' }) as Record<
+    string,
+    unknown
+  >;
+  return {
+    command,
+    usage: `charter orchestration ${command} --request-json '<JSON>' --json`,
+    description: entry.description,
+    inputSchema,
+    example: schemaExample(inputSchema) as Record<string, unknown>,
+  };
+}
+
+export function validateOrchestrationCliInput(
+  command: string,
+  input: Record<string, unknown>,
+):
+  | { ok: true; command: string; normalizedInput: Record<string, unknown> }
+  | { ok: false; command: string; issues: Array<{ path: string; message: string }> } {
+  const entry = orchestrationCommand(command);
+  if (!entry) {
+    return {
+      ok: false,
+      command,
+      issues: [{ path: '', message: 'Unknown orchestration command.' }],
+    };
+  }
+  const parsed = entry.schema.safeParse(input);
+  if (parsed.success) {
+    return { ok: true, command, normalizedInput: parsed.data as Record<string, unknown> };
+  }
+  return {
+    ok: false,
+    command,
+    issues: parsed.error.issues.map((issue) => ({
+      path: issue.path.map(String).join('.'),
+      message: issue.message,
+    })),
+  };
+}
 
 function option(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -31,7 +143,16 @@ function jsonPayload(args: string[]): Record<string, unknown> | null {
 
 function orchestrationInvocation(args: string[]): TerminalControlCliInvocation {
   const command = args[0];
-  if (!command || command === 'help') return { kind: 'help' };
+  const json = args.includes('--json');
+  if (!command || command === 'help') {
+    return { kind: 'orchestration-help', command: null, json };
+  }
+  if (args.includes('--help') || args.includes('-h')) {
+    if (!ORCHESTRATION_COMMANDS.includes(command as (typeof ORCHESTRATION_COMMANDS)[number])) {
+      return { kind: 'error', message: `Unknown orchestration command: ${command}` };
+    }
+    return { kind: 'orchestration-help', command, json };
+  }
   if (!ORCHESTRATION_COMMANDS.includes(command as (typeof ORCHESTRATION_COMMANDS)[number])) {
     return { kind: 'error', message: `Unknown orchestration command: ${command}` };
   }
@@ -65,16 +186,17 @@ function orchestrationInvocation(args: string[]): TerminalControlCliInvocation {
   if (timeout) input.timeoutMs = Number(timeout);
   const runtime = option(args, '--runtime');
   if (runtime) input.requestedRuntime = runtime;
+  if (args.includes('--dry-run')) return { kind: 'dry-run', command, input };
   return { kind: 'call', name: `orchestration_${command}`, input };
 }
 
 export function parseTerminalControlCli(args: string[]): TerminalControlCliInvocation {
+  if (args[0] === 'orchestration') return orchestrationInvocation(args.slice(1));
   if (args.length === 0 || args.some((arg) => arg === '--help' || arg === '-h')) {
     return { kind: 'help' };
   }
   const command = args[0]!;
   if (command === 'help') return { kind: 'help' };
-  if (command === 'orchestration') return orchestrationInvocation(args.slice(1));
   if (command === 'list') return { kind: 'call', name: 'terminal_list', input: {} };
   if (command === 'create') {
     return {

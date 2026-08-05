@@ -39,7 +39,7 @@ test.describe('Session Rail Workbench', () => {
       home: 'keep',
     });
     try {
-      await page.getByTestId('home-new-task').click();
+      await page.getByTestId('surface-home').click();
       await page.getByTestId('home-advanced-toggle').click();
       await page.getByTestId('home-adv-title').fill('Delete this session');
       await page.getByTestId('home-intent').fill('[scenario:ask-basic] disposable answer');
@@ -106,7 +106,7 @@ test.describe('Session Rail Workbench', () => {
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
 
       // One Composer exposes every Agent backend without separate entry points.
-      await page.getByTestId('home-new-task').click();
+      await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-view')).toBeVisible();
       await page.getByTestId('home-agent').click();
       await expect(page.getByTestId('home-agent-menu')).toBeVisible();
@@ -152,7 +152,7 @@ test.describe('Session Rail Workbench', () => {
     });
     try {
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
-      await page.getByTestId('home-new-task').click();
+      await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-view')).toBeVisible();
       await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-mode-auto').click();
@@ -221,7 +221,7 @@ test.describe('Session Rail Workbench', () => {
     try {
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
       // Record a session in project A.
-      await page.getByTestId('home-new-task').click();
+      await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] direction d walk');
@@ -252,7 +252,7 @@ test.describe('Session Rail Workbench', () => {
     }
   });
 
-  test('creates in the project selected before returning to Sessions', async () => {
+  test('creates in the project selected from the project folder actions', async () => {
     const projectA = realpathSync(createGitFixture());
     const projectB = realpathSync(createGitFixture());
     const first = await launchApp({
@@ -271,9 +271,8 @@ test.describe('Session Rail Workbench', () => {
       await expect(page.getByTestId('rail-session-archive')).toBeVisible();
       await expect(page.getByTestId('rail-context')).toHaveCount(0);
       await page.getByTestId('rail-view-projects').click();
-      await page.getByTestId(`home-recent-${projectA}`).click();
-      await page.getByTestId('rail-view-sessions').click();
-      await page.getByTestId('home-new-task').click();
+      await page.getByTestId(`project-menu-${projectA}`).click();
+      await page.getByTestId(`project-spawn-pi-${projectA}`).click();
       await expect(page.getByTestId('home-view')).toBeVisible();
       await expect(page.getByTestId('home-project')).toContainText(projectA.split('/').pop()!);
     } finally {

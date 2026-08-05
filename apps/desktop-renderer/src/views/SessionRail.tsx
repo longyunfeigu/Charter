@@ -31,6 +31,7 @@ import {
   buildHistoryPeriods,
   buildRailGroups,
   isHistoryEntry,
+  missionSessionStatus,
   recordedTasksByProject,
   visibleHistoryPeriodEntries,
   visibleRailGroupEntries,
@@ -57,6 +58,7 @@ import {
 import { TERMINAL_MISSION_STATES } from './mission/mission-view-model.js';
 import { agentDisplayName } from '../store/agentCatalogStore.js';
 import { runningSessionTargets, type RunningSessionTarget } from './session-running-targets.js';
+import { visibleProjectSessionTasks } from './mission-session-visibility.js';
 
 export { isHistoryEntry, type SessionEntry } from './rail-groups.js';
 
@@ -293,25 +295,6 @@ function missionAssignmentDepth(
   return depth;
 }
 
-function missionStateBadge(state: MissionSessionLink['assignmentState']): {
-  label: string;
-  tone: string;
-  live: boolean;
-  working: boolean;
-} {
-  if (state === 'ACTIVE') return { label: 'Working', tone: 'review', live: true, working: true };
-  if (state === 'WAITING') return { label: 'Waiting', tone: 'review', live: true, working: false };
-  if (state === 'PAUSED') return { label: 'Paused', tone: 'neutral', live: true, working: false };
-  if (state === 'PENDING') return { label: 'Queued', tone: 'neutral', live: false, working: false };
-  if (state === 'COMPLETED') {
-    return { label: 'Done', tone: 'answered', live: false, working: false };
-  }
-  if (state === 'FAILED' || state === 'ORPHANED') {
-    return { label: 'Failed', tone: 'failed', live: false, working: false };
-  }
-  return { label: 'Stopped', tone: 'neutral', live: false, working: false };
-}
-
 export function timeAgo(value: string, now: number): string {
   const elapsed = Math.max(0, now - Date.parse(value));
   const minutes = Math.floor(elapsed / 60_000);
@@ -358,6 +341,7 @@ function SessionTaskRow({
   missionSelected = false,
   workerWorking = false,
   missionRuntimeStatus = null,
+  mission,
 }: {
   task: TaskDto;
   /** Rows inside a project group drop the redundant project name (ADR-0023). */
@@ -368,6 +352,7 @@ function SessionTaskRow({
   missionSelected?: boolean;
   workerWorking?: boolean;
   missionRuntimeStatus?: MissionRuntimeStatus | null;
+  mission?: MissionSessionLink;
 }): React.JSX.Element {
   const app = useAppStore();
   const hoverTooltip = useSessionHoverTooltip();
@@ -377,19 +362,14 @@ function SessionTaskRow({
   const completion = app.sessionCompletionSignals.find((signal) => signal.taskId === task.id);
   const reply = app.sessionReplySignals.find((signal) => signal.taskId === task.id);
   const selected = app.taskRoomTaskId === task.id || missionSelected;
-  const provider = providerForTask(task);
-  const displayTitle = sessionDisplayTitle(task);
+  const provider = mission?.provider ?? providerForTask(task);
+  const displayTitle = mission?.agentName ?? sessionDisplayTitle(task);
+  const showDetail = showProject || Boolean(mission);
   const running = RUNNING_TASK_STATES.has(task.state);
   const meta = presentedMeta(task);
   const action = running ? currentActionLine(activity) : null;
   const missionSettled = missionRuntimeStatus !== null && missionRuntimeStatus !== 'active';
-  const badge = missionSettled
-    ? missionRuntimeStatus === 'succeeded'
-      ? { label: 'Done', tone: 'answered' }
-      : missionRuntimeStatus === 'failed'
-        ? { label: 'Failed', tone: 'failed' }
-        : { label: 'Stopped', tone: 'neutral' }
-    : statusBadge(task);
+  const missionStatus = mission ? missionSessionStatus(mission) : null;
   const externalSession = useExternalStore((state) => state.sessions[task.id]);
   const externalWorking = useExternalStore((state) => Boolean(state.working[task.id]));
   const resumingTaskId = useExternalStore((state) => state.resumingTaskId);
@@ -401,9 +381,23 @@ function SessionTaskRow({
   const live = task.external
     ? (externalSession?.status ?? task.external.status) === 'active'
     : running;
-  const working = task.external
+  const working = missionStatus
     ? missionAwareWorking(externalWorking || workerWorking, missionRuntimeStatus)
-    : ['EXPLORING', 'PLANNING', 'IN_PROGRESS', 'VERIFYING'].includes(task.state);
+    : task.external
+      ? missionAwareWorking(externalWorking || workerWorking, missionRuntimeStatus)
+      : ['EXPLORING', 'PLANNING', 'IN_PROGRESS', 'VERIFYING'].includes(task.state);
+  const badge = missionStatus
+    ? {
+        label: missionStatus.label === 'Active' && working ? 'Working' : missionStatus.label,
+        tone: missionStatus.tone,
+      }
+    : missionSettled
+      ? missionRuntimeStatus === 'succeeded'
+        ? { label: 'Done', tone: 'answered' }
+        : missionRuntimeStatus === 'failed'
+          ? { label: 'Failed', tone: 'failed' }
+          : { label: 'Stopped', tone: 'neutral' }
+      : statusBadge(task);
   const resumable = canResumeExternal(task) && !live;
   const endable = task.external !== null && live;
   const deletable = canArchiveTask(task) && !endable;
@@ -422,9 +416,16 @@ function SessionTaskRow({
           shellTitle: externalTerminal.title,
         })
       : null;
-  const rowDescription = `${providerLabel(provider)} · ${displayTitle} · ${task.projectName} — ${
-    working ? 'Agent working' : (externalLifecycle?.summary ?? meta.label)
-  }`;
+  const missionDetail = mission?.waitingFor.length
+    ? `Waiting for ${mission.waitingFor.join(', ')}`
+    : missionStatus
+      ? badge?.label
+      : undefined;
+  const rowDescription = mission
+    ? `${providerLabel(provider)} · ${displayTitle} · ${mission.taskTitle} — ${missionDetail ?? 'Mission work'}`
+    : `${providerLabel(provider)} · ${displayTitle} · ${task.projectName} — ${
+        working ? 'Agent working' : (externalLifecycle?.summary ?? meta.label)
+      }`;
 
   const open = (): void => {
     void useTaskStore.getState().openTask(task.id);
@@ -452,11 +453,11 @@ function SessionTaskRow({
 
   return (
     <div
-      className={`sr-row-wrap ${showProject ? 'has-detail' : ''} ${hasActions ? 'has-actions' : ''} ${worker || depth > 0 ? 'sr-orch-worker' : ''}`}
+      className={`sr-row-wrap ${showDetail ? 'has-detail' : ''} ${hasActions ? 'has-actions' : ''} ${worker || depth > 0 ? 'sr-orch-worker' : ''}`}
       style={{ '--sr-depth': Math.max(depth, worker ? 1 : 0) } as React.CSSProperties}
     >
       <button
-        className={`sr-session ${showProject ? 'has-detail' : ''} ${selected ? 'selected' : ''} ${working ? 'is-working' : ''} ${glowTasks.has(task.id) ? 'glow-pulse' : ''} ${completion ? `completion-ripple completion-${completion.tone}` : ''} ${reply ? 'reply-shake' : ''}`}
+        className={`sr-session ${showDetail ? 'has-detail' : ''} ${selected ? 'selected' : ''} ${working ? 'is-working' : ''} ${glowTasks.has(task.id) ? 'glow-pulse' : ''} ${completion ? `completion-ripple completion-${completion.tone}` : ''} ${reply ? 'reply-shake' : ''}`}
         data-testid={`home-task-${task.id}`}
         data-session-key={`task:${task.id}`}
         data-state={task.state}
@@ -485,10 +486,10 @@ function SessionTaskRow({
           <span className="sr-session-title">
             <span className={`sr-live-dot ${live ? 'live' : ''}`} />
             <b>{displayTitle}</b>
-            {badge || !showProject ? (
+            {badge || !showDetail ? (
               <span className="sr-session-tail">
                 {badge ? <span className={`sr-state ${badge.tone}`}>{badge.label}</span> : null}
-                {!showProject ? (
+                {!showDetail ? (
                   <time className="sr-session-time" dateTime={task.updatedAt}>
                     {timeAgo(task.updatedAt, now)}
                   </time>
@@ -496,18 +497,26 @@ function SessionTaskRow({
               </span>
             ) : null}
           </span>
-          {showProject ? (
+          {showDetail ? (
             <span className="sr-session-detail">
               <span data-testid={`home-task-ticker-${task.id}`}>
-                {task.projectName} ·{' '}
-                {action?.label ??
-                  (working ? 'Agent is working...' : null) ??
-                  externalLifecycle?.summary ??
-                  (isAnswered(task)
-                    ? task.external
-                      ? 'Session ended · no file changes'
-                      : 'Answered · no file changes'
-                    : meta.label)}
+                {mission ? (
+                  <>
+                    {mission.taskTitle} · {missionDetail ?? 'Mission work'}
+                  </>
+                ) : (
+                  <>
+                    {task.projectName} ·{' '}
+                    {action?.label ??
+                      (working ? 'Agent is working...' : null) ??
+                      externalLifecycle?.summary ??
+                      (isAnswered(task)
+                        ? task.external
+                          ? 'Session ended · no file changes'
+                          : 'Answered · no file changes'
+                        : meta.label)}
+                  </>
+                )}
               </span>
               <time dateTime={task.updatedAt}>{timeAgo(task.updatedAt, now)}</time>
             </span>
@@ -575,6 +584,7 @@ function TerminalSessionRow({
   missionSelected = false,
   working = false,
   missionRuntimeStatus = null,
+  mission,
 }: {
   terminalId: string;
   launch: string;
@@ -584,18 +594,28 @@ function TerminalSessionRow({
   missionSelected?: boolean;
   working?: boolean;
   missionRuntimeStatus?: MissionRuntimeStatus | null;
+  mission?: MissionSessionLink;
 }): React.JSX.Element | null {
   const app = useAppStore();
   const hoverTooltip = useSessionHoverTooltip();
   const item = useTerminalStore((state) => state.items.find((entry) => entry.id === terminalId));
   if (!item) return null;
   const selected = app.sessionTerminalId === terminalId || missionSelected;
-  const provider = launch;
+  const provider = mission?.provider ?? launch;
+  const showDetail = showProject || Boolean(mission);
   const missionSettled = missionRuntimeStatus !== null && missionRuntimeStatus !== 'active';
+  const missionStatus = mission ? missionSessionStatus(mission) : null;
   const visiblyWorking = missionAwareWorking(working, missionRuntimeStatus);
+  const missionStatusLabel =
+    missionStatus?.label === 'Active' && visiblyWorking ? 'Working' : missionStatus?.label;
   // The brand mark carries the provider — never repeat the CLI name as the
   // title. Generic launch titles read as an unnamed session.
-  const sessionName = isExternalCli(launch) ? externalSessionTitle(launch, item.title) : item.title;
+  const sessionName =
+    mission?.agentName ??
+    (isExternalCli(launch) ? externalSessionTitle(launch, item.title) : item.title);
+  const missionDetail = mission?.waitingFor.length
+    ? `Waiting for ${mission.waitingFor.join(', ')}`
+    : missionStatusLabel;
   const terminalState = item.exited
     ? 'Process ended'
     : item.remote
@@ -603,14 +623,16 @@ function TerminalSessionRow({
       : visiblyWorking
         ? `${providerLabel(provider)} working`
         : 'Terminal live';
-  const rowDescription = `${providerLabel(provider)} · ${sessionName} · ${item.contextLabel} — ${terminalState}`;
+  const rowDescription = mission
+    ? `${providerLabel(provider)} · ${sessionName} · ${mission.taskTitle} — ${missionDetail ?? terminalState}`
+    : `${providerLabel(provider)} · ${sessionName} · ${item.contextLabel} — ${terminalState}`;
   return (
     <div
-      className={`sr-row-wrap ${showProject ? 'has-detail' : ''} ${worker || depth > 0 ? 'sr-orch-worker' : ''}`}
+      className={`sr-row-wrap ${showDetail ? 'has-detail' : ''} ${worker || depth > 0 ? 'sr-orch-worker' : ''}`}
       style={{ '--sr-depth': Math.max(depth, worker ? 1 : 0) } as React.CSSProperties}
     >
       <button
-        className={`sr-session ${showProject ? 'has-detail' : ''} ${selected ? 'selected' : ''} ${visiblyWorking ? 'is-working' : ''}`}
+        className={`sr-session ${showDetail ? 'has-detail' : ''} ${selected ? 'selected' : ''} ${visiblyWorking ? 'is-working' : ''}`}
         data-testid={`session-terminal-${terminalId}`}
         data-session-key={`terminal:${terminalId}`}
         data-working={visiblyWorking ? 'true' : 'false'}
@@ -631,33 +653,45 @@ function TerminalSessionRow({
             {item.remote ? <span className="sr-remote-mark">⌁</span> : null}
             <b>{sessionName}</b>
             {item.exited ? <span className="sr-state neutral">Ended</span> : null}
-            {!item.exited && missionSettled ? (
+            {!item.exited && (missionStatus || missionSettled) ? (
               <span
                 className={`sr-state ${
-                  missionRuntimeStatus === 'succeeded'
-                    ? 'answered'
-                    : missionRuntimeStatus === 'failed'
-                      ? 'failed'
-                      : 'neutral'
+                  missionStatus
+                    ? missionStatus.tone
+                    : missionRuntimeStatus === 'succeeded'
+                      ? 'answered'
+                      : missionRuntimeStatus === 'failed'
+                        ? 'failed'
+                        : 'neutral'
                 }`}
               >
-                {missionRuntimeStatus === 'succeeded'
-                  ? 'Done'
-                  : missionRuntimeStatus === 'failed'
-                    ? 'Failed'
-                    : 'Stopped'}
+                {missionStatus
+                  ? missionStatusLabel
+                  : missionRuntimeStatus === 'succeeded'
+                    ? 'Done'
+                    : missionRuntimeStatus === 'failed'
+                      ? 'Failed'
+                      : 'Stopped'}
               </span>
             ) : null}
           </span>
-          {showProject ? (
+          {showDetail ? (
             <span className="sr-session-detail">
               <span>
-                {item.projectName} ·{' '}
-                {item.exited
-                  ? 'Process ended · session retained'
-                  : item.remote
-                    ? 'Remote SSH session is live'
-                    : 'Terminal session is live'}
+                {mission ? (
+                  <>
+                    {mission.taskTitle} · {missionDetail ?? terminalState}
+                  </>
+                ) : (
+                  <>
+                    {item.projectName} ·{' '}
+                    {item.exited
+                      ? 'Process ended · session retained'
+                      : item.remote
+                        ? 'Remote SSH session is live'
+                        : 'Terminal session is live'}
+                  </>
+                )}
               </span>
             </span>
           ) : null}
@@ -677,18 +711,23 @@ function MissionRuntimeRow({
 }): React.JSX.Element {
   const app = useAppStore();
   const hoverTooltip = useSessionHoverTooltip();
-  const status = missionStateBadge(entry.mission.assignmentState);
+  const status = missionSessionStatus(entry.mission);
   const selected =
     app.missionCenter?.missionId === entry.mission.missionId &&
     app.missionCenter.assignmentId === entry.mission.assignmentId;
-  const transport =
-    entry.mission.transport === 'acp'
-      ? 'ACP session'
-      : entry.mission.transport === 'terminal'
-        ? 'Terminal session'
-        : entry.mission.transport === 'native'
-          ? 'Managed session'
-          : 'Session starting';
+  const transport = entry.mission.waitingFor.length
+    ? `Waiting for ${entry.mission.waitingFor.join(', ')}`
+    : entry.mission.taskState === 'BLOCKED'
+      ? 'Waiting for dependencies'
+      : entry.mission.transport === 'acp'
+        ? 'ACP session'
+        : entry.mission.transport === 'terminal'
+          ? 'Terminal session'
+          : entry.mission.transport === 'native'
+            ? 'Managed session'
+            : 'Session starting';
+  const detail =
+    entry.mission.taskState === 'BLOCKED' ? transport : `${entry.mission.taskTitle} · ${transport}`;
   const description = `${entry.mission.agentName} · ${entry.mission.taskTitle} · ${transport}`;
 
   return (
@@ -723,9 +762,7 @@ function MissionRuntimeRow({
             <span className={`sr-state ${status.tone}`}>{status.label}</span>
           </span>
           <span className="sr-session-detail">
-            <span>
-              {entry.mission.taskTitle} · {transport}
-            </span>
+            <span>{detail}</span>
             <time dateTime={entry.updatedAt}>{timeAgo(entry.updatedAt, now)}</time>
           </span>
         </span>
@@ -763,6 +800,17 @@ export function SessionRail(): React.JSX.Element {
   const missionOrder = useOrchestrationStore((state) => state.missionOrder);
   const deletedMissionsById = useOrchestrationStore((state) => state.deletedMissionsById);
   const deletedMissionOrder = useOrchestrationStore((state) => state.deletedMissionOrder);
+  const topLevelSessionTasks = useMemo(
+    () =>
+      visibleProjectSessionTasks(
+        tasks,
+        [...missionOrder, ...deletedMissionOrder].flatMap((id) => {
+          const snapshot = missionsById[id] ?? deletedMissionsById[id];
+          return snapshot ? [snapshot] : [];
+        }),
+      ),
+    [deletedMissionOrder, deletedMissionsById, missionOrder, missionsById, tasks],
+  );
   const missionRuntimeStatuses = useMemo(
     () => missionRuntimeStatusByTerminal(Object.values(missionsById)),
     [missionsById],
@@ -779,11 +827,6 @@ export function SessionRail(): React.JSX.Element {
   const [historyPeriodLimits, setHistoryPeriodLimits] = useState<
     Readonly<Partial<Record<HistoryPeriodKey, number>>>
   >({});
-  const [query, setQuery] = useState('');
-  const [needsOnly, setNeedsOnly] = useState(false);
-  const [sessionProjectPath, setSessionProjectPath] = useState<string | null>(
-    workspaceStore.workspace?.path ?? null,
-  );
   const [projectQuery, setProjectQuery] = useState('');
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [projectMenuPath, setProjectMenuPath] = useState<string | null>(null);
@@ -853,10 +896,6 @@ export function SessionRail(): React.JSX.Element {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    if (workspaceStore.workspace?.path) setSessionProjectPath(workspaceStore.workspace.path);
-  }, [workspaceStore.workspace?.path]);
 
   useEffect(() => {
     if (!railResizing) return;
@@ -1111,6 +1150,17 @@ export function SessionRail(): React.JSX.Element {
           taskTitle: task.title,
           provider: missionProvider(snapshot, assignment, attempt),
           assignmentState: assignment.state,
+          taskState: task.state,
+          waitingFor: snapshot.dependencies
+            .filter((dependency) => dependency.taskId === task.id)
+            .map((dependency) =>
+              snapshot.tasks.find((candidate) => candidate.id === dependency.dependsOnTaskId),
+            )
+            .filter(
+              (dependency): dependency is MissionSnapshotDto['tasks'][number] =>
+                dependency !== undefined && dependency.state !== 'COMPLETED',
+            )
+            .map((dependency) => dependency.title),
           missionState: snapshot.mission.state,
           runtimeSessionId: attempt?.runtimeSessionId ?? null,
           terminalId: attempt?.terminalId ?? null,
@@ -1179,15 +1229,13 @@ export function SessionRail(): React.JSX.Element {
 
   const groups = useMemo<RailGroup[]>(() => buildRailGroups(allEntries), [allEntries]);
 
-  // Notification activation is stronger than the current rail filters: show
-  // Sessions, clear filters, and expand the target's directory when needed.
+  // Notification activation reveals the target's directory and pagination
+  // slot when needed.
   useEffect(() => {
     const reveal = app.sessionReveal;
     if (!reveal) return;
     useAppStore.getState().setRailView('sessions');
     if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(true);
-    setQuery('');
-    setNeedsOnly(false);
     const key = `task:${reveal.taskId}`;
     const group = groups.find((candidate) => candidate.entries.some((entry) => entry.key === key));
     if (group?.history) {
@@ -1222,49 +1270,17 @@ export function SessionRail(): React.JSX.Element {
 
   const recordedByProject = useMemo(() => recordedTasksByProject(allEntries), [allEntries]);
 
-  const visibleGroups = useMemo<RailGroup[]>(() => {
-    const normalized = query.trim().toLowerCase();
-    return groups
-      .map((group) => ({
-        ...group,
-        entries: group.entries.filter((entry) => {
-          if (needsOnly && (entry.kind !== 'task' || !needsAttention(entry.task))) return false;
-          if (!normalized) return true;
-          const haystack =
-            entry.kind === 'task'
-              ? [
-                  sessionDisplayTitle(entry.task),
-                  entry.task.title,
-                  entry.task.goalMd,
-                  entry.task.projectName,
-                  presentedMeta(entry.task).label,
-                ].join(' ')
-              : entry.kind === 'mission'
-                ? [
-                    entry.projectName,
-                    entry.mission.agentName,
-                    entry.mission.taskTitle,
-                    entry.mission.runtimeSessionId,
-                    'mission agent session',
-                  ].join(' ')
-                : [entry.projectName, entry.launch, 'terminal session'].join(' ');
-          return haystack.toLowerCase().includes(normalized);
-        }),
-      }))
-      .filter((group) => group.entries.length > 0);
-  }, [groups, needsOnly, query]);
-
-  const filteringSessions = Boolean(query.trim() || needsOnly);
+  const filteringSessions = false;
   const displayedGroups = useMemo(
     () =>
-      visibleGroups.map((group) => ({
+      groups.map((group) => ({
         group,
         entries: visibleRailGroupEntries(group, {
           expanded: expandedGroups.has(group.key),
           filtering: filteringSessions,
         }),
       })),
-    [expandedGroups, filteringSessions, visibleGroups],
+    [expandedGroups, groups],
   );
 
   /** Keyboard order mirrors the visible rows, including History pagination. */
@@ -1440,13 +1456,11 @@ export function SessionRail(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey);
   }, [app, orderedEntries]);
 
-  const startSession = async (projectPath?: string): Promise<void> => {
-    const targetProjectPath =
-      projectPath ?? sessionProjectPath ?? workspaceStore.workspace?.path ?? undefined;
-    if (targetProjectPath && workspaceStore.workspace?.path !== targetProjectPath) {
+  const startSession = async (projectPath: string): Promise<void> => {
+    if (workspaceStore.workspace?.path !== projectPath) {
       app.setHomePick(true);
-      await workspaceStore.openPath(targetProjectPath);
-      if (useWorkspaceStore.getState().workspace?.path !== targetProjectPath) return;
+      await workspaceStore.openPath(projectPath);
+      if (useWorkspaceStore.getState().workspace?.path !== projectPath) return;
     }
     // ADR-0042: switch the nav section first — it restores that group's last
     // surface — THEN apply this action's explicit intent (the composer), so
@@ -1517,6 +1531,7 @@ export function SessionRail(): React.JSX.Element {
           missionRuntimeStatus={
             terminalId ? (missionRuntimeStatuses.get(terminalId) ?? null) : null
           }
+          mission={entry.mission}
         />
       );
     }
@@ -1538,6 +1553,7 @@ export function SessionRail(): React.JSX.Element {
           (worker) => worker.terminalId === entry.terminalId && worker.status === 'streaming',
         )}
         missionRuntimeStatus={missionRuntimeStatuses.get(entry.terminalId) ?? null}
+        mission={entry.mission}
       />
     );
   };
@@ -1589,138 +1605,109 @@ export function SessionRail(): React.JSX.Element {
     </>
   );
 
-  const sessionsPanel = (
-    <>
-      <header className="sr-head">
-        {railTabs}
-        <div className="sr-heading-row sr-session-heading">
-          <strong>Sessions</strong>
-          <button
-            className={`sr-session-archive ${app.archaeology ? 'active' : ''}`}
-            data-testid="rail-session-archive"
-            title={`${tasks.length} tracked · ${discovered.filter((session) => !session.trackedTaskId).length} external`}
-            onClick={() => {
-              app.openArchaeology(null);
-              if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(false);
-            }}
+  const runningSessionsControl =
+    runningTargets.length > 0 || stoppingAll ? (
+      <div ref={stopAllRef} className="sr-running-compact-wrap">
+        <button
+          ref={stopAllTriggerRef}
+          type="button"
+          className="sr-running-compact"
+          data-testid="rail-running-summary"
+          aria-label={
+            stoppingAll
+              ? `Stopping ${stoppingCount} ${stoppingCount === 1 ? 'session' : 'sessions'}`
+              : `${runningTargets.length} ${runningTargets.length === 1 ? 'session' : 'sessions'} running`
+          }
+          aria-haspopup="dialog"
+          aria-expanded={stopAllConfirmOpen}
+          aria-controls="rail-stop-all-confirm"
+          disabled={stoppingAll}
+          title={
+            stoppingAll
+              ? `Stopping ${stoppingCount}…`
+              : `${runningTargets.length} running · click for controls`
+          }
+          onClick={() => setStopAllConfirmOpen((open) => !open)}
+        >
+          <span className="sr-running-dot" />
+          <span aria-live="polite">{stoppingAll ? '…' : runningTargets.length}</span>
+        </button>
+        {stopAllConfirmOpen ? (
+          <div
+            id="rail-stop-all-confirm"
+            className="sr-stop-all-popover"
+            data-testid="rail-stop-all-confirm"
+            role="alertdialog"
+            aria-modal="false"
+            aria-labelledby="rail-stop-all-title"
+            aria-describedby="rail-stop-all-description"
           >
-            <Ic name="clock" size={11} />
-            <span>Session Archive</span>
-          </button>
-          <small title={`${allEntries.length} sessions`}>{allEntries.length}</small>
-        </div>
-        <div className="sr-search-row sr-session-search-row">
-          <label className="sr-search-box">
-            <Ic name="search" size={13} />
-            <input
-              data-testid="rail-session-search"
-              value={query}
-              placeholder="Search sessions…"
-              aria-label="Search sessions"
-              onChange={(event) => setQuery(event.currentTarget.value)}
-            />
-          </label>
-          <button
-            className={`sr-filter ${needsOnly ? 'active' : ''}`}
-            data-testid="rail-needs-filter"
-            aria-label="Show only sessions that need you"
-            aria-pressed={needsOnly}
-            title="Needs you only"
-            onClick={() => setNeedsOnly((value) => !value)}
-          >
-            <Ic name="filter" size={13} />
-          </button>
-          <button
-            className="sr-new-compact"
-            data-testid="home-new-task"
-            aria-label="New Session"
-            title={`New Session${sessionProjectPath ? ` in ${sessionProjectPath.split(/[\\/]/).at(-1)}` : ''}`}
-            onClick={() => void startSession()}
-          >
-            <Ic name="plus" size={15} />
-          </button>
-        </div>
-        {runningTargets.length > 0 || stoppingAll ? (
-          <div ref={stopAllRef} className="sr-running-summary" data-testid="rail-running-summary">
-            <span className="sr-running-copy" aria-live="polite">
-              <span className="sr-running-dot" />
-              {stoppingAll ? (
-                <span>
-                  Stopping <b>{stoppingCount}</b> {stoppingCount === 1 ? 'session' : 'sessions'}…
-                </span>
-              ) : (
-                <span>
-                  <b>{runningTargets.length}</b>{' '}
-                  {runningTargets.length === 1 ? 'session' : 'sessions'} running
-                </span>
-              )}
-            </span>
-            <button
-              ref={stopAllTriggerRef}
-              type="button"
-              className="sr-stop-all"
-              data-testid="rail-stop-all"
-              aria-haspopup="dialog"
-              aria-expanded={stopAllConfirmOpen}
-              aria-controls="rail-stop-all-confirm"
-              disabled={stoppingAll}
-              onClick={() => setStopAllConfirmOpen((open) => !open)}
-            >
-              <Ic name="circleStop" size={12} />
-              Stop all {stoppingAll ? stoppingCount : runningTargets.length}
-            </button>
-            {stopAllConfirmOpen ? (
-              <div
-                id="rail-stop-all-confirm"
-                className="sr-stop-all-popover"
-                data-testid="rail-stop-all-confirm"
-                role="alertdialog"
-                aria-modal="false"
-                aria-labelledby="rail-stop-all-title"
-                aria-describedby="rail-stop-all-description"
+            <strong id="rail-stop-all-title">
+              {runningTargets.length} running {runningTargets.length === 1 ? 'session' : 'sessions'}
+            </strong>
+            <p id="rail-stop-all-description">
+              Stop every active process? Session records and changes stay available in Session
+              Archive.
+            </p>
+            <div className="sr-stop-all-actions">
+              <button
+                ref={stopAllCancelRef}
+                type="button"
+                data-testid="rail-stop-all-cancel"
+                onClick={() => {
+                  setStopAllConfirmOpen(false);
+                  stopAllTriggerRef.current?.focus();
+                }}
               >
-                <strong id="rail-stop-all-title">
-                  Stop {runningTargets.length} running{' '}
-                  {runningTargets.length === 1 ? 'session' : 'sessions'}?
-                </strong>
-                <p id="rail-stop-all-description">
-                  Active processes will end. Session records and changes stay available in Session
-                  Archive.
-                </p>
-                <div className="sr-stop-all-actions">
-                  <button
-                    ref={stopAllCancelRef}
-                    type="button"
-                    data-testid="rail-stop-all-cancel"
-                    onClick={() => {
-                      setStopAllConfirmOpen(false);
-                      stopAllTriggerRef.current?.focus();
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    data-testid="rail-stop-all-confirm-action"
-                    onClick={() => void stopAllRunningSessions()}
-                  >
-                    <Ic name="circleStop" size={12} />
-                    Stop all
-                  </button>
-                </div>
-              </div>
-            ) : null}
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger"
+                data-testid="rail-stop-all-confirm-action"
+                onClick={() => void stopAllRunningSessions()}
+              >
+                <Ic name="circleStop" size={12} />
+                Stop all
+              </button>
+            </div>
           </div>
         ) : null}
+      </div>
+    ) : null;
+
+  const sessionArchiveButton = (placement: 'history' | 'fallback'): React.JSX.Element => (
+    <button
+      className={`sr-session-archive ${placement} ${app.archaeology ? 'active' : ''}`}
+      data-testid="rail-session-archive"
+      aria-label={`Session Archive, ${allEntries.length} sessions`}
+      title={`${tasks.length} tracked · ${discovered.filter((session) => !session.trackedTaskId).length} external`}
+      onClick={() => {
+        app.openArchaeology(null);
+        if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(false);
+      }}
+    >
+      <Ic name="clock" size={11} />
+      <span>Archive</span>
+      <small>{allEntries.length}</small>
+    </button>
+  );
+
+  const hasHistoryGroup = groups.some((group) => group.history);
+
+  const sessionsPanel = (
+    <>
+      <header className="sr-head sr-sessions-head">
+        <div className="sr-session-tabs-line">
+          {railTabs}
+          {runningSessionsControl}
+        </div>
       </header>
 
       <div className="sr-scroll">
-        {visibleGroups.length === 0 ? (
+        {groups.length === 0 ? (
           <div className="sr-empty">
-            {groups.length === 0
-              ? 'No sessions yet. Start with Charter Agent, Claude or Codex.'
-              : 'No sessions match this search or filter.'}
+            No sessions yet. Start with Charter Agent, Claude or Codex.
           </div>
         ) : (
           displayedGroups.map(({ group, entries }) => {
@@ -1746,10 +1733,7 @@ export function SessionRail(): React.JSX.Element {
                     data-testid={`rail-group-${group.history ? 'history' : group.name}`}
                     aria-expanded={!isCollapsed}
                     title={group.path ?? group.name}
-                    onClick={() => {
-                      if (group.path) setSessionProjectPath(group.path);
-                      toggleGroup(group.key);
-                    }}
+                    onClick={() => toggleGroup(group.key)}
                   >
                     <Ic
                       name="chevron"
@@ -1760,12 +1744,16 @@ export function SessionRail(): React.JSX.Element {
                     <strong>{group.name}</strong>
                     <span className="sr-group-count">{group.entries.length}</span>
                   </button>
-                  {!group.history && group.path ? (
+                  {group.history ? (
+                    sessionArchiveButton('history')
+                  ) : group.path ? (
                     <button
                       className="sr-group-add"
                       aria-label={`New session in ${group.name}`}
                       title={`New session in ${group.name}`}
-                      onClick={() => void startSession(group.path ?? undefined)}
+                      onClick={() => {
+                        if (group.path) void startSession(group.path);
+                      }}
                     >
                       <Ic name="plus" size={12} />
                     </button>
@@ -1807,7 +1795,7 @@ export function SessionRail(): React.JSX.Element {
                               >
                                 <Ic
                                   name="chevron"
-                                  size={11}
+                                  size={12}
                                   className={`sr-group-chevron ${periodCollapsed ? 'closed' : ''}`}
                                 />
                                 <strong>{period.label}</strong>
@@ -1871,6 +1859,9 @@ export function SessionRail(): React.JSX.Element {
               </section>
             );
           })
+        )}
+        {hasHistoryGroup ? null : (
+          <div className="sr-archive-fallback">{sessionArchiveButton('fallback')}</div>
         )}
       </div>
     </>
@@ -2044,7 +2035,7 @@ export function SessionRail(): React.JSX.Element {
         {filteredRecent.map((project) => {
           const current = workspaceStore.workspace?.path === project.path;
           const selected = app.projectCenter?.path === project.path;
-          const projectTasks = tasks.filter(
+          const projectTasks = topLevelSessionTasks.filter(
             (task) => task.projectPath === project.path && !task.archived,
           );
           const liveCount = projectTasks.filter(
@@ -2063,7 +2054,6 @@ export function SessionRail(): React.JSX.Element {
                 title={`${project.path} — view Project Center`}
                 onClick={() => {
                   setProjectMenuPath(null);
-                  setSessionProjectPath(project.path);
                   app.openProjectCenter(project.path);
                   if (window.matchMedia('(max-width: 1120px)').matches) {
                     setCompactPanelOpen(false);
@@ -2124,7 +2114,6 @@ export function SessionRail(): React.JSX.Element {
                       data-testid={`project-history-${project.path}`}
                       onClick={() => {
                         setProjectMenuPath(null);
-                        setSessionProjectPath(project.path);
                         app.openProjectCenter(project.path, 'sessions');
                       }}
                     >

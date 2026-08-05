@@ -314,7 +314,7 @@ function CharterTerminalManualRow(): React.JSX.Element {
   return (
     <Row
       label="Mission orchestration Skill"
-      hint="Installs one generated Mission command manual into Charter, Claude and Codex. Native tools, MCP and the charter CLI share the same command definitions."
+      hint="Charter keeps its Mission routing manuals current for every detected Agent. Native tools, MCP and the charter CLI share the same command definitions; use this action only to repair an installation."
     >
       <span className="st-provider-form" style={{ padding: 0 }}>
         {statusError ? <span className="st-hint">{statusError}</span> : null}
@@ -347,12 +347,12 @@ function CharterTerminalManualRow(): React.JSX.Element {
                 failed.length > 0 ? 'error' : 'success',
                 failed.length > 0
                   ? `Some surfaces failed: ${failed.map((surface) => surface.target).join(', ')}`
-                  : 'charter-terminal manual installed for Charter, claude, and codex.',
+                  : 'Mission routing manuals repaired for detected Agents.',
               );
             });
           }}
         >
-          {busy ? 'Installing…' : allCurrent ? 'Reinstall' : 'Install / update'}
+          {busy ? 'Repairing…' : allCurrent ? 'Repair' : 'Repair now'}
         </button>
       </span>
     </Row>

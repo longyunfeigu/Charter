@@ -8,7 +8,7 @@ import type { Logger } from '@pi-ide/foundation';
 import type { TerminalReplayService } from '../services/terminal-replay-service.js';
 import { registerHandlers } from './router.js';
 
-type ExportFormat = 'mp4' | 'gif' | 'webm';
+type ExportFormat = 'mp4' | 'webm';
 
 function safeExportTitle(value: string): string {
   return (
@@ -88,12 +88,7 @@ export function registerTerminalReplayHandlers(
           ),
           filters: [
             {
-              name:
-                effectiveFormat === 'mp4'
-                  ? 'MP4 video'
-                  : effectiveFormat === 'gif'
-                    ? 'Animated GIF'
-                    : 'WebM video',
+              name: effectiveFormat === 'mp4' ? 'MP4 video' : 'WebM video',
               extensions: [effectiveFormat],
             },
           ],
@@ -113,42 +108,20 @@ export function registerTerminalReplayHandlers(
         const temporaryWebm = join(tempDir, `${randomBytes(5).toString('hex')}.webm`);
         writeFileSync(temporaryWebm, webm, { mode: 0o600 });
         try {
-          if (effectiveFormat === 'mp4') {
-            await runFfmpeg(ffmpeg!, [
-              '-y',
-              '-i',
-              temporaryWebm,
-              '-vf',
-              'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-              '-c:v',
-              'libx264',
-              '-pix_fmt',
-              'yuv420p',
-              '-movflags',
-              '+faststart',
-              destination,
-            ]);
-          } else {
-            const palette = join(tempDir, 'palette.png');
-            await runFfmpeg(ffmpeg!, [
-              '-y',
-              '-i',
-              temporaryWebm,
-              '-vf',
-              'fps=15,scale=900:-1:flags=lanczos,palettegen=stats_mode=diff',
-              palette,
-            ]);
-            await runFfmpeg(ffmpeg!, [
-              '-y',
-              '-i',
-              temporaryWebm,
-              '-i',
-              palette,
-              '-lavfi',
-              'fps=15,scale=900:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=3',
-              destination,
-            ]);
-          }
+          await runFfmpeg(ffmpeg!, [
+            '-y',
+            '-i',
+            temporaryWebm,
+            '-vf',
+            'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+            '-c:v',
+            'libx264',
+            '-pix_fmt',
+            'yuv420p',
+            '-movflags',
+            '+faststart',
+            destination,
+          ]);
           shell.showItemInFolder(destination);
           logger.info('terminal replay exported', {
             taskId,

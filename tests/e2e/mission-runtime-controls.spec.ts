@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { MissionSnapshotDto, TaskDto, TimelineEventDto } from '@pi-ide/ipc-contracts';
 import { openDatabase } from '../../packages/persistence/src/database';
@@ -7,6 +8,41 @@ import { MIGRATIONS } from '../../packages/persistence/src/migrations';
 import { MissionRepository } from '../../packages/persistence/src/mission-repository';
 import { createTsSmallFixture } from './helpers/fixtures';
 import { launchApp } from './helpers/launch';
+
+function createControllableClaude(): { bin: string; inputProbe: string; heartbeatProbe: string } {
+  const bin = mkdtempSync(join(tmpdir(), 'charter-runtime-controls-'));
+  const inputProbe = join(bin, 'input.log');
+  const heartbeatProbe = join(bin, 'heartbeat.log');
+  writeFileSync(
+    join(bin, 'claude'),
+    [
+      '#!/usr/bin/env node',
+      "const fs = require('node:fs');",
+      `const inputProbe = ${JSON.stringify(inputProbe)};`,
+      `const heartbeatProbe = ${JSON.stringify(heartbeatProbe)};`,
+      "console.log('controllable-claude-ready');",
+      "process.stdin.on('data', (chunk) => fs.appendFileSync(inputProbe, chunk.toString()));",
+      "setInterval(() => fs.appendFileSync(heartbeatProbe, '.'), 100);",
+      'process.stdin.resume();',
+      'setTimeout(() => process.exit(0), 60000);',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(join(bin, 'claude'), 0o755);
+  writeFileSync(
+    join(bin, '.zshenv'),
+    `export PATH=${JSON.stringify(`${bin}:${process.env.PATH ?? ''}`)}\n`,
+  );
+  return { bin, inputProbe, heartbeatProbe };
+}
+
+function readOptional(path: string): string {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
 
 async function openMission(page: Page, missionId: string): Promise<void> {
   await page.getByTestId('rail-view-missions').click();
@@ -43,7 +79,20 @@ async function missionSnapshot(page: Page, missionId: string): Promise<MissionSn
   }, missionId);
 }
 
-test('Runtime Inspector buttons open, guide, pause, resume, and change a managed owner', async () => {
+async function taskIdForTerminal(page: Page, terminalId: string): Promise<string | null> {
+  return await page.evaluate(async (id) => {
+    const result = (await window.product.rpc['task.list']!({
+      filter: 'all',
+      includeArchived: false,
+      scope: 'all',
+    })) as
+      { ok: true; data: { tasks: TaskDto[] } } | { ok: false; error?: { userMessage?: string } };
+    if (!result.ok) throw new Error(result.error?.userMessage ?? 'task.list failed');
+    return result.data.tasks.find((task) => task.external?.terminalId === id)?.id ?? null;
+  }, terminalId);
+}
+
+test('Runtime Inspector opens, updates, pauses, resumes, and hands off managed work', async () => {
   test.setTimeout(120_000);
   const fixture = createTsSmallFixture();
   const first = await launchApp({
@@ -109,14 +158,10 @@ test('Runtime Inspector buttons open, guide, pause, resume, and change a managed
     await openMission(second.page, missionId);
     const details = second.page.getByTestId('mission-work-detail');
 
-    await details.getByRole('button', { name: 'Open working session' }).click();
+    await details.getByTestId('mission-open-agent-session').click();
     await expect(second.page.getByTestId('task-room')).toHaveAttribute('data-task-id', taskId);
-    await expect(second.page.getByTestId('rail-session-search')).toBeVisible();
+    await expect(second.page.getByTestId('rail-tab-sessions')).toContainText('Sessions');
     await expect(second.page.getByTestId('mission-rail-panel')).not.toBeVisible();
-    await expect(second.page.getByTestId('task-room-back')).toHaveAttribute(
-      'aria-label',
-      'Back to Mission',
-    );
     await expect(second.page.getByTestId('task-room-back')).toHaveAttribute(
       'aria-label',
       'Back to Mission',
@@ -140,11 +185,11 @@ test('Runtime Inspector buttons open, guide, pause, resume, and change a managed
     await expect(second.page.getByTestId('mission-work-map')).toBeVisible();
     await expect(details).toBeVisible();
 
-    await details.getByRole('button', { name: 'Pause', exact: true }).click();
+    await details.getByRole('button', { name: 'Pause Agent', exact: true }).click();
     await expect(details.getByText('Paused', { exact: true })).toBeVisible();
-    await expect(details.getByRole('button', { name: 'Resume', exact: true })).toBeVisible();
-    await details.getByRole('button', { name: 'Resume', exact: true }).click();
-    await expect(details.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+    await expect(details.getByRole('button', { name: 'Resume Agent', exact: true })).toBeVisible();
+    await details.getByRole('button', { name: 'Resume Agent', exact: true }).click();
+    await expect(details.getByRole('button', { name: 'Pause Agent', exact: true })).toBeVisible();
     await expect
       .poll(async () => (await taskDetail(second.page, taskId)).task.state, { timeout: 20_000 })
       .toBe('IDLE');
@@ -153,7 +198,7 @@ test('Runtime Inspector buttons open, guide, pause, resume, and change a managed
     await details
       .getByPlaceholder('Add context, change direction, or share a constraint…')
       .fill(guidance);
-    await details.getByRole('button', { name: 'Send guidance' }).click();
+    await details.getByTestId('mission-send-guidance').click();
     await expect
       .poll(
         async () =>
@@ -172,9 +217,9 @@ test('Runtime Inspector buttons open, guide, pause, resume, and change a managed
       .poll(async () => (await taskDetail(second.page, taskId)).task.state, { timeout: 20_000 })
       .toBe('IDLE');
 
-    await details.getByRole('button', { name: 'Change owner' }).click();
-    await details.getByLabel('Display name').fill('Replacement Lead');
-    await details.getByRole('button', { name: 'Assign', exact: true }).click();
+    await details.getByTestId('mission-change-owner').click();
+    await details.getByLabel('Agent name').fill('Replacement Lead');
+    await details.getByTestId('mission-reassign-submit').click();
     await expect(details).toContainText('Replacement Lead');
     await expect
       .poll(
@@ -201,17 +246,220 @@ test('Runtime Inspector buttons open, guide, pause, resume, and change a managed
         runtimeSessionId: expect.stringMatching(/^managed-task:/),
       });
 
-    await details.getByRole('button', { name: 'Open working session' }).click();
-    await expect(second.page.getByTestId('rail-session-search')).toBeVisible();
+    await details.getByTestId('mission-open-agent-session').click();
+    await expect(second.page.getByTestId('rail-tab-sessions')).toContainText('Sessions');
     await expect(second.page.getByTestId('mission-rail-panel')).not.toBeVisible();
     const replacementTaskId =
       (await second.page.getByTestId('task-room').getAttribute('data-task-id')) ?? '';
     expect(replacementTaskId).not.toBe('');
     expect(replacementTaskId).not.toBe(taskId);
+
+    // The Sessions rail stops Mission members one by one. Once the final live
+    // Assignment disappears, the durable aggregate must leave RUNNING too.
+    await second.page.getByTestId('rail-running-summary').click();
+    await expect(second.page.getByTestId('rail-stop-all-confirm')).toBeVisible();
+    await second.page.getByTestId('rail-stop-all-confirm-action').click();
+    await expect
+      .poll(async () => (await missionSnapshot(second.page, missionId)).mission.state, {
+        timeout: 20_000,
+      })
+      .toBe('CANCELLED');
+    await second.page.getByTestId('task-room-back').click();
+    await expect(second.page.getByTestId('mission-state')).toHaveText('Cancelled');
+    await expect(second.page.getByTestId('mission-cancel')).not.toBeAttached();
     expect(pageErrors).toEqual([]);
   } finally {
     await second.app.close();
     rmSync(first.userDataDir, { recursive: true, force: true });
     rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test('visible Mission controls hold real PTY input, keep the turn alive, and hand off', async () => {
+  test.setTimeout(120_000);
+  const fixture = createTsSmallFixture();
+  const { bin, inputProbe, heartbeatProbe } = createControllableClaude();
+  const initialPrompt = '请 Mission 调度一个可控 Agent，并等待人工调整。';
+  const launched = await launchApp({
+    env: {
+      PI_IDE_OPEN_WORKSPACE: fixture,
+      PI_IDE_EXTERNAL_CLIS: 'claude',
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      ZDOTDIR: bin,
+    },
+  });
+  const pageErrors: string[] = [];
+  launched.page.on('pageerror', (error) => pageErrors.push(error.message));
+
+  try {
+    const terminalId = await launched.page.evaluate(async (initialPrompt) => {
+      const result = (await window.product.rpc['terminal.create']!({
+        context: { kind: 'focused' },
+        launch: 'claude',
+        initialPrompt,
+      })) as { ok: true; data: { id: string } } | { ok: false; error?: { userMessage?: string } };
+      if (!result.ok) throw new Error(result.error?.userMessage ?? 'terminal.create failed');
+      return result.data.id;
+    }, initialPrompt);
+
+    await expect
+      .poll(
+        async () =>
+          await launched.page.evaluate(async (id) => {
+            const tasks = (await window.product.rpc['task.list']!({
+              filter: 'all',
+              includeArchived: false,
+              scope: 'all',
+            })) as { ok: true; data: { tasks: TaskDto[] } };
+            const task = tasks.data.tasks.find(
+              (candidate) => candidate.external?.terminalId === id,
+            );
+            if (!task) return null;
+            const result = (await window.product.rpc['mission.forConversation']!({
+              taskId: task.id,
+            })) as { ok: true; data: { snapshot: MissionSnapshotDto | null } };
+            return result.data.snapshot;
+          }, terminalId),
+        { timeout: 20_000 },
+      )
+      .not.toBeNull();
+    const snapshot = await launched.page.evaluate(async (id) => {
+      const result = (await window.product.rpc['mission.list']!({ limit: 100 })) as {
+        ok: true;
+        data: { missions: MissionSnapshotDto[] };
+      };
+      return result.data.missions.find((item) =>
+        item.attempts.some((attempt) => attempt.terminalId === id),
+      )!;
+    }, terminalId);
+    const missionId = snapshot.mission.id;
+    const leadAssignmentId = snapshot.mission.leadAssignmentId!;
+
+    await openMission(launched.page, missionId);
+    const details = launched.page.getByTestId('mission-work-detail');
+    await expect(details.getByText('Adjust direction', { exact: true })).toBeVisible();
+    await expect(details.getByTestId('mission-open-agent-session')).toHaveText(
+      /Open Agent session/,
+    );
+    await expect(details.getByTestId('mission-hold-input')).toHaveText(/Hold new instructions/);
+    await expect(details.getByTestId('mission-change-owner')).toHaveText(
+      /Hand off to another Agent/,
+    );
+    await expect(details.getByTestId('mission-hold-input-note')).toContainText(
+      'Current turn will continue',
+    );
+
+    const dismissToast = launched.page.getByRole('button', { name: 'Dismiss' }).last();
+    if (await dismissToast.isVisible()) await dismissToast.click();
+
+    await launched.page.setViewportSize({ width: 1440, height: 900 });
+    await launched.page.screenshot({ path: '/tmp/charter-mission-controls-wide.png' });
+    await launched.page.setViewportSize({ width: 900, height: 760 });
+    await expect(details.getByTestId('mission-change-owner')).toBeVisible();
+    const actionBounds = await details.locator('.mission-detail-actions').boundingBox();
+    expect(actionBounds).not.toBeNull();
+    expect(actionBounds!.x).toBeGreaterThanOrEqual(0);
+    expect(actionBounds!.x + actionBounds!.width).toBeLessThanOrEqual(900);
+    const actionButtonBounds = await details
+      .locator('.mission-detail-actions button')
+      .evaluateAll((buttons) =>
+        buttons.map((button) => {
+          const bounds = button.getBoundingClientRect();
+          return { left: bounds.left, right: bounds.right };
+        }),
+      );
+    expect(actionButtonBounds.every((bounds) => bounds.left >= 0 && bounds.right <= 900)).toBe(
+      true,
+    );
+    await launched.page.screenshot({ path: '/tmp/charter-mission-controls-narrow.png' });
+    await launched.page.setViewportSize({ width: 1440, height: 900 });
+
+    await details.getByTestId('mission-open-agent-session').click();
+    const leadTaskId = await taskIdForTerminal(launched.page, terminalId);
+    expect(leadTaskId).not.toBeNull();
+    await expect(launched.page.getByTestId('task-room')).toHaveAttribute(
+      'data-task-id',
+      leadTaskId!,
+    );
+    await expect(launched.page.getByTestId('external-terminal-column')).toHaveAttribute(
+      'data-terminal-id',
+      terminalId,
+    );
+    await launched.page.getByTestId('task-room-back').click();
+    await expect(launched.page.getByTestId('mission-work-map')).toBeVisible();
+    await expect(details).toBeVisible();
+
+    await expect.poll(() => readOptional(inputProbe), { timeout: 20_000 }).toContain(initialPrompt);
+    await expect.poll(() => readOptional(heartbeatProbe).length).toBeGreaterThan(2);
+
+    await details.getByTestId('mission-hold-input').click();
+    await expect(details.getByTestId('mission-hold-input')).toHaveText(/Release instructions/);
+    const heartbeatBefore = readOptional(heartbeatProbe).length;
+    const guidance = `PTY-GUIDANCE-${Date.now()} keep the current implementation boundary`;
+    await details
+      .getByPlaceholder('Add context, change direction, or share a constraint…')
+      .fill(guidance);
+    await details.getByTestId('mission-send-guidance').click();
+    await launched.page.waitForTimeout(900);
+    expect(readOptional(inputProbe)).not.toContain(guidance);
+    expect(readOptional(heartbeatProbe).length).toBeGreaterThan(heartbeatBefore);
+
+    await details.getByTestId('mission-hold-input').click();
+    await expect.poll(() => readOptional(inputProbe), { timeout: 20_000 }).toContain(guidance);
+    await expect(details.getByTestId('mission-hold-input')).toHaveText(/Hold new instructions/);
+
+    await details.getByTestId('mission-change-owner').click();
+    await expect(details.getByTestId('mission-reassign')).toContainText(
+      'current attempt stays in history',
+    );
+    await details.getByLabel('Agent runtime').selectOption('shell');
+    await details.getByLabel('Agent name').fill('Shell replacement');
+    await details.getByTestId('mission-reassign-submit').click();
+
+    await expect
+      .poll(
+        async () => {
+          const current = await missionSnapshot(launched.page, missionId);
+          const lead = current.assignments.find((item) => item.id === leadAssignmentId);
+          const attempt = current.attempts.find((item) => item.id === lead?.activeAttemptId);
+          const principal = current.principals.find(
+            (item) => item.id === lead?.assigneePrincipalId,
+          );
+          return {
+            owner: principal?.displayName ?? null,
+            ordinal: attempt?.ordinal ?? null,
+            runtime: attempt?.requestedRuntime ?? null,
+            terminalId: attempt?.terminalId ?? null,
+          };
+        },
+        { timeout: 30_000 },
+      )
+      .toEqual({
+        owner: 'Shell replacement',
+        ordinal: 2,
+        runtime: 'shell',
+        terminalId: expect.stringMatching(/^term_/),
+      });
+    const replacementSnapshot = await missionSnapshot(launched.page, missionId);
+    const replacementLead = replacementSnapshot.assignments.find(
+      (item) => item.id === leadAssignmentId,
+    )!;
+    const replacementAttempt = replacementSnapshot.attempts.find(
+      (item) => item.id === replacementLead.activeAttemptId,
+    )!;
+    expect(replacementAttempt.terminalId).not.toBe(terminalId);
+    await expect(details).toContainText('Shell replacement');
+    await details.getByTestId('mission-open-agent-session').click();
+    await expect(launched.page.getByTestId('session-terminal-view')).toHaveAttribute(
+      'data-terminal-id',
+      replacementAttempt.terminalId!,
+    );
+
+    expect(pageErrors).toEqual([]);
+  } finally {
+    await launched.app.close();
+    rmSync(launched.userDataDir, { recursive: true, force: true });
+    rmSync(fixture, { recursive: true, force: true });
+    rmSync(bin, { recursive: true, force: true });
   }
 });

@@ -56,13 +56,16 @@ describe.skipIf(process.platform === 'win32')('CtlServer Unix door (ORCH-008/012
   let identities: TerminalControlIdentityRegistry;
   let server: CtlServer;
   let enabled: boolean;
+  let callerTaskId: string | null;
+  let gateway: ToolGateway;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'charter-ctl-'));
     socketPath = join(dir, 'ctl.sock');
     identities = new TerminalControlIdentityRegistry(socketPath);
     enabled = true;
-    const gateway = new ToolGateway({ root: dir, mode: 'ask' });
+    callerTaskId = 'task_external';
+    gateway = new ToolGateway({ root: dir, mode: 'ask' });
     gateway.register({
       name: 'terminal.list',
       version: 1,
@@ -96,8 +99,9 @@ describe.skipIf(process.platform === 'win32')('CtlServer Unix door (ORCH-008/012
       identities,
       control,
       enabled: () => enabled,
-      taskForTerminal: () => 'task_external',
+      taskForTerminal: () => callerTaskId,
       gatewayForTask: () => gateway,
+      callerReadyTimeoutMs: 500,
       logger,
     });
   });
@@ -130,5 +134,24 @@ describe.skipIf(process.platform === 'win32')('CtlServer Unix door (ORCH-008/012
     enabled = false;
     await expect(server.start()).resolves.toBe(false);
     expect(() => statSync(socketPath)).toThrowError();
+  });
+
+  it('waits for a newly launched Agent to bind before executing its first call', async () => {
+    callerTaskId = null;
+    await server.start();
+    const identity = identities.issue('term_caller');
+    const pending = unixRequest({
+      socketPath,
+      path: '/v1/terminals',
+      token: identity.token,
+    });
+    setTimeout(() => {
+      callerTaskId = 'task_external';
+    }, 100);
+
+    await expect(pending).resolves.toMatchObject({
+      status: 200,
+      body: { ok: true, code: 'OK' },
+    });
   });
 });

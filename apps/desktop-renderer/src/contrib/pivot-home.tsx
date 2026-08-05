@@ -27,7 +27,7 @@ export function registerPivotHome(): void {
     },
     {
       id: 'launcher.open',
-      title: 'Search Everything (Projects, Tasks, Files)',
+      title: 'Search Everything (Sessions, Projects, Files)',
       category: 'View',
       keybinding: 'mod+k',
       run: () => useAppStore.getState().setLauncherOpen(true),

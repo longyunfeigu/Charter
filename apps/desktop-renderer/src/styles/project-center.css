@@ -182,6 +182,24 @@
   border-radius: 8px;
   color: var(--fg-muted);
 }
+.pc-refresh-button[aria-busy='true'] {
+  opacity: 1;
+  cursor: progress;
+}
+.pc-header .pc-refresh-button.is-refreshing {
+  border-color: color-mix(in srgb, var(--chrome-paper) 38%, transparent);
+  color: var(--chrome-paper);
+}
+.pc-refresh-button .is-spinning {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pc-refresh-spin 0.7s linear infinite;
+}
+@keyframes pc-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 .pc-tabs {
   height: 45px;
@@ -1002,5 +1020,12 @@ div.pc-session-copy {
   }
   .pc-trust-card > .pc-button {
     grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-refresh-button .is-spinning {
+    animation: none;
+    opacity: 0.58;
   }
 }

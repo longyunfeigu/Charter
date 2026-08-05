@@ -47,8 +47,7 @@
       "versionArgs": ["--version"]
     },
     "terminal": {
-      "promptDelivery": "argv",
-      "initialPromptArgs": ["--", "{prompt}"],
+      "promptDelivery": "deferred",
       "exitSequence": ["interrupt", "eof"]
     },
     "acp": {

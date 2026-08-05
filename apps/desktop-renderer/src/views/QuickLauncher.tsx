@@ -7,10 +7,11 @@ import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { openWorkspaceFile } from './PathLinks.js';
 import { Ic } from './home-icons.js';
 import { presentedMeta } from './labels.js';
+import { sessionDisplayTitle } from '../store/sessionAttention.js';
 
 interface Entry {
   id: string;
-  group: 'Actions' | 'Tasks' | 'Files' | 'Projects' | 'Memory';
+  group: 'Actions' | 'Sessions' | 'Files' | 'Projects' | 'Memory';
   icon: string;
   label: string;
   sub?: string;
@@ -19,8 +20,8 @@ interface Entry {
 }
 
 /**
- * ⌘K quick launcher (PIVOT-018): one keyboard-first search over projects,
- * recent tasks, project files and app actions.
+ * ⌘K quick launcher (PIVOT-018): one keyboard-first search over Sessions,
+ * projects, project files and app actions.
  */
 export function QuickLauncher(): React.JSX.Element | null {
   const open = useAppStore((s) => s.launcherOpen);
@@ -99,7 +100,7 @@ export function QuickLauncher(): React.JSX.Element | null {
         id: 'action-new-task',
         group: 'Actions',
         icon: 'pencil',
-        label: 'New Task',
+        label: 'New Session',
         run: () => {
           // Land in the composer even when a Task Room is open.
           const app = useAppStore.getState();
@@ -140,13 +141,21 @@ export function QuickLauncher(): React.JSX.Element | null {
     ];
     list.push(...actions.filter((a) => matches(a.label)));
 
-    for (const t of tasks.filter((t) => matches(t.title)).slice(0, 6)) {
+    for (const t of tasks
+      .filter((t) =>
+        matches(
+          [sessionDisplayTitle(t), t.title, t.goalMd, t.projectName, presentedMeta(t).label].join(
+            ' ',
+          ),
+        ),
+      )
+      .slice(0, 8)) {
       list.push({
         id: `task-${t.id}`,
-        group: 'Tasks',
+        group: 'Sessions',
         icon: 'inbox',
-        label: t.title,
-        sub: presentedMeta(t).short,
+        label: sessionDisplayTitle(t),
+        sub: `${t.projectName} · ${presentedMeta(t).short}`,
         run: () => {
           // ADR-0008: tasks open in their Task Room, not the Editor.
           void useTaskStore.getState().openTask(t.id);
@@ -254,7 +263,7 @@ export function QuickLauncher(): React.JSX.Element | null {
           <input
             ref={inputRef}
             data-testid="qk-input"
-            placeholder="Search projects, tasks, files…"
+            placeholder="Search Sessions, projects, files…"
             value={query}
             style={{
               flex: 1,

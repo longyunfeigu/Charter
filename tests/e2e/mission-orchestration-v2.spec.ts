@@ -85,6 +85,30 @@ test('Mission Experience separates Agent requests from user actions and persists
       runtimeSessionId: 'runtime-b',
       terminalId: 'terminal-b',
     });
+    const c = repository.delegate({
+      missionId: created.mission.id,
+      supervisorAssignmentId: lead.id,
+      actorPrincipalId: lead.assigneePrincipalId,
+      title: 'Accessibility specialist C',
+      goal: 'Verify the release flow remains understandable and keyboard accessible.',
+      acceptanceCriteria: ['the Mission flow is understandable without inspecting raw events'],
+      expectedArtifacts: ['accessibility review'],
+      requestedRuntime: 'kimi',
+      workMode: 'read-only',
+      reason: 'Give the Lead two sibling workstreams so delegation renders as a real branch.',
+      idempotencyKey: 'e2e-accessibility-c',
+    });
+    repository.bindRuntime(c.assignment.id, c.attempt.id, {
+      runtimeSessionId: 'runtime-c',
+      terminalId: 'terminal-c',
+    });
+    for (const outbox of repository.listPendingOutbox()) repository.completeOutbox(outbox.id);
+    repository.completeAttempt({
+      attemptId: c.attempt.id,
+      principalId: c.assignment.assigneePrincipalId,
+      outcome: 'success',
+      summary: 'The release flow is understandable and keyboard accessible.',
+    });
     const d = repository.delegate({
       missionId: created.mission.id,
       supervisorAssignmentId: b.assignment.id,
@@ -93,6 +117,7 @@ test('Mission Experience separates Agent requests from user actions and persists
       goal: 'Review the schema and report migration risks to B.',
       acceptanceCriteria: ['schema risks are documented'],
       expectedArtifacts: ['migration review'],
+      dependencies: [c.task.id],
       requestedRuntime: 'claude',
       workMode: 'read-only',
       reason: 'B needs a bounded independent schema review.',
@@ -250,7 +275,7 @@ test('Mission Experience separates Agent requests from user actions and persists
     const strip = second.page.getByTestId('mission-status-strip');
     await expect(strip).toBeVisible();
     await expect(strip).toHaveAttribute('aria-label', /Ship Mission Orchestration V2/);
-    await expect(strip).toContainText('3 of 3 work items done');
+    await expect(strip).toContainText('4 of 4 work items done');
     await expect(strip).toContainText('Open your actions');
     await strip.click();
 
@@ -263,18 +288,37 @@ test('Mission Experience separates Agent requests from user actions and persists
     await expect(second.page.getByTestId('mission-view-outline')).toHaveClass(/active/);
 
     const workMap = second.page.getByTestId('mission-work-map');
-    await expect(workMap.locator('.mission-work-card')).toHaveCount(3);
+    await expect(workMap.locator('.mission-work-card')).toHaveCount(4);
     await expect(workMap.locator('.mission-work-children .mission-work-children')).toHaveCount(1);
     const selectedOutlineWork = workMap.locator('.mission-work-card[aria-current="true"]');
     await expect(selectedOutlineWork).toHaveCount(1);
     await expect(selectedOutlineWork).toContainText('Lead agent A');
     await second.page.getByTestId('mission-view-graph').click();
-    await expect(workMap.locator('.mission-graph-node')).toHaveCount(3);
+    await expect(workMap.locator('.mission-graph-node')).toHaveCount(4);
     await expect(workMap).toContainText('Lead agent A');
     await expect(workMap).toContainText('Persistence specialist B');
+    await expect(workMap).toContainText('Accessibility specialist C');
     await expect(workMap).toContainText('Migration investigator D');
     await expect(second.page.getByTestId('mission-graph-human')).toBeVisible();
-    await expect(workMap.locator('.mission-graph-edge.communication')).toHaveCount(1);
+    await expect(workMap.locator('.mission-graph-edge.dependency')).toHaveCount(1);
+    await expect(workMap.locator('.mission-delegation-tree')).toHaveCount(2);
+    await expect(workMap.locator('.mission-delegation-tree .label')).toHaveText([
+      'Delegated work',
+      'Delegated work',
+    ]);
+    await expect(workMap.locator('.mission-delegation-tree .branch')).toHaveCount(3);
+    await expect(workMap.locator('.mission-graph-edge.communication')).toHaveCount(0);
+    await expect(workMap.locator('.mission-edge-attention')).toContainText('1 for you');
+    const communicationLayer = workMap.getByRole('button', { name: 'Communication' });
+    await expect(communicationLayer).toHaveAttribute('aria-pressed', 'false');
+    await communicationLayer.click();
+    await expect(communicationLayer).toHaveAttribute('aria-pressed', 'true');
+    await expect(workMap.locator('.mission-graph-edge.communication')).toHaveCount(3);
+    await expect(
+      workMap.locator('.mission-graph-edge.communication .mission-edge-attention'),
+    ).toHaveCount(0);
+    await communicationLayer.click();
+    await expect(workMap.locator('.mission-graph-edge.communication')).toHaveCount(0);
     await expect(second.page.getByTestId('mission-graph-timeline')).toContainText('Live');
     await expect(second.page.getByTestId('mission-graph-detail-drawer')).not.toBeVisible();
 
@@ -285,6 +329,7 @@ test('Mission Experience separates Agent requests from user actions and persists
       .locator('.mission-graph-node')
       .filter({ hasText: 'Migration investigator D' });
     await persistenceNode.click();
+    await expect(workMap.locator('.mission-graph-edge.communication')).toHaveCount(2);
     const graphDrawer = second.page.getByTestId('mission-graph-detail-drawer');
     await expect(graphDrawer).toBeVisible();
     await expect(graphDrawer.getByTestId('mission-work-detail')).toContainText(
@@ -314,15 +359,20 @@ test('Mission Experience separates Agent requests from user actions and persists
 
     await second.page.waitForTimeout(300);
     await second.page.screenshot({ path: '/tmp/charter-mission-graph-wide.png' });
+    await workMap.screenshot({ path: '/tmp/charter-mission-graph-canvas-wide.png' });
     const wideViewport = second.page.viewportSize();
     await second.page.setViewportSize({ width: 900, height: 760 });
-    await expect(workMap.locator('.mission-graph-node')).toHaveCount(3);
+    await expect(workMap.locator('.mission-graph-node')).toHaveCount(4);
+    expect(
+      await communicationLayer.evaluate((element) => getComputedStyle(element).fontSize),
+    ).not.toBe('0px');
     await second.page.waitForTimeout(300);
     await second.page.screenshot({ path: '/tmp/charter-mission-graph-narrow.png' });
+    await workMap.screenshot({ path: '/tmp/charter-mission-graph-canvas-narrow.png' });
     if (wideViewport) await second.page.setViewportSize(wideViewport);
 
     await second.page.getByTestId('mission-view-outline').click();
-    await expect(workMap.locator('.mission-work-card')).toHaveCount(3);
+    await expect(workMap.locator('.mission-work-card')).toHaveCount(4);
     await expect(workMap.locator('.mission-work-children .mission-work-children')).toHaveCount(1);
     await expect(workMap).toContainText('Review the schema and report migration risks to B.');
 

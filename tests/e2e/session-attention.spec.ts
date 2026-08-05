@@ -110,7 +110,7 @@ test.describe('Session completion attention', () => {
     }
   });
 
-  test('each project shows three Sessions until its own More is expanded', async () => {
+  test('each project shows five Sessions until its own More is expanded', async () => {
     const fixture = createTsSmallFixture();
     const secondFixture = createTsSmallFixture();
     const { app, page } = await launchApp({
@@ -150,8 +150,8 @@ test.describe('Session completion attention', () => {
           }
         },
         [
-          { path: fixture, prefix: 'Primary', count: 5 },
-          { path: secondFixture, prefix: 'Secondary', count: 4 },
+          { path: fixture, prefix: 'Primary', count: 7 },
+          { path: secondFixture, prefix: 'Secondary', count: 6 },
         ],
       );
 
@@ -160,8 +160,8 @@ test.describe('Session completion attention', () => {
       await page.getByTestId('rail-view-sessions').click();
       const primary = page.getByTestId(`rail-session-group-${basename(fixture)}`);
       const secondary = page.getByTestId(`rail-session-group-${basename(secondFixture)}`);
-      await expect(primary.locator('[data-session-key^="task:"]')).toHaveCount(3);
-      await expect(secondary.locator('[data-session-key^="task:"]')).toHaveCount(3);
+      await expect(primary.locator('[data-session-key^="task:"]')).toHaveCount(5);
+      await expect(secondary.locator('[data-session-key^="task:"]')).toHaveCount(5);
 
       const primaryMore = primary.getByTestId('rail-group-more');
       const secondaryMore = secondary.getByTestId('rail-group-more');
@@ -169,24 +169,26 @@ test.describe('Session completion attention', () => {
       await expect(secondaryMore).toContainText('1 more');
       await page.screenshot({ path: '/tmp/charter-session-group-more-collapsed.png' });
       await primaryMore.click();
-      await expect(primary.locator('[data-session-key^="task:"]')).toHaveCount(5);
-      await expect(secondary.locator('[data-session-key^="task:"]')).toHaveCount(3);
+      await expect(primary.locator('[data-session-key^="task:"]')).toHaveCount(7);
+      await expect(secondary.locator('[data-session-key^="task:"]')).toHaveCount(5);
       await expect(primaryMore).toContainText('Show less');
       await page.screenshot({ path: '/tmp/charter-session-group-more-expanded.png' });
       await primaryMore.click();
-      await expect(primary.locator('[data-session-key^="task:"]')).toHaveCount(3);
+      await expect(primary.locator('[data-session-key^="task:"]')).toHaveCount(5);
 
       await page.setViewportSize({ width: 820, height: 720 });
       await expect(primary).toBeVisible();
       await expect(primaryMore).toBeVisible();
       await page.screenshot({ path: '/tmp/charter-session-group-more-narrow.png' });
 
-      await page.getByTestId('rail-session-search').fill('Primary Session 05');
-      await expect(page.locator('[data-session-key^="task:"]')).toHaveCount(1);
-      await expect(page.locator('[data-session-key^="task:"]').first()).toContainText(
+      const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+      await page.keyboard.press(`${mod}+k`);
+      await page.getByTestId('qk-input').fill('Primary Session 05');
+      await expect(page.locator('[data-testid^="qk-task-"]')).toHaveCount(1);
+      await expect(page.locator('[data-testid^="qk-task-"]').first()).toContainText(
         'Primary Session 05',
       );
-      await expect(page.getByTestId('rail-group-more')).toHaveCount(0);
+      await page.keyboard.press('Escape');
     } finally {
       await app.close();
     }
@@ -251,6 +253,20 @@ test.describe('Session completion attention', () => {
             }
             rows.push({ id: result.data.task.id, updatedAt: session.updatedAt });
           }
+          const activeResult = await product.rpc['task.create']!({
+            title: 'Alignment active session',
+            goalMd: 'Keep an active project row available for History alignment checks',
+            acceptance: [],
+            mode: 'ask',
+            model: { providerId: 'mock', modelId: 'mock-1' },
+            verification: [],
+            projectPath,
+            isolation: 'none',
+            conversationRefTaskIds: [],
+          });
+          if (!activeResult.ok || !activeResult.data?.task) {
+            throw new Error(activeResult.error?.userMessage ?? 'task.create failed');
+          }
           return rows;
         },
         { projectPath: fixture, sessions: specs },
@@ -288,6 +304,35 @@ test.describe('Session completion attention', () => {
 
       const previousMonth = page.getByTestId('rail-history-period-previous-30-days');
       const previousMonthMore = page.getByTestId('rail-history-more-previous-30-days');
+      await expect(page.locator('.sr-group-items.sr-history-groups')).toHaveCSS(
+        'margin-left',
+        '13px',
+      );
+      await expect(page.getByTestId('rail-history-period-toggle-today')).toHaveCSS(
+        'min-height',
+        '32px',
+      );
+      await expect(page.locator('.sr-history-period-items').first()).toHaveCSS(
+        'margin-left',
+        '0px',
+      );
+      await expect(page.locator('.sr-history-period-items').first()).toHaveCSS(
+        'padding-left',
+        '7px',
+      );
+      const activeRow = page
+        .getByTestId(`rail-session-group-${basename(fixture)}`)
+        .locator('.sr-session')
+        .first();
+      const historyRow = page.locator('.sr-history-period-items .sr-session').first();
+      const [activeRowBox, historyRowBox] = await Promise.all([
+        activeRow.boundingBox(),
+        historyRow.boundingBox(),
+      ]);
+      expect(activeRowBox).not.toBeNull();
+      expect(historyRowBox).not.toBeNull();
+      expect(Math.abs(historyRowBox!.x - activeRowBox!.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(historyRowBox!.width - activeRowBox!.width)).toBeLessThanOrEqual(1);
       await expect(previousMonth.locator('[data-session-key^="task:"]')).toHaveCount(5);
       await expect(previousMonthMore).toContainText('12 more');
       await previousMonthMore.click();
@@ -300,15 +345,14 @@ test.describe('Session completion attention', () => {
       await expect(previousMonth.locator('[data-session-key^="task:"]')).toHaveCount(5);
       await page.screenshot({ path: '/tmp/charter-history-periods-desktop.png' });
 
-      await page.getByTestId('rail-session-search').fill('History older two');
-      await expect(historyToggle).toHaveAttribute('aria-expanded', 'true');
-      await expect(page.getByTestId('rail-history-period-toggle-older')).toHaveAttribute(
-        'aria-expanded',
-        'true',
+      const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+      await page.keyboard.press(`${mod}+k`);
+      await page.getByTestId('qk-input').fill('History older two');
+      await expect(page.locator('[data-testid^="qk-task-"]')).toHaveCount(1);
+      await expect(page.locator('[data-testid^="qk-task-"]').first()).toContainText(
+        'History older two',
       );
-      await expect(page.getByText('History older two', { exact: true })).toBeVisible();
-      await expect(page.locator('[data-testid^="rail-history-more-"]')).toHaveCount(0);
-      await page.getByTestId('rail-session-search').fill('');
+      await page.keyboard.press('Escape');
       await expect(page.getByTestId('rail-history-period-toggle-older')).toHaveAttribute(
         'aria-expanded',
         'false',

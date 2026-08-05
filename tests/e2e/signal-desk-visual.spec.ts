@@ -17,7 +17,7 @@ test.describe('Signal Desk product visual structure', () => {
 
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
-      await page.getByTestId('home-new-task').click();
+      await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-view')).toBeVisible();
       await expect(page.locator('.tb-brand-lockup')).toContainText('Agent operations');
       await expect(page.getByTestId('rail-view-sessions')).toContainText('Sessions');

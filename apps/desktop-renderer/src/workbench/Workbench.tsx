@@ -13,6 +13,7 @@ import { MemoryView } from '../views/MemoryView.js';
 import { DiagnosticsView } from '../views/DiagnosticsView.js';
 import { Ic } from '../views/home-icons.js';
 import { SessionRail } from '../views/SessionRail.js';
+import { HomeShell } from '../views/HomeShell.js';
 import { RemoteRail } from '../views/RemoteRail.js';
 import { SkillsView } from '../views/SkillsView.js';
 import { ScreenshotQuickCard } from '../views/ScreenshotQuickCard.js';
@@ -260,7 +261,11 @@ export const statusBarRegistry: { left: React.ComponentType[]; right: React.Comp
 };
 export const overlayRegistry: React.ComponentType[] = [];
 /** Dual-form shell (ADR-0004): the Home task launcher registered by contrib. */
-export const homeSurfaceRegistry: { main: React.ComponentType | null } = { main: null };
+// Home is the product's required primary surface, not an optional contribution.
+// Keep a concrete fallback here so a Vite hot update that re-evaluates this
+// module cannot reset the registry to `null` and leave the whole content pane
+// blank while the persistent Session rail continues to respond.
+export const homeSurfaceRegistry: { main: React.ComponentType | null } = { main: HomeShell };
 export const editorBannerRegistry: React.ComponentType[] = [];
 export { initRegistry } from './init.js';
 

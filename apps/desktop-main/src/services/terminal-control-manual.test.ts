@@ -30,12 +30,17 @@ describe('terminal control manual worker lifecycle', () => {
     // The frontmatter description is all a skill-scanning CLI sees up front:
     // it must name the trigger scenarios and the availability gate.
     expect(CHARTER_TERMINAL_SKILL).toContain('Requires CHARTER_CTL');
+    expect(CHARTER_TERMINAL_SKILL).toContain('First assess task topology semantically');
+    expect(CHARTER_TERMINAL_SKILL).toContain('Never decide from a Mission keyword alone');
+    expect(CHARTER_TERMINAL_SKILL).toContain('`orchestration.promote`');
     expect(CHARTER_TERMINAL_SKILL).toContain('启动 codex worker');
     expect(CHARTER_TERMINAL_SKILL).toContain('让另一个 agent review');
     expect(CHARTER_TERMINAL_SKILL).toContain('你们交互两轮');
-    expect(CHARTER_TERMINAL_SKILL).toContain('never substitute same-terminal codex exec');
+    expect(CHARTER_TERMINAL_SKILL).toContain('do not use `codex exec`');
     expect(CHARTER_TERMINAL_AGENTS_SNIPPET).toContain('create a visible');
     expect(CHARTER_TERMINAL_AGENTS_SNIPPET).toContain('same-terminal codex exec');
+    expect(CHARTER_TERMINAL_AGENTS_SNIPPET).toContain('never keyword matching');
+    expect(CHARTER_TERMINAL_AGENTS_SNIPPET).toContain('orchestration.promote');
     // The body opens with a door self-check and a non-MCP fallback path.
     expect(CHARTER_TERMINAL_SKILL).toContain('[ -n "$CHARTER_CTL" ]');
     expect(CHARTER_TERMINAL_SKILL).toContain('same door, same host-enforced rules');

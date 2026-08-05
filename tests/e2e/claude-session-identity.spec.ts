@@ -52,24 +52,35 @@ function createDualClaudeBin(alphaFixture: string, betaFixture: string): string 
 
 function createObservedAgentBin(provider: 'claude' | 'codex'): string {
   const bin = mkdtempSync(join(tmpdir(), `charter-observed-${provider}-`));
+  const busyTitles =
+    provider === 'claude'
+      ? ['⠂ observed turn', '⠐ observed turn']
+      : ['⠋ observed turn', '⠙ observed turn', '⠹ observed turn', '⠸ observed turn'];
+  const idleTitle = provider === 'claude' ? '✳ observed turn' : 'charter-observed';
   writeFileSync(
     join(bin, provider),
     [
       '#!/usr/bin/env node',
       "process.stdin.setEncoding('utf8');",
+      `const busyTitles = ${JSON.stringify(busyTitles)};`,
+      `const idleTitle = ${JSON.stringify(idleTitle)};`,
+      'const paintTitle = (title) => process.stdout.write(`\\u001b]0;${title}\\u0007`);',
       `console.log(${JSON.stringify(`observed-${provider}-ready`)});`,
       'let replying = false;',
       "process.stdin.on('data', (input) => {",
       '  if (replying || !/[\\r\\n]/.test(input)) return;',
       '  replying = true;',
       "  console.log('observed-reply-start');",
-      '  let part = 0;',
-      '  const progress = setInterval(() => {',
-      '    part += 1;',
-      '    console.log(`observed-reply-part-${part}`);',
-      '    if (part < 4) return;',
-      '    clearInterval(progress);',
+      '  let frame = 0;',
+      '  paintTitle(busyTitles[frame]);',
+      '  const spinner = setInterval(() => {',
+      '    frame = (frame + 1) % busyTitles.length;',
+      '    paintTitle(busyTitles[frame]);',
+      '  }, 220);',
+      '  setTimeout(() => {',
+      '    clearInterval(spinner);',
       "    console.log('observed-reply-complete');",
+      '    paintTitle(idleTitle);',
       '    replying = false;',
       '    let repaint = 0;',
       '    setTimeout(() => {',
@@ -79,7 +90,7 @@ function createObservedAgentBin(provider: 'claude' | 'codex'): string {
       '        if (repaint >= 8) clearInterval(idleRepaints);',
       '      }, 200);',
       '    }, 1400);',
-      '  }, 260);',
+      '  }, 1800);',
       '});',
       'setInterval(() => {}, 1000);',
       '',
@@ -343,6 +354,15 @@ test.describe('External Session identity and presence', () => {
         await page.getByTestId('external-terminal-host').locator('.xterm').click();
         await page.keyboard.type('finish this observed turn');
         await page.keyboard.press('Enter');
+        await expect(row).toHaveAttribute('data-working', 'true');
+        await waitForTerminalOutput(page, 'observed-reply-start', {
+          terminalId: task.external!.terminalId,
+          timeout: 8_000,
+        });
+        // OSC window-title spinner frames contain no documentary text. A
+        // 1.3s silent reasoning gap must remain working instead of tripping
+        // the generic 1s quiet fallback used by title-less observed agents.
+        await page.waitForTimeout(1_300);
         await expect(row).toHaveAttribute('data-working', 'true');
         // Leave before the observed quiet-window edge: background Sessions
         // announce completion, while an open Session owns its local status.

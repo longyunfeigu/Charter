@@ -178,6 +178,7 @@ function createComposerClaudeBin(options: { writeMarkerInCwd?: boolean } = {}): 
       `const probe = ${JSON.stringify(probe)};`,
       "fs.appendFileSync(probe, 'argv=' + process.argv.slice(2).join(' ') + '\\n');",
       "console.log('fake-claude-tui-ready');",
+      "process.stdout.write('\\u001b[?2004h');",
       "process.stdin.on('data', (chunk) => {",
       "  if (chunk.toString().includes('hi from composer')) {",
       ...(options.writeMarkerInCwd
@@ -210,6 +211,7 @@ function createSilentWritingClaudeBin(fixture: string): string {
       `const target = ${JSON.stringify(target)};`,
       'let started = false;',
       "console.log('silent-claude-ready');",
+      "process.stdout.write('\\u001b[?2004h');",
       "process.stdin.on('data', (chunk) => {",
       "  if (started || !chunk.toString().includes('build silent file')) return;",
       '  started = true;',
@@ -1223,8 +1225,9 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await row.hover();
       await page.getByTestId(`home-resume-${settledId}`).click();
       await waitForTerminalOutput(page, 'resumed-original-session', { timeout: 30_000 });
-      await row.click();
       await expect(page.getByTestId('task-room')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('task-room')).toHaveAttribute('data-task-id', settledId);
+      await expect(page.getByTestId('external-terminal-host')).toBeVisible();
 
       const after = await listExternal();
       expect(after).toHaveLength(1);

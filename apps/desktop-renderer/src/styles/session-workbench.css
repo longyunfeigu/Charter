@@ -173,6 +173,23 @@ html.sr-resizing * {
 .sr-head-plain {
   padding-bottom: 12px;
 }
+.sr-sessions-head {
+  gap: 0;
+  padding-top: 12px;
+  padding-bottom: 10px;
+}
+.sr-session-tabs-line {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sr-session-tabs-line .sr-tabs {
+  min-width: 0;
+  flex: 1;
+  margin-bottom: 0;
+}
 .sr-heading-row {
   min-width: 0;
   min-height: 29px;
@@ -197,25 +214,10 @@ html.sr-resizing * {
   color: var(--fg-faint);
   font: 9px var(--font-mono);
 }
-.sr-session-heading > strong,
-.sr-session-heading > .sr-session-archive {
-  flex: none;
-}
-.sr-session-heading > small {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .sr-search-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px;
   gap: 6px;
-}
-.sr-session-search-row {
-  grid-template-columns: minmax(0, 1fr) 34px 34px;
 }
 .sr-search-box {
   min-width: 0;
@@ -246,8 +248,7 @@ html.sr-resizing * {
 .sr-search-box input::placeholder {
   color: var(--fg-faint);
 }
-.sr-filter,
-.sr-new-compact {
+.sr-filter {
   width: var(--control-height-md);
   height: var(--control-height-md);
   display: grid;
@@ -260,49 +261,26 @@ html.sr-resizing * {
   cursor: pointer;
 }
 .sr-filter:hover,
-.sr-filter.active,
-.sr-new-compact:hover {
+.sr-filter.active {
   border-color: var(--border-strong);
   background: var(--bg-hover);
   color: var(--accent);
 }
-.sr-new-compact {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-fg);
+.sr-running-compact-wrap {
+  position: static;
 }
-.sr-new-compact:hover {
-  border-color: color-mix(in srgb, var(--accent) 82%, var(--fg));
-  background: color-mix(in srgb, var(--accent) 86%, var(--fg));
-  color: var(--accent-fg);
-}
-.sr-running-summary {
-  position: relative;
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: -2px;
-  padding: 5px 6px 5px 9px;
-  border: 1px solid color-mix(in srgb, var(--success) 18%, var(--border));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--success) 4%, var(--bg-card));
-}
-.sr-running-copy {
-  min-width: 0;
+.sr-running-compact {
+  height: 24px;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  overflow: hidden;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--success) 18%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 4%, var(--bg-card));
   color: var(--fg-muted);
-  font: 10.5px var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sr-running-copy b {
-  color: var(--fg);
-  font-weight: 650;
+  font: 600 10px var(--font-mono);
+  cursor: pointer;
 }
 .sr-running-dot {
   width: 6px;
@@ -312,27 +290,13 @@ html.sr-resizing * {
   background: var(--success);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 12%, transparent);
 }
-.sr-stop-all {
-  height: 24px;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 7px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--fg-muted);
-  font: 600 9.5px var(--font-ui);
-  cursor: pointer;
+.sr-running-compact:hover,
+.sr-running-compact[aria-expanded='true'] {
+  border-color: color-mix(in srgb, var(--success) 38%, var(--border));
+  background: color-mix(in srgb, var(--success) 9%, var(--bg-card));
+  color: var(--fg);
 }
-.sr-stop-all:hover,
-.sr-stop-all[aria-expanded='true'] {
-  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
-  background: color-mix(in srgb, var(--danger) 7%, var(--bg-card));
-  color: var(--danger);
-}
-.sr-stop-all:disabled {
+.sr-running-compact:disabled {
   cursor: wait;
   opacity: 0.55;
 }
@@ -341,7 +305,7 @@ html.sr-resizing * {
   z-index: 50;
   top: calc(100% + 7px);
   right: 0;
-  width: 100%;
+  width: min(280px, 100%);
   padding: 12px;
   border: 1px solid var(--border-strong);
   border-radius: 9px;
@@ -482,20 +446,20 @@ html.sr-resizing * {
   border-left: 0;
 }
 .sr-group-items.sr-history-groups {
-  margin-left: 5px;
+  margin-left: 13px;
   padding-left: 0;
   border-left: 0;
 }
 .sr-history-period {
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 .sr-history-period-toggle {
   width: 100%;
-  min-height: 29px;
+  min-height: 32px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 7px 0 6px;
+  gap: 7px;
+  padding: 0 8px 0 7px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -512,7 +476,7 @@ html.sr-resizing * {
   flex: 1;
   overflow: hidden;
   color: var(--fg-muted);
-  font: 650 10.5px var(--font-ui);
+  font: 650 11px var(--font-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -522,8 +486,8 @@ html.sr-resizing * {
   font: 9px var(--font-mono);
 }
 .sr-history-period-items {
-  margin-left: 11px;
-  padding-left: 5px;
+  margin-left: 0;
+  padding-left: 7px;
   border-left: 0;
 }
 .sr-empty {
@@ -582,8 +546,8 @@ html.sr-resizing * {
   margin-left: calc(var(--sr-depth, 1) * 18px);
 }
 .sr-row-wrap.sr-orch-worker .sr-session {
-  min-height: 38px;
-  padding-block: 4px;
+  min-height: 34px;
+  padding-block: 2px;
 }
 .sr-row-wrap.sr-orch-worker .sr-session.has-detail {
   min-height: 48px;
@@ -646,13 +610,13 @@ html.sr-resizing * {
   --completion-tone: var(--info);
   position: relative;
   width: 100%;
-  min-height: 38px;
+  min-height: 34px;
   display: grid;
   grid-template-columns: 25px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   margin-bottom: 1px;
-  padding: 4px 7px;
+  padding: 2px 7px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
@@ -2189,6 +2153,22 @@ html.sr-resizing * {
 .sr-session-archive small {
   color: var(--fg-faint);
   font: 9px var(--font-mono);
+}
+.sr-session-archive.history {
+  min-height: 25px;
+  gap: 4px;
+  margin-right: 3px;
+  padding: 1px 5px;
+}
+.sr-session-archive.history span {
+  font-size: 10px;
+}
+.sr-archive-fallback {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 2px 4px;
 }
 
 /* Session Archive — one retrieval surface for Charter records and read-only

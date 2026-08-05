@@ -290,6 +290,7 @@ export function RuntimeInspector({
           {controllable ? (
             <form
               className="mission-guidance"
+              data-testid="mission-guidance"
               onSubmit={(event) => {
                 event.preventDefault();
                 const text = steerText.trim();
@@ -298,15 +299,20 @@ export function RuntimeInspector({
                 setSteerText('');
               }}
             >
-              <label htmlFor={`mission-steer-${assignment.id}`}>Guide this work</label>
+              <label htmlFor={`mission-steer-${assignment.id}`}>Adjust direction</label>
               <textarea
                 id={`mission-steer-${assignment.id}`}
                 value={steerText}
                 onChange={(event) => setSteerText(event.currentTarget.value)}
                 placeholder="Add context, change direction, or share a constraint…"
               />
-              <button type="submit" className="mission-primary" disabled={!steerText.trim()}>
-                Send guidance
+              <button
+                type="submit"
+                className="mission-primary"
+                data-testid="mission-send-guidance"
+                disabled={!steerText.trim()}
+              >
+                Send update
               </button>
             </form>
           ) : null}
@@ -459,8 +465,12 @@ export function RuntimeInspector({
 
       <section className="mission-detail-actions" aria-label="Work controls">
         {attempt?.runtimeSessionId && runtimeSession?.transport !== 'acp' ? (
-          <button onClick={() => onOpenRuntime(assignment.id)}>
-            <Ic name="external" size={12} /> Open working session
+          <button
+            type="button"
+            data-testid="mission-open-agent-session"
+            onClick={() => onOpenRuntime(assignment.id)}
+          >
+            <Ic name="external" size={12} /> Open Agent session
           </button>
         ) : null}
         {runtimeSession?.transport === 'acp' ? (
@@ -473,7 +483,7 @@ export function RuntimeInspector({
                 onOpenAgentSession?.();
               }}
             >
-              <Ic name="external" size={12} /> Open agent session
+              <Ic name="external" size={12} /> Open Agent session
             </button>
             <span className="mission-runtime-chip">
               <Ic name="zap" size={12} /> ACP event stream
@@ -482,21 +492,27 @@ export function RuntimeInspector({
         ) : null}
         {controllable ? (
           <button
+            type="button"
+            data-testid="mission-hold-input"
             title={
               holdsVisibleInput
-                ? 'Holds new Mission guidance. The current Claude, Codex, or shell turn can finish.'
-                : undefined
+                ? assignment.state === 'PAUSED'
+                  ? 'Release queued Mission instructions to this Agent.'
+                  : 'Current turn will continue. New Mission instructions will wait until released.'
+                : assignment.state === 'PAUSED'
+                  ? 'Resume this Agent runtime.'
+                  : 'Pause this Agent runtime.'
             }
             onClick={() => onPause(missionId, assignment.id, assignment.state !== 'PAUSED')}
           >
             <Ic name={assignment.state === 'PAUSED' ? 'play' : 'pause'} size={12} />
             {holdsVisibleInput
               ? assignment.state === 'PAUSED'
-                ? 'Release input'
-                : 'Hold new input'
+                ? 'Release instructions'
+                : 'Hold new instructions'
               : assignment.state === 'PAUSED'
-                ? 'Resume'
-                : 'Pause'}
+                ? 'Resume Agent'
+                : 'Pause Agent'}
           </button>
         ) : null}
         {['FAILED', 'ORPHANED'].includes(assignment.state) ? (
@@ -505,15 +521,26 @@ export function RuntimeInspector({
           </button>
         ) : null}
         {!['COMPLETED', 'CANCELLED'].includes(assignment.state) ? (
-          <button onClick={() => setReassigning((value) => !value)}>
-            <Ic name="user" size={12} /> Change owner
+          <button
+            type="button"
+            data-testid="mission-change-owner"
+            onClick={() => setReassigning((value) => !value)}
+          >
+            <Ic name="user" size={12} /> Hand off to another Agent
           </button>
+        ) : null}
+        {controllable && holdsVisibleInput ? (
+          <p className="mission-control-note" data-testid="mission-hold-input-note">
+            <Ic name="info" size={12} />
+            Current turn will continue. New Mission instructions will wait until released.
+          </p>
         ) : null}
       </section>
 
       {reassigning ? (
         <form
           className="mission-reassign"
+          data-testid="mission-reassign"
           onSubmit={(event) => {
             event.preventDefault();
             const name = replacementName.trim();
@@ -522,7 +549,8 @@ export function RuntimeInspector({
             setReassigning(false);
           }}
         >
-          <strong>Change owner</strong>
+          <strong>Hand off to another Agent</strong>
+          <p>Starts a new attempt with the selected Agent. The current attempt stays in history.</p>
           <label>
             Agent runtime
             <select
@@ -539,7 +567,7 @@ export function RuntimeInspector({
             </select>
           </label>
           <label>
-            Display name
+            Agent name
             <input
               value={replacementName}
               onChange={(event) => setReplacementName(event.currentTarget.value)}
@@ -549,8 +577,8 @@ export function RuntimeInspector({
             <button type="button" onClick={() => setReassigning(false)}>
               Cancel
             </button>
-            <button type="submit" className="mission-primary">
-              Assign
+            <button type="submit" className="mission-primary" data-testid="mission-reassign-submit">
+              Hand off
             </button>
           </span>
         </form>

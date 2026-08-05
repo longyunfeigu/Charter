@@ -1,4 +1,12 @@
-import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -104,6 +112,19 @@ describe('SkillStore (ADR-0015)', () => {
     expect(dto.files).toContain('scripts/fill.py');
     // The source folder still exists — import copies.
     expect(store.list()).toHaveLength(1);
+  });
+
+  it('atomically refreshes an older product-owned managed manual', () => {
+    store.installManaged(
+      'charter-orchestration',
+      '---\nname: charter-orchestration\ndescription: old\n---\nOld protocol.\n',
+    );
+    const current =
+      '---\nname: charter-orchestration\ndescription: current\n---\nUse orchestration.promote.\n';
+    store.installManaged('charter-orchestration', current);
+
+    expect(readFileSync(join(root, 'charter-orchestration', 'SKILL.md'), 'utf8')).toBe(current);
+    expect(store.readFile('charter-orchestration').content).toContain('orchestration.promote');
   });
 
   it('rejects folders without SKILL.md and store-internal sources', () => {

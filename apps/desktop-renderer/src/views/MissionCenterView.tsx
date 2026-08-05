@@ -156,7 +156,7 @@ export function MissionCenterView(): React.JSX.Element {
                     <span>
                       {summary.completed}/{summary.total} done
                     </span>
-                    {summary.active > 0 ? <span>{summary.active} working</span> : null}
+                    {summary.active > 0 ? <span>{summary.active} active</span> : null}
                     {summary.attention > 0 ? <b>{summary.attention} for you</b> : null}
                     {summary.issues > 0 ? <b>{summary.issues} issues</b> : null}
                     <small>{origin?.projectName ?? 'Current workspace'}</small>

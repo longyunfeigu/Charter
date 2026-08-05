@@ -388,6 +388,8 @@ describe('Mission graph model', () => {
           targetId: 'task-d',
           bidirectional: true,
           pending: true,
+          pendingCount: 1,
+          failedCount: 0,
           count: 1,
         }),
         expect.objectContaining({ kind: 'human', sourceId: 'task-a' }),
@@ -398,6 +400,32 @@ describe('Mission graph model', () => {
       coverage: 'external',
       state: { tone: 'attention' },
     });
+  });
+
+  it('preserves delegation when the same two tasks also have an execution dependency', () => {
+    const input = snapshot();
+    input.dependencies.push({
+      taskId: 'task-b',
+      dependsOnTaskId: 'task-a',
+      createdAt: at(2),
+    });
+
+    const graph = buildMissionGraph(input);
+
+    expect(graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'dependency',
+          sourceId: 'task-a',
+          targetId: 'task-b',
+        }),
+        expect.objectContaining({
+          kind: 'delegation',
+          sourceId: 'task-a',
+          targetId: 'task-b',
+        }),
+      ]),
+    );
   });
 
   it('reconstructs only work and events known at the selected moment', () => {

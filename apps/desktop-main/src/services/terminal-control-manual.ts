@@ -1,12 +1,24 @@
 export const CHARTER_TERMINAL_SKILL = `---
 name: charter-terminal
-description: Create and coordinate a visible Codex/Claude/terminal worker in Charter. MUST use when the user says "启动 codex worker", "开一个 Codex/Claude", "让另一个 agent review/跑测试", "你们交互两轮", asks to delegate work to another terminal/window/session, or requests parallel/multi-agent work. Use terminal_create or charter-terminal create; never substitute same-terminal codex exec, claude -p, a background process, or an invisible subagent. Requires CHARTER_CTL.
+description: Create and coordinate one visible Codex/Claude/terminal collaborator in an ordinary Charter Session when the task does not need a durable multi-Agent work graph. Use for bounded requests such as "启动 codex worker", "让另一个 agent review", or "你们交互两轮". First assess task topology semantically; when independently verifiable workstreams, dependencies, specialist runtimes, or independent review materially benefit from durable coordination, load charter-orchestration and call orchestration.promote instead. Never decide from a Mission keyword alone. Requires CHARTER_CTL.
 disable-model-invocation: false
 ---
 
 # Charter terminal orchestration
 
-## Mandatory intent routing
+## Topology routing
+
+Every request starts in an ordinary Session. Understand the outcome, boundaries, delegation value,
+dependencies, and verification needs before choosing a control surface; never route by keyword
+matching. Use this Skill when one bounded visible collaborator is sufficient. When the work instead
+benefits materially from multiple independently verifiable workstreams, dependency-aware execution,
+a specialist runtime, or independent review, load the charter-orchestration Skill and call
+\`orchestration.promote\` with the complete plan. Promotion starts immediately without a confirmation
+step. Respect an explicit user prohibition against Mission orchestration.
+
+Once promoted, create members only as durable Assignments through \`orchestration.delegate\` or
+\`delegate_many\`. Do not use \`terminal_create\` or \`charter-terminal create\` as a substitute for
+Mission members.
 
 Treat "worker" as a visible sibling Charter Session whenever the user asks to start, launch, open,
 create, spawn, or delegate to a Codex/Claude/terminal worker. The same applies when the user asks
@@ -89,6 +101,11 @@ Raw fallback: \`curl --silent --unix-socket "$CHARTER_CTL" -H "Authorization: Be
 
 export const CHARTER_TERMINAL_AGENTS_SNIPPET = `## Charter terminal orchestration
 
+Every request starts as an ordinary Session. Choose the control surface from semantic task topology,
+never keyword matching. For a durable graph of independently verifiable workstreams, dependencies,
+specialist runtimes, or independent review, load charter-orchestration and call
+orchestration.promote with the complete plan. Promotion starts immediately. Do not create Mission
+members through terminal_create.
 When a user asks to start/open/create a Codex, Claude, or terminal worker (including "启动 codex
 worker", "让另一个 agent review", parallel work, or bounded agent interaction), create a visible
 sibling Session; never substitute same-terminal codex exec, claude -p, backgrounding, or an

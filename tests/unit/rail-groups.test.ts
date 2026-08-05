@@ -87,27 +87,27 @@ describe('buildRailGroups', () => {
 });
 
 describe('visibleRailGroupEntries', () => {
-  const entries = Array.from({ length: 5 }, (_, index) =>
+  const entries = Array.from({ length: 7 }, (_, index) =>
     taskEntry(`t${index + 1}`, FABLE, 'IN_PROGRESS'),
   );
   const group = buildRailGroups(entries)[0]!;
 
-  it('shows at most three active sessions until that directory is expanded', () => {
-    expect(ACTIVE_SESSION_GROUP_LIMIT).toBe(3);
+  it('shows at most five active sessions until that directory is expanded', () => {
+    expect(ACTIVE_SESSION_GROUP_LIMIT).toBe(5);
     expect(
       visibleRailGroupEntries(group, { expanded: false, filtering: false }).map(
         (entry) => entry.key,
       ),
-    ).toEqual(['task:t1', 'task:t2', 'task:t3']);
-    expect(visibleRailGroupEntries(group, { expanded: true, filtering: false })).toHaveLength(5);
+    ).toEqual(['task:t1', 'task:t2', 'task:t3', 'task:t4', 'task:t5']);
+    expect(visibleRailGroupEntries(group, { expanded: true, filtering: false })).toHaveLength(7);
   });
 
   it('does not hide matching search/filter results or History rows', () => {
-    expect(visibleRailGroupEntries(group, { expanded: false, filtering: true })).toHaveLength(5);
+    expect(visibleRailGroupEntries(group, { expanded: false, filtering: true })).toHaveLength(7);
     const history = buildRailGroups(
       entries.map((entry, index) => taskEntry(`h${index + 1}`, FABLE, 'ACCEPTED')),
     )[0]!;
-    expect(visibleRailGroupEntries(history, { expanded: false, filtering: false })).toHaveLength(5);
+    expect(visibleRailGroupEntries(history, { expanded: false, filtering: false })).toHaveLength(7);
   });
 });
 

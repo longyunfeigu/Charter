@@ -322,9 +322,9 @@ test('Runtime Inspector controls a real user-started Claude Lead and replaces it
     await launched.page.getByTestId('rail-view-missions').click();
     await launched.page.getByTestId(`mission-center-card-${missionId}`).click();
     const details = launched.page.getByTestId('mission-work-detail');
-    await expect(details.getByRole('button', { name: 'Hold new input' })).toBeVisible();
+    await expect(details.getByRole('button', { name: 'Hold new instructions' })).toBeVisible();
 
-    await details.getByRole('button', { name: 'Open working session' }).click();
+    await details.getByTestId('mission-open-agent-session').click();
     await expect(launched.page.getByTestId('task-room')).toHaveAttribute(
       'data-task-id',
       leadTaskId,
@@ -332,12 +332,12 @@ test('Runtime Inspector controls a real user-started Claude Lead and replaces it
     await launched.page.getByTestId('rail-view-missions').click();
     await launched.page.getByTestId(`mission-center-card-${missionId}`).click();
 
-    await details.getByRole('button', { name: 'Hold new input' }).click();
-    await expect(details.getByRole('button', { name: 'Release input' })).toBeVisible();
+    await details.getByRole('button', { name: 'Hold new instructions' }).click();
+    await expect(details.getByRole('button', { name: 'Release instructions' })).toBeVisible();
     await details
       .getByPlaceholder('Add context, change direction, or share a constraint…')
       .fill(guidance);
-    await details.getByRole('button', { name: 'Send guidance' }).click();
+    await details.getByTestId('mission-send-guidance').click();
 
     await launched.page.waitForTimeout(2_000);
     expect(await terminalPtyOutput(launched.page, leadTerminalId)).not.toContain(guidedSummary);
@@ -347,7 +347,7 @@ test('Runtime Inspector controls a real user-started Claude Lead and replaces it
         ?.messages.some((message) => message.body.includes(guidedSummary)),
     ).toBe(false);
 
-    await details.getByRole('button', { name: 'Release input' }).click();
+    await details.getByRole('button', { name: 'Release instructions' }).click();
     await expect
       .poll(
         async () =>
@@ -358,10 +358,10 @@ test('Runtime Inspector controls a real user-started Claude Lead and replaces it
       )
       .toBe(true);
 
-    await details.getByRole('button', { name: 'Change owner' }).click();
+    await details.getByTestId('mission-change-owner').click();
     await details.getByLabel('Agent runtime').selectOption('codex');
-    await details.getByLabel('Display name').fill('Replacement Codex Lead');
-    await details.getByRole('button', { name: 'Assign', exact: true }).click();
+    await details.getByLabel('Agent name').fill('Replacement Codex Lead');
+    await details.getByTestId('mission-reassign-submit').click();
     await expect(details).toContainText('Replacement Codex Lead');
 
     await expect
@@ -391,7 +391,7 @@ test('Runtime Inspector controls a real user-started Claude Lead and replaces it
       })
       .not.toContain(leadTerminalId);
 
-    await details.getByRole('button', { name: 'Open working session' }).click();
+    await details.getByTestId('mission-open-agent-session').click();
     await expect
       .poll(() => taskIdForTerminal(launched.page, replacementTerminalId!), {
         timeout: 30_000,

@@ -838,13 +838,15 @@ export class SkillStore {
     return { ...dto };
   }
 
-  /** Install a product-owned, script-free manual into the managed store.
-   * Idempotent by name: existing user-visible content is never overwritten. */
+  /** Install or refresh a product-owned, script-free manual in the managed
+   * store. Callers reserve the supplied id for bundled Charter content, so an
+   * application update must replace an older generated copy atomically. */
   installManaged(name: string, content: string): SkillDto {
     const id = skillSlug(name);
     const root = join(this.dir, id);
     const file = join(root, SKILL_FILE);
-    if (!existsSync(file)) {
+    const current = existsSync(file) ? readFileSync(file, 'utf8') : null;
+    if (current !== content) {
       mkdirSync(root, { recursive: true });
       const tmp = `${file}.tmp-${process.pid}`;
       writeFileSync(tmp, content, 'utf8');

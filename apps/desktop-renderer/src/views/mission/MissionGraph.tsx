@@ -28,6 +28,17 @@ interface Viewport {
   scale: number;
 }
 
+interface DelegationTreeGeometry {
+  id: string;
+  sourceId: string;
+  rootPath: string;
+  trunkPath: string | null;
+  branches: Array<{ edgeId: string; path: string }>;
+  labelX: number;
+  labelY: number;
+  labelAnchor: 'start' | 'end';
+}
+
 function providerMark(provider: string | null, kind: string | undefined): ProviderMarkKind {
   if (provider === 'shell' || kind === 'shell_agent') return 'shell';
   if (!provider || provider === 'managed' || provider === 'pi') return 'pi';
@@ -70,13 +81,47 @@ function edgePath(
   const targetWidth = edge.targetId === 'mission-human' ? 162 : MISSION_GRAPH_NODE_WIDTH;
   const sourceHeight = MISSION_GRAPH_NODE_HEIGHT;
   const targetHeight = edge.targetId === 'mission-human' ? 74 : MISSION_GRAPH_NODE_HEIGHT;
+
+  if (edge.kind === 'human') {
+    const startX = source.x + sourceWidth / 2;
+    const startY = source.y;
+    const endX = target.x + targetWidth / 2;
+    const endY = target.y;
+    const laneY = Math.min(startY, endY) - 42;
+    return {
+      path: `M ${startX} ${startY} C ${startX} ${laneY}, ${endX} ${laneY}, ${endX} ${endY}`,
+      labelX: (startX + endX) / 2,
+      labelY: laneY,
+    };
+  }
+
   const forward = target.x >= source.x;
+  if (edge.kind === 'dependency' && (!forward || Math.abs(target.x - source.x) > 420)) {
+    const startX = source.x + sourceWidth / 2;
+    const startY = source.y;
+    const endX = target.x + targetWidth / 2;
+    const endY = target.y;
+    const laneY = Math.min(startY, endY) - 24;
+    return {
+      path: `M ${startX} ${startY} C ${startX} ${laneY}, ${endX} ${laneY}, ${endX} ${endY}`,
+      labelX: (startX + endX) / 2,
+      labelY: laneY,
+    };
+  }
+
   const startX = forward ? source.x + sourceWidth : source.x;
   const endX = forward ? target.x : target.x + targetWidth;
+  const dependencyOffset = edge.kind === 'dependency' ? -18 : 0;
   const startY =
-    source.y + sourceHeight / 2 + (edge.kind === 'communication' ? (forward ? 18 : -18) : 0);
+    source.y +
+    sourceHeight / 2 +
+    dependencyOffset +
+    (edge.kind === 'communication' ? (forward ? 18 : -18) : 0);
   const endY =
-    target.y + targetHeight / 2 + (edge.kind === 'communication' ? (forward ? -18 : 18) : 0);
+    target.y +
+    targetHeight / 2 +
+    dependencyOffset +
+    (edge.kind === 'communication' ? (forward ? -18 : 18) : 0);
   const bend = Math.max(46, Math.abs(endX - startX) * 0.42);
   const controlA = forward ? startX + bend : startX - bend;
   const controlB = forward ? endX - bend : endX + bend;
@@ -85,6 +130,78 @@ function edgePath(
     labelX: (startX + endX) / 2,
     labelY: (startY + endY) / 2 - (edge.kind === 'communication' ? 8 : 5),
   };
+}
+
+function delegationTreeGeometry(
+  edges: readonly MissionGraphEdge[],
+  positions: ReadonlyMap<string, Point>,
+): DelegationTreeGeometry[] {
+  const bySource = new Map<string, MissionGraphEdge[]>();
+  for (const edge of edges) {
+    if (edge.kind !== 'delegation') continue;
+    bySource.set(edge.sourceId, [...(bySource.get(edge.sourceId) ?? []), edge]);
+  }
+
+  const trees: DelegationTreeGeometry[] = [];
+  for (const [sourceId, sourceEdges] of bySource) {
+    const source = positions.get(sourceId);
+    if (!source) continue;
+    const sourceCenterX = source.x + MISSION_GRAPH_NODE_WIDTH / 2;
+    const partitions = new Map<'forward' | 'backward', MissionGraphEdge[]>();
+    for (const edge of sourceEdges) {
+      const target = positions.get(edge.targetId);
+      if (!target) continue;
+      const direction = target.x + MISSION_GRAPH_NODE_WIDTH / 2 >= sourceCenterX;
+      const key = direction ? 'forward' : 'backward';
+      partitions.set(key, [...(partitions.get(key) ?? []), edge]);
+    }
+
+    for (const [direction, partition] of partitions) {
+      const forward = direction === 'forward';
+      const sign = forward ? 1 : -1;
+      const sourceX = forward ? source.x + MISSION_GRAPH_NODE_WIDTH : source.x;
+      const sourceY = source.y + MISSION_GRAPH_NODE_HEIGHT / 2;
+      const targets = partition.flatMap((edge) => {
+        const target = positions.get(edge.targetId);
+        if (!target) return [];
+        return [
+          {
+            edge,
+            x: forward ? target.x : target.x + MISSION_GRAPH_NODE_WIDTH,
+            y: target.y + MISSION_GRAPH_NODE_HEIGHT / 2,
+          },
+        ];
+      });
+      if (targets.length === 0) continue;
+      const nearestTargetGap = Math.min(...targets.map((target) => Math.abs(target.x - sourceX)));
+      const trunkOffset = Math.min(54, Math.max(28, nearestTargetGap * 0.38));
+      const trunkX = sourceX + sign * trunkOffset;
+      const ys = [sourceY, ...targets.map((target) => target.y)];
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      trees.push({
+        id: `${sourceId}:${direction}`,
+        sourceId,
+        rootPath: `M ${sourceX} ${sourceY} H ${trunkX}`,
+        trunkPath: maxY - minY > 0.5 ? `M ${trunkX} ${minY} V ${maxY}` : null,
+        branches: targets.map((target) => ({
+          edgeId: target.edge.id,
+          path: `M ${trunkX} ${target.y} H ${target.x}`,
+        })),
+        labelX: sourceX + sign * 7,
+        labelY: sourceY - 8,
+        labelAnchor: forward ? 'start' : 'end',
+      });
+    }
+  }
+  return trees;
+}
+
+function edgeAttentionLabel(edge: MissionGraphEdge): string | null {
+  if (edge.kind === 'human') return `${edge.pendingCount} for you`;
+  if (edge.failedCount > 0) return `${edge.failedCount} failed`;
+  if (edge.pendingCount > 0) return `${edge.pendingCount} waiting`;
+  return null;
 }
 
 export function MissionGraph({
@@ -158,6 +275,8 @@ export function MissionGraph({
     () => ({ x: projection.humanX, y: projection.humanY }),
     [projection.humanX, projection.humanY],
   );
+  const selectedTaskId = selection?.kind === 'task' ? selection.taskId : null;
+  const selectedCommunicationEdgeId = selection?.kind === 'communication' ? selection.edgeId : null;
 
   const visibleEdges = useMemo(
     () =>
@@ -165,11 +284,36 @@ export function MissionGraph({
         if (edge.kind === 'dependency') return showDependencies;
         if (edge.kind === 'delegation') return showDelegation;
         if (edge.kind === 'communication') {
-          return showAllCommunication || edge.pending || edge.failed || edge.urgent;
+          return (
+            showAllCommunication ||
+            edge.pending ||
+            edge.failed ||
+            edge.id === selectedCommunicationEdgeId ||
+            (selectedTaskId !== null &&
+              (edge.sourceId === selectedTaskId || edge.targetId === selectedTaskId))
+          );
         }
         return true;
       }),
-    [projection.edges, showAllCommunication, showDelegation, showDependencies],
+    [
+      projection.edges,
+      selectedCommunicationEdgeId,
+      selectedTaskId,
+      showAllCommunication,
+      showDelegation,
+      showDependencies,
+    ],
+  );
+  const delegationTrees = useMemo(
+    () => delegationTreeGeometry(visibleEdges, positions),
+    [positions, visibleEdges],
+  );
+  const attentionCommunicationCount = useMemo(
+    () =>
+      projection.edges.filter(
+        (edge) => edge.kind === 'communication' && (edge.pending || edge.failed),
+      ).length,
+    [projection.edges],
   );
 
   const fit = useCallback(() => {
@@ -257,7 +401,6 @@ export function MissionGraph({
     nodeDragRef.current = null;
   };
 
-  const selectedTaskId = selection?.kind === 'task' ? selection.taskId : null;
   return (
     <section className="mission-graph-shell" data-testid="mission-work-map">
       <header className="mission-graph-toolbar">
@@ -290,20 +433,29 @@ export function MissionGraph({
             className={showDelegation ? 'active delegation' : ''}
             onClick={() => setShowDelegation((value) => !value)}
           >
-            <i /> Delegation
+            <i /> Delegated work
           </button>
           <button
-            className={showAllCommunication ? 'active communication' : 'communication has-active'}
-            title="Important unresolved communication is always visible"
+            className={[
+              'communication',
+              showAllCommunication ? 'active' : '',
+              attentionCommunicationCount > 0 ? 'has-active' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            aria-pressed={showAllCommunication}
+            title="Show all recorded Agent communication. Waiting and failed communication stays visible."
             onClick={() => setShowAllCommunication((value) => !value)}
           >
-            <i /> {showAllCommunication ? 'All communication' : 'Active communication'}
+            <i /> Communication
+            {attentionCommunicationCount > 0 ? <b>{attentionCommunicationCount}</b> : null}
           </button>
           <button
             className={showCritical ? 'active critical' : ''}
+            title="Highlight the longest structural work chain"
             onClick={() => setShowCritical((value) => !value)}
           >
-            <Ic name="zap" size={10} /> Critical path
+            <Ic name="zap" size={10} /> Longest chain
           </button>
         </span>
       </header>
@@ -365,69 +517,100 @@ export function MissionGraph({
                 </marker>
               ))}
             </defs>
-            {visibleEdges.map((edge) => {
-              const geometry = edgePath(edge, positions, humanPosition);
-              if (!geometry) return null;
-              const selected = selection?.kind === 'communication' && selection.edgeId === edge.id;
-              const pathClass = [
-                'mission-graph-edge',
-                edge.kind,
-                edge.pending ? 'pending' : '',
-                edge.failed ? 'failed' : '',
-                edge.urgent ? 'urgent' : '',
-                selected ? 'selected' : '',
-                showCritical &&
-                edge.kind === 'dependency' &&
-                projection.nodes.find((node) => node.id === edge.sourceId)?.critical &&
-                projection.nodes.find((node) => node.id === edge.targetId)?.critical
-                  ? 'critical'
-                  : '',
-              ]
-                .filter(Boolean)
-                .join(' ');
-              return (
-                <g
-                  key={edge.id}
-                  className={pathClass}
-                  data-testid={`mission-graph-edge-${edge.kind}-${edge.id}`}
-                  onClick={(event) => {
-                    if (edge.kind !== 'communication' && edge.kind !== 'human') return;
-                    event.stopPropagation();
-                    onSelection(
-                      edge.kind === 'human'
-                        ? { kind: 'human' }
-                        : { kind: 'communication', edgeId: edge.id },
-                    );
-                  }}
-                >
-                  <path className="hit" d={geometry.path} />
+            {delegationTrees.map((tree) => (
+              <g
+                key={tree.id}
+                className="mission-delegation-tree"
+                data-testid={`mission-delegation-tree-${tree.sourceId}`}
+              >
+                <path className="root" d={tree.rootPath} />
+                {tree.trunkPath ? <path className="trunk" d={tree.trunkPath} /> : null}
+                {tree.branches.map((branch) => (
                   <path
-                    className="line"
-                    d={geometry.path}
-                    markerEnd={`url(#mission-arrow-${edge.kind})`}
-                    markerStart={
-                      edge.kind === 'communication' && edge.bidirectional
-                        ? `url(#mission-arrow-${edge.kind})`
-                        : undefined
-                    }
+                    key={branch.edgeId}
+                    className="branch"
+                    data-edge-id={branch.edgeId}
+                    d={branch.path}
+                    markerEnd="url(#mission-arrow-delegation)"
                   />
-                  {(edge.kind === 'communication' || edge.kind === 'human') && edge.count > 0 ? (
-                    <g className="mission-edge-count">
-                      <rect
-                        x={geometry.labelX - 11}
-                        y={geometry.labelY - 8}
-                        width="22"
-                        height="16"
-                        rx="8"
-                      />
-                      <text x={geometry.labelX} y={geometry.labelY + 3}>
-                        {edge.count}
-                      </text>
-                    </g>
-                  ) : null}
-                </g>
-              );
-            })}
+                ))}
+                <text
+                  className="label"
+                  x={tree.labelX}
+                  y={tree.labelY}
+                  textAnchor={tree.labelAnchor}
+                >
+                  Delegated work
+                </text>
+              </g>
+            ))}
+            {visibleEdges
+              .filter((edge) => edge.kind !== 'delegation')
+              .map((edge) => {
+                const geometry = edgePath(edge, positions, humanPosition);
+                if (!geometry) return null;
+                const selected =
+                  selection?.kind === 'communication' && selection.edgeId === edge.id;
+                const attentionLabel = edgeAttentionLabel(edge);
+                const pathClass = [
+                  'mission-graph-edge',
+                  edge.kind,
+                  edge.pending ? 'pending' : '',
+                  edge.failed ? 'failed' : '',
+                  edge.urgent ? 'urgent' : '',
+                  selected ? 'selected' : '',
+                  showCritical &&
+                  edge.kind === 'dependency' &&
+                  projection.nodes.find((node) => node.id === edge.sourceId)?.critical &&
+                  projection.nodes.find((node) => node.id === edge.targetId)?.critical
+                    ? 'critical'
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ');
+                return (
+                  <g
+                    key={edge.id}
+                    className={pathClass}
+                    data-testid={`mission-graph-edge-${edge.kind}-${edge.id}`}
+                    onClick={(event) => {
+                      if (edge.kind !== 'communication' && edge.kind !== 'human') return;
+                      event.stopPropagation();
+                      onSelection(
+                        edge.kind === 'human'
+                          ? { kind: 'human' }
+                          : { kind: 'communication', edgeId: edge.id },
+                      );
+                    }}
+                  >
+                    <path className="hit" d={geometry.path} />
+                    <path
+                      className="line"
+                      d={geometry.path}
+                      markerEnd={`url(#mission-arrow-${edge.kind})`}
+                      markerStart={
+                        edge.kind === 'communication' && edge.bidirectional
+                          ? `url(#mission-arrow-${edge.kind})`
+                          : undefined
+                      }
+                    />
+                    {attentionLabel ? (
+                      <g className="mission-edge-attention">
+                        <rect
+                          x={geometry.labelX - Math.max(23, attentionLabel.length * 2.7 + 7)}
+                          y={geometry.labelY - 8}
+                          width={Math.max(46, attentionLabel.length * 5.4 + 14)}
+                          height="16"
+                          rx="8"
+                        />
+                        <text x={geometry.labelX} y={geometry.labelY + 3}>
+                          {attentionLabel}
+                        </text>
+                      </g>
+                    ) : null}
+                  </g>
+                );
+              })}
           </svg>
 
           {projection.nodes.map((node) => {

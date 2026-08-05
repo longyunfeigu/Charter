@@ -166,6 +166,12 @@ export function MissionRailPanel(): React.JSX.Element {
             {missions.map((snapshot) => {
               const summary = missionSummary(snapshot);
               const state = missionStateCopy(snapshot.mission.state);
+              const historyStateIcon =
+                snapshot.mission.state === 'COMPLETED'
+                  ? 'check'
+                  : snapshot.mission.state === 'CANCELLED'
+                    ? 'ban'
+                    : 'alert';
               return (
                 <div
                   key={snapshot.mission.id}
@@ -188,11 +194,26 @@ export function MissionRailPanel(): React.JSX.Element {
                           )}
                         </time>
                       </span>
-                      <span className="mission-rail-card-meta">
-                        {scope === 'deleted'
-                          ? 'Recently deleted · original Session kept'
-                          : `${state.label} · ${summary.completed}/${summary.total} done`}
-                      </span>
+                      {scope === 'history' ? (
+                        <span className="mission-rail-card-meta mission-rail-card-outcome">
+                          <span
+                            className={`mission-state-pill mission-rail-outcome-status tone-${state.tone}`}
+                            data-testid={`mission-history-status-${snapshot.mission.id}`}
+                          >
+                            <Ic name={historyStateIcon} size={9} strokeWidth={2.2} />
+                            {state.label}
+                          </span>
+                          <span className="mission-rail-outcome-progress">
+                            {summary.completed}/{summary.total} done
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="mission-rail-card-meta">
+                          {scope === 'deleted'
+                            ? 'Recently deleted · original Session kept'
+                            : `${state.label} · ${summary.completed}/${summary.total} done`}
+                        </span>
+                      )}
                       {scope !== 'deleted' ? (
                         <span className="mission-rail-card-progress">
                           <i style={{ width: `${summary.percent}%` }} />

@@ -3172,6 +3172,25 @@ export class TaskService {
     this.renameTask(taskId, cleaned);
   }
 
+  /** The most recent user-authored request in a Session. Mission promotion
+   * uses this instead of the external task's accounting placeholder so the
+   * durable team inherits the actual outcome the Agent just understood. */
+  latestUserMessage(taskId: string): string | null {
+    this.getTask(taskId);
+    const row = this.db
+      .prepare(
+        "SELECT payload_json FROM task_events WHERE task_id = ? AND type = 'user.message' ORDER BY sequence DESC LIMIT 1",
+      )
+      .get(taskId) as { payload_json: string } | undefined;
+    if (!row) return null;
+    try {
+      const payload = JSON.parse(row.payload_json) as { text?: unknown };
+      return typeof payload.text === 'string' && payload.text.trim() ? payload.text.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Ended claude/codex tasks without a conversation id (predate capture, or
    * stranded by a quit) — candidates for startup transcript backfill. Bounded

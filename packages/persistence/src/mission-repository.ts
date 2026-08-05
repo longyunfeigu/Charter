@@ -403,6 +403,10 @@ export interface DelegateInput {
   writeScope?: string[] | null;
   reason: string;
   idempotencyKey: string;
+  /** Optional request-local key used only to resolve dependencies inside delegateMany. */
+  batchKey?: string;
+  /** Request-local keys of sibling entries in the same atomic delegateMany call. */
+  dependsOnKeys?: string[];
 }
 
 export interface DelegateResult {
@@ -411,6 +415,7 @@ export interface DelegateResult {
   assignment: Assignment;
   attempt: ExecutionAttempt;
   reused: boolean;
+  batchKey?: string;
 }
 
 export interface OutboxRecord {
@@ -955,7 +960,65 @@ export class MissionRepository {
 
   delegateMany(inputs: readonly DelegateInput[]): DelegateResult[] {
     if (inputs.length === 0) return [];
-    return this.db.transaction(() => inputs.map((input) => this.delegateOne(input)));
+    return this.db.transaction(() => {
+      const keyed = new Map<string, DelegateInput>();
+      for (const input of inputs) {
+        if (!input.batchKey) continue;
+        if (keyed.has(input.batchKey)) {
+          throw this.failure(
+            'ORCHESTRATION_BATCH_KEY_DUPLICATE',
+            `The delegate_many key "${input.batchKey}" is duplicated.`,
+          );
+        }
+        keyed.set(input.batchKey, input);
+      }
+      for (const input of inputs) {
+        for (const dependency of input.dependsOnKeys ?? []) {
+          if (!keyed.has(dependency)) {
+            throw this.failure(
+              'ORCHESTRATION_BATCH_DEPENDENCY_NOT_FOUND',
+              `The delegate_many dependency key "${dependency}" does not exist in this batch.`,
+            );
+          }
+        }
+      }
+
+      const ordered: DelegateInput[] = [];
+      const visiting = new Set<string>();
+      const visited = new Set<DelegateInput>();
+      const visit = (input: DelegateInput): void => {
+        if (visited.has(input)) return;
+        const key = input.batchKey;
+        if (key && visiting.has(key)) {
+          throw this.failure(
+            'ORCHESTRATION_BATCH_DEPENDENCY_CYCLE',
+            `The delegate_many dependency graph contains a cycle at "${key}".`,
+          );
+        }
+        if (key) visiting.add(key);
+        for (const dependency of input.dependsOnKeys ?? []) visit(keyed.get(dependency)!);
+        if (key) visiting.delete(key);
+        visited.add(input);
+        ordered.push(input);
+      };
+      for (const input of inputs) visit(input);
+
+      const byKey = new Map<string, DelegateResult>();
+      const byInput = new Map<DelegateInput, DelegateResult>();
+      for (const input of ordered) {
+        const siblingDependencies = (input.dependsOnKeys ?? []).map(
+          (dependency) => byKey.get(dependency)!.task.id,
+        );
+        const result = this.delegateOne({
+          ...input,
+          dependencies: [...new Set([...(input.dependencies ?? []), ...siblingDependencies])],
+        });
+        const tagged = input.batchKey ? { ...result, batchKey: input.batchKey } : result;
+        if (input.batchKey) byKey.set(input.batchKey, tagged);
+        byInput.set(input, tagged);
+      }
+      return inputs.map((input) => byInput.get(input)!);
+    });
   }
 
   private delegateOne(input: DelegateInput): DelegateResult {
@@ -2952,6 +3015,12 @@ export class MissionRepository {
         'owner_assignment_cancelled',
       );
       this.satisfyContinuationsFromAssignment(cancelledAssignment);
+      this.cancelMissionWhenAssignmentsExhausted(
+        assignment.missionId,
+        actorPrincipalId,
+        reason,
+        at,
+      );
       return cancelledAssignment;
     });
   }
@@ -3097,7 +3166,17 @@ export class MissionRepository {
         .run(principalId, attemptId, at, assignment.id);
       this.db
         .prepare(
-          "UPDATE mission_tasks SET state = 'READY', completed_at = NULL, updated_at = ?, version = version + 1 WHERE id = ?",
+          `UPDATE mission_tasks
+           SET state = CASE
+             WHEN EXISTS (
+               SELECT 1 FROM mission_task_dependencies d
+               JOIN mission_tasks dependency ON dependency.id = d.depends_on_task_id
+               WHERE d.task_id = mission_tasks.id AND dependency.state <> 'COMPLETED'
+             ) THEN 'BLOCKED'
+             ELSE 'READY'
+           END,
+           completed_at = NULL, updated_at = ?, version = version + 1
+           WHERE id = ?`,
         )
         .run(at, assignment.taskId);
       this.db
@@ -3638,6 +3717,45 @@ export class MissionRepository {
   }
 
   /**
+   * Repair the pre-contract state where every live Session had been stopped
+   * and at least one Assignment was cancelled, but the Mission row remained
+   * RUNNING forever. New cancellations enforce this invariant immediately;
+   * startup calls this sweep once so existing local Missions converge too.
+   */
+  reconcileMissionsWithoutActiveAssignments(): string[] {
+    return this.db.transaction(() => {
+      const candidates = this.db
+        .prepare(
+          `SELECT m.id FROM missions m
+           WHERE m.deleted_at IS NULL
+             AND m.state IN ('PLANNING','RUNNING','BLOCKED','VERIFYING')
+             AND EXISTS (
+               SELECT 1 FROM assignments cancelled
+               WHERE cancelled.mission_id = m.id AND cancelled.state = 'CANCELLED'
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM assignments live
+               WHERE live.mission_id = m.id
+                 AND live.state IN ('PENDING','ACTIVE','WAITING','PAUSED','ORPHANED')
+             )
+           ORDER BY m.updated_at`,
+        )
+        .all() as Array<{ id: string }>;
+      const at = this.timestamp();
+      return candidates.flatMap(({ id }) =>
+        this.cancelMissionWhenAssignmentsExhausted(
+          id,
+          null,
+          'All active Mission Sessions were stopped.',
+          at,
+        )
+          ? [id]
+          : [],
+      );
+    });
+  }
+
+  /**
    * Product-facing Mission history. Recovery deliberately reads only live
    * Missions, while the Mission Center also needs recent terminal Missions so
    * completion, evidence and user acceptance do not disappear after restart.
@@ -3828,6 +3946,39 @@ export class MissionRepository {
     this.appendEvent(missionId, 'mission.verificationReady', null, null, null, {
       completedTasks: tasks.length,
     });
+  }
+
+  private cancelMissionWhenAssignmentsExhausted(
+    missionId: string,
+    actorPrincipalId: string | null,
+    reason: string,
+    at: string,
+  ): boolean {
+    const mission = this.requireMission(missionId);
+    if (TERMINAL_MISSION_STATES.has(mission.state)) return false;
+    const counts = this.db
+      .prepare(
+        `SELECT
+           SUM(CASE WHEN state = 'CANCELLED' THEN 1 ELSE 0 END) AS cancelled,
+           SUM(CASE WHEN state IN ('PENDING','ACTIVE','WAITING','PAUSED','ORPHANED')
+                    THEN 1 ELSE 0 END) AS live
+         FROM assignments WHERE mission_id = ?`,
+      )
+      .get(missionId) as { cancelled: number | null; live: number | null };
+    if ((counts.cancelled ?? 0) === 0 || (counts.live ?? 0) > 0) return false;
+
+    assertMissionTransition(mission.state, 'CANCELLED');
+    this.db
+      .prepare(
+        `UPDATE missions SET state = 'CANCELLED', version = version + 1,
+         updated_at = ?, completed_at = ? WHERE id = ?`,
+      )
+      .run(at, at, missionId);
+    this.appendEvent(missionId, 'mission.cancelled', actorPrincipalId, null, null, {
+      reason,
+      source: 'assignments_exhausted',
+    });
+    return true;
   }
 
   private requireMission(id: string): Mission {

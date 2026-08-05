@@ -2037,7 +2037,7 @@ export const CHANNELS = {
       .object({
         taskId: z.string(),
         title: z.string().min(1).max(160),
-        format: z.enum(['mp4', 'gif', 'webm']),
+        format: z.enum(['mp4', 'webm']),
         bytes: z
           .instanceof(Uint8Array)
           .refine((value) => value.byteLength <= 512 * 1024 * 1024, 'Replay export is too large.'),
@@ -2046,7 +2046,7 @@ export const CHANNELS = {
     z.object({
       saved: z.boolean(),
       path: z.string().nullable(),
-      format: z.enum(['mp4', 'gif', 'webm']).nullable(),
+      format: z.enum(['mp4', 'webm']).nullable(),
       fallback: z.string().nullable(),
     }),
   ),

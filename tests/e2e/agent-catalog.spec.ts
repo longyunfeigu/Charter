@@ -131,8 +131,11 @@ test('auto-detects Agent CLIs, keeps official marks, and launches Kimi', async (
     await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Kimi.*who are you/ })).toBeVisible();
 
-    await expect(page.getByTestId('rail-stop-all')).toContainText('Stop all 1');
-    await page.getByTestId('rail-stop-all').click();
+    await expect(page.getByTestId('rail-running-summary')).toHaveAttribute(
+      'aria-label',
+      '1 session running',
+    );
+    await page.getByTestId('rail-running-summary').click();
     await page.getByTestId('rail-stop-all-confirm-action').click();
     await expect
       .poll(() => (existsSync(agents.kimiProbe) ? readFileSync(agents.kimiProbe, 'utf8') : ''), {
@@ -164,10 +167,14 @@ test('auto-detects Agent CLIs, keeps official marks, and launches Kimi', async (
         },
       )
       .toContain('started');
-    await expect(page.getByTestId('rail-stop-all')).toContainText('Stop all 1', {
-      timeout: 20_000,
-    });
-    await page.getByTestId('rail-stop-all').click();
+    await expect(page.getByTestId('rail-running-summary')).toHaveAttribute(
+      'aria-label',
+      '1 session running',
+      {
+        timeout: 20_000,
+      },
+    );
+    await page.getByTestId('rail-running-summary').click();
     await page.getByTestId('rail-stop-all-confirm-action').click();
     await expect
       .poll(

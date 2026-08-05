@@ -77,7 +77,8 @@ test.describe('Room context feeding — Files pane and reference chips', () => {
 
       // Back to Sessions: the segmented tab restores the session list.
       await page.getByTestId('rail-tab-sessions').click();
-      await expect(page.getByTestId('rail-session-search')).toBeVisible();
+      await expect(page.getByTestId('rail-tab-sessions')).toContainText('Sessions');
+      await expect(page.getByTestId('rail-session-search')).toHaveCount(0);
     } finally {
       await app.close();
     }

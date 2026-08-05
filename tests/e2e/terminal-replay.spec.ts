@@ -152,12 +152,18 @@ test.describe('Terminal Replay — real PTY black box', () => {
       }, exportedPath);
       await page.getByTestId('terminal-replay-export').click();
       await expect(page.getByTestId('terminal-replay-export-webm')).toBeVisible();
+      await expect(page.getByTestId('terminal-replay-export-gif')).toHaveCount(0);
+      await expect(page.locator('.trp-export-formats button')).toHaveCount(2);
+      await page.screenshot({ path: join(SHOTS, 'terminal-replay-export-1440.png') });
+      await setWindowSize(app, 1024, 768);
+      await expect(page.locator('.trp-export-dialog')).toBeVisible();
+      expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
+      await page.screenshot({ path: join(SHOTS, 'terminal-replay-export-1024.png') });
       await page.getByTestId('terminal-replay-export-webm').click();
       await expect.poll(() => existsSync(exportedPath), { timeout: 30_000 }).toBe(true);
       await expect(page.locator('.trp-export-dialog')).toHaveCount(0);
       expect(readFileSync(exportedPath).subarray(0, 4).toString('hex')).toBe('1a45dfa3');
 
-      await setWindowSize(app, 1024, 768);
       await expect(page.getByTestId('terminal-replay-player')).toBeVisible();
       expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
       await page.screenshot({ path: join(SHOTS, 'terminal-replay-1024.png') });

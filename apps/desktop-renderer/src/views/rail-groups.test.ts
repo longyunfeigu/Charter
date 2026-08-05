@@ -4,6 +4,7 @@ import {
   HISTORY_PERIOD_INITIAL_LIMIT,
   buildHistoryPeriods,
   historyPeriodKey,
+  missionSessionStatus,
   visibleHistoryPeriodEntries,
   visibleRailGroupEntries,
   type RailGroup,
@@ -97,6 +98,8 @@ describe('Mission hierarchy pagination', () => {
       taskTitle: 'Lead work',
       provider: 'codex',
       assignmentState: 'ACTIVE',
+      taskState: 'RUNNING',
+      waitingFor: [],
       missionState: 'RUNNING',
       runtimeSessionId: 'runtime-a',
       terminalId: null,
@@ -117,6 +120,8 @@ describe('Mission hierarchy pagination', () => {
         taskTitle: 'Build the feature',
         provider: 'codex',
         assignmentState: 'ACTIVE',
+        taskState: 'RUNNING',
+        waitingFor: [],
         missionState: 'RUNNING',
         runtimeSessionId: 'runtime-b',
         terminalId: 'acp:attempt-b',
@@ -153,6 +158,65 @@ describe('Mission hierarchy pagination', () => {
       visibleRailGroupEntries(group, { expanded: false, filtering: false }).map(
         (entry) => entry.key,
       ),
-    ).toEqual([root.key, child.key, grandchild.key, 'task:other-1', 'task:other-2']);
+    ).toEqual([
+      root.key,
+      child.key,
+      grandchild.key,
+      'task:other-1',
+      'task:other-2',
+      'task:other-3',
+    ]);
+  });
+});
+
+describe('Mission Session status', () => {
+  it('does not treat an open Assignment as proof of live Agent activity', () => {
+    expect(
+      missionSessionStatus({
+        missionId: 'mission-1',
+        assignmentId: 'assignment-active',
+        parentKey: null,
+        depth: 0,
+        agentName: 'Claude Code',
+        taskTitle: 'Review the implementation',
+        provider: 'claude',
+        assignmentState: 'ACTIVE',
+        taskState: 'RUNNING',
+        waitingFor: [],
+        missionState: 'RUNNING',
+        runtimeSessionId: 'terminal:terminal-1',
+        terminalId: 'terminal-1',
+        transport: 'terminal',
+      }),
+    ).toMatchObject({ label: 'Active', live: true, working: false });
+  });
+
+  it('distinguishes dependency waiting from a runnable queue', () => {
+    const base = {
+      missionId: 'mission-1',
+      assignmentId: 'assignment-b',
+      parentKey: null,
+      depth: 1,
+      agentName: 'Reviewer B',
+      taskTitle: 'Review the implementation',
+      provider: 'claude',
+      assignmentState: 'PENDING' as const,
+      missionState: 'RUNNING' as const,
+      runtimeSessionId: null,
+      terminalId: null,
+      transport: null,
+    };
+
+    expect(
+      missionSessionStatus({
+        ...base,
+        taskState: 'BLOCKED',
+        waitingFor: ['Implement the feature'],
+      }),
+    ).toMatchObject({ label: 'Waiting', working: false });
+    expect(missionSessionStatus({ ...base, taskState: 'READY', waitingFor: [] })).toMatchObject({
+      label: 'Queued',
+      working: false,
+    });
   });
 });

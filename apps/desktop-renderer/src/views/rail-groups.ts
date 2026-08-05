@@ -10,10 +10,43 @@ export interface MissionSessionLink {
   taskTitle: string;
   provider: string;
   assignmentState: AssignmentDto['state'];
+  taskState: MissionSnapshotDto['tasks'][number]['state'];
+  waitingFor: string[];
   missionState: MissionSnapshotDto['mission']['state'];
   runtimeSessionId: string | null;
   terminalId: string | null;
   transport: 'native' | 'acp' | 'terminal' | null;
+}
+
+export function missionSessionStatus(session: MissionSessionLink): {
+  label: string;
+  tone: string;
+  live: boolean;
+  working: boolean;
+} {
+  if (session.assignmentState === 'ACTIVE') {
+    // ACTIVE is Mission lifecycle, not proof that the runtime is producing a
+    // turn right now. Physical presence drives animation at the rendered row.
+    return { label: 'Active', tone: 'review', live: true, working: false };
+  }
+  if (session.assignmentState === 'WAITING') {
+    return { label: 'Waiting', tone: 'review', live: true, working: false };
+  }
+  if (session.assignmentState === 'PAUSED') {
+    return { label: 'Paused', tone: 'neutral', live: true, working: false };
+  }
+  if (session.assignmentState === 'PENDING') {
+    return session.taskState === 'BLOCKED'
+      ? { label: 'Waiting', tone: 'review', live: false, working: false }
+      : { label: 'Queued', tone: 'neutral', live: false, working: false };
+  }
+  if (session.assignmentState === 'COMPLETED') {
+    return { label: 'Done', tone: 'answered', live: false, working: false };
+  }
+  if (session.assignmentState === 'FAILED' || session.assignmentState === 'ORPHANED') {
+    return { label: 'Failed', tone: 'failed', live: false, working: false };
+  }
+  return { label: 'Stopped', tone: 'neutral', live: false, working: false };
 }
 
 /** One Sessions-rail row: a Charter task, or a bare composer-launched CLI
@@ -50,7 +83,7 @@ export interface RailGroup {
   history?: boolean;
 }
 
-export const ACTIVE_SESSION_GROUP_LIMIT = 3;
+export const ACTIVE_SESSION_GROUP_LIMIT = 5;
 export const HISTORY_PERIOD_INITIAL_LIMIT = 5;
 export const HISTORY_PERIOD_MORE_STEP = 10;
 

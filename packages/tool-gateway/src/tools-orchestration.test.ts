@@ -21,6 +21,7 @@ const caller: OrchestrationCallerContext = {
 
 function setup() {
   const delegate = vi.fn(() => ({ assignmentId: 'B' }));
+  const promote = vi.fn(() => ({ mission: { id: 'M' } }));
   const control = {
     inspect: vi.fn(() => ({ mission: 'M' })),
     delegate,
@@ -43,8 +44,12 @@ function setup() {
     steer: vi.fn(async () => undefined),
   } as unknown as OrchestrationControlPort;
   const gateway = new ToolGateway({ root: '/repo', mode: 'ask' });
-  registerOrchestrationTools(gateway, { control, callerForCall: () => caller });
-  return { gateway, control, delegate };
+  registerOrchestrationTools(gateway, {
+    control,
+    callerForCall: () => caller,
+    promoteForCall: promote,
+  });
+  return { gateway, control, delegate, promote };
 }
 
 describe('orchestration native tools', () => {
@@ -75,6 +80,42 @@ describe('orchestration native tools', () => {
     expect(names).toContain('orchestration.complete');
   });
 
+  it('promotes from the trusted call context with a validated worker plan', async () => {
+    const { gateway, promote } = setup();
+    const result = await gateway.executeCall(
+      {
+        callId: 'promote',
+        runId: 'run',
+        taskId: 'task',
+        toolName: 'orchestration.promote',
+        input: {
+          reason: 'Independent implementation and review improve confidence.',
+          children: [
+            {
+              key: 'review',
+              goal: 'Review the implementation independently.',
+              acceptanceCriteria: ['Report concrete findings.'],
+              requestedRuntime: 'codex',
+              workMode: 'read-only',
+              reason: 'Independent review reduces regression risk.',
+              idempotencyKey: 'review-v1',
+            },
+          ],
+        },
+      },
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(promote).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'task', toolName: 'orchestration.promote' }),
+      expect.objectContaining({
+        integration: { mode: 'auto' },
+        children: [expect.objectContaining({ requestedRuntime: 'codex' })],
+      }),
+    );
+  });
+
   it('derives caller authority outside the payload and applies schema defaults', async () => {
     const { gateway, delegate } = setup();
     const result = await gateway.executeCall(
@@ -97,7 +138,60 @@ describe('orchestration native tools', () => {
       caller,
       expect.objectContaining({
         requestedRuntime: 'managed',
-        workMode: 'isolated-write',
+        workMode: 'auto',
+      }),
+    );
+  });
+
+  it('defaults inspect to compact and delegate_many to automatic integration planning', async () => {
+    const { gateway, control } = setup();
+    const inspected = await gateway.executeCall(
+      {
+        callId: 'inspect',
+        runId: 'run',
+        taskId: 'task',
+        toolName: 'orchestration.inspect',
+        input: {},
+      },
+      new AbortController().signal,
+    );
+    expect(inspected.ok).toBe(true);
+    expect(control.inspect).toHaveBeenCalledWith(caller, { view: 'compact' });
+
+    const delegated = await gateway.executeCall(
+      {
+        callId: 'batch',
+        runId: 'run',
+        taskId: 'task',
+        toolName: 'orchestration.delegate_many',
+        input: {
+          children: [
+            {
+              key: 'foundation',
+              goal: 'Define the contract',
+              reason: 'parallel work',
+              idempotencyKey: 'foundation-v1',
+            },
+            {
+              key: 'consumer',
+              dependsOn: ['foundation'],
+              goal: 'Use the contract',
+              reason: 'ordered work',
+              idempotencyKey: 'consumer-v1',
+            },
+          ],
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(delegated.ok).toBe(true);
+    expect(control.delegateMany).toHaveBeenCalledWith(
+      caller,
+      expect.objectContaining({
+        integration: { mode: 'auto' },
+        children: expect.arrayContaining([
+          expect.objectContaining({ key: 'consumer', dependsOn: ['foundation'] }),
+        ]),
       }),
     );
   });

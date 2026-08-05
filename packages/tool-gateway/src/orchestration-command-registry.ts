@@ -6,6 +6,12 @@ export const OrchestrationRuntimeSchema = z
   .max(64)
   .regex(/^[a-z0-9][a-z0-9._-]*$/);
 export const OrchestrationWorkModeSchema = z.enum(['read-only', 'isolated-write', 'shared-write']);
+export const OrchestrationRequestedWorkModeSchema = z.enum([
+  'auto',
+  'read-only',
+  'isolated-write',
+  'shared-write',
+]);
 export const OrchestrationMessageTypeSchema = z.enum([
   'assignment',
   'progress',
@@ -65,29 +71,68 @@ export const OrchestrationJsonObjectSchema = boundedControlInput(
   ORCHESTRATION_CONTROL_JSON_MAX_BYTES,
 );
 
+export const OrchestrationInspectSchema = z
+  .object({ view: z.enum(['compact', 'full']).default('compact') })
+  .strict();
+
+const OrchestrationDelegateObjectSchema = z
+  .object({
+    goal: z.string().min(1).max(100_000),
+    title: z.string().min(1).max(300).optional(),
+    acceptanceCriteria: z.array(z.string().min(1).max(4_000)).max(100).default([]),
+    dependencies: z.array(z.string().min(1)).max(100).optional(),
+    expectedArtifacts: z.array(z.string().min(1).max(1_000)).max(100).optional(),
+    requestedRuntime: OrchestrationRuntimeSchema.default('managed'),
+    requestedModel: z.string().min(1).max(300).optional(),
+    workMode: OrchestrationRequestedWorkModeSchema.default('auto'),
+    writeScope: z.array(z.string().min(1).max(2_000)).max(500).optional(),
+    reason: z.string().min(1).max(4_000),
+    idempotencyKey: z.string().min(1).max(300),
+  })
+  .strict();
+
 export const OrchestrationDelegateSchema = boundedControlInput(
-  z
-    .object({
-      goal: z.string().min(1).max(100_000),
-      title: z.string().min(1).max(300).optional(),
-      acceptanceCriteria: z.array(z.string().min(1).max(4_000)).max(100).default([]),
-      dependencies: z.array(z.string().min(1)).max(100).optional(),
-      expectedArtifacts: z.array(z.string().min(1).max(1_000)).max(100).optional(),
-      requestedRuntime: OrchestrationRuntimeSchema.default('managed'),
-      requestedModel: z.string().min(1).max(300).optional(),
-      workMode: OrchestrationWorkModeSchema.default('isolated-write'),
-      writeScope: z.array(z.string().min(1).max(2_000)).max(500).optional(),
-      reason: z.string().min(1).max(4_000),
-      idempotencyKey: z.string().min(1).max(300),
-    })
-    .strict(),
+  OrchestrationDelegateObjectSchema,
   ORCHESTRATION_CONTROL_RECORD_MAX_BYTES,
 );
+
+const OrchestrationBatchKeySchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/);
+
+export const OrchestrationDelegateBatchChildSchema = OrchestrationDelegateObjectSchema.extend({
+  key: OrchestrationBatchKeySchema.optional(),
+  dependsOn: z.array(OrchestrationBatchKeySchema).max(50).optional(),
+}).strict();
+
+export const OrchestrationIntegrationPlanSchema = z
+  .object({
+    mode: z.enum(['auto', 'none']).default('auto'),
+    title: z.string().min(1).max(300).optional(),
+    requestedRuntime: OrchestrationRuntimeSchema.optional(),
+    requestedModel: z.string().min(1).max(300).optional(),
+    acceptanceCriteria: z.array(z.string().min(1).max(4_000)).max(100).optional(),
+  })
+  .strict();
 
 export const OrchestrationDelegateManySchema = boundedControlInput(
   z
     .object({
-      children: z.array(OrchestrationDelegateSchema).min(1).max(50),
+      children: z.array(OrchestrationDelegateBatchChildSchema).min(1).max(50),
+      integration: OrchestrationIntegrationPlanSchema.default({ mode: 'auto' }),
+    })
+    .strict(),
+  ORCHESTRATION_CONTROL_BATCH_MAX_BYTES,
+);
+
+export const OrchestrationPromoteSchema = boundedControlInput(
+  z
+    .object({
+      reason: z.string().min(1).max(4_000),
+      children: z.array(OrchestrationDelegateBatchChildSchema).min(1).max(50),
+      integration: OrchestrationIntegrationPlanSchema.default({ mode: 'auto' }),
     })
     .strict(),
   ORCHESTRATION_CONTROL_BATCH_MAX_BYTES,
@@ -198,7 +243,7 @@ export const OrchestrationWaitSchema = z
     afterSequence: z.number().int().min(0).optional(),
     unreadOnly: z.boolean().default(true),
     limit: z.number().int().min(1).max(100).default(100),
-    timeoutMs: z.number().int().min(1).max(3_600_000).default(600_000),
+    timeoutMs: z.number().int().min(1).max(3_600_000).default(30_000),
     // A blocking wait hands the messages to the caller, so observation is the
     // safe default. Diagnostics may still opt into a non-consuming peek with
     // markRead:false.
@@ -391,10 +436,16 @@ export const OrchestrationReassignSchema = z
 
 export const ORCHESTRATION_COMMAND_REGISTRY = [
   {
+    command: 'promote',
+    description:
+      'Promote the current ordinary Session into a Mission and atomically start a validated delegation plan.',
+    schema: OrchestrationPromoteSchema,
+  },
+  {
     command: 'inspect',
     description:
       'Inspect the durable Mission, Assignment tree, Task graph, active Attempt, and unread messages.',
-    schema: z.object({}).strict(),
+    schema: OrchestrationInspectSchema,
   },
   {
     command: 'sync',

@@ -48,7 +48,7 @@ function writeClaudeTranscript(
 }
 
 async function startTrackedSession(page: Page): Promise<void> {
-  await page.getByTestId('home-new-task').click();
+  await page.getByTestId('surface-home').click();
   await page.getByTestId('home-advanced-toggle').click();
   await page.getByTestId('home-adv-title').fill('Tracked archive redesign');
   await page.getByTestId('home-mode-auto').click();

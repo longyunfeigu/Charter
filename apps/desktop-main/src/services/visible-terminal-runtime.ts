@@ -17,6 +17,8 @@ interface TerminalListResult {
   terminals?: Array<{ id?: string; busy?: boolean }>;
 }
 
+export type VisibleRuntimeSessionSettler = (terminalId: string) => Promise<void>;
+
 function launchFor(kind: RuntimeKind): string {
   return kind;
 }
@@ -44,7 +46,10 @@ export function missionWorkerPrompt(input: RuntimeStartRequest): string {
 export class VisibleTerminalRuntime implements OrchestrationRuntimeAdapter {
   readonly kind: OrchestrationRuntimeAdapterKind = 'visible-terminal';
 
-  constructor(private readonly control: TerminalControlService) {}
+  constructor(
+    private readonly control: TerminalControlService,
+    private readonly settleTrackedSession?: VisibleRuntimeSessionSettler,
+  ) {}
 
   async start(input: RuntimeStartRequest): Promise<RuntimeSessionBinding> {
     const taskId = input.mission.originConversationTaskId;
@@ -92,6 +97,10 @@ export class VisibleTerminalRuntime implements OrchestrationRuntimeAdapter {
 
   async cancel(runtimeSessionId: string, reason: string): Promise<void> {
     const id = this.terminalId(runtimeSessionId);
+    // Mission terminals can also own an External Session task. Settle that
+    // durable projection before retiring the PTY so a cancelled Assignment
+    // cannot leave an apparently-live task behind after its runtime is gone.
+    await this.settleTrackedSession?.(id);
     this.control.closeRuntime(id);
     void reason;
   }

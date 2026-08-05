@@ -13,8 +13,9 @@ import { CHARTER_ORCHESTRATION_SKILL } from './orchestration-manual.js';
  * migrations. These surfaces are immune to all of that: ~/.claude/skills and
  * ~/.codex/skills are read by every claude/codex session regardless of how it
  * was launched, and the manual they teach relies only on the pty-injected
- * CHARTER_* environment. Writes happen exclusively on an explicit settings
- * click; every safety rule stays enforced host-side either way.
+ * CHARTER_* environment. Charter synchronizes only its own reserved Skill
+ * folders before external Sessions can launch; the Settings action remains an
+ * explicit repair path. Every safety rule stays enforced host-side either way.
  */
 export interface CharterTerminalSurfaceTarget {
   target: string;
@@ -66,8 +67,9 @@ export function charterTerminalSurfaceStatus(
   );
 }
 
-/** Install or refresh the manual on every surface. Per-target failures land in
- * the returned status (partial success is fine: one CLI may be sandboxed). */
+/** Synchronize the product-owned manuals on every detected Agent surface.
+ * Per-target failures land in the returned status (partial success is fine:
+ * one CLI may be sandboxed). */
 export function installCharterTerminalSurfaces(
   targets: readonly CharterTerminalSurfaceTarget[],
 ): CharterTerminalSurfaceDto[] {

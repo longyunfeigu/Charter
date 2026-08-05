@@ -70,8 +70,6 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
   const summary = missionSummary(snapshot);
   const state = missionStateCopy(snapshot.mission.state);
   const originTaskId = snapshot.mission.originConversationTaskId;
-  const isRunning = ['PLANNING', 'RUNNING', 'BLOCKED'].includes(snapshot.mission.state);
-  const allPaused = summary.paused > 0 && summary.active === 0;
 
   useEffect(() => {
     if (selectedTaskId && snapshot.tasks.some((task) => task.id === selectedTaskId)) return;
@@ -139,6 +137,14 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
       return;
     }
     if (attempt?.terminalId) {
+      const runtimeTaskId = useTaskStore
+        .getState()
+        .tasks.find((task) => task.external?.terminalId === attempt.terminalId)?.id;
+      if (runtimeTaskId) {
+        void useTaskStore.getState().openTask(runtimeTaskId);
+        useAppStore.getState().openTaskRoom(runtimeTaskId);
+        return;
+      }
       void useTerminalStore
         .getState()
         .adopt(attempt.terminalId)
@@ -200,18 +206,6 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
             <p>{snapshot.mission.goal}</p>
           </span>
           <div className="mission-head-actions">
-            {isRunning && (summary.active > 0 || summary.paused > 0) ? (
-              <button
-                className="mission-head-control"
-                data-testid="mission-pause-all"
-                onClick={() =>
-                  void useOrchestrationStore.getState().pauseMission(missionId, !allPaused)
-                }
-              >
-                <Ic name={allPaused ? 'play' : 'pause'} size={12} />
-                {allPaused ? 'Resume work' : 'Pause work'}
-              </button>
-            ) : null}
             {!['COMPLETED', 'FAILED', 'CANCELLED'].includes(snapshot.mission.state) ? (
               <ConfirmDangerButton
                 label="Cancel…"
@@ -251,7 +245,7 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
           </span>
           <span>
             <b>{summary.active}</b>
-            <small>working</small>
+            <small>active</small>
           </span>
           <span>
             <b>{summary.waiting}</b>
@@ -363,7 +357,7 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
                   </nav>
                   <p>
                     {workView === 'graph'
-                      ? 'Execution, delegation and real Agent communication — grounded in recorded Mission events.'
+                      ? 'Follow dependencies and delegated work. Select a task or enable Communication to reveal recorded Agent coordination.'
                       : 'Read goals, ownership and durable progress as a nested delegation outline.'}
                   </p>
                 </header>

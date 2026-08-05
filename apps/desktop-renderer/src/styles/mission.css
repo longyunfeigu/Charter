@@ -345,6 +345,24 @@
   color: var(--fg-faint);
   font-size: 8px;
 }
+.mission-rail-card-outcome {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mission-rail-outcome-status {
+  gap: 3px;
+  padding: 2px 6px;
+  font: 650 8.5px/1.2 var(--font-ui);
+  letter-spacing: 0;
+}
+.mission-rail-outcome-progress {
+  overflow: hidden;
+  color: var(--fg-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .mission-rail-card-progress,
 .mission-center-card-progress {
   height: 2px;
@@ -1789,6 +1807,20 @@
   gap: 5px;
   margin-top: 12px;
 }
+.mission-control-note {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 3px 0 0;
+  color: var(--fg-muted);
+  font-size: 8.5px;
+  line-height: 1.45;
+}
+.mission-control-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
 .mission-reassign {
   display: grid;
   gap: 8px;
@@ -1800,6 +1832,12 @@
 }
 .mission-reassign > strong {
   font-size: 10px;
+}
+.mission-reassign > p {
+  margin: -2px 0 1px;
+  color: var(--fg-muted);
+  font-size: 8.5px;
+  line-height: 1.45;
 }
 .mission-reassign label {
   display: grid;
@@ -2435,6 +2473,17 @@
 .mission-graph-layers button.communication.has-active {
   color: var(--mission-communication);
 }
+.mission-graph-layers button.communication > b {
+  min-width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
+  font: 700 7px var(--font-mono);
+}
 .mission-graph-layers button.critical.active {
   color: var(--warning);
 }
@@ -2475,17 +2524,30 @@
 }
 .mission-graph-edge .line {
   fill: none;
-  stroke: color-mix(in srgb, var(--fg-muted) 60%, var(--border));
-  stroke-width: 1.4px;
+  stroke: color-mix(in srgb, var(--fg-muted) 72%, var(--border));
+  stroke-width: 1.6px;
 }
 .mission-graph-edge .hit {
   fill: none;
   stroke: transparent;
   stroke-width: 16px;
 }
-.mission-graph-edge.delegation .line {
+.mission-delegation-tree .root,
+.mission-delegation-tree .trunk,
+.mission-delegation-tree .branch {
+  fill: none;
   stroke: color-mix(in srgb, var(--fg-faint) 74%, var(--border));
-  stroke-dasharray: 5 5;
+  stroke-width: 1.15px;
+  stroke-dasharray: 3 3;
+  stroke-linecap: round;
+}
+.mission-delegation-tree .label {
+  fill: var(--fg-faint);
+  stroke: var(--bg-editor);
+  stroke-width: 4px;
+  paint-order: stroke;
+  font: 650 7.5px var(--font-ui);
+  letter-spacing: 0.01em;
 }
 .mission-graph-edge.communication,
 .mission-graph-edge.human {
@@ -2526,16 +2588,16 @@
 .mission-arrow-head.human {
   fill: var(--warning);
 }
-.mission-edge-count rect {
+.mission-edge-attention rect {
   fill: var(--bg-card);
-  stroke: color-mix(in srgb, var(--mission-communication) 55%, var(--border));
+  stroke: color-mix(in srgb, var(--warning) 68%, var(--border));
 }
-.mission-graph-edge.pending .mission-edge-count rect {
-  stroke: var(--warning);
+.mission-graph-edge.failed .mission-edge-attention rect {
+  stroke: var(--danger);
 }
-.mission-edge-count text {
+.mission-edge-attention text {
   fill: var(--fg-muted);
-  font: 700 8px var(--font-mono);
+  font: 700 7.5px var(--font-ui);
   text-anchor: middle;
 }
 .mission-graph-node {
@@ -3220,6 +3282,7 @@
   height: 21px;
   display: grid;
   place-items: center;
+  padding: 0 7px;
   border-radius: 99px;
   background: color-mix(in srgb, var(--mission-communication) 13%, transparent);
   color: var(--mission-communication);
@@ -3640,6 +3703,10 @@
 .mission-graph-detail-drawer .mission-guidance label {
   font-size: 12px;
 }
+.mission-graph-detail-drawer .mission-control-note,
+.mission-graph-detail-drawer .mission-reassign > p {
+  font-size: 11px;
+}
 .mission-graph-detail-drawer .mission-guidance textarea {
   min-height: 110px;
   padding: 12px;
@@ -3711,7 +3778,8 @@
     width: 34%;
   }
   .mission-graph-layers button {
-    font-size: 0;
+    flex: none;
+    font-size: 7px;
   }
   .mission-graph-layers button > i,
   .mission-graph-layers button > .app-icon {
@@ -3739,7 +3807,8 @@
     display: none;
   }
   .mission-graph-layers button {
-    font-size: 0;
+    flex: none;
+    font-size: 7px;
   }
   .mission-graph-layers button > i,
   .mission-graph-layers button > .app-icon {

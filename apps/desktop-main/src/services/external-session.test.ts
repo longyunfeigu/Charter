@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CodeContextRefDto } from '@pi-ide/ipc-contracts';
 import {
   beginObservedTurnPresence,
+  bracketedPasteComposerReady,
   codexStartupComposerReady,
   codexStartupTrustGateActive,
   codexStartupUpdateGateActive,
@@ -13,6 +14,7 @@ import {
   isAccountablePath,
   isTerminalViewportRepaint,
   isTerminalViewportScrollInput,
+  observedTuiTitleActivity,
   selectFileAttributionOwner,
   shouldReconcileSnapshotPath,
   ExternalSessionService,
@@ -78,6 +80,26 @@ describe('external TUI viewport scrolling', () => {
   });
 });
 
+describe('observedTuiTitleActivity', () => {
+  it('recognizes Claude and Codex Braille title frames as explicit busy activity', () => {
+    expect(observedTuiTitleActivity('\u001b]0;⠂ Claude Code\u0007')).toBe('busy');
+    expect(observedTuiTitleActivity('\u001b]2;⠏ charter-test\u001b\\')).toBe('busy');
+  });
+
+  it('recognizes the non-spinning title that closes an observed TUI turn', () => {
+    expect(observedTuiTitleActivity('\u001b]0;✳ Build the demo\u0007')).toBe('idle');
+    expect(observedTuiTitleActivity('\u009d2;charter-test\u009c')).toBe('idle');
+  });
+
+  it('uses the last complete title edge and ignores ordinary output', () => {
+    expect(
+      observedTuiTitleActivity('\u001b]0;⠐ Claude Code\u0007paint\u001b]0;✳ Claude Code\u0007'),
+    ).toBe('idle');
+    expect(observedTuiTitleActivity('ordinary terminal output')).toBeNull();
+    expect(observedTuiTitleActivity('\u001b]0;⠂ split title')).toBeNull();
+  });
+});
+
 describe('codexStartupTrustGateActive', () => {
   it('blocks Composer prompt delivery while the directory trust gate is current', () => {
     expect(
@@ -128,6 +150,23 @@ describe('codexStartupUpdateGateActive', () => {
         'Update available! 1. Update now 2. Skip\u001b[2J>_ OpenAI Codex /model to change',
       ),
     ).toBe(false);
+  });
+});
+
+describe('bracketedPasteComposerReady', () => {
+  it('does not treat process output or a welcome paint as an input-ready composer', () => {
+    expect(bracketedPasteComposerReady('kimi\r\nWelcome to Kimi Code!')).toBe(false);
+  });
+
+  it('recognizes the active bracketed-paste mode used by an Agent composer', () => {
+    expect(bracketedPasteComposerReady('Welcome to Kimi Code!\u001b[?2004h')).toBe(true);
+  });
+
+  it('ignores a stale enable edge after the terminal disables paste mode', () => {
+    expect(bracketedPasteComposerReady('\u001b[?2004h shell\u001b[?2004l kimi')).toBe(false);
+    expect(
+      bracketedPasteComposerReady('\u001b[?2004h shell\u001b[?2004l kimi\u001b[?2004h composer'),
+    ).toBe(true);
   });
 });
 
@@ -388,6 +427,8 @@ describe('beginObservedTurnPresence', () => {
       presenceTimer: timer,
       presenceAwaitingReply: false,
       presenceSawOutput: true,
+      presenceTuiBusy: true,
+      presenceTitleBuffer: '\u001b]0;partial',
     };
 
     beginObservedTurnPresence(state);
@@ -396,6 +437,8 @@ describe('beginObservedTurnPresence', () => {
       presenceTimer: null,
       presenceAwaitingReply: true,
       presenceSawOutput: false,
+      presenceTuiBusy: false,
+      presenceTitleBuffer: '',
     });
   });
 
@@ -405,6 +448,8 @@ describe('beginObservedTurnPresence', () => {
       presenceTimer: null,
       presenceAwaitingReply: false,
       presenceSawOutput: false,
+      presenceTuiBusy: false,
+      presenceTitleBuffer: '',
     };
 
     beginObservedTurnPresence(state);

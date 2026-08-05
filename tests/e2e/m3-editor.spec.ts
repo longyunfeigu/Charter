@@ -153,7 +153,7 @@ test.describe('M3 workspace and editor', () => {
       await expect(page.locator('.monaco-editor').first()).toContainText('add(2, 3)');
 
       await page.getByTestId('rail-tab-sessions').click();
-      await page.getByTestId('home-new-task').click();
+      await page.getByTestId('surface-home').click();
       await page.getByTestId('home-mode-auto').click();
       await page.getByTestId('home-intent').fill('[scenario:edit-basic] update the call');
       await page.getByTestId('home-submit').click();

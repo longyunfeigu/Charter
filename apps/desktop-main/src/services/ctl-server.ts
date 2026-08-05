@@ -8,6 +8,8 @@ import {
 } from './terminal-control-service.js';
 
 const MAX_BODY_BYTES = 256 * 1024;
+const CALLER_READY_TIMEOUT_MS = 10_000;
+const CALLER_READY_POLL_MS = 50;
 
 interface CtlServerOptions {
   socketPath: string;
@@ -17,7 +19,26 @@ interface CtlServerOptions {
   taskForTerminal: (terminalId: string) => string | null;
   gatewayForTask: (taskId: string) => ToolGateway | null;
   prepareCaller?: (taskId: string, terminalId: string) => void;
+  /** Test seam; production allows a freshly launched Agent to finish binding. */
+  callerReadyTimeoutMs?: number;
   logger: Logger;
+}
+
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(finish, ms);
+    const onAbort = () => finish();
+    function finish(): void {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function bearer(request: IncomingMessage): string | null {
@@ -93,6 +114,7 @@ function statusFor(code: string): number {
   if (code === 'TERMINAL_NOT_FOUND') return 404;
   if (code === 'TERMINAL_DEPTH_LIMIT' || code === 'TERMINAL_SELF_CONTROL') return 409;
   if (code === 'TERMINAL_WORKER_BUDGET' || code === 'TERMINAL_SEND_BUDGET') return 429;
+  if (code === 'ORCHESTRATION_PROMOTION_BUDGET') return 429;
   if (code === 'ORCHESTRATION_DISABLED' || code === 'TOOL_UNKNOWN') return 501;
   if (code === 'PERMISSION_DENIED') return 403;
   if (code === 'CANCELLED') return 499;
@@ -159,8 +181,11 @@ export class CtlServer {
       respond(response, 404, { ok: false, code: 'CTL_ROUTE_NOT_FOUND' });
       return;
     }
-    const taskId = this.options.taskForTerminal(terminalId);
-    const gateway = taskId ? this.options.gatewayForTask(taskId) : null;
+    const controller = new AbortController();
+    request.once('aborted', () => controller.abort());
+    const caller = await this.waitForCaller(terminalId, controller.signal);
+    const taskId = caller?.taskId ?? null;
+    const gateway = caller?.gateway ?? null;
     if (!taskId || !gateway) {
       respond(response, 409, {
         ok: false,
@@ -174,8 +199,6 @@ export class CtlServer {
       this.options.prepareCaller?.(taskId, terminalId);
       const body =
         request.method === 'GET' || request.method === 'DELETE' ? {} : await readBody(request);
-      const controller = new AbortController();
-      request.once('aborted', () => controller.abort());
       const result = await this.options.control.executeFromTerminal({
         terminalId,
         taskId,
@@ -189,5 +212,22 @@ export class CtlServer {
       this.options.logger.warn('terminal control door request failed', { error: `${error}` });
       respond(response, 400, { ok: false, code: 'CTL_BAD_REQUEST' });
     }
+  }
+
+  private async waitForCaller(
+    terminalId: string,
+    signal: AbortSignal,
+  ): Promise<{ taskId: string; gateway: ToolGateway } | null> {
+    const timeoutMs = this.options.callerReadyTimeoutMs ?? CALLER_READY_TIMEOUT_MS;
+    const deadline = Date.now() + timeoutMs;
+    while (!signal.aborted) {
+      const taskId = this.options.taskForTerminal(terminalId);
+      const gateway = taskId ? this.options.gatewayForTask(taskId) : null;
+      if (taskId && gateway) return { taskId, gateway };
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await delay(Math.min(CALLER_READY_POLL_MS, remaining), signal);
+    }
+    return null;
   }
 }

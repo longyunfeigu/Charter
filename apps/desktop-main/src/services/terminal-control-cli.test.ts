@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseTerminalControlCli, TERMINAL_CONTROL_CLI_USAGE } from './terminal-control-cli.js';
+import {
+  orchestrationCliHelp,
+  parseTerminalControlCli,
+  TERMINAL_CONTROL_CLI_USAGE,
+  validateOrchestrationCliInput,
+} from './terminal-control-cli.js';
 
 describe('terminal-control CLI parser', () => {
   it('treats help flags as documentation instead of creating a terminal', () => {
@@ -67,6 +72,58 @@ describe('terminal-control CLI parser', () => {
       name: 'orchestration_continue',
       input: { continuationId: 'continuation-1' },
     });
+  });
+
+  it('serves command-specific orchestration help without contacting Charter', () => {
+    expect(parseTerminalControlCli(['orchestration', 'delegate', '--help', '--json'])).toEqual({
+      kind: 'orchestration-help',
+      command: 'delegate',
+      json: true,
+    });
+    const help = orchestrationCliHelp('delegate');
+    expect(help.description).toMatch(/durable child/i);
+    expect(help.inputSchema).toMatchObject({ type: 'object' });
+    expect(help.example).toMatchObject({
+      goal: expect.any(String),
+      acceptanceCriteria: [],
+      requestedRuntime: 'managed',
+      workMode: 'auto',
+    });
+  });
+
+  it('validates and normalizes dry-run requests locally without creating an Assignment', () => {
+    const request = {
+      goal: 'Implement the API',
+      reason: 'Keep the work bounded',
+      idempotencyKey: 'api-v1',
+    };
+    expect(
+      parseTerminalControlCli([
+        'orchestration',
+        'delegate',
+        '--request-json',
+        JSON.stringify(request),
+        '--dry-run',
+      ]),
+    ).toEqual({ kind: 'dry-run', command: 'delegate', input: request });
+    expect(validateOrchestrationCliInput('delegate', request)).toEqual({
+      ok: true,
+      command: 'delegate',
+      normalizedInput: {
+        ...request,
+        acceptanceCriteria: [],
+        requestedRuntime: 'managed',
+        workMode: 'auto',
+      },
+    });
+
+    const invalid = validateOrchestrationCliInput('delegate', { goal: '' });
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) {
+      expect(invalid.issues.map((issue) => issue.path)).toEqual(
+        expect.arrayContaining(['goal', 'reason', 'idempotencyKey']),
+      );
+    }
   });
 
   it('fails before contacting Charter when required arguments are missing', () => {

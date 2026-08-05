@@ -6,11 +6,33 @@ const ORCHESTRATION_COMMAND_HELP = ORCHESTRATION_COMMAND_REGISTRY.map(
 
 export const CHARTER_ORCHESTRATION_SKILL = `---
 name: charter-orchestration
-description: Coordinate durable recursive Charter Missions. Use when work benefits from independently verifiable delegation, parallel agents, a specialist runtime, or independent review. Every Mission member may delegate directly through orchestration tools or the charter CLI.
+description: Promote an ordinary Charter Session into a durable recursive Mission when semantic task analysis identifies independently verifiable delegation, useful parallel agents, a specialist runtime, or independent review. Existing Mission members use it for structured coordination.
 disable-model-invocation: false
 ---
 
 # Charter Mission orchestration
+
+## Session promotion
+
+Every task begins as an ordinary Session. Do not promote solely because a keyword such as “Mission”
+appears. Understand the requested outcome, boundaries, roles, and dependency structure first. When
+one or more independently verifiable delegated workstreams materially improve the result, call
+\`orchestration.promote\` (or \`charter orchestration promote ...\`) with the complete child plan. A
+successful call immediately upgrades the current Session to Mission Lead and starts the validated
+workers; there is no confirmation step. Never promote when the user prohibited Mission
+orchestration. If the work is small, tightly sequential, or depends on one undivided context, remain
+an ordinary Session.
+
+The promotion plan must name bounded child goals, acceptance criteria, runtime, work mode, write
+scope, dependencies, reasons, and stable idempotency keys. The host validates runtime availability,
+dependency aliases, worktree compatibility, and its worker budget before creating any visible
+Mission state. If promotion fails, continue the ordinary Session or adjust the plan from the returned
+structured error. Never emulate promotion with \`terminal_create\`.
+
+If this Session is already attached as a Mission Lead or worker, begin with
+\`orchestration.inspect\` (or \`charter orchestration inspect --json\`) and do not call promote again.
+Create additional members only with \`orchestration.delegate\` or \`delegate_many\`; never replace
+Mission Assignments with \`terminal_create\`, \`charter-terminal create\`, or terminal-output polling.
 
 Charter Missions are a durable team protocol. A Mission contains a Task dependency graph, an
 Assignment responsibility tree, and one active execution Attempt per Assignment. Runtime lifetime
@@ -28,6 +50,13 @@ Before delegating, call \`orchestration.inspect\`. Every child request must incl
 acceptance criteria, dependencies, expected evidence, work mode, why delegation is useful, and a
 stable idempotency key. Choose \`read-only\` for research/review, \`isolated-write\` for parallel code
 changes, and \`shared-write\` only when coordination is explicit.
+
+The default \`auto\` work mode selects \`shared-write\` when the Lead supplies a concrete file
+\`writeScope\`, and \`isolated-write\` otherwise. In \`delegate_many\`, give children stable \`key\`
+values and express same-batch dependencies with \`dependsOn\`; Charter resolves those aliases
+atomically. When isolated writers are present, the default integration plan creates a blocked
+shared-write Integration Assignment after them. Set \`integration.mode\` to \`none\` only when the
+Lead has an explicit alternative integration contract.
 
 Every Mission member may delegate recursively. If you are B and discover bounded work D, create D
 yourself with \`orchestration.delegate\`; never ask A to proxy the operation.
@@ -53,6 +82,12 @@ Claude Code/Codex/ACP Session at a safe idle boundary. The injected resume promp
 \`continue\` idempotently before work proceeds. \`wait\` and \`join\` remain compatibility tools for
 short bounded waits; never repeat them in a polling loop.
 
+The compact \`inspect\` response includes the current Assignment, Task graph, unread messages, and
+the host runtime catalog. Never infer runtime availability from Mission principals. Do not create
+test Assignments to discover a schema. Native tools expose their input schema; on the CLI use
+\`charter orchestration <command> --help --json\` and validate zero-side-effect requests with
+\`--dry-run\` before the real call.
+
 ## Command surface
 
 ${ORCHESTRATION_COMMAND_HELP}
@@ -77,6 +112,8 @@ controls itself. Peers cannot pause, cancel, steer, retry, or reassign one anoth
 
 \`\`\`bash
 charter orchestration inspect --json
+charter orchestration delegate_many --help --json
+charter orchestration delegate_many --request-file children.json --dry-run --json
 charter orchestration delegate_many --request-file children.json --json
 charter orchestration message --to assign_123 --subject "API ready" --body-file note.md --json
 charter orchestration request --request-file agent-review.json --json
@@ -94,9 +131,11 @@ screen/process control, but terminal text, quiet output, or process exit never c
 
 export const CHARTER_ORCHESTRATION_PREAMBLE = `## Charter Mission orchestration
 
-When a bounded subproblem is independently verifiable, parallelizable, suited to another runtime,
-or needs independent review, load the charter-orchestration Skill. Every Mission member may call
-orchestration.delegate recursively; a child does not ask its parent to proxy delegation. Use
-structured message/request/park/progress/complete operations, and never infer completion from terminal
-quiet or process exit. After a successful park call, end the current turn; Charter resumes the same
-Session when committed conditions match.`;
+Every task begins as an ordinary Session. Use semantic task analysis rather than keyword matching.
+When independently verifiable delegation, parallel agents, a specialist runtime, or independent
+review materially improves the outcome, call orchestration.promote with a complete validated worker
+plan. Promotion starts immediately; never call it when the user prohibited Mission orchestration.
+If already attached to a Mission, begin with orchestration.inspect and delegate recursively through
+orchestration tools. Use structured message/request/park/progress/complete operations, never terminal
+output polling. After a successful park call, end the turn; Charter resumes the same Session when
+committed conditions match.`;

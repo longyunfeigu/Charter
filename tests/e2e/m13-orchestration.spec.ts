@@ -97,7 +97,7 @@ function createExternalDriver(): { bin: string; executable: string; probe: strin
       '}',
       'async function main() {',
       "  console.log('external-orchestration-driver-ready');",
-      "  await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake-codex', version: '1' } });",
+      "  const initialized = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake-codex', version: '1' } });",
       "  mcp.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\\n');",
       "  const listed = await rpc('tools/list');",
       '  await ready();',
@@ -107,7 +107,7 @@ function createExternalDriver(): { bin: string; executable: string; probe: strin
       "  const sent = await call('terminal_send', { id, text: \"printf 'EXTERNAL_ORCH_OK\\\\n'\", submit: true });",
       "  const waited = await call('terminal_wait', { id, mode: 'command', timeoutMs: 10000, quietMs: 500 });",
       "  const read = await call('terminal_read', { id, maxBytes: 4096 });",
-      '  fs.writeFileSync(probe, JSON.stringify({ tools: listed.tools.map((tool) => tool.name), workerId: id, created, sent, waited, read }));',
+      '  fs.writeFileSync(probe, JSON.stringify({ instructions: initialized.instructions, tools: listed.tools.map((tool) => tool.name), workerId: id, created, sent, waited, read }));',
       "  console.log('external-orchestration-driver-done');",
       '  mcp.kill();',
       '}',
@@ -608,6 +608,7 @@ test.describe('M13 session orchestration', () => {
         await expect(pendingPermission(page, toolName)).toHaveCount(0);
       }
       const result = JSON.parse(readFileSync(driver.probe, 'utf8')) as {
+        instructions: string;
         tools: string[];
         workerId: string;
         created: { ok: boolean };
@@ -615,6 +616,9 @@ test.describe('M13 session orchestration', () => {
         waited: { ok: boolean; data?: { exitCode?: number } };
         read: { ok: boolean; data?: { content?: string } };
       };
+      expect(result.instructions).toContain('host-provided context');
+      expect(result.instructions).toContain('orchestration_inspect');
+      expect(result.instructions.toLowerCase()).toContain('do not substitute terminal_create');
       expect(result.tools).toEqual([
         'terminal_list',
         'terminal_create',
@@ -622,6 +626,7 @@ test.describe('M13 session orchestration', () => {
         'terminal_wait',
         'terminal_read',
         'terminal_kill',
+        'orchestration_promote',
         'orchestration_inspect',
         'orchestration_sync',
         'orchestration_delegate',

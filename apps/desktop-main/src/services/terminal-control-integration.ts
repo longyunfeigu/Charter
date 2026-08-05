@@ -16,9 +16,9 @@ export interface TerminalControlIntegration {
   mcpServerPath: string;
   nodeExecutable: string;
   environment(basePath?: string): Record<string, string>;
-  /** Real user-installed CLI. Product sessions never pay an MCP bootstrap tax. */
+  /** Real user-installed CLI used when orchestration is disabled or unsupported. */
   executableFor(launch: string): string | null;
-  /** Explicit compatibility launcher for clients that require MCP tools. */
+  /** Host-context launcher used by orchestration-enabled product Sessions. */
   mcpExecutableFor(launch: string): string | null;
 }
 
@@ -73,10 +73,10 @@ function writeExecutable(path: string, content: string): void {
   chmodSync(path, 0o700);
 }
 
-/** Install the lightweight `charter` CLI plus opt-in MCP compatibility
- * launchers. Ordinary claude/codex names are deliberately never shadowed:
- * native PTY sessions use the user's real executable and coordinate through
- * Skill + local CLI/RPC, matching the terminal behavior outside Charter. */
+/** Install the lightweight `charter` CLI plus explicit MCP launchers. The
+ * ordinary claude/codex names are never shadowed: Charter chooses a wrapper
+ * only for orchestration-enabled product Sessions, while hand-launched shells
+ * continue to use the user's real executable and optional Skill + CLI door. */
 export function installTerminalControlIntegration(input: {
   userData: string;
   appPath: string;

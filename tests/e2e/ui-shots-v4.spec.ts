@@ -42,7 +42,7 @@ test('shell v4 visual walk', async () => {
     await page.screenshot({ path: `${OUT}/v4-4-room-review-ready.png` });
 
     // Second task: live activity — actionable Session summary + sidebar ticker.
-    await page.getByTestId('home-new-task').click();
+    await page.getByTestId('surface-home').click();
     await page.getByTestId('home-mode-auto').click();
     await page.getByTestId('home-intent').fill('[scenario:edit-live] Live board demo task');
     await page.getByTestId('home-submit').click();

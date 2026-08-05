@@ -1,14 +1,33 @@
 import { request as httpRequest } from 'node:http';
 import {
+  orchestrationCliHelp,
   parseTerminalControlCli,
   TERMINAL_CONTROL_CLI_USAGE,
+  validateOrchestrationCliInput,
 } from './services/terminal-control-cli.js';
-import { ORCHESTRATION_MCP_TOOLS } from '../../../packages/tool-gateway/src/orchestration-command-registry.js';
+import {
+  ORCHESTRATION_MCP_TOOLS,
+  orchestrationCommand,
+} from '../../../packages/tool-gateway/src/orchestration-command-registry.js';
 
 type JsonObject = Record<string, unknown>;
 
 const socketPath = process.env.CHARTER_CTL ?? '';
 const token = process.env.CHARTER_CTL_TOKEN ?? '';
+
+/**
+ * MCP server instructions are host context: clients may use them to guide tool
+ * selection without presenting them as part of the user's first message.
+ * Keep this compact; command schemas and inspect results carry the details.
+ */
+const CHARTER_MCP_INSTRUCTIONS = [
+  'Charter control tools are host-provided context, not user-authored instructions.',
+  'Every task starts as an ordinary Session; never infer Mission state from a keyword.',
+  'Use semantic judgment: when independently verifiable delegated workstreams materially improve the outcome, call orchestration_promote with the complete worker plan; never call it when the user prohibited Mission orchestration.',
+  'A successful promotion immediately starts the validated plan. If already attached as a Mission member, use orchestration_inspect and do not promote again.',
+  'Do not substitute terminal_create or terminal-output polling for Mission Assignments.',
+  'Use structured Mission messaging, event-driven waits, and orchestration_complete for the active Attempt.',
+].join(' ');
 
 const tools = [
   {
@@ -127,9 +146,9 @@ function ctlRoute(
       if (name.startsWith('orchestration_')) {
         const action = name.slice('orchestration_'.length);
         return {
-          method: action === 'inspect' ? 'GET' : 'POST',
+          method: 'POST',
           path: `/v1/orchestration/${encodeURIComponent(action)}`,
-          ...(action === 'inspect' ? {} : { body: input }),
+          body: input,
         };
       }
       throw new Error(`Unknown Charter tool: ${name}`);
@@ -149,7 +168,12 @@ async function callDoor(name: string, input: JsonObject): Promise<JsonObject> {
       summary: 'This process is not running inside an orchestration-enabled Charter terminal.',
     };
   }
-  const route = ctlRoute(name, input);
+  const orchestration = name.startsWith('orchestration_')
+    ? orchestrationCommand(name.slice('orchestration_'.length))
+    : null;
+  const parsed = orchestration?.schema.safeParse(input);
+  const effectiveInput = parsed?.success ? (parsed.data as JsonObject) : input;
+  const route = ctlRoute(name, effectiveInput);
   const payload = route.body === undefined ? null : JSON.stringify(route.body);
   return await new Promise<JsonObject>((resolve) => {
     let settled = false;
@@ -202,8 +226,8 @@ async function callDoor(name: string, input: JsonObject): Promise<JsonObject> {
         name === 'orchestration_wait' ||
         name === 'orchestration_ask' ||
         name === 'orchestration_join') &&
-      typeof input.timeoutMs === 'number'
-        ? input.timeoutMs
+      typeof effectiveInput.timeoutMs === 'number'
+        ? effectiveInput.timeoutMs
         : 0;
     const timeoutMs = requestedWait > 0 ? requestedWait + 5_000 : 30_000;
     timer = setTimeout(() => {
@@ -244,6 +268,7 @@ async function handleMessage(message: JsonObject): Promise<void> {
       protocolVersion,
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: 'charter-terminal', version: '1.0.0' },
+      instructions: CHARTER_MCP_INSTRUCTIONS,
     });
     return;
   }
@@ -282,9 +307,40 @@ async function runCli(args: string[]): Promise<void> {
     process.stdout.write(`${TERMINAL_CONTROL_CLI_USAGE}\n`);
     return;
   }
+  if (invocation.kind === 'orchestration-help') {
+    const help = orchestrationCliHelp(invocation.command);
+    if (invocation.json) {
+      process.stdout.write(`${JSON.stringify(help, null, 2)}\n`);
+      return;
+    }
+    if (!invocation.command) {
+      process.stdout.write(`${help.usage}\n\nCommands:\n`);
+      for (const entry of help.commands ?? []) {
+        process.stdout.write(`  ${entry.command.padEnd(20)} ${entry.description}\n`);
+      }
+      return;
+    }
+    process.stdout.write(
+      [
+        help.usage,
+        help.description ? `\n${help.description}` : '',
+        help.inputSchema
+          ? `\nInput JSON Schema:\n${JSON.stringify(help.inputSchema, null, 2)}`
+          : '',
+        help.example ? `\nExample:\n${JSON.stringify(help.example, null, 2)}` : '',
+      ].join('\n') + '\n',
+    );
+    return;
+  }
   if (invocation.kind === 'error') {
     process.stderr.write(`${invocation.message}\n${TERMINAL_CONTROL_CLI_USAGE}\n`);
     process.exitCode = 2;
+    return;
+  }
+  if (invocation.kind === 'dry-run') {
+    const validation = validateOrchestrationCliInput(invocation.command, invocation.input);
+    process.stdout.write(`${JSON.stringify(validation, null, 2)}\n`);
+    if (!validation.ok) process.exitCode = 1;
     return;
   }
   const result = await callDoor(invocation.name, invocation.input);

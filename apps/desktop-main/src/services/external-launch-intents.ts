@@ -13,8 +13,8 @@ export interface ExternalLaunchIntent {
   sessionId: string | null;
   /** Composer text to deliver once the TUI is ready; null for bare launches. */
   prompt: string | null;
-  /** Direct workers receive their first prompt as an argv value. Interactive
-   * shell launches still defer a paste until their TUI has painted. */
+  /** Manifest-owned delivery: argv for clients that require it, otherwise a
+   * composer paste deferred until the Agent TUI is ready. */
   promptDelivery: 'argv' | 'deferred';
 }
 

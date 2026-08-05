@@ -11,6 +11,7 @@ import { useArchaeologyStore } from '../store/archaeologyStore.js';
 import { useEditorStore } from '../store/editorStore.js';
 import { useExternalStore } from '../store/externalStore.js';
 import { agentDisplayName } from '../store/agentCatalogStore.js';
+import { useOrchestrationStore } from '../store/orchestrationStore.js';
 import { RUNNING_TASK_STATES, useTaskStore } from '../store/taskStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useTerminalStore } from './TerminalPanel.js';
@@ -22,6 +23,7 @@ import {
   sessionHistoryMatches,
   type SessionHistoryItem,
 } from './session-history.js';
+import { visibleProjectSessionTasks } from './mission-session-visibility.js';
 
 type ProjectInspection = ChannelResponse<'project.inspect'>;
 type ProjectFile = ChannelResponse<'project.readFile'>;
@@ -35,6 +37,7 @@ const TABS: Array<{ id: ProjectCenterTab; label: string }> = [
   { id: 'changes', label: 'Changes' },
   { id: 'setup', label: 'Setup' },
 ];
+const MANUAL_REFRESH_FEEDBACK_MS = 500;
 
 function relativeTime(value: string | null, now = Date.now()): string {
   if (!value) return 'No activity yet';
@@ -188,7 +191,7 @@ function OverviewTab(props: {
       <section className="pc-metrics" aria-label="Project status">
         <button onClick={() => props.onTab('sessions')}>
           <span>Live now</span>
-          <strong>{live}</strong>
+          <strong data-testid="project-live-count">{live}</strong>
           <small>{live === 0 ? 'No agents running' : 'Open running sessions'}</small>
         </button>
         <button className={attention > 0 ? 'warn' : ''} onClick={() => props.onTab('sessions')}>
@@ -744,9 +747,14 @@ export function ProjectCenterView(): React.JSX.Element {
   const workspace = useWorkspaceStore((state) => state.workspace);
   const tasks = useTaskStore((state) => state.tasks);
   const discovered = useArchaeologyStore((state) => state.sessions);
+  const missionsById = useOrchestrationStore((state) => state.missionsById);
+  const missionOrder = useOrchestrationStore((state) => state.missionOrder);
+  const deletedMissionsById = useOrchestrationStore((state) => state.deletedMissionsById);
+  const deletedMissionOrder = useOrchestrationStore((state) => state.deletedMissionOrder);
   const [inspection, setInspection] = useState<ProjectInspection | null>(null);
   const [catalogTasks, setCatalogTasks] = useState<TaskDto[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const projectPath = center?.path ?? '';
   const projectTasks = useMemo(() => {
@@ -754,9 +762,21 @@ export function ProjectCenterView(): React.JSX.Element {
     for (const task of tasks) merged.set(task.id, task);
     return [...merged.values()].filter((task) => task.projectPath === projectPath);
   }, [catalogTasks, projectPath, tasks]);
+  const missionSnapshots = useMemo(
+    () =>
+      [...missionOrder, ...deletedMissionOrder].flatMap((id) => {
+        const snapshot = missionsById[id] ?? deletedMissionsById[id];
+        return snapshot ? [snapshot] : [];
+      }),
+    [deletedMissionOrder, deletedMissionsById, missionOrder, missionsById],
+  );
+  const projectSessionTasks = useMemo(
+    () => visibleProjectSessionTasks(projectTasks, missionSnapshots),
+    [missionSnapshots, projectTasks],
+  );
   const projectHistory = useMemo(
-    () => sessionHistoryItems(projectTasks, discovered, projectPath),
-    [discovered, projectPath, projectTasks],
+    () => sessionHistoryItems(projectSessionTasks, discovered, projectPath),
+    [discovered, projectPath, projectSessionTasks],
   );
   const current = workspace?.path === projectPath;
 
@@ -774,7 +794,28 @@ export function ProjectCenterView(): React.JSX.Element {
     if (taskResult.ok) setCatalogTasks(taskResult.data.tasks);
   }, [projectPath]);
 
+  const manualRefresh = useCallback(async (): Promise<void> => {
+    if (refreshing) return;
+    const startedAt = performance.now();
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        refresh(),
+        useArchaeologyStore.getState().scan(true),
+        useOrchestrationStore.getState().refreshMissions(),
+        useOrchestrationStore.getState().refreshDeletedMissions(),
+      ]);
+    } finally {
+      const remaining = MANUAL_REFRESH_FEEDBACK_MS - (performance.now() - startedAt);
+      if (remaining > 0) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, remaining));
+      }
+      setRefreshing(false);
+    }
+  }, [refresh, refreshing]);
+
   useEffect(() => {
+    useOrchestrationStore.getState().init();
     void refresh();
     void useArchaeologyStore.getState().scan();
   }, [refresh]);
@@ -900,12 +941,15 @@ export function ProjectCenterView(): React.JSX.Element {
             <Ic name="folder-open" size={14} />
           </button>
           <button
-            className="pc-icon-button"
-            title="Refresh project data"
-            aria-label="Refresh project data"
-            onClick={() => void refresh()}
+            className={`pc-icon-button pc-refresh-button ${refreshing ? 'is-refreshing' : ''}`}
+            title={refreshing ? 'Refreshing project data…' : 'Refresh project data'}
+            aria-label={refreshing ? 'Refreshing project data' : 'Refresh project data'}
+            aria-busy={refreshing}
+            data-testid="project-refresh"
+            disabled={refreshing}
+            onClick={() => void manualRefresh()}
           >
-            <Ic name="refresh" size={14} />
+            <Ic name="refresh" size={14} className={refreshing ? 'is-spinning' : undefined} />
           </button>
         </div>
       </header>
@@ -955,7 +999,7 @@ export function ProjectCenterView(): React.JSX.Element {
           center.tab === 'overview' ? (
             <OverviewTab
               inspection={inspection}
-              tasks={projectTasks}
+              tasks={projectSessionTasks}
               history={projectHistory}
               onTab={setTab}
               onNewSession={() => void newSession()}
