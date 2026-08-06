@@ -65,10 +65,20 @@ export function terminalLaunchCommand(
   launch: string,
   executable?: string | null,
   args: readonly string[] = [],
+  shellCommand?: string | null,
 ): string | null {
   if (launch === 'shell' || !executable) return null;
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-  return [executable, ...args].map(quote).join(' ');
+  // A normal product launch is written into the user's already-interactive
+  // login shell. Keep the host-resolved executable as the availability gate,
+  // but invoke the matching bare command so aliases/functions (proxy, nvm,
+  // custom CA, etc.) retain the same behavior as a manual terminal launch.
+  // MCP launchers remain explicit wrapper paths because they append trusted
+  // orchestration arguments. The strict equality/identifier checks keep this
+  // host-owned switch from becoming a general shell-text surface.
+  const aliasAwareCommand =
+    shellCommand === launch && /^[a-z0-9][a-z0-9_-]*$/i.test(shellCommand) ? shellCommand : null;
+  return [aliasAwareCommand ?? quote(executable), ...args.map(quote)].join(' ');
 }
 
 export class M4Services {
@@ -353,7 +363,9 @@ export function registerM4Handlers(
   externalLaunches?: ExternalLaunchIntents,
   /** ADR-0047: present once SshService is assembled; enables ssh targets. */
   remoteTerminals?: RemoteTerminalLauncher,
-  /** Host-resolved executable. Never rely on user shell PATH ordering for product launches. */
+  /** Host-resolved launch. `shellCommand`, when present, must be the exact
+   * trusted Agent id and is used only inside the already-open login shell so
+   * the user's alias/function semantics match a manual launch. */
   localAgentLaunch?: (
     launch: string,
     initialPrompt: string | null,
@@ -362,6 +374,7 @@ export function registerM4Handlers(
     args: string[];
     sessionId: string | null;
     promptDelivery: 'argv' | 'deferred';
+    shellCommand?: string | null;
   } | null,
 ): void {
   const resolveTerminalContext = async (
@@ -541,7 +554,12 @@ export function registerM4Handlers(
             prompt: userPrompt,
             promptDelivery: agentLaunch?.promptDelivery ?? 'deferred',
           });
-          const command = terminalLaunchCommand(launch, agentLaunch.executable, agentLaunch.args);
+          const command = terminalLaunchCommand(
+            launch,
+            agentLaunch.executable,
+            agentLaunch.args,
+            agentLaunch.shellCommand,
+          );
           if (command) {
             // Preserve the user's login-shell environment while the host-owned
             // launch intent waits for the Agent composer before delivery.

@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import type { Logger } from '@pi-ide/foundation';
 
 export interface TerminalControlIntegration {
@@ -73,6 +73,65 @@ function writeExecutable(path: string, content: string): void {
   chmodSync(path, 0o700);
 }
 
+/**
+ * Product launches originate inside a real PTY, but the MCP bridge needs a
+ * wrapper to append trusted arguments. Re-enter the user's interactive shell
+ * so its alias/function for the Agent remains authoritative (proxy, nvm,
+ * custom CA, etc.), while passing every product argument positionally. Unknown
+ * shells retain the previously resolved absolute executable as a safe fallback.
+ */
+function aliasAwareWrapper(
+  command: string,
+  fallbackExecutable: string,
+  fixedArgs: readonly string[],
+): string {
+  // Startup files are allowed to rebuild PATH (nvm, Homebrew, corporate
+  // shims), but Charter has already resolved the native executable selected
+  // for this launch. Put that executable's directory back at the front after
+  // rc files load: a proxy/CA alias that recursively invokes bare `codex` or
+  // `claude` keeps working without silently switching to another installation.
+  // This also preserves explicit PATH overrides used by automation and users.
+  const fallbackDir = dirname(fallbackExecutable);
+  const posixCommand = [
+    `PATH=${shellQuote(fallbackDir)}:"$PATH"`,
+    'export PATH',
+    [command, ...fixedArgs.map(shellQuote), '"$@"'].join(' '),
+  ].join('; ');
+  const fishCommand = [
+    `set -gx PATH ${shellQuote(fallbackDir)} $PATH`,
+    [command, ...fixedArgs.map(shellQuote), '$argv'].join(' '),
+  ].join('; ');
+  const fallbackCommand = [fallbackExecutable, ...fixedArgs].map(shellQuote).join(' ');
+  return [
+    '#!/bin/sh',
+    'agent_shell="${SHELL:-}"',
+    'if [ -x "$agent_shell" ]; then',
+    '  case "$agent_shell" in',
+    '    */zsh)',
+    '      # Shell-integration keeps the real user ZDOTDIR separately. Restore',
+    '      # it before starting a login shell; /var/empty is an Agent-host',
+    "      # suppression sentinel and must not hide the user's own .zshrc.",
+    '      if [ -n "${CHARTER_USER_ZDOTDIR:-}" ]; then',
+    '        case "$CHARTER_USER_ZDOTDIR" in',
+    '          /var/empty|/var/empty/|/private/var/empty|/private/var/empty/) unset ZDOTDIR ;;',
+    '          *) ZDOTDIR="$CHARTER_USER_ZDOTDIR"; export ZDOTDIR ;;',
+    '        esac',
+    '        unset CHARTER_USER_ZDOTDIR',
+    '      else',
+    '        case "${ZDOTDIR:-}" in',
+    '          /var/empty|/var/empty/|/private/var/empty|/private/var/empty/) unset ZDOTDIR ;;',
+    '        esac',
+    '      fi',
+    `      exec "$agent_shell" -lic ${shellQuote(posixCommand)} ${shellQuote(`charter-${command}-mcp`)} "$@" ;;`,
+    `    */bash) exec "$agent_shell" -ic ${shellQuote(posixCommand)} ${shellQuote(`charter-${command}-mcp`)} "$@" ;;`,
+    `    */fish) exec "$agent_shell" -ic ${shellQuote(fishCommand)} -- "$@" ;;`,
+    '  esac',
+    'fi',
+    `exec ${fallbackCommand} "$@"`,
+    '',
+  ].join('\n');
+}
+
 /** Install the lightweight `charter` CLI plus explicit MCP launchers. The
  * ordinary claude/codex names are never shadowed: Charter chooses a wrapper
  * only for orchestration-enabled product Sessions, while hand-launched shells
@@ -128,7 +187,7 @@ export function installTerminalControlIntegration(input: {
   if (claude) {
     writeExecutable(
       join(binDir, 'charter-claude-mcp'),
-      `#!/bin/sh\nexec ${shellQuote(claude)} ${shellQuote(`--mcp-config=${claudeConfigPath}`)} "$@"\n`,
+      aliasAwareWrapper('claude', claude, [`--mcp-config=${claudeConfigPath}`]),
     );
   } else {
     rmSync(join(binDir, 'charter-claude-mcp'), { force: true });
@@ -149,11 +208,18 @@ export function installTerminalControlIntegration(input: {
     const toolTimeoutConfig = 'mcp_servers.charter.tool_timeout_sec=3605';
     writeExecutable(
       join(binDir, 'charter-codex-mcp'),
-      [
-        '#!/bin/sh',
-        `exec ${shellQuote(codex)} -c ${shellQuote(commandConfig)} -c ${shellQuote(argsConfig)} -c ${shellQuote(envVarsConfig)} -c ${shellQuote(startupTimeoutConfig)} -c ${shellQuote(toolTimeoutConfig)} "$@"`,
-        '',
-      ].join('\n'),
+      aliasAwareWrapper('codex', codex, [
+        '-c',
+        commandConfig,
+        '-c',
+        argsConfig,
+        '-c',
+        envVarsConfig,
+        '-c',
+        startupTimeoutConfig,
+        '-c',
+        toolTimeoutConfig,
+      ]),
     );
   } else {
     rmSync(join(binDir, 'charter-codex-mcp'), { force: true });

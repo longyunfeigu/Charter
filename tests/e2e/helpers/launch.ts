@@ -83,7 +83,7 @@ export function packagedExecutablePath(): string {
 export async function launchApp(
   options: {
     userDataDir?: string;
-    env?: Record<string, string>;
+    env?: Record<string, string | undefined>;
     /** Dual-form shell: 'dismiss' (default) lands tests in the IDE surface; 'keep' stays on Home. */
     home?: 'dismiss' | 'keep';
     /** Record a video of the run (demo/evidence captures). */

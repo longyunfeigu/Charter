@@ -26,6 +26,12 @@ import '../styles/skills-main.css';
 
 type DrawerScope = 'all' | SkillAgent | 'custom';
 
+// Twelve rows cover a normal desktop viewport without mounting off-screen
+// copies. Search and counters still operate over the complete catalog.
+const INITIAL_VISIBLE_SKILL_GROUPS = 12;
+const SKILL_GROUP_PAGE_SIZE = 24;
+const USAGE_REFRESH_MAX_AGE_MS = 30_000;
+
 interface ReviewTooltipState {
   id: string;
   label: string;
@@ -378,6 +384,7 @@ export function SkillsView(): React.JSX.Element {
   const usage = useSkillsStore((state) => state.usage);
   const usageWindowDays = useSkillsStore((state) => state.usageWindowDays);
   const usageLoaded = useSkillsStore((state) => state.usageLoaded);
+  const usageRefreshedAt = useSkillsStore((state) => state.usageRefreshedAt);
   const loaded = useSkillsStore((state) => state.loaded);
   const init = useSkillsStore((state) => state.init);
   const refreshUsage = useSkillsStore((state) => state.refreshUsage);
@@ -391,15 +398,20 @@ export function SkillsView(): React.JSX.Element {
   const setQuery = useSkillsViewStore((state) => state.setQuery);
   const setSort = useSkillsViewStore((state) => state.setSort);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [visibleLimit, setVisibleLimit] = useState(INITIAL_VISIBLE_SKILL_GROUPS);
   const reviewTooltip = useReviewTooltip();
 
   useEffect(() => {
     init();
-    // Usage is mutable evidence, not catalog state. The global store is
-    // initialized at app startup, so entering this page must explicitly pull
-    // a fresh snapshot or a skill run moments ago still reads as unused.
-    void refreshUsage();
-  }, [init, refreshUsage]);
+    // Transcript evidence can involve thousands of host files. Let the Skills
+    // shell paint first, and reuse a recent snapshot when navigating away and
+    // back instead of restarting that work on every click.
+    if (usageRefreshedAt !== null && Date.now() - usageRefreshedAt < USAGE_REFRESH_MAX_AGE_MS) {
+      return;
+    }
+    const idleId = window.requestIdleCallback(() => void refreshUsage(), { timeout: 1_000 });
+    return () => window.cancelIdleCallback(idleId);
+  }, [init, refreshUsage, usageRefreshedAt]);
 
   const groups = useMemo(
     () => groupSkills(skills, usage, usageLoaded),
@@ -416,6 +428,10 @@ export function SkillsView(): React.JSX.Element {
     () => filterSkillGroups(scopedGroups, { status, agent: 'all', query, sort }),
     [query, scopedGroups, sort, status],
   );
+  const renderedGroups = useMemo(() => visible.slice(0, visibleLimit), [visible, visibleLimit]);
+  useEffect(() => {
+    setVisibleLimit(INITIAL_VISIBLE_SKILL_GROUPS);
+  }, [agent, query, sort, status]);
   const selectedAgent =
     agent === 'all' ? null : (skillAgents.find((item) => item.id === agent) ?? null);
   const usageAgents = selectedAgent ? [selectedAgent] : skillAgents;
@@ -511,7 +527,7 @@ export function SkillsView(): React.JSX.Element {
               </tr>
             </thead>
             <tbody>
-              {visible.map((group) => {
+              {renderedGroups.map((group) => {
                 const last = lastUsedLabel(group.lastUsedAt, now);
                 const allOff = group.copies.every((copy) => !isAgentEnabled(copy));
                 const reviewSummary = groupReviewSummary(group);
@@ -602,6 +618,22 @@ export function SkillsView(): React.JSX.Element {
               })}
             </tbody>
           </table>
+          {renderedGroups.length < visible.length ? (
+            <button
+              className="skills-show-more"
+              data-testid="skills-show-more"
+              onClick={() =>
+                setVisibleLimit((current) =>
+                  Math.min(visible.length, current + SKILL_GROUP_PAGE_SIZE),
+                )
+              }
+            >
+              <strong>
+                Show {Math.min(SKILL_GROUP_PAGE_SIZE, visible.length - renderedGroups.length)} more
+              </strong>
+              <span>{visible.length - renderedGroups.length} remaining</span>
+            </button>
+          ) : null}
           {loaded && visible.length === 0 ? (
             <div className="skills-empty">
               <strong>No Skills in this view</strong>

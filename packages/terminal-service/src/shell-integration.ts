@@ -160,6 +160,18 @@ function shellBasename(shell: string): string {
     .replace(/^-/, '');
 }
 
+/** Agent hosts and automation terminals commonly set ZDOTDIR to the system's
+ * empty account directory so their own non-interactive shell skips user rc
+ * files. That sentinel belongs to the parent host, not to a new visible
+ * Charter terminal: carrying it forward silently drops the user's aliases and
+ * proxy wrappers. Preserve every real custom ZDOTDIR, but treat the two macOS
+ * spellings of the empty-directory sentinel as absent. */
+function userZdotdir(value: string | undefined): string | null {
+  if (!value) return null;
+  const normalized = value.replace(/\/+$/, '');
+  return normalized === '/var/empty' || normalized === '/private/var/empty' ? null : value;
+}
+
 /**
  * Map (shell, config) → spawn args/env. Pure so tests can cover the whole
  * degradation matrix without a PTY.
@@ -174,7 +186,8 @@ export function shellIntegrationSpawn(
   const name = shellBasename(shell);
   if (name === 'zsh') {
     const env: Record<string, string> = { ZDOTDIR: `${config.dir}/zsh` };
-    if (baseEnv.ZDOTDIR) env.CHARTER_USER_ZDOTDIR = baseEnv.ZDOTDIR;
+    const configuredZdotdir = userZdotdir(baseEnv.ZDOTDIR);
+    if (configuredZdotdir) env.CHARTER_USER_ZDOTDIR = configuredZdotdir;
     return { args: [], env, injected: true };
   }
   if (name === 'bash') {

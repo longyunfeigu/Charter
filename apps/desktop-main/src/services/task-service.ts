@@ -78,6 +78,10 @@ import type { SkillUsageEvent } from './skill-usage.js';
 import type { WorkspaceHost } from './workspace-host.js';
 import type { SettingsService } from './settings-service.js';
 import type { TerminalControlService } from './terminal-control-service.js';
+import {
+  rehomeCrossTaskTerminalRunToolCalls,
+  terminalControlRunId,
+} from './terminal-control-run.js';
 import type { SkillStore } from './skill-store.js';
 import { workspaceDataDir, type AppPaths } from '../app-paths.js';
 import { ProjectContexts, type ProjectContext } from './project-contexts.js';
@@ -590,7 +594,7 @@ export class TaskService {
    * tool_calls requires one for the same durable audit/permission pipeline. */
   ensureTerminalControlRun(taskId: string, terminalId: string): string {
     this.getTask(taskId);
-    const runId = `terminal:${terminalId}`;
+    const runId = terminalControlRunId(taskId, terminalId);
     this.db
       .prepare(
         `INSERT OR IGNORE INTO agent_runs
@@ -3771,6 +3775,8 @@ export class TaskService {
           )
           .run(externalCli, externalSessionId, new Date().toISOString());
       }
+
+      rehomeCrossTaskTerminalRunToolCalls(this.db, taskId);
 
       const statements: Array<{ sql: string; params?: string[] }> = [
         {

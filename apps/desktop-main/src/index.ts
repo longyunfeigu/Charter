@@ -735,14 +735,8 @@ if (!gotLock) {
         appPath: app.getAppPath(),
         logger: logger.child('terminal-mcp'),
       });
-      const resolveVisibleAgentExecutable = (launch: string): string | null => {
-        const explicitMcpCompatibility =
-          process.env.PI_IDE_VISIBLE_MCP === '1' || process.env.PI_IDE_ACP === '1';
-        return (
-          (explicitMcpCompatibility ? terminalIntegration?.mcpExecutableFor(launch) : null) ??
-          agentRegistryRef!.executableFor(launch)
-        );
-      };
+      const explicitVisibleMcp =
+        process.env.PI_IDE_VISIBLE_MCP === '1' || process.env.PI_IDE_ACP === '1';
       const resolveVisibleAgentLaunch = (launch: string, initialPrompt: string | null) => {
         const sessionId = agentRegistryRef!.preassignSessionId(launch) ? randomUUID() : null;
         const spec = agentRegistryRef!.launchSpec(launch, {
@@ -750,14 +744,20 @@ if (!gotLock) {
           sessionId,
         });
         if (!spec) return null;
+        const orchestrationExecutable =
+          settings.effective.orchestration.enabled || explicitVisibleMcp
+            ? terminalIntegration?.mcpExecutableFor(launch)
+            : null;
+        const executable =
+          orchestrationExecutable ?? agentRegistryRef!.executableFor(launch) ?? spec.executable;
         return {
           ...spec,
-          executable:
-            (settings.effective.orchestration.enabled
-              ? terminalIntegration?.mcpExecutableFor(launch)
-              : null) ??
-            resolveVisibleAgentExecutable(launch) ??
-            spec.executable,
+          executable,
+          // The MCP wrapper already re-enters the user's interactive shell.
+          // Direct visible Sessions can invoke the trusted bare Agent id in
+          // their existing login shell, allowing the same alias/function a
+          // manual zsh launch would use.
+          shellCommand: executable === orchestrationExecutable ? null : launch,
         };
       };
       const missionVirtualTasks = new Map<string, string>();

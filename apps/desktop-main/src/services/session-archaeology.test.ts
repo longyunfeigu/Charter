@@ -526,6 +526,32 @@ describe('SessionArchaeologyService.scan (read-only fs discovery)', () => {
     ]);
   });
 
+  it('shares transcript parsing between concurrent archive and usage scans', async () => {
+    const service = new SessionArchaeologyService({
+      logger: silentLogger,
+      homeDir: await fakeHome(),
+      knownSessions: () => new Map(),
+      projects: () => [],
+    });
+    const internals = service as unknown as {
+      summarizeOnce(candidate: unknown): Promise<unknown>;
+    };
+    const summarizeOnce = internals.summarizeOnce.bind(service);
+    let parseCount = 0;
+    internals.summarizeOnce = async (candidate) => {
+      parseCount += 1;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return summarizeOnce(candidate);
+    };
+
+    await Promise.all([service.scan(), service.skillUsageEvents()]);
+
+    // fakeHome contains two UUID-named Claude files (one reduces to no human
+    // turns) and one in-window Codex transcript. Each is parsed once even
+    // though both consumers request it at the same time.
+    expect(parseCount).toBe(3);
+  });
+
   it('discovers a manifest-selected Kimi history store', async () => {
     const home = await mkdtemp(join(tmpdir(), 'arch-kimi-'));
     const dataHome = join(home, '.kimi-code');

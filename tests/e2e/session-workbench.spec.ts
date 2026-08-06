@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { chmodSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MIGRATIONS, openDatabase } from '@pi-ide/persistence';
 import { launchApp } from './helpers/launch';
 import { createGitFixture } from './helpers/fixtures';
 import { waitForTerminalOutput } from './helpers/terminal';
@@ -88,6 +89,110 @@ test.describe('Session Rail Workbench', () => {
     } finally {
       await app.close();
     }
+  });
+
+  test('deletes a legacy Session whose terminal run is shared with a reattached Session', async () => {
+    const fixture = realpathSync(createGitFixture());
+    const userDataDir = mkdtempSync(join(tmpdir(), 'charter-delete-shared-run-'));
+    const seeded = openDatabase({
+      file: join(userDataDir, 'app.db'),
+      migrations: MIGRATIONS,
+      backupDir: join(userDataDir, 'backups'),
+    }).db;
+    const now = new Date().toISOString();
+    seeded
+      .prepare(
+        `INSERT INTO workspaces
+         (id, canonical_path, display_name, last_opened_at, created_at)
+         VALUES ('ws-shared', ?, 'Shared run fixture', ?, ?)`,
+      )
+      .run(fixture, now, now);
+    for (const [taskId, title] of [
+      ['task-shared-owner', 'Delete shared-run owner'],
+      ['task-reattached', 'Keep reattached session'],
+    ] as const) {
+      seeded
+        .prepare(
+          `INSERT INTO tasks
+           (id, workspace_id, title, goal_md, mode, state, model_json, created_at, updated_at, external_json)
+           VALUES (?, 'ws-shared', ?, '', 'edit', 'REVIEW_READY', ?, ?, ?, ?)`,
+        )
+        .run(
+          taskId,
+          title,
+          JSON.stringify({ providerId: 'external', modelId: 'claude' }),
+          now,
+          now,
+          JSON.stringify({
+            cli: 'claude',
+            terminalId: 'term-shared',
+            cwd: fixture,
+            snapshotRef: null,
+            status: 'ended',
+            captureGrade: 'observed',
+            sessionId: null,
+          }),
+        );
+    }
+    seeded
+      .prepare(
+        `INSERT INTO agent_runs (id, task_id, state, provider, model, started_at)
+         VALUES ('terminal:term-shared', 'task-shared-owner', 'STREAMING', 'external', 'terminal-control', ?)`,
+      )
+      .run(now);
+    for (const [callId, taskId] of [
+      ['call-owner', 'task-shared-owner'],
+      ['call-reattached', 'task-reattached'],
+    ] as const) {
+      seeded
+        .prepare(
+          `INSERT INTO tool_calls
+           (id, run_id, task_id, name, state, input_json, created_at)
+           VALUES (?, 'terminal:term-shared', ?, 'orchestration.inspect', 'SUCCEEDED', '{}', ?)`,
+        )
+        .run(callId, taskId, now);
+    }
+    seeded.close();
+
+    const { app, page } = await launchApp({
+      userDataDir,
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+      home: 'keep',
+    });
+    try {
+      await page.getByTestId('surface-home').click();
+      await expect(page.getByTestId('home-view')).toBeVisible();
+      const row = page.getByTestId('home-task-task-shared-owner');
+      await expect(row).toBeVisible();
+      await row.hover();
+      const remove = page.getByTestId('home-delete-task-shared-owner');
+      await remove.click();
+      await expect(remove).toHaveAttribute('aria-label', 'Click again to permanently delete');
+      await remove.click();
+
+      await expect(page.getByText('Session permanently deleted.')).toBeVisible();
+      await expect(row).toHaveCount(0);
+      await expect(page.getByTestId('home-task-task-reattached')).toBeVisible();
+    } finally {
+      await app.close();
+    }
+
+    const verified = openDatabase({
+      file: join(userDataDir, 'app.db'),
+      migrations: MIGRATIONS,
+      backupDir: join(userDataDir, 'backups'),
+    }).db;
+    expect(
+      verified.prepare("SELECT id FROM tool_calls WHERE id = 'call-reattached'").get(),
+    ).toEqual({ id: 'call-reattached' });
+    expect(
+      verified
+        .prepare(
+          "SELECT task_id FROM agent_runs WHERE id = 'terminal:term-shared:task:task-reattached'",
+        )
+        .get(),
+    ).toEqual({ task_id: 'task-reattached' });
+    verified.close();
   });
 
   test('keeps Sessions present across Agent choice and in-room editing', async () => {

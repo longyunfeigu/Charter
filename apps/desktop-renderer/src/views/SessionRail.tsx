@@ -22,7 +22,6 @@ import { SkillsRailPanel } from './SkillsRailPanel.js';
 import { MemoryRailPanel } from './MemoryRailPanel.js';
 import { useGlowTasks } from './useGlow.js';
 import { sessionDisplayTitle } from '../store/sessionAttention.js';
-import { useArchaeologyStore } from '../store/archaeologyStore.js';
 import { useOrchestrationStore } from '../store/orchestrationStore.js';
 import {
   ACTIVE_SESSION_GROUP_LIMIT,
@@ -843,10 +842,6 @@ export function SessionRail(): React.JSX.Element {
   const [railWidth, setRailWidth] = useState(railWidthRef.current);
   const [railResizing, setRailResizing] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  // ADR-0038: discovered external conversations (read-only ~/.claude/~/.codex
-  // sweep). The global archive belongs to Sessions; Projects only consumes
-  // project-attributed counts.
-  const discovered = useArchaeologyStore((s) => s.sessions);
   const refreshRecent = (): void => {
     void rpcResult('workspace.recent', {}).then((result) => {
       if (result.ok) setRecent(result.data.items);
@@ -875,7 +870,6 @@ export function SessionRail(): React.JSX.Element {
     terminalStore.init();
     useExternalStore.getState().init();
     useOrchestrationStore.getState().init();
-    void useArchaeologyStore.getState().scan();
     refreshRecent();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceStore.workspace?.path]);
@@ -1684,7 +1678,7 @@ export function SessionRail(): React.JSX.Element {
       className={`sr-session-archive ${placement} ${app.archaeology ? 'active' : ''}`}
       data-testid="rail-session-archive"
       aria-label={`Session Archive, ${allEntries.length} sessions`}
-      title={`${tasks.length} tracked · ${discovered.filter((session) => !session.trackedTaskId).length} external`}
+      title={`${tasks.length} tracked · opens tracked and external history`}
       onClick={() => {
         app.openArchaeology(null);
         if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(false);

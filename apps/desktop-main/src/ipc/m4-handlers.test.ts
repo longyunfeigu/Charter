@@ -23,4 +23,19 @@ describe('terminalLaunchCommand (product-owned launch presets)', () => {
       `'${wrapper.replaceAll("'", "'\\''")}' '--mode' 'user'\\''s choice'`,
     );
   });
+
+  it('uses the trusted bare Agent command so the interactive shell can expand its alias', () => {
+    expect(
+      terminalLaunchCommand('codex', '/Users/edy/.local/bin/codex', ['--model', 'gpt-5'], 'codex'),
+    ).toBe("codex '--model' 'gpt-5'");
+  });
+
+  it('falls back to the resolved executable for mismatched or unsafe shell commands', () => {
+    expect(terminalLaunchCommand('codex', '/usr/local/bin/codex', [], 'claude')).toBe(
+      "'/usr/local/bin/codex'",
+    );
+    expect(terminalLaunchCommand('codex', '/usr/local/bin/codex', [], 'codex; touch /tmp/x')).toBe(
+      "'/usr/local/bin/codex'",
+    );
+  });
 });

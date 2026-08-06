@@ -20,6 +20,7 @@ import {
   ExternalSessionService,
 } from './external-session-service.js';
 import { ExternalLaunchIntents } from './external-launch-intents.js';
+import type { AgentRegistry } from './agent-registry.js';
 
 vi.mock('../broadcast.js', () => ({ broadcast: vi.fn(() => 0) }));
 
@@ -313,6 +314,19 @@ describe('externalResumeCommand', () => {
   it('does not turn an arbitrary detected program name into shell input', () => {
     expect(externalResumeCommand('fakeagent')).toBeNull();
     expect(externalResumeCommand('claude; rm -rf .')).toBeNull();
+  });
+
+  it('uses the trusted bare Agent id with registry argv so Resume expands the shell alias', () => {
+    const id = '924241d6-f2e8-444d-8d75-0386362bf52f';
+    const registry = {
+      sessionIdSafe: () => true,
+      resumeCommand: () => ({
+        executable: '/Users/edy/.local/bin/codex',
+        args: ['resume', id],
+      }),
+    } as Pick<AgentRegistry, 'resumeCommand' | 'sessionIdSafe'>;
+
+    expect(externalResumeCommand('codex', id, null, registry)).toBe(`codex 'resume' '${id}'`);
   });
 });
 

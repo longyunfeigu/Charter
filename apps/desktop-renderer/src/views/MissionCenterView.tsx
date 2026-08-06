@@ -24,8 +24,6 @@ export function MissionCenterView(): React.JSX.Element {
 
   useEffect(() => {
     useOrchestrationStore.getState().init();
-    void useOrchestrationStore.getState().refreshMissions();
-    void useOrchestrationStore.getState().refreshDeletedMissions();
   }, []);
 
   const selected = selectedId ? byId[selectedId] : null;

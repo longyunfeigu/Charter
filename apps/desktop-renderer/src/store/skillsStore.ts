@@ -18,6 +18,9 @@ interface SkillsStore {
   usageWindowDays: number;
   preambleOverheadTokens: number;
   usageLoaded: boolean;
+  /** Last successful evidence refresh. Catalog initialization deliberately
+   * does not populate usage because that requires walking Agent transcripts. */
+  usageRefreshedAt: number | null;
   init(): void;
   refresh(): Promise<void>;
   refreshUsage(): Promise<void>;
@@ -33,6 +36,22 @@ interface SkillsStore {
   read(id: string, relPath?: string): Promise<{ path: string; content: string } | null>;
 }
 
+let usageRefreshPromise: Promise<void> | null = null;
+let usageRefreshDirty = false;
+
+function taskEventChangesSkillUsage(event: { type: string; payload: unknown }): boolean {
+  const payload =
+    event.payload && typeof event.payload === 'object'
+      ? (event.payload as Record<string, unknown>)
+      : {};
+  if (event.type === 'user.message') {
+    return typeof payload.text === 'string' && /^\s*\/skill:[^\s]+(?:\s|$)/i.test(payload.text);
+  }
+  return (
+    event.type === 'tool.call' && payload.name === 'load_skill' && payload.state === 'SUCCEEDED'
+  );
+}
+
 export const useSkillsStore = create<SkillsStore>((set, get) => ({
   skills: [],
   sources: [],
@@ -42,16 +61,27 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
   usageWindowDays: 45,
   preambleOverheadTokens: 0,
   usageLoaded: false,
+  usageRefreshedAt: null,
 
   init() {
     if (get().initialized) return;
     set({ initialized: true });
     onEvent('skills.changed', () => {
       void get().refresh();
-      void get().refreshUsage();
+      // Catalog discovery emits during startup. Do not let that eagerly start
+      // the expensive transcript walk; once usage has actually been viewed,
+      // subsequent catalog changes can keep the evidence projection current.
+      if (get().usageLoaded) {
+        if (usageRefreshPromise) usageRefreshDirty = true;
+        void get().refreshUsage();
+      }
+    });
+    onEvent('task.event', ({ event }) => {
+      if (!taskEventChangesSkillUsage(event)) return;
+      set({ usageRefreshedAt: null });
+      if (usageRefreshPromise) usageRefreshDirty = true;
     });
     void get().refresh();
-    void get().refreshUsage();
   },
 
   async refresh() {
@@ -60,15 +90,31 @@ export const useSkillsStore = create<SkillsStore>((set, get) => ({
   },
 
   async refreshUsage() {
-    // Silent on failure: the manager stays fully usable without the insight.
-    const res = await rpcResult('skills.usage', {});
-    if (res.ok) {
-      set({
-        usage: res.data.skills,
-        usageWindowDays: res.data.windowDays,
-        preambleOverheadTokens: res.data.preambleOverheadTokens,
-        usageLoaded: true,
-      });
+    if (usageRefreshPromise) return usageRefreshPromise;
+    const refresh = (async (): Promise<void> => {
+      // Silent on failure: the manager stays fully usable without the insight.
+      const res = await rpcResult('skills.usage', {});
+      if (res.ok) {
+        set({
+          usage: res.data.skills,
+          usageWindowDays: res.data.windowDays,
+          preambleOverheadTokens: res.data.preambleOverheadTokens,
+          usageLoaded: true,
+          usageRefreshedAt: usageRefreshDirty ? null : Date.now(),
+        });
+      }
+    })();
+    usageRefreshPromise = refresh;
+    try {
+      await refresh;
+    } finally {
+      if (usageRefreshPromise === refresh) {
+        usageRefreshPromise = null;
+        if (usageRefreshDirty) {
+          usageRefreshDirty = false;
+          void get().refreshUsage();
+        }
+      }
     }
   },
 

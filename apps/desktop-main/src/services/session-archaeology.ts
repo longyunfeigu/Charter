@@ -446,6 +446,7 @@ export interface ExternalSkillUsageEvent {
 
 export class SessionArchaeologyService {
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly summarizing = new Map<string, Promise<TranscriptSummary | null>>();
   private known: DiscoveredSessionDto[] = [];
   private scanning: Promise<DiscoveredSessionDto[]> | null = null;
   private readonly collecting = new Map<number, Promise<ExternalSkillUsageEvent[]>>();
@@ -661,8 +662,19 @@ export class SessionArchaeologyService {
   }
 
   /** Parse-once cache keyed by (path, mtime, size) — a rescan re-reads only
-   * transcripts that actually changed since the last pass. */
-  private async summarize(candidate: Candidate): Promise<TranscriptSummary | null> {
+   * transcripts that actually changed since the last pass. Concurrent archive
+   * and usage scans also share the same in-flight parse. */
+  private summarize(candidate: Candidate): Promise<TranscriptSummary | null> {
+    const active = this.summarizing.get(candidate.path);
+    if (active) return active;
+    const summarizing = this.summarizeOnce(candidate).finally(() => {
+      this.summarizing.delete(candidate.path);
+    });
+    this.summarizing.set(candidate.path, summarizing);
+    return summarizing;
+  }
+
+  private async summarizeOnce(candidate: Candidate): Promise<TranscriptSummary | null> {
     try {
       const info = await stat(candidate.path);
       const cached = this.cache.get(candidate.path);

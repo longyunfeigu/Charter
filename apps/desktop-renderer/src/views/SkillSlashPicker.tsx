@@ -38,8 +38,10 @@ export function useSkillSlash(options: {
     if (!loaded) void useSkillsStore.getState().refresh();
   }, [loaded]);
   useEffect(() => {
-    if (!usageLoaded) void useSkillsStore.getState().refreshUsage();
-  }, [usageLoaded]);
+    // Usage evidence can require a large transcript walk. The composer only
+    // needs the catalog until the picker is actually opened.
+    if (open && !usageLoaded) void useSkillsStore.getState().refreshUsage();
+  }, [open, usageLoaded]);
 
   // Query = text after "/" (a pasted "/skill:" prefix matches too).
   const query = value.startsWith('/')

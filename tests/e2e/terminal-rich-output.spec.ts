@@ -137,6 +137,19 @@ test.describe('rich agent terminal output', () => {
         NO_COLOR: '1',
         FORCE_COLOR: '0',
         CLICOLOR: '0',
+        // Reproduce an app launched from an Agent/ADE host: it suppresses
+        // shell rc files and carries no usable proxy. The real Codex request
+        // can pass only if Charter restores the user's zsh alias itself.
+        ZDOTDIR: '/var/empty',
+        CHARTER_USER_ZDOTDIR: '/var/empty',
+        HTTP_PROXY: undefined,
+        HTTPS_PROXY: undefined,
+        ALL_PROXY: undefined,
+        NO_PROXY: undefined,
+        http_proxy: undefined,
+        https_proxy: undefined,
+        all_proxy: undefined,
+        no_proxy: undefined,
       },
       home: 'keep',
     });

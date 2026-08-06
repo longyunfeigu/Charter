@@ -22,6 +22,14 @@ describe('shellIntegrationSpawn (ADR-0021)', () => {
     expect(plan.env).not.toHaveProperty('CHARTER_USER_ZDOTDIR');
   });
 
+  it('does not mistake an Agent-host ZDOTDIR suppression sentinel for user configuration', () => {
+    for (const sentinel of ['/var/empty', '/var/empty/', '/private/var/empty']) {
+      const plan = shellIntegrationSpawn('/bin/zsh', READY, { ZDOTDIR: sentinel });
+      expect(plan.env.ZDOTDIR).toBe('/data/shell-integration/zsh');
+      expect(plan.env).not.toHaveProperty('CHARTER_USER_ZDOTDIR');
+    }
+  });
+
   it('login-shell style name (-zsh) still matches', () => {
     expect(shellIntegrationSpawn('-zsh', READY, {}).injected).toBe(true);
   });

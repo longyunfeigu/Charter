@@ -360,7 +360,11 @@ export function externalResumeCommand(
     const resolved = registry.resumeCommand(cli, id);
     if (!resolved) return null;
     const home = cli === 'codex' && codexHome ? `CODEX_HOME=${shellQuote(codexHome)} ` : '';
-    return `${home}${[resolved.executable, ...resolved.args].map(shellQuote).join(' ')}`;
+    // Registry resolution remains the availability/security gate, while the
+    // command typed into the existing interactive shell stays bare so the
+    // user's alias/function is honored on Resume as well as New Session.
+    const command = /^[a-z0-9][a-z0-9_-]*$/i.test(cli) ? cli : shellQuote(resolved.executable);
+    return `${home}${[command, ...resolved.args.map(shellQuote)].join(' ')}`;
   }
   const id = sessionId && isSafeCliSessionId(sessionId) ? sessionId : null;
   if (cli === 'claude') return id ? `claude --resume ${id}` : 'claude --continue';

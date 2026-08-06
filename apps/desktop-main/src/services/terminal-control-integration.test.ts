@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -56,6 +57,8 @@ describe('terminal control external CLI integration', () => {
       join(sourceBin, 'claude'),
     );
     const codexWrapper = readFileSync(join(integration!.binDir, 'charter-codex-mcp'), 'utf8');
+    expect(codexWrapper).toContain('"$agent_shell" -lic');
+    expect(codexWrapper).toContain("'charter-codex-mcp'");
     expect(codexWrapper).toContain('mcp_servers.charter.command');
     expect(codexWrapper).toContain(
       'mcp_servers.charter.env_vars=["CHARTER_CTL","CHARTER_CTL_TOKEN"]',
@@ -73,6 +76,100 @@ describe('terminal control external CLI integration', () => {
     expect(config.mcpServers.charter.command).toBe(join(sourceBin, 'node'));
     expect(config.mcpServers.charter.args).toEqual([integration!.mcpServerPath]);
   });
+
+  it.skipIf(process.platform === 'win32' || !existsSync('/bin/bash'))(
+    'runs the user shell alias and appends trusted MCP arguments positionally',
+    () => {
+      const root = mkdtempSync(join(tmpdir(), 'charter-terminal-alias-'));
+      roots.push(root);
+      const sourceBin = join(root, 'source-bin');
+      const userHome = join(root, 'home');
+      mkdirSync(sourceBin);
+      mkdirSync(userHome);
+      executable(join(sourceBin, 'node'));
+      writeFileSync(
+        join(sourceBin, 'codex'),
+        '#!/bin/sh\nprintf \'%s|%s\\n\' "${CHARTER_ALIAS_MARKER:-missing}" "$*"\n',
+        { mode: 0o700 },
+      );
+      writeFileSync(
+        join(userHome, '.bashrc'),
+        `shopt -s expand_aliases\nalias codex='CHARTER_ALIAS_MARKER=from-alias ${join(sourceBin, 'codex')}'\n`,
+      );
+      const integration = installTerminalControlIntegration({
+        userData: join(root, 'user data'),
+        appPath: root,
+        pathValue: sourceBin,
+        fallbackDirs: [],
+        logger,
+      });
+
+      const output = execFileSync(integration!.mcpExecutableFor('codex')!, ['--model', 'test'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: userHome,
+          SHELL: '/bin/bash',
+          PATH: `${sourceBin}${delimiter}/usr/bin${delimiter}/bin`,
+        },
+      });
+
+      expect(output).toContain('from-alias|');
+      expect(output).toContain('mcp_servers.charter.command=');
+      expect(output).toContain('--model test');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32' || !existsSync('/bin/zsh'))(
+    'loads the real zsh alias when the parent Agent host suppresses rc files with /var/empty',
+    () => {
+      const root = mkdtempSync(join(tmpdir(), 'charter-terminal-zsh-alias-'));
+      roots.push(root);
+      const sourceBin = join(root, 'source-bin');
+      const userHome = join(root, 'home');
+      mkdirSync(sourceBin);
+      mkdirSync(userHome);
+      executable(join(sourceBin, 'node'));
+      writeFileSync(
+        join(sourceBin, 'codex'),
+        '#!/bin/sh\nprintf \'%s|%s\\n\' "${CHARTER_ALIAS_MARKER:-missing}" "$*"\n',
+        { mode: 0o700 },
+      );
+      writeFileSync(
+        join(userHome, '.zshrc'),
+        [
+          // Real shell frameworks frequently rebuild PATH. The wrapper must
+          // still combine the alias with the executable Charter selected.
+          'export PATH=/usr/bin:/bin',
+          "alias codex='CHARTER_ALIAS_MARKER=from-real-zsh codex'",
+          '',
+        ].join('\n'),
+      );
+      const integration = installTerminalControlIntegration({
+        userData: join(root, 'user data'),
+        appPath: root,
+        pathValue: sourceBin,
+        fallbackDirs: [],
+        logger,
+      });
+
+      const output = execFileSync(integration!.mcpExecutableFor('codex')!, ['--model', 'test'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: userHome,
+          SHELL: '/bin/zsh',
+          ZDOTDIR: '/var/empty',
+          CHARTER_USER_ZDOTDIR: '/var/empty',
+          PATH: `${sourceBin}${delimiter}/usr/bin${delimiter}/bin`,
+        },
+      });
+
+      expect(output).toContain('from-real-zsh|');
+      expect(output).toContain('mcp_servers.charter.command=');
+      expect(output).toContain('--model test');
+    },
+  );
 
   it('stays disabled when no Node runtime can host the stdio bridge', () => {
     const root = mkdtempSync(join(tmpdir(), 'charter-terminal-no-node-'));

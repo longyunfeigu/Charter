@@ -118,7 +118,9 @@ test('skills: manager (toggle/audit) + "/" picker + /skill: task through the moc
     const explicitRow = page.locator('tbody tr', { hasText: 'deploy-staging' });
     await expect(explicitRow).toContainText('explicit');
     await expect(explicitRow).toContainText('no observed use');
-    await expect(page.getByTestId('skills-rail-review').locator('b')).toHaveText('1');
+    // The unused explicit Skill plus Charter's two managed control Skills are
+    // all honest review candidates in this isolated catalog.
+    await expect(page.getByTestId('skills-rail-review').locator('b')).toHaveText('3');
     await expect(row.locator('.skills-usage-rollup .codex')).toHaveAttribute(
       'title',
       'Codex observed usage',
@@ -321,9 +323,10 @@ test('skills: groups same-name Agent copies and scopes disable/delete safely', a
     await expect(row.locator('.skills-metric')).toContainText('never');
     await expect(row.locator('.skills-metric')).toContainText('0 observed');
     await expect(row).toContainText('no observed use');
-    await expect(page.locator('.skills-status-tabs')).toContainText('All 1');
+    // Claude receives Charter's two control Skills alongside design-review.
+    await expect(page.locator('.skills-status-tabs')).toContainText('All 3');
     await expect(page.locator('.skills-status-tabs')).toContainText('Observed 0');
-    await expect(page.locator('.skills-status-tabs')).toContainText('Review 1');
+    await expect(page.locator('.skills-status-tabs')).toContainText('Review 3');
 
     await page.getByTestId('skills-manage-design-review').click();
     const drawer = page.getByRole('dialog', { name: 'Manage design-review' });

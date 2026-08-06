@@ -6,6 +6,7 @@ import type { TerminalControlPort, TerminalToolCaller } from '@pi-ide/tool-gatew
 import type { TerminalManager } from '@pi-ide/terminal-service';
 import type { ToolGateway } from '@pi-ide/tool-gateway';
 import type { ExternalLaunchIntents } from './external-launch-intents.js';
+import { terminalControlRunId } from './terminal-control-run.js';
 
 export const TERMINAL_BUFFER_BYTES = 200 * 1024;
 export const DEFAULT_MAX_WORKERS = 5;
@@ -313,7 +314,7 @@ export class TerminalControlService implements TerminalControlPort {
   }): Promise<ToolResultPayload> {
     const call: ToolCallRequest = {
       callId: `ctl_${randomUUID()}`,
-      runId: `terminal:${input.terminalId}`,
+      runId: terminalControlRunId(input.taskId, input.terminalId),
       taskId: input.taskId,
       toolName: input.toolName,
       input: input.toolInput,
