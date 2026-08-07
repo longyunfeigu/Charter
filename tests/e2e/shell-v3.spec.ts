@@ -26,8 +26,9 @@ test.describe('Shell v3 — Task Room and entry consolidation', () => {
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
         timeout: 30000,
       });
-      // PIVOT-023: the chip speaks human, the machine state lives in data-state.
-      await expect(page.getByTestId('task-state')).toHaveText('Ready to review');
+      // The room title stays focused on identity; state is conveyed by the
+      // rail and the contextual review/action surfaces instead of a header chip.
+      await expect(page.getByTestId('task-state')).toBeHidden();
 
       // The rail lists what the agent touched, from recorded change events.
       await expect(page.getByTestId('task-room-file-src/index.ts')).toBeVisible();
@@ -45,7 +46,7 @@ test.describe('Shell v3 — Task Room and entry consolidation', () => {
       const close = page.getByTestId('review-close');
       if (await close.isVisible().catch(() => false)) await close.click();
       await expect(page.getByTestId('task-room')).toBeVisible();
-      await expect(page.getByTestId('task-state')).toHaveText('Settled — reply to continue');
+      await expect(page.getByTestId('task-state')).toBeHidden();
     } finally {
       await app.close();
     }

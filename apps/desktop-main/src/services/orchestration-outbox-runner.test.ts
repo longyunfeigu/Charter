@@ -319,4 +319,88 @@ describe('OrchestrationOutboxRunner fault boundaries', () => {
     runner.stop();
     opened.db.close();
   });
+
+  it('does not mark a continuation delivered before the runtime confirms turn start', async () => {
+    const opened = openDatabase({
+      file: join(dir, 'continuation-confirmed.db'),
+      backupDir: join(dir, 'backups'),
+      migrations: MIGRATIONS,
+    });
+    const at = new Date().toISOString();
+    opened.db
+      .prepare(
+        `INSERT INTO workspaces
+         (id, canonical_path, display_name, last_opened_at, created_at)
+         VALUES ('ws-1', '/repo', 'Repo', ?, ?)`,
+      )
+      .run(at, at);
+    const repository = new MissionRepository(opened.db);
+    const mission = repository.createMission({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Confirmed continuation delivery',
+      goal: 'Only commit delivery after a real runtime edge',
+      lead: {
+        principalId: 'lead',
+        kind: 'managed_agent',
+        displayName: 'Lead',
+        runtimeSessionId: 'lead-runtime',
+        requestedRuntime: 'managed',
+      },
+    });
+    const lead = mission.assignments[0]!;
+    const trigger = repository.createMessage({
+      missionId: mission.mission.id,
+      fromAssignmentId: null,
+      toAssignmentId: lead.id,
+      type: 'answer',
+      subject: 'ready',
+    });
+    const continuation = repository.armContinuation({
+      missionId: mission.mission.id,
+      ownerAssignmentId: lead.id,
+      ownerAttemptId: mission.attempts[0]!.id,
+      mode: 'any',
+      conditions: [{ kind: 'message', types: ['answer'] }],
+      cursorSequence: trigger.sequence - 1,
+      reason: 'Confirm the resumed Agent turn',
+      idempotencyKey: 'confirmed-resume',
+    });
+
+    let release: () => void = () => undefined;
+    const adapter: OrchestrationRuntimeAdapter = {
+      kind: 'managed-agent',
+      async start() {
+        throw new Error('not used');
+      },
+      async deliver() {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      },
+      async cancel() {},
+    };
+    const registry = new OrchestrationRuntimeRegistry();
+    registry.register(adapter);
+    const runner = new OrchestrationOutboxRunner(repository, registry);
+    const draining = runner.drain();
+
+    await vi.waitFor(() =>
+      expect(repository.getContinuation(continuation.continuation.id)?.state).toBe('DELIVERING'),
+    );
+    expect(repository.listResumeIntents(mission.mission.id)[0]).toMatchObject({
+      state: 'PROCESSING',
+      deliveredAt: null,
+    });
+
+    release();
+    await draining;
+    expect(repository.getContinuation(continuation.continuation.id)?.state).toBe('DELIVERED');
+    expect(repository.listResumeIntents(mission.mission.id)[0]).toMatchObject({
+      state: 'DELIVERED',
+      deliveredAt: expect.any(String),
+    });
+    runner.stop();
+    opened.db.close();
+  });
 });

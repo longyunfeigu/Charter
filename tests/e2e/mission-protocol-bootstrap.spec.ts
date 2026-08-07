@@ -21,7 +21,7 @@ function createMissionProtocolAgents(): {
     "const { spawnSync } = require('node:child_process');",
     'function call(args) {',
     "  const result = spawnSync(process.env.CHARTER_COMMAND || 'charter', args, { encoding: 'utf8', timeout: 15000 });",
-    "  return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '' };",
+    "  return { status: result.status, signal: result.signal || null, stdout: result.stdout || '', stderr: result.stderr || '', error: result.error?.message || null };",
     '}',
     'function append(probe, label, value) { fs.appendFileSync(probe, `${label}=${JSON.stringify(value)}\n`); }',
   ];
@@ -121,17 +121,14 @@ function createMissionProtocolAgents(): {
       '  }',
       '});',
       "console.log('mission-protocol-kimi-ready');",
-      "setTimeout(() => { composerReady = true; process.stdout.write('\\u001b[?2004h'); }, 1200);",
+      "setTimeout(() => { composerReady = true; process.stdout.write('\\u001b[?2004h Welcome to Kimi Code! Send /help for help information. No session yet — one will be created on your first message.'); }, 1200);",
       'process.stdin.resume();',
       'setTimeout(() => process.exit(0), 60000);',
       '',
     ].join('\n'),
   );
   for (const agent of ['claude', 'codex', 'kimi']) chmodSync(join(bin, agent), 0o755);
-  writeFileSync(
-    join(bin, '.zshenv'),
-    `export PATH=${JSON.stringify(`${bin}:${process.env.PATH ?? ''}`)}\n`,
-  );
+  writeFileSync(join(bin, '.zshenv'), `export PATH=${JSON.stringify(`${bin}:$PATH`)}\n`);
   return { bin, leadProbe, codexProbe, kimiProbe };
 }
 
@@ -250,7 +247,7 @@ test('a deferred-prompt Codex Session can promote on its first control call', as
       status: number | null;
       stdout: string;
     };
-    expect(call.status).toBe(0);
+    expect(call, JSON.stringify(call)).toMatchObject({ status: 0 });
     expect(JSON.parse(call.stdout)).toMatchObject({ ok: true });
     expect(optionalText(agents.codexProbe)).not.toContain('[Charter Mission launch]');
   } finally {

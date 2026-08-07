@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Charter · Local and Remote Agent Hosts</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f6f4ef;
+      --paper-2: #fbfaf7;
+      --panel: #f0eee8;
+      --ink: #24231f;
+      --muted: #77736b;
+      --faint: #a19c92;
+      --line: #dedbd2;
+      --line-strong: #c8c3b8;
+      --black: #22211e;
+      --remote: #315f91;
+      --remote-soft: #e9f1f8;
+      --remote-line: #b7cce0;
+      --local: #676057;
+      --local-soft: #efede8;
+      --green: #34805b;
+      --orange: #dd765c;
+      --shadow: 0 20px 60px rgba(41, 37, 31, .10), 0 2px 8px rgba(41, 37, 31, .05);
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --serif: Iowan Old Style, Charter, Georgia, serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; }
+    body {
+      min-width: 1040px;
+      overflow: hidden;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 71% 28%, rgba(255,255,255,.96), transparent 34%),
+        var(--paper);
+      font-family: var(--sans);
+      font-size: 13px;
+    }
+
+    button, textarea { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, textarea:focus-visible { outline: 2px solid #6d8fb0; outline-offset: 2px; }
+    .hidden { display: none !important; }
+
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 38px minmax(0, 1fr) 24px;
+    }
+
+    .titlebar {
+      display: grid;
+      grid-template-columns: 318px minmax(0, 1fr) auto;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      background: rgba(250, 249, 246, .9);
+      padding: 0 13px 0 18px;
+      user-select: none;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 650; }
+    .traffic { display: flex; gap: 7px; margin-right: 5px; }
+    .traffic i { width: 10px; height: 10px; border-radius: 50%; background: #d9d5cc; }
+    .crumbs { display: flex; justify-content: center; gap: 7px; color: var(--muted); }
+    .crumb {
+      display: inline-flex; align-items: center; gap: 6px;
+      min-height: 25px; padding: 0 10px; border: 1px solid var(--line);
+      border-radius: 12px; background: rgba(255,255,255,.58); white-space: nowrap;
+    }
+    .title-actions { display: flex; gap: 8px; }
+    .key {
+      padding: 4px 9px; border: 1px solid var(--line); border-radius: 11px;
+      color: var(--muted); background: rgba(255,255,255,.56); font-size: 11px;
+    }
+
+    .shell { min-height: 0; display: grid; grid-template-columns: 44px 274px minmax(0, 1fr); }
+    .iconrail {
+      border-right: 1px solid var(--line); background: #efede7;
+      padding: 8px 5px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+    }
+    .rail-icon {
+      width: 33px; height: 33px; border: 0; border-radius: 8px;
+      display: grid; place-items: center; color: #777269; background: transparent; cursor: pointer;
+    }
+    .rail-icon.active { background: var(--black); color: white; box-shadow: 0 3px 8px rgba(0,0,0,.15); }
+    .rail-icon.bottom { margin-top: auto; }
+
+    .sessions {
+      min-width: 0; border-right: 1px solid var(--line); background: rgba(247,245,240,.88);
+      display: flex; flex-direction: column;
+    }
+    .side-switch { margin: 12px; padding: 3px; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; border-radius: 9px; background: #e9e6df; }
+    .side-switch button { height: 29px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+    .side-switch .on { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .side-head { padding: 6px 14px 10px; display: flex; align-items: center; }
+    .side-head h2 { margin: 0; font: 600 18px var(--serif); }
+    .side-head small { margin-left: auto; color: var(--faint); font-size: 10px; }
+    .search { margin: 0 12px 10px; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.75); color: var(--faint); display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+    .new-session {
+      margin: 0 12px 12px; height: 37px; border: 0; border-radius: 8px;
+      background: var(--black); color: white; display: flex; align-items: center; justify-content: center;
+      gap: 8px; font-weight: 620; cursor: pointer;
+    }
+    .session-scroll { min-height: 0; overflow: auto; padding-bottom: 16px; }
+    .workspace-group { padding: 10px 8px 4px; }
+    .workspace-head {
+      display: grid; grid-template-columns: 26px minmax(0,1fr) auto; align-items: center;
+      min-height: 42px; padding: 0 7px; border-radius: 8px;
+    }
+    .workspace-head:hover { background: rgba(223,219,210,.45); }
+    .place-mark {
+      width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center;
+      border: 1px solid var(--line-strong); background: white; color: var(--local); font: 700 9px var(--mono);
+    }
+    .place-mark.remote { color: var(--remote); border-color: var(--remote-line); background: var(--remote-soft); }
+    .workspace-title { min-width: 0; }
+    .workspace-title strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+    .workspace-title small { display: block; margin-top: 3px; color: var(--muted); font-size: 9.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .online-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(52,128,91,.10); }
+    .session-row {
+      margin: 2px 5px 2px 35px; min-height: 36px; border: 0; border-radius: 7px;
+      width: calc(100% - 40px); background: transparent; display: grid; grid-template-columns: 21px minmax(0,1fr) auto;
+      align-items: center; text-align: left; padding: 0 8px; cursor: pointer; color: #4f4c46;
+    }
+    .session-row:hover { background: #eeece6; }
+    .session-row.active { background: #e6edf3; color: #243b51; }
+    .provider { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: #fff; border: 1px solid var(--line); font: 700 9px var(--serif); }
+    .provider.claude { color: var(--orange); }
+    .provider.codex { color: #2f6c54; }
+    .session-row span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+    .session-state { width: 6px; height: 6px; border-radius: 50%; background: #9b978f; }
+    .session-state.run { background: var(--green); }
+    .side-foot { margin-top: auto; border-top: 1px solid var(--line); padding: 9px 12px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 10px; }
+    .host-count { margin-left: auto; color: var(--remote); }
+
+    .main { min-width: 0; min-height: 0; position: relative; overflow: hidden; }
+    .home {
+      height: 100%; display: flex; flex-direction: column; align-items: center;
+      padding: clamp(54px, 8vh, 86px) 36px 46px; overflow: auto;
+    }
+    .home-copy { text-align: center; margin-bottom: 28px; }
+    .eyebrow { color: var(--remote); text-transform: uppercase; letter-spacing: .12em; font-size: 10px; font-weight: 700; }
+    .home-copy h1 { margin: 10px 0 8px; font: 500 clamp(28px, 3vw, 38px) var(--serif); letter-spacing: -.035em; }
+    .home-copy p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    .composer-wrap { width: min(820px, 86%); position: relative; }
+    .route-card {
+      display: grid; grid-template-columns: minmax(0,1fr) 24px minmax(0,1fr); gap: 8px; align-items: center;
+      margin: 0 12px -1px; padding: 10px 12px 11px; border: 1px solid var(--line-strong); border-bottom-color: var(--line);
+      border-radius: 13px 13px 0 0; background: #f1efe9;
+    }
+    .route-node {
+      min-width: 0; border: 0; background: transparent; display: grid; grid-template-columns: 31px minmax(0,1fr) auto;
+      gap: 9px; align-items: center; padding: 3px 4px; border-radius: 8px; text-align: left; cursor: pointer;
+    }
+    .route-node:hover { background: rgba(255,255,255,.72); }
+    .node-icon { width: 30px; height: 30px; border: 1px solid var(--line); background: white; border-radius: 8px; display: grid; place-items: center; color: var(--local); }
+    .node-icon.remote { color: var(--remote); border-color: var(--remote-line); background: var(--remote-soft); }
+    .node-copy { min-width: 0; }
+    .node-copy small { display: block; color: var(--faint); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 2px; }
+    .node-copy strong { display: block; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .node-copy em { display: block; margin-top: 2px; color: var(--muted); font: normal 9px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .route-arrow { text-align: center; color: #aaa59c; font-size: 16px; }
+    .chev { color: var(--faint); }
+
+    .composer {
+      min-height: 158px; border: 1px solid #8f8a81; border-radius: 15px; background: rgba(255,255,255,.86);
+      box-shadow: var(--shadow); padding: 17px 17px 12px; position: relative;
+    }
+    .composer textarea { resize: none; width: 100%; height: 80px; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 14px; line-height: 1.55; }
+    .composer textarea::placeholder { color: #aaa69f; }
+    .composer-bottom { display: flex; align-items: center; gap: 8px; }
+    .chip-button {
+      height: 29px; border: 0; border-radius: 8px; background: #f0eee9; padding: 0 9px;
+      display: flex; align-items: center; gap: 7px; cursor: pointer; font-size: 10.5px;
+    }
+    .chip-button:hover { background: #e7e4dd; }
+    .trust { display: flex; align-items: center; background: #efede8; padding: 3px; border-radius: 9px; }
+    .trust button { height: 23px; min-width: 45px; border: 0; background: transparent; border-radius: 7px; color: var(--muted); font-size: 10px; cursor: pointer; }
+    .trust .on { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .spacer { flex: 1; }
+    .start {
+      width: 34px; height: 34px; border: 0; border-radius: 50%; background: var(--black); color: white;
+      display: grid; place-items: center; cursor: pointer; font-size: 15px; transition: transform .15s ease;
+    }
+    .start:hover { transform: translateY(-1px); }
+    .truth-line { margin: 9px 17px 0; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; }
+    .truth-line b { color: var(--remote); font-weight: 650; }
+
+    .popover {
+      position: absolute; z-index: 20; width: 420px; border: 1px solid var(--line-strong); border-radius: 13px;
+      background: rgba(251,250,247,.98); box-shadow: 0 18px 55px rgba(40,36,30,.16); overflow: hidden;
+    }
+    .host-pop { top: 62px; right: 8px; }
+    .agent-pop { left: 14px; bottom: -191px; width: 365px; }
+    .pop-head { padding: 12px 13px 9px; border-bottom: 1px solid var(--line); }
+    .pop-head strong { display: block; font-size: 12px; }
+    .pop-head small { display: block; margin-top: 3px; color: var(--muted); font-size: 9.5px; }
+    .pop-section { padding: 7px; }
+    .pop-label { padding: 5px 7px 6px; color: var(--faint); font-size: 8.5px; text-transform: uppercase; letter-spacing: .11em; }
+    .host-option, .agent-option {
+      width: 100%; min-height: 51px; border: 0; border-radius: 9px; background: transparent; display: grid;
+      grid-template-columns: 34px minmax(0,1fr) auto; gap: 9px; align-items: center; padding: 6px 8px; text-align: left; cursor: pointer;
+    }
+    .host-option:hover, .agent-option:hover { background: #f0eee8; }
+    .host-option.selected, .agent-option.selected { background: var(--remote-soft); }
+    .host-option.local-selected { background: var(--local-soft); }
+    .option-mark { width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--line); display: grid; place-items: center; background: white; color: var(--local); font-weight: 700; }
+    .option-mark.remote { color: var(--remote); border-color: var(--remote-line); background: #f4f8fc; }
+    .option-copy { min-width: 0; }
+    .option-copy strong { display: block; font-size: 11px; }
+    .option-copy small { display: block; color: var(--muted); font: 9px var(--mono); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .option-meta { text-align: right; }
+    .option-meta b { display: block; color: var(--green); font-size: 9px; font-weight: 600; }
+    .option-meta small { display: block; color: var(--faint); font-size: 8.5px; margin-top: 3px; }
+    .manage-hosts { border-top: 1px solid var(--line); padding: 9px 12px; color: var(--remote); font-size: 10px; display: flex; justify-content: space-between; }
+    .availability { display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-size: 9px; }
+    .availability i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    .principles {
+      width: min(820px, 86%); margin-top: 34px; display: grid; grid-template-columns: repeat(3,1fr); gap: 10px;
+    }
+    .principle { min-height: 100px; border-top: 1px solid var(--line-strong); padding: 12px 10px 0; }
+    .principle b { display: block; font: 500 14px var(--serif); }
+    .principle p { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+
+    .room-view { height: 100%; display: flex; flex-direction: column; background: rgba(250,249,246,.55); }
+    .room-head { min-height: 56px; border-bottom: 1px solid var(--line); padding: 0 21px; display: flex; align-items: center; gap: 10px; }
+    .room-head h2 { margin: 0; font-size: 13px; font-weight: 650; }
+    .room-head small { color: var(--muted); }
+    .locked { margin-left: auto; color: var(--faint); font-size: 9px; }
+    .execution-bar {
+      min-height: 48px; padding: 0 20px; border-bottom: 1px solid var(--remote-line); background: var(--remote-soft);
+      display: flex; align-items: center; gap: 10px; color: #294c6d;
+    }
+    .remote-badge { padding: 4px 7px; border-radius: 5px; background: var(--remote); color: white; font: 700 8px var(--mono); letter-spacing: .09em; }
+    .execution-bar strong { font-size: 11px; }
+    .execution-bar code { color: #58738d; font: 9.5px var(--mono); }
+    .execution-bar .latency { margin-left: auto; color: var(--green); font-size: 9.5px; }
+    .room-body { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(500px,1fr) 250px; }
+    .timeline { overflow: auto; padding: 28px max(30px, 7vw) 100px; }
+    .message { max-width: 760px; margin: 0 auto 18px; }
+    .user-msg { margin-left: auto; width: fit-content; max-width: 70%; padding: 11px 14px; border-radius: 13px 13px 3px 13px; background: #e9e6df; font-size: 12px; }
+    .agent-card { border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.78); overflow: hidden; }
+    .agent-card header { height: 40px; padding: 0 13px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+    .agent-card header strong { font-size: 11px; }
+    .agent-card header span { color: var(--muted); font-size: 9.5px; }
+    .agent-card .body { padding: 14px; font-size: 11px; line-height: 1.6; }
+    .command { margin: 8px 0; padding: 9px 10px; border-radius: 7px; background: #292824; color: #e7e3da; font: 9.5px var(--mono); }
+    .change-card { border: 1px solid #b9d5c5; border-radius: 11px; padding: 13px; background: #f1f8f4; display: flex; align-items: center; gap: 12px; }
+    .change-card strong { display: block; font-size: 11px; color: #2f654b; }
+    .change-card small { display: block; margin-top: 4px; color: #65806f; font-size: 9px; }
+    .review { margin-left: auto; border: 1px solid #98bba6; border-radius: 7px; background: white; height: 29px; padding: 0 10px; color: #2f654b; cursor: pointer; font-size: 10px; }
+    .evidence { border-left: 1px solid var(--line); background: rgba(244,242,237,.7); padding: 18px 15px; }
+    .evidence h3 { margin: 0 0 14px; font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
+    .fact { padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .fact small { display: block; color: var(--faint); font-size: 8.5px; text-transform: uppercase; letter-spacing: .08em; }
+    .fact strong { display: block; margin-top: 4px; font-size: 10px; }
+    .fact code { display: block; margin-top: 4px; color: var(--muted); font: 8.5px var(--mono); overflow: hidden; text-overflow: ellipsis; }
+    .room-composer { position: absolute; left: calc(44px + 274px + 5vw); right: calc(250px + 5vw); bottom: 42px; min-height: 64px; border: 1px solid #99948b; border-radius: 13px; background: rgba(255,255,255,.94); box-shadow: var(--shadow); padding: 12px 14px; color: var(--faint); }
+    .room-composer footer { margin-top: 9px; display: flex; align-items: center; gap: 8px; color: #58738d; font-size: 9px; }
+
+    .statusbar { border-top: 1px solid var(--line); padding: 0 12px; display: flex; align-items: center; gap: 12px; background: #efede7; color: var(--muted); font-size: 9px; }
+    .statusbar .right { margin-left: auto; }
+    .status-location { color: var(--remote); }
+
+    @media (max-width: 1180px) {
+      .shell { grid-template-columns: 44px 238px minmax(0,1fr); }
+      .sessions { font-size: 11px; }
+      .principles { grid-template-columns: 1fr; }
+      .principle { min-height: 60px; }
+      .room-body { grid-template-columns: 1fr; }
+      .evidence { display: none; }
+      .room-composer { left: calc(44px + 238px + 4vw); right: 4vw; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="titlebar">
+      <div class="brand"><span class="traffic"><i></i><i></i><i></i></span>Charter</div>
+      <div class="crumbs"><span class="crumb">⌂ Sessions</span><span class="crumb">▢ charter-demo</span></div>
+      <div class="title-actions"><span class="key">⌥Space 速召台</span><span class="key">⌘⇧P Commands</span></div>
+    </header>
+
+    <div class="shell">
+      <nav class="iconrail" aria-label="Primary navigation">
+        <button class="rail-icon active" type="button" title="Sessions">▣</button>
+        <button class="rail-icon" type="button" title="Terminal">〉_</button>
+        <button class="rail-icon" type="button" title="Projects">□</button>
+        <button class="rail-icon" type="button" title="Search">⌕</button>
+        <button class="rail-icon" type="button" title="Memory">♧</button>
+        <button class="rail-icon bottom" type="button" title="Settings">⚙</button>
+      </nav>
+
+      <aside class="sessions">
+        <div class="side-switch"><button class="on" type="button">Sessions</button><button type="button">Files</button></div>
+        <div class="side-head"><h2>Sessions</h2><small id="sessionCount">3 sessions</small></div>
+        <div class="search">⌕ <span>Search sessions…</span></div>
+        <button class="new-session" id="newSession" type="button">＋ New Session</button>
+
+        <div class="session-scroll">
+          <section class="workspace-group">
+            <div class="workspace-head">
+              <span class="place-mark">L</span>
+              <span class="workspace-title"><strong>charter-demo</strong><small>This Mac · /Users/edy/git</small></span>
+              <span class="online-dot"></span>
+            </div>
+            <button class="session-row" type="button"><span class="provider codex">C</span><span>Fix command palette</span><i class="session-state"></i></button>
+          </section>
+
+          <section class="workspace-group">
+            <div class="workspace-head">
+              <span class="place-mark remote">R</span>
+              <span class="workspace-title"><strong>charter-demo</strong><small>devbox-01 · ~/repos/charter-demo</small></span>
+              <span class="online-dot"></span>
+            </div>
+            <button class="session-row" id="remoteExisting" type="button"><span class="provider claude">A</span><span>Trace reconnect failure</span><i class="session-state run"></i></button>
+            <button class="session-row hidden" id="createdSession" type="button"><span class="provider claude" id="createdMark">A</span><span id="createdTitle">Fix remote session recovery</span><i class="session-state run"></i></button>
+          </section>
+
+          <section class="workspace-group">
+            <div class="workspace-head">
+              <span class="place-mark remote">R</span>
+              <span class="workspace-title"><strong>model-lab</strong><small>gpu-a100-02 · ~/work/model-lab</small></span>
+              <span class="online-dot"></span>
+            </div>
+            <button class="session-row" type="button"><span class="provider">π</span><span>Profile inference queue</span><i class="session-state"></i></button>
+          </section>
+        </div>
+        <div class="side-foot"><span>●</span> All systems ready <span class="host-count">2 remote hosts</span></div>
+      </aside>
+
+      <main class="main">
+        <section class="home" id="homeView">
+          <div class="home-copy">
+            <div class="eyebrow">one session · one explicit execution target</div>
+            <h1>这次让谁，在哪里工作？</h1>
+            <p>本地和远端使用同一套 Session；运行位置不同，审查方式不变。</p>
+          </div>
+
+          <div class="composer-wrap" id="composerWrap">
+            <div class="route-card">
+              <button class="route-node" id="projectButton" type="button">
+                <span class="node-icon">▢</span>
+                <span class="node-copy"><small>Project</small><strong id="projectName">charter-demo</strong><em id="projectPath">~/repos/charter-demo</em></span>
+                <span class="chev">⌄</span>
+              </button>
+              <span class="route-arrow">→</span>
+              <button class="route-node" id="hostButton" type="button" aria-haspopup="menu" aria-expanded="false">
+                <span class="node-icon remote" id="hostIcon">⌁</span>
+                <span class="node-copy"><small>Runs on</small><strong id="hostName">devbox-01</strong><em id="hostDetail">SSH · Linux arm64 · 18 ms</em></span>
+                <span class="chev">⌄</span>
+              </button>
+            </div>
+
+            <div class="composer">
+              <textarea id="prompt" aria-label="Session prompt">修复远端 Agent 断线后不能继续 Session 的问题，并补回归测试。</textarea>
+              <div class="composer-bottom">
+                <button class="chip-button" type="button" title="Attach context">＠</button>
+                <button class="chip-button" id="agentButton" type="button" aria-haspopup="menu" aria-expanded="false">
+                  <span class="provider claude" id="agentMark">A</span><span id="agentName">Claude Code</span><span>⌄</span>
+                </button>
+                <div class="trust"><button type="button">Read</button><button class="on" type="button">Approve</button><button type="button">Auto</button></div>
+                <span class="spacer"></span>
+                <span class="chip-button" id="modelHint">Remote CLI · native PTY</span>
+                <button class="start" id="startButton" type="button" title="Start Session">↑</button>
+              </div>
+            </div>
+            <div class="truth-line"><span class="availability"><i></i> Ready</span><b id="truthHost">Claude Code and files both run on devbox-01</b><span>· no silent local fallback</span></div>
+
+            <div class="popover host-pop hidden" id="hostPopover" role="menu">
+              <div class="pop-head"><strong>Choose where this Session runs</strong><small>The working folder and available Agents come from the selected host.</small></div>
+              <div class="pop-section">
+                <div class="pop-label">This computer</div>
+                <button class="host-option" data-host="local" type="button">
+                  <span class="option-mark">L</span><span class="option-copy"><strong>This Mac</strong><small>/Users/edy/git/charter-demo</small></span><span class="option-meta"><b>Ready</b><small>3 Agents</small></span>
+                </button>
+                <div class="pop-label">Remote Agent hosts</div>
+                <button class="host-option selected" data-host="devbox" type="button">
+                  <span class="option-mark remote">R</span><span class="option-copy"><strong>devbox-01</strong><small>edy@10.0.4.21 · ~/repos/charter-demo</small></span><span class="option-meta"><b>18 ms</b><small>2 Agents</small></span>
+                </button>
+                <button class="host-option" data-host="gpu" type="button">
+                  <span class="option-mark remote">R</span><span class="option-copy"><strong>gpu-a100-02</strong><small>edy@gpu.internal · ~/work/charter-demo</small></span><span class="option-meta"><b>42 ms</b><small>Charter only</small></span>
+                </button>
+              </div>
+              <div class="manage-hosts"><span>＋ Add remote host</span><span>Manage hosts →</span></div>
+            </div>
+
+            <div class="popover agent-pop hidden" id="agentPopover" role="menu">
+              <div class="pop-head"><strong id="agentPopTitle">Agents installed on devbox-01</strong><small>The list is detected on the selected execution host.</small></div>
+              <div class="pop-section" id="agentOptions"></div>
+            </div>
+          </div>
+
+          <div class="principles">
+            <div class="principle"><b>位置不是全局开关</b><p>每个 Session 自己绑定执行节点。本地任务和远端任务可以同时运行，不必切换整个 IDE 模式。</p></div>
+            <div class="principle"><b>先选节点，再选 Agent</b><p>Agent Picker 只展示目标机器真正安装的 Agent，避免选到无法启动的 Claude 或 Codex。</p></div>
+            <div class="principle"><b>启动后始终可见</b><p>Room 顶部固定显示主机、目录和延迟；Session 不会在断线或缺少 Agent 时偷偷改到本地执行。</p></div>
+          </div>
+        </section>
+
+        <section class="room-view hidden" id="roomView">
+          <header class="room-head"><span class="provider claude" id="roomAgentMark">A</span><h2 id="roomTitle">Fix remote session recovery</h2><small id="roomAgentName">Claude Code</small><span class="locked">Execution target locked for this Session</span></header>
+          <div class="execution-bar" id="executionBar">
+            <span class="remote-badge" id="executionBadge">REMOTE</span><strong id="executionHost">devbox-01</strong><code id="executionPath">~/repos/charter-demo</code><span>·</span><code>main</code><span class="latency" id="executionLatency">● Connected · 18 ms</span>
+          </div>
+          <div class="room-body">
+            <div class="timeline">
+              <div class="message user-msg" id="submittedPrompt">修复远端 Agent 断线后不能继续 Session 的问题，并补回归测试。</div>
+              <article class="message agent-card">
+                <header><span class="provider claude" id="cardAgentMark">A</span><strong id="cardAgentName">Claude Code</strong><span id="cardHost">running on devbox-01</span><span class="spacer"></span><span class="availability"><i></i> working</span></header>
+                <div class="body">
+                  我会先还原 SSH 断开与 Remote Worker 重连之间的状态变化，然后补一个真实断线恢复测试。
+                  <div class="command" id="commandPath">$ cd ~/repos/charter-demo && npm test -- remote-session</div>
+                  已定位：桌面端重新连接后拿到了旧 Session ID，但远端 Worker 没有重新绑定 PTY 的输出订阅。
+                </div>
+              </article>
+              <div class="message change-card"><span>✓</span><span><strong>Changes ready for review on <span id="changeHost">devbox-01</span></strong><small>2 files · +84 −12 · tests passed on the same host</small></span><button class="review" type="button">Open review</button></div>
+            </div>
+            <aside class="evidence">
+              <h3>Session truth</h3>
+              <div class="fact"><small>Agent process</small><strong id="factAgent">Claude Code</strong><code id="factAgentHost">devbox-01 · PID 4182</code></div>
+              <div class="fact"><small>Workspace</small><strong>charter-demo</strong><code id="factPath">~/repos/charter-demo</code></div>
+              <div class="fact"><small>File authority</small><strong id="factAuthority">Remote Worker</strong><code>read · write · watch · git diff</code></div>
+              <div class="fact"><small>Connection</small><strong>Authenticated</strong><code>SSH tunnel · host key verified</code></div>
+            </aside>
+          </div>
+          <div class="room-composer">Reply to this Session…<footer><span id="replyAgent">A · Claude Code</span><span>→</span><span id="replyTarget">R · devbox-01</span><span class="spacer"></span><span>⏎ Send</span></footer></div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="statusbar"><span>Charter design prototype</span><span>main</span><span class="right status-location" id="statusLocation">⌁ devbox-01 · Remote Agent Host connected</span></footer>
+  </div>
+
+  <script>
+    const hosts = {
+      local: {
+        id: 'local', name: 'This Mac', detail: 'Local · macOS arm64', path: '/Users/edy/git/charter-demo',
+        latency: 'Local process', remote: false,
+        agents: [
+          { id: 'charter', name: 'Charter Agent', mark: 'π', cls: '', detail: 'Managed runtime · full evidence ledger' },
+          { id: 'claude', name: 'Claude Code', mark: 'A', cls: 'claude', detail: 'Installed locally · native PTY' },
+          { id: 'codex', name: 'Codex', mark: 'C', cls: 'codex', detail: 'Installed locally · native PTY' }
+        ]
+      },
+      devbox: {
+        id: 'devbox', name: 'devbox-01', detail: 'SSH · Linux arm64 · 18 ms', path: '~/repos/charter-demo',
+        latency: 'Connected · 18 ms', remote: true,
+        agents: [
+          { id: 'claude', name: 'Claude Code', mark: 'A', cls: 'claude', detail: 'Installed on devbox-01 · native PTY' },
+          { id: 'codex', name: 'Codex', mark: 'C', cls: 'codex', detail: 'Installed on devbox-01 · native PTY' }
+        ]
+      },
+      gpu: {
+        id: 'gpu', name: 'gpu-a100-02', detail: 'SSH · Linux x64 · 42 ms', path: '~/work/charter-demo',
+        latency: 'Connected · 42 ms', remote: true,
+        agents: [
+          { id: 'charter', name: 'Charter Agent', mark: 'π', cls: '', detail: 'Remote Worker · full evidence ledger' }
+        ]
+      }
+    };
+
+    const state = { hostId: 'devbox', agentId: 'claude', hostOpen: false, agentOpen: false, started: false };
+    const $ = (id) => document.getElementById(id);
+    const selectedHost = () => hosts[state.hostId];
+    const selectedAgent = () => selectedHost().agents.find(a => a.id === state.agentId) || selectedHost().agents[0];
+
+    function closePopovers() {
+      state.hostOpen = false;
+      state.agentOpen = false;
+      $('hostPopover').classList.add('hidden');
+      $('agentPopover').classList.add('hidden');
+      $('hostButton').setAttribute('aria-expanded', 'false');
+      $('agentButton').setAttribute('aria-expanded', 'false');
+    }
+
+    function renderAgents() {
+      const host = selectedHost();
+      $('agentPopTitle').textContent = `Agents installed on ${host.name}`;
+      $('agentOptions').innerHTML = host.agents.map(agent => `
+        <button class="agent-option ${agent.id === state.agentId ? 'selected' : ''}" data-agent="${agent.id}" type="button">
+          <span class="option-mark ${host.remote ? 'remote' : ''}">${agent.mark}</span>
+          <span class="option-copy"><strong>${agent.name}</strong><small>${agent.detail}</small></span>
+          <span class="option-meta"><b>Ready</b><small>${agent.id === state.agentId ? 'Selected' : 'Available'}</small></span>
+        </button>`).join('');
+      document.querySelectorAll('[data-agent]').forEach(button => button.addEventListener('click', () => {
+        state.agentId = button.dataset.agent;
+        closePopovers();
+        render();
+      }));
+    }
+
+    function render() {
+      const host = selectedHost();
+      if (!host.agents.some(a => a.id === state.agentId)) state.agentId = host.agents[0].id;
+      const agent = selectedAgent();
+      $('hostName').textContent = host.name;
+      $('hostDetail').textContent = host.detail;
+      $('hostIcon').textContent = host.remote ? '⌁' : '⌂';
+      $('hostIcon').classList.toggle('remote', host.remote);
+      $('projectPath').textContent = host.path;
+      $('agentName').textContent = agent.name;
+      $('agentMark').textContent = agent.mark;
+      $('agentMark').className = `provider ${agent.cls}`;
+      $('modelHint').textContent = agent.id === 'charter' ? 'Managed Agent · evidence ledger' : `${host.remote ? 'Remote' : 'Local'} CLI · native PTY`;
+      $('truthHost').textContent = `${agent.name} and files both run on ${host.name}`;
+      $('statusLocation').textContent = host.remote ? `⌁ ${host.name} · Remote Agent Host connected` : '⌂ This Mac · Local execution';
+      document.querySelectorAll('[data-host]').forEach(button => {
+        const active = button.dataset.host === state.hostId;
+        button.classList.toggle('selected', active && host.remote);
+        button.classList.toggle('local-selected', active && !host.remote);
+      });
+      renderAgents();
+    }
+
+    $('hostButton').addEventListener('click', (event) => {
+      event.stopPropagation();
+      const next = !state.hostOpen;
+      closePopovers();
+      state.hostOpen = next;
+      $('hostPopover').classList.toggle('hidden', !next);
+      $('hostButton').setAttribute('aria-expanded', String(next));
+    });
+
+    $('agentButton').addEventListener('click', (event) => {
+      event.stopPropagation();
+      const next = !state.agentOpen;
+      closePopovers();
+      state.agentOpen = next;
+      $('agentPopover').classList.toggle('hidden', !next);
+      $('agentButton').setAttribute('aria-expanded', String(next));
+    });
+
+    document.querySelectorAll('[data-host]').forEach(button => button.addEventListener('click', () => {
+      state.hostId = button.dataset.host;
+      const host = selectedHost();
+      if (!host.agents.some(agent => agent.id === state.agentId)) state.agentId = host.agents[0].id;
+      closePopovers();
+      render();
+    }));
+
+    document.addEventListener('click', event => {
+      if (!event.target.closest('.popover') && !event.target.closest('#hostButton') && !event.target.closest('#agentButton')) closePopovers();
+    });
+
+    function startSession() {
+      const prompt = $('prompt').value.trim();
+      if (!prompt) { $('prompt').focus(); return; }
+      const host = selectedHost();
+      const agent = selectedAgent();
+      state.started = true;
+      closePopovers();
+      $('homeView').classList.add('hidden');
+      $('roomView').classList.remove('hidden');
+      $('submittedPrompt').textContent = prompt;
+      $('roomTitle').textContent = prompt.length > 34 ? prompt.slice(0, 34) + '…' : prompt;
+      $('roomAgentName').textContent = agent.name;
+      ['roomAgentMark','cardAgentMark'].forEach(id => { $(id).textContent = agent.mark; $(id).className = `provider ${agent.cls}`; });
+      $('cardAgentName').textContent = agent.name;
+      $('cardHost').textContent = `running on ${host.name}`;
+      $('executionBadge').textContent = host.remote ? 'REMOTE' : 'LOCAL';
+      $('executionBadge').style.background = host.remote ? 'var(--remote)' : 'var(--local)';
+      $('executionHost').textContent = host.name;
+      $('executionPath').textContent = host.path;
+      $('executionLatency').textContent = `● ${host.latency}`;
+      $('executionBar').style.background = host.remote ? 'var(--remote-soft)' : 'var(--local-soft)';
+      $('executionBar').style.borderBottomColor = host.remote ? 'var(--remote-line)' : 'var(--line-strong)';
+      $('commandPath').textContent = `$ cd ${host.path} && npm test -- remote-session`;
+      $('changeHost').textContent = host.name;
+      $('factAgent').textContent = agent.name;
+      $('factAgentHost').textContent = `${host.name} · PID 4182`;
+      $('factPath').textContent = host.path;
+      $('factAuthority').textContent = host.remote ? 'Remote Worker' : 'Local Workspace Service';
+      $('replyAgent').textContent = `${agent.mark} · ${agent.name}`;
+      $('replyTarget').textContent = `${host.remote ? 'R' : 'L'} · ${host.name}`;
+      $('createdSession').classList.remove('hidden');
+      $('createdSession').classList.add('active');
+      $('createdTitle').textContent = $('roomTitle').textContent;
+      $('createdMark').textContent = agent.mark;
+      $('createdMark').className = `provider ${agent.cls}`;
+      $('sessionCount').textContent = '4 sessions';
+    }
+
+    $('startButton').addEventListener('click', startSession);
+    $('prompt').addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); startSession(); }
+    });
+    $('newSession').addEventListener('click', () => {
+      state.started = false;
+      $('roomView').classList.add('hidden');
+      $('homeView').classList.remove('hidden');
+      $('createdSession').classList.remove('active');
+      requestAnimationFrame(() => $('prompt').focus());
+    });
+    $('projectButton').addEventListener('click', () => $('prompt').focus());
+
+    render();
+  </script>
+</body>
+</html>

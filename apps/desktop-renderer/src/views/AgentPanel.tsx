@@ -22,8 +22,6 @@ import {
   errorTitle,
   modeLabel,
   stateLabel,
-  stateTone,
-  TONE_COLOR,
   toolActionLabel,
   toolStateWord,
   toolVerb,
@@ -536,37 +534,11 @@ export function QuestionCard(props: {
   );
 }
 
-/** Human state chip (PIVOT-023). Tests assert the machine state via data-state.
- * `label`/`tone` overrides let the room present "Answered" (PIVOT-031) while
- * the machine state stays REVIEW_READY. */
-export function StateBadge({
-  state,
-  label,
-  tone,
-}: {
-  state: string;
-  label?: string;
-  tone?: keyof typeof TONE_COLOR;
-}): React.JSX.Element {
-  const color = TONE_COLOR[tone ?? stateTone(state)];
-  return (
-    <span
-      data-testid="task-state"
-      data-state={state}
-      title={label ?? stateLabel(state)}
-      style={{
-        border: `1px solid ${color}`,
-        color,
-        borderRadius: 999,
-        padding: '1px 9px',
-        fontSize: 11,
-        fontWeight: 600,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {label ?? stateLabel(state)}
-    </span>
-  );
+/** Non-visual state probe used by Electron tests to await state-machine edges.
+ * Session state is communicated contextually by the rail and action dock, not
+ * repeated as a badge in the room title bar. */
+export function TaskStateProbe({ state }: { state: string }): React.JSX.Element {
+  return <span data-testid="task-state" data-state={state} hidden aria-hidden="true" />;
 }
 
 export function Card(props: {
@@ -1440,7 +1412,7 @@ export function AgentPanel(): React.JSX.Element {
             >
               {task.title}
             </span>
-            <StateBadge state={task.state} />
+            <TaskStateProbe state={task.state} />
             <div
               style={{
                 gridColumn: '1 / -1',

@@ -36,14 +36,24 @@ function createAgentFixture(): {
           ? [
               `const probe = ${JSON.stringify(kimiProbe)};`,
               'let interrupts = 0;',
+              'let trusted = false;',
               "fs.appendFileSync(probe, 'argv=' + process.argv.slice(2).join(' ') + '\\n');",
+              "console.log('\\u001b[?2004h Trust this folder? Kimi Code loads project-level MCP servers. Trust this folder Don\\'t trust');",
               "process.on('SIGINT', () => {",
               '  interrupts += 1;',
               "  fs.appendFileSync(probe, 'interrupt=' + interrupts + '\\n');",
               '  if (interrupts >= 3) process.exit(0);',
               '});',
               "process.stdin.on('data', (chunk) => {",
-              "  if (!chunk.toString().includes('who are you')) return;",
+              '  const input = chunk.toString();',
+              '  if (!trusted) {',
+              "    if (!input.includes('\\r') && !input.includes('\\n')) return;",
+              '    trusted = true;',
+              "    fs.appendFileSync(probe, 'trust=accepted\\n');",
+              "    console.log('\\u001b[2J Welcome to Kimi Code! Send /help for help information. No session yet — one will be created on your first message.');",
+              '    return;',
+              '  }',
+              "  if (!input.includes('who are you')) return;",
               "  fs.appendFileSync(probe, 'prompt=who are you\\n');",
               "  console.log('Kimi prompt received');",
               '});',
@@ -60,7 +70,11 @@ function createAgentFixture(): {
               '});',
             ]
           : []),
-        `console.log(${JSON.stringify(`${agent} ready`)});`,
+        agent === 'kimi'
+          ? ''
+          : agent === 'claude'
+            ? "console.log('\\u001b[?2004h Claude Code Welcome back! Tips for getting started');"
+            : `console.log(${JSON.stringify(`${agent} ready`)});`,
         'process.stdin.resume();',
         'setTimeout(() => process.exit(0), 30000);',
         '',
@@ -81,6 +95,10 @@ test('auto-detects Agent CLIs, keeps official marks, and launches Kimi', async (
       PI_IDE_OPEN_WORKSPACE: fixture,
       PI_IDE_FORCE_MOCK: '1',
       PI_IDE_AGENT_HOME: agents.home,
+      // Product launches intentionally honor the user's interactive-shell
+      // aliases. Isolate zsh startup here so a developer's real `kimi` alias
+      // cannot bypass this test's trust-gate fixture.
+      ZDOTDIR: agents.home,
       PATH: `${agents.bin}:${nodeBin}:/usr/bin:/bin`,
     },
     home: 'keep',
@@ -128,6 +146,7 @@ test('auto-detects Agent CLIs, keeps official marks, and launches Kimi', async (
         timeout: 20_000,
       })
       .toContain('prompt=who are you');
+    expect(readFileSync(agents.kimiProbe, 'utf8')).toContain('trust=accepted');
     await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Kimi.*who are you/ })).toBeVisible();
 

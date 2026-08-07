@@ -1,6 +1,6 @@
 import { errorMessage, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import { GitService } from '@pi-ide/git-service';
-import type { TerminalManager } from '@pi-ide/terminal-service';
+import type { TerminalInputSource, TerminalManager } from '@pi-ide/terminal-service';
 import { openWorkspaceInfo, WorkspaceWatcher, type FsChange } from '@pi-ide/workspace-service';
 import type { ChangeSet } from '@pi-ide/change-service';
 import {
@@ -46,6 +46,11 @@ const MAX_OBSERVED_TITLE_FRAGMENT_CHARS = 1_024;
 const PROMPT_SETTLE_QUIET_MS = 600;
 /** A quiet TUI gets a deadline, but startup trust gates still block delivery. */
 const PROMPT_DELIVERY_DEADLINE_MS = 8_000;
+/** A product-created Agent must either expose a real Composer or fail visibly. */
+const PROMPT_STARTUP_TIMEOUT_MS = 120_000;
+/** Submitted Composer text must provoke a TUI activity edge before it counts. */
+const PROMPT_SUBMIT_ACK_TIMEOUT_MS = 8_000;
+const PROMPT_SUBMIT_MAX_ATTEMPTS = 3;
 /** Let delayed fs events land just after a terminal turn reports completion. */
 const FILE_ATTRIBUTION_GRACE_MS = 2_000;
 /** Covers one-shot `claude -p`-style commands whose prompt preceded detection. */
@@ -210,6 +215,70 @@ export function codexStartupUpdateGateActive(output: string): boolean {
   return updateGate >= 0 && updateGate > ready;
 }
 
+/** Kimi enables bracketed-paste before its folder-trust chooser, so terminal
+ * mode alone is not a Composer-ready signal. Compare the latest chooser and
+ * welcome/composer paints just as we do for Codex. */
+function kimiStartupScreenPositions(output: string): { gate: number; ready: number } {
+  const compact = cleanTerminalText(output).toLowerCase().replace(/\s+/g, '');
+  const gate = Math.max(
+    compact.lastIndexOf('trustthisfolder?'),
+    compact.lastIndexOf('enableprojectmcpservers'),
+    compact.lastIndexOf("don'ttrust"),
+  );
+  const ready = Math.max(
+    compact.lastIndexOf('welcometokimicode!'),
+    compact.lastIndexOf('nosessionyet—onewillbecreatedonyourfirstmessage.'),
+    compact.lastIndexOf('send/helpforhelpinformation.'),
+  );
+  return { gate, ready };
+}
+
+export function kimiStartupTrustGateActive(output: string): boolean {
+  const { gate, ready } = kimiStartupScreenPositions(output);
+  return gate >= 0 && gate > ready;
+}
+
+export function kimiStartupComposerReady(output: string): boolean {
+  const { gate, ready } = kimiStartupScreenPositions(output);
+  return ready >= 0 && ready > gate && bracketedPasteComposerReady(output);
+}
+
+/** Claude's first-run trust chooser also owns bracketed-paste mode. The
+ * normal welcome paint is the provider-owned proof that its Composer exists. */
+function claudeStartupScreenPositions(output: string): { gate: number; ready: number } {
+  const compact = cleanTerminalText(output).toLowerCase().replace(/\s+/g, '');
+  const gate = Math.max(
+    compact.lastIndexOf('doyoutrustthefilesinthisfolder?'),
+    compact.lastIndexOf('doyoutrustthisfolder?'),
+    compact.lastIndexOf('yes,itrustthisfolder'),
+  );
+  const ready = Math.max(
+    compact.lastIndexOf('welcomeback!'),
+    compact.lastIndexOf('tipsforgettingstarted'),
+  );
+  return { gate, ready };
+}
+
+export function externalStartupTrustGateActive(cli: string, output: string): boolean {
+  if (cli === 'codex') return codexStartupTrustGateActive(output);
+  if (cli === 'kimi') return kimiStartupTrustGateActive(output);
+  if (cli === 'claude') {
+    const { gate, ready } = claudeStartupScreenPositions(output);
+    return gate >= 0 && gate > ready;
+  }
+  return false;
+}
+
+export function externalStartupComposerReady(cli: string, output: string): boolean {
+  if (cli === 'codex') return codexStartupComposerReady(output);
+  if (cli === 'kimi') return kimiStartupComposerReady(output);
+  if (cli === 'claude') {
+    const { gate, ready } = claudeStartupScreenPositions(output);
+    return bracketedPasteComposerReady(output) && (gate < 0 || (ready >= 0 && ready > gate));
+  }
+  return bracketedPasteComposerReady(output);
+}
+
 /**
  * Deferred prompts are sent as bracketed paste. Process detection alone is not
  * a composer-ready signal: Kimi (and occasionally Claude) is detectable while
@@ -298,7 +367,13 @@ interface LiveSession {
   promptSettleTimer: ReturnType<typeof setTimeout> | null;
   promptDeadlineTimer: ReturnType<typeof setTimeout> | null;
   promptEnterTimer: ReturnType<typeof setTimeout> | null;
+  promptDeliveryStartedAtMs: number | null;
+  promptAwaitingStart: boolean;
+  promptSubmitAttempts: number;
+  startupTrustGateHandled: boolean;
   codexUpdateGateHandled: boolean;
+  /** Product/doorbell Enter is provisional until the TUI emits output. */
+  orchestratorSubmitPending: boolean;
   /** Notification copy: the user message the current reply answers. */
   typedLine: TypedLineTracker;
   lastUserLine: string | null;
@@ -405,7 +480,8 @@ export function externalTitleFromPrompt(prompt: string): string | null {
 
 /** Xterm's submit edge is CR; LF may be unsent text inside a bracketed paste. */
 export function isExternalPromptSubmit(data: string): boolean {
-  return data.includes('\r');
+  const outsideBracketedPaste = data.replace(/\u001b\[200~[\s\S]*?\u001b\[201~/g, '');
+  return outsideBracketedPaste.includes('\r');
 }
 
 interface FileAttributionCandidate {
@@ -503,7 +579,7 @@ export class ExternalSessionService {
         this.onTerminalProtocolInput(id, data);
         return;
       }
-      this.onTerminalInput(id, data);
+      this.onTerminalInput(id, data, source);
     });
     // Only sessions without a surviving daemon PTY are stranded. Reattached
     // terminal ids keep the same task and review baseline across app restarts.
@@ -720,6 +796,17 @@ export class ExternalSessionService {
     const session = this.byTerminal.get(terminalId);
     if (!session || session.ended) return;
 
+    // Product-owned Enter is only a submission attempt. A repaint, title edge
+    // or documentary byte after it is the first evidence that the Agent TUI
+    // accepted the message. This is the edge consumed by durable continuation
+    // delivery; without it the outbox retries instead of claiming success.
+    if (session.orchestratorSubmitPending && data.length > 0) {
+      session.orchestratorSubmitPending = false;
+      const firstPromptAccepted = session.promptAwaitingStart;
+      if (firstPromptAccepted) this.completePromptDelivery(session);
+      this.startTurn(session, 'input');
+    }
+
     // A painting TUI is a booting TUI — keep deferring the first prompt until
     // its output settles, then deliver (see armPromptDelivery).
     if (session.pendingPrompt) this.notePromptReadiness(session);
@@ -818,7 +905,7 @@ export class ExternalSessionService {
    * fallback. Startup redraws and background terminal noise therefore never
    * masquerade as completed agent output.
    */
-  private onTerminalInput(terminalId: string, data: string): void {
+  private onTerminalInput(terminalId: string, data: string, source: TerminalInputSource): void {
     const session = this.byTerminal.get(terminalId);
     if (!session || session.ended) return;
     // Typed-line capture (notification copy only). Product-owned writes skip
@@ -844,6 +931,17 @@ export class ExternalSessionService {
     // Xterm submits with CR. Newlines inside bracketed multi-line/context
     // pastes are still unsent input and must not make the Session look busy.
     if (!isExternalPromptSubmit(data)) return;
+    if (
+      source === 'orchestrator' &&
+      (session.suppressInputCapture === 0 || session.promptAwaitingStart)
+    ) {
+      session.orchestratorSubmitPending = true;
+      return;
+    }
+    // Trust/update chooser controls are also product-owned CR writes, but they
+    // are not Agent turns. Only the first-prompt state above opts into the
+    // provisional submit path.
+    if (session.suppressInputCapture > 0) return;
     this.startTurn(session, 'input');
   }
 
@@ -851,7 +949,7 @@ export class ExternalSessionService {
   private writeProduct(session: LiveSession, data: string): void {
     session.suppressInputCapture += 1;
     try {
-      this.terminals.write(session.terminalId, data);
+      this.terminals.write(session.terminalId, data, 'orchestrator');
     } finally {
       session.suppressInputCapture -= 1;
     }
@@ -983,12 +1081,17 @@ export class ExternalSessionService {
 
   /**
    * First-prompt delivery (composer → CLI). Detection only proves the process
-   * exists; the TUI becomes paste-ready around its first paint. Deliver once
-   * post-enter output has been quiet for a moment, with a hard deadline so a
-   * TUI that never paints still receives the prompt instead of dropping it.
+   * exists; the provider's real Composer paint is the readiness proof. Folder
+   * trust/update choosers are handled explicitly, and post-Enter output is the
+   * acknowledgement. A worker that never reaches either edge fails visibly
+   * instead of remaining a living-but-empty Mission runtime forever.
    */
   private armPromptDelivery(session: LiveSession, prompt: string): void {
     session.pendingPrompt = prompt;
+    session.promptDeliveryStartedAtMs = Date.now();
+    session.promptAwaitingStart = false;
+    session.promptSubmitAttempts = 0;
+    session.startupTrustGateHandled = false;
     this.schedulePromptDeadline(session, PROMPT_DELIVERY_DEADLINE_MS);
     // An already-painted TUI (slow detection) produces no further output —
     // seed one settle window instead of waiting for the deadline. Codex is the
@@ -1013,6 +1116,14 @@ export class ExternalSessionService {
   }
 
   private deliverPendingPrompt(session: LiveSession): void {
+    if (this.promptDeliveryTimedOut(session)) {
+      this.failPromptDelivery(session, 'The Agent did not expose a ready Composer in time.');
+      return;
+    }
+    if (session.promptAwaitingStart) {
+      this.submitPendingPrompt(session);
+      return;
+    }
     const recent = this.terminals.recentData(session.terminalId);
     if (
       session.cli === 'codex' &&
@@ -1033,17 +1144,25 @@ export class ExternalSessionService {
       session.promptEnterTimer.unref?.();
       return;
     }
-    if (session.cli === 'codex' && !codexStartupComposerReady(recent)) {
-      // Process detection and the shell's command echo both precede the first
-      // Codex screen. Wait for the actual composer, not merely an absent gate.
-      // Keep this deadline independent of continuously animated MCP startup.
+    if (externalStartupTrustGateActive(session.cli, recent)) {
+      if (!session.startupTrustGateHandled) {
+        session.startupTrustGateHandled = true;
+        this.tasks.recordEvent(session.taskId, 'external.startupGateAccepted', {
+          cli: session.cli,
+          kind: 'folder-trust',
+        });
+        // The product launch and its pending Mission prompt are the user's
+        // explicit request to run this Agent in the selected workspace. The
+        // provider's default affirmative choice is therefore the intended
+        // startup path; importantly, the prompt itself is not typed here.
+        this.writeProduct(session, '\r');
+      }
       this.schedulePromptDeadline(session, PROMPT_SETTLE_QUIET_MS);
       return;
     }
-    if (session.cli !== 'codex' && !bracketedPasteComposerReady(recent)) {
-      // Deferred-prompt Agents own their full-screen composer. Wait for the
-      // terminal mode they use to accept multiline paste rather than racing
-      // process discovery or a partially painted welcome screen.
+    if (!externalStartupComposerReady(session.cli, recent)) {
+      // Process detection, shell echo and bracketed-paste mode can all precede
+      // the true Composer. Keep waiting for provider-owned ready text.
       this.schedulePromptDeadline(session, PROMPT_SETTLE_QUIET_MS);
       return;
     }
@@ -1057,16 +1176,77 @@ export class ExternalSessionService {
     this.tasks.recordEvent(session.taskId, 'user.message', { text: prompt, kind: 'external' });
     session.lastUserLine = prompt;
     this.markFileAttributionActive(session);
+    session.promptAwaitingStart = true;
     this.writeProduct(session, `\u001b[200~${prompt}\u001b[201~`);
     session.promptEnterTimer = setTimeout(() => {
       session.promptEnterTimer = null;
-      if (!session.ended) this.writeProduct(session, '\r');
+      this.submitPendingPrompt(session);
     }, externalPromptEnterDelayMs(prompt));
     session.promptEnterTimer.unref?.();
   }
 
+  private submitPendingPrompt(session: LiveSession): void {
+    if (session.ended || !session.promptAwaitingStart) return;
+    if (
+      this.promptDeliveryTimedOut(session) ||
+      session.promptSubmitAttempts >= PROMPT_SUBMIT_MAX_ATTEMPTS
+    ) {
+      this.failPromptDelivery(
+        session,
+        'The Agent Composer did not acknowledge the submitted prompt.',
+      );
+      return;
+    }
+    session.promptSubmitAttempts += 1;
+    this.writeProduct(session, '\r');
+    this.schedulePromptDeadline(session, PROMPT_SUBMIT_ACK_TIMEOUT_MS);
+  }
+
+  private promptDeliveryTimedOut(session: LiveSession): boolean {
+    return (
+      session.promptDeliveryStartedAtMs !== null &&
+      Date.now() - session.promptDeliveryStartedAtMs >= PROMPT_STARTUP_TIMEOUT_MS
+    );
+  }
+
+  private completePromptDelivery(session: LiveSession): void {
+    session.promptAwaitingStart = false;
+    session.promptDeliveryStartedAtMs = null;
+    session.promptSubmitAttempts = 0;
+    if (session.promptSettleTimer) clearTimeout(session.promptSettleTimer);
+    session.promptSettleTimer = null;
+    if (session.promptDeadlineTimer) clearTimeout(session.promptDeadlineTimer);
+    session.promptDeadlineTimer = null;
+    if (session.promptEnterTimer) clearTimeout(session.promptEnterTimer);
+    session.promptEnterTimer = null;
+  }
+
+  private failPromptDelivery(session: LiveSession, detail: string): void {
+    if (session.ended) return;
+    this.tasks.recordEvent(session.taskId, 'external.promptDeliveryFailed', {
+      cli: session.cli,
+      detail,
+      attempts: session.promptSubmitAttempts,
+    });
+    this.logger.warn('external first prompt delivery failed', {
+      terminalId: session.terminalId,
+      taskId: session.taskId,
+      cli: session.cli,
+      detail,
+    });
+    this.clearPromptDelivery(session);
+    // This terminal was created for the pending prompt. Leaving an empty TUI
+    // alive makes recovery renew the Mission Attempt forever, so retire it and
+    // let normal runtime reconciliation surface a failed/missing Assignment.
+    this.terminals.kill(session.terminalId);
+  }
+
   private clearPromptDelivery(session: LiveSession): void {
     session.pendingPrompt = null;
+    session.promptAwaitingStart = false;
+    session.promptDeliveryStartedAtMs = null;
+    session.promptSubmitAttempts = 0;
+    session.orchestratorSubmitPending = false;
     if (session.promptSettleTimer) clearTimeout(session.promptSettleTimer);
     session.promptSettleTimer = null;
     if (session.promptDeadlineTimer) clearTimeout(session.promptDeadlineTimer);
@@ -1285,7 +1465,12 @@ export class ExternalSessionService {
       promptSettleTimer: null,
       promptDeadlineTimer: null,
       promptEnterTimer: null,
+      promptDeliveryStartedAtMs: null,
+      promptAwaitingStart: false,
+      promptSubmitAttempts: 0,
+      startupTrustGateHandled: false,
       codexUpdateGateHandled: false,
+      orchestratorSubmitPending: false,
       typedLine: new TypedLineTracker(),
       lastUserLine: null,
       suppressInputCapture: 0,
@@ -1919,7 +2104,12 @@ export class ExternalSessionService {
       promptSettleTimer: null,
       promptDeadlineTimer: null,
       promptEnterTimer: null,
+      promptDeliveryStartedAtMs: null,
+      promptAwaitingStart: false,
+      promptSubmitAttempts: 0,
+      startupTrustGateHandled: false,
       codexUpdateGateHandled: false,
+      orchestratorSubmitPending: false,
       typedLine: new TypedLineTracker(),
       lastUserLine: null,
       suppressInputCapture: 0,

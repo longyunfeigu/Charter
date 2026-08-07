@@ -85,17 +85,6 @@
   font-family: var(--font-shell);
 }
 
-.session-identity-name [data-testid='task-state'] {
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  box-sizing: border-box;
-  padding: 0 8px !important;
-  border: 0 !important;
-  background: color-mix(in srgb, currentColor 10%, transparent);
-  line-height: 1;
-}
-
 .session-identity-secondary {
   min-width: 0;
   display: flex;

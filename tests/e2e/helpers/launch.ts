@@ -47,7 +47,9 @@ function createCatalogAgentBins(userDataDir: string): string {
       executable,
       [
         '#!/usr/bin/env node',
-        `console.log(${JSON.stringify(`${agent} e2e fixture ready`)});`,
+        agent === 'claude'
+          ? "console.log('\\u001b[?2004h Claude Code Welcome back! Tips for getting started');"
+          : "console.log('\\u001b[?2004h >_ OpenAI Codex /model to change');",
         'process.stdin.resume();',
         'setTimeout(() => process.exit(0), 60_000);',
         '',

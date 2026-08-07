@@ -378,6 +378,93 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
     expect(terminals.writes).toHaveLength(0);
   });
 
+  it('marks an Agent doorbell delivered only after delayed Enter starts a real turn', async () => {
+    const confirmedService = new TerminalControlService(
+      terminals as unknown as TerminalManager,
+      logger,
+      {
+        enabled: () => true,
+        runtimeNotificationEnterDelayMs: () => 0,
+        runtimeNotificationAckMs: 1_000,
+      },
+    );
+    const adopted = terminals.create({ cwd: '/repo', launch: 'claude' });
+    terminals.agents.set(adopted.id, 'claude');
+
+    let delivered = false;
+    const delivery = confirmedService
+      .notifyRuntime(adopted.id, 'resume the durable continuation')
+      .then(() => {
+        delivered = true;
+      });
+    await vi.waitFor(() => expect(terminals.writes).toHaveLength(2));
+    expect(terminals.writes.map((entry) => entry.data)).toEqual([
+      'resume the durable continuation',
+      '\r',
+    ]);
+    expect(delivered).toBe(false);
+
+    confirmedService.notifyTurnStarted(adopted.id, { taskId: 'lead-task', source: 'input' });
+    await delivery;
+    expect(delivered).toBe(true);
+    confirmedService.dispose();
+  });
+
+  it('retries Enter without duplicating the pasted doorbell and rejects without an Agent edge', async () => {
+    vi.useFakeTimers();
+    try {
+      const confirmedService = new TerminalControlService(
+        terminals as unknown as TerminalManager,
+        logger,
+        {
+          enabled: () => true,
+          runtimeNotificationEnterDelayMs: () => 0,
+          runtimeNotificationAckMs: 50,
+        },
+      );
+      const adopted = terminals.create({ cwd: '/repo', launch: 'claude' });
+      terminals.agents.set(adopted.id, 'claude');
+
+      const delivery = confirmedService.notifyRuntime(adopted.id, 'one durable doorbell');
+      const rejected = expect(delivery).rejects.toThrow(/did not acknowledge/i);
+      await vi.advanceTimersByTimeAsync(400);
+      await rejected;
+      expect(
+        terminals.writes.filter((entry) => entry.data === 'one durable doorbell'),
+      ).toHaveLength(1);
+      expect(terminals.writes.filter((entry) => entry.data === '\r')).toHaveLength(2);
+      confirmedService.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not report a deferred first prompt as a running turn before the TUI accepts it', async () => {
+    const deferredService = new TerminalControlService(
+      terminals as unknown as TerminalManager,
+      logger,
+      {
+        enabled: () => true,
+        resolveAgentLaunch: (launch) => ({
+          executable: `/charter-wrappers/${launch}`,
+          args: [],
+          sessionId: null,
+          promptDelivery: 'deferred',
+        }),
+      },
+    );
+    const created = (await deferredService.create(
+      { taskId: 'mission-lead' },
+      { root: '/repo', launch: 'kimi', initialText: 'start the assignment', submit: true },
+    )) as { terminal: TerminalInfo };
+
+    expect(deferredService.snapshot().workers[0]).toMatchObject({
+      terminalId: created.terminal.id,
+      status: 'quiet',
+    });
+    deferredService.dispose();
+  });
+
   it('ignores terminal focus reports but treats real user input as takeover', async () => {
     const created = (await service.create(
       { taskId: 'task_1' },
@@ -872,6 +959,10 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
       { taskId: 'task_1' },
       { id: created.terminal.id, text: 'check once more', submit: true },
     );
+    service.notifyTurnStarted(created.terminal.id, {
+      taskId: 'worker_task',
+      source: 'input',
+    });
     expect(service.snapshot().workers[0]?.status).toBe('streaming');
     service.notifyTurnSettled(created.terminal.id, {
       taskId: 'worker_task',

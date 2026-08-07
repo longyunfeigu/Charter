@@ -1085,6 +1085,70 @@ describe('MissionRepository', () => {
     opened.db.close();
   });
 
+  it('replays a stale legacy delivery that never confirmed an Agent turn', () => {
+    let now = Date.parse('2026-08-07T03:00:00.000Z');
+    const opened = open();
+    seedWorkspace(opened.db);
+    const repository = new MissionRepository(opened.db, () => new Date(now));
+    const mission = repository.createMission({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Recover legacy continuation',
+      goal: 'Do not strand a waiting Lead after a false PTY delivery.',
+      lead: {
+        principalId: 'lead',
+        kind: 'managed_agent',
+        displayName: 'Lead',
+        runtimeSessionId: 'runtime-lead',
+        requestedRuntime: 'managed',
+      },
+    });
+    const lead = mission.assignments[0]!;
+    const answer = repository.createMessage({
+      missionId: mission.mission.id,
+      fromAssignmentId: null,
+      toAssignmentId: lead.id,
+      type: 'answer',
+      subject: 'ready',
+    });
+    const continuation = repository.armContinuation({
+      missionId: mission.mission.id,
+      ownerAssignmentId: lead.id,
+      ownerAttemptId: mission.attempts[0]!.id,
+      mode: 'any',
+      conditions: [{ kind: 'message', types: ['answer'] }],
+      cursorSequence: answer.sequence - 1,
+      reason: 'Resume after the child answer',
+      idempotencyKey: 'legacy-false-delivery',
+    });
+    const intent = repository.listResumeIntents(mission.mission.id)[0]!;
+    expect(intent.payload).toMatchObject({ deliveryContract: 'agent-turn-start-v1' });
+    expect(repository.markResumeIntentProcessing(intent.id, 'runtime-lead')).toBe(true);
+    repository.markResumeIntentDelivered(intent.id);
+
+    // Simulate a row written by the old PTY-write-is-delivery contract.
+    const legacyPayload = { ...intent.payload };
+    delete legacyPayload.deliveryContract;
+    opened.db
+      .prepare('UPDATE orchestration_resume_intents SET payload_json = ? WHERE id = ?')
+      .run(JSON.stringify(legacyPayload), intent.id);
+
+    now += 31_000;
+    expect(repository.recoverAndReconcileContinuations()).toMatchObject({ recovered: 1 });
+    expect(repository.getResumeIntent(intent.id)).toMatchObject({
+      state: 'PENDING',
+      attempts: 1,
+      deliveredAt: null,
+      payload: { deliveryContract: 'agent-turn-start-v1' },
+    });
+    expect(repository.getContinuation(continuation.continuation.id)).toMatchObject({
+      state: 'READY',
+      deliveredAt: null,
+    });
+    expect(repository.recoverAndReconcileContinuations()).toMatchObject({ recovered: 0 });
+    opened.db.close();
+  });
+
   it('matches threaded messages after a cursor and resumes on a durable deadline after reopen', () => {
     let now = Date.parse('2026-07-30T12:00:00.000Z');
     const opened = open();

@@ -6,12 +6,15 @@ import type { TerminalControlPort, TerminalToolCaller } from '@pi-ide/tool-gatew
 import type { TerminalManager } from '@pi-ide/terminal-service';
 import type { ToolGateway } from '@pi-ide/tool-gateway';
 import type { ExternalLaunchIntents } from './external-launch-intents.js';
+import { externalPromptEnterDelayMs } from './external-session-service.js';
 import { terminalControlRunId } from './terminal-control-run.js';
 
 export const TERMINAL_BUFFER_BYTES = 200 * 1024;
 export const DEFAULT_MAX_WORKERS = 5;
 export const DEFAULT_MAX_SENDS_PER_MINUTE = 30;
 const WORKER_STREAMING_GRACE_MS = 1_500;
+const RUNTIME_NOTIFICATION_ACK_TIMEOUT_MS = 8_000;
+const RUNTIME_NOTIFICATION_SUBMIT_ATTEMPTS = 2;
 
 const ANSI_RE =
   /[\u001B\u009B](?:\][^\u0007]*(?:\u0007|\u001B\\)|[()[\]#;?]*(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007|(?:(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])))/g;
@@ -166,6 +169,14 @@ interface QueuedRuntimeNotification {
   onAbort?: () => void;
 }
 
+interface RuntimeNotificationConfirmation {
+  timeout: ReturnType<typeof setTimeout>;
+  resolve: () => void;
+  reject: (error: Error) => void;
+  signal?: AbortSignal;
+  onAbort?: () => void;
+}
+
 interface TerminalState {
   buffer: string;
   rawTail: string;
@@ -212,6 +223,9 @@ export interface TerminalControlServiceOptions {
   recordEvent?: (taskId: string, type: string, payload: Record<string, unknown>) => void;
   now?: () => number;
   settleMs?: number;
+  /** Test seams for the confirmed Agent-doorbell handoff. */
+  runtimeNotificationAckMs?: number;
+  runtimeNotificationEnterDelayMs?: (text: string) => number;
   /** Resolve an opaque Agent id through the trusted host Agent Registry. */
   resolveAgentLaunch?: (
     agentId: string,
@@ -237,6 +251,11 @@ export class TerminalControlService implements TerminalControlPort {
    * here instead of pretending that every Mission member is a V1 worker. */
   private readonly heldRuntimeInput = new Map<string, Array<{ text: string; submit: boolean }>>();
   private readonly queuedRuntimeNotifications = new Map<string, QueuedRuntimeNotification[]>();
+  private readonly runtimeNotificationConfirmations = new Map<
+    string,
+    RuntimeNotificationConfirmation
+  >();
+  private readonly runtimeNotificationsInFlight = new Set<string>();
   private readonly waiters = new Map<number, Waiter>();
   private readonly externalCallers = new Map<string, string>();
   /** A recent-output worker snapshot is time-dependent. Publish the quiet edge
@@ -248,6 +267,8 @@ export class TerminalControlService implements TerminalControlPort {
   private readonly unsubscribeExit: () => void;
   private readonly now: () => number;
   private readonly settleMs: number;
+  private readonly runtimeNotificationAckMs: number;
+  private readonly runtimeNotificationEnterDelayMs: (text: string) => number;
 
   constructor(
     private readonly terminals: TerminalManager,
@@ -256,10 +277,15 @@ export class TerminalControlService implements TerminalControlPort {
   ) {
     this.now = options.now ?? Date.now;
     this.settleMs = options.settleMs ?? 350;
+    this.runtimeNotificationAckMs =
+      options.runtimeNotificationAckMs ?? RUNTIME_NOTIFICATION_ACK_TIMEOUT_MS;
+    this.runtimeNotificationEnterDelayMs =
+      options.runtimeNotificationEnterDelayMs ?? externalPromptEnterDelayMs;
     this.unsubscribeData = terminals.onDataEvent(({ id, data }) => this.onData(id, data));
     this.unsubscribeInput = terminals.onSourcedInputEvent(({ id, data, source }) => {
       const worker = this.workers.get(id);
       if (
+        source !== 'orchestrator' &&
         worker &&
         (worker.launch !== 'shell' || Boolean(this.terminals.agentFor(id))) &&
         /[\r\n]/.test(data)
@@ -533,7 +559,9 @@ export class TerminalControlService implements TerminalControlPort {
     };
     this.workers.set(info.id, relation);
     const state = this.stateFor(info.id);
-    if (directAgent && initialPrompt) {
+    const promptSubmittedByLaunch =
+      Boolean(directAgent && initialPrompt) && agentLaunch?.promptDelivery === 'argv';
+    if (promptSubmittedByLaunch) {
       // A direct agent can finish before the caller reaches terminal.wait.
       // The launch prompt therefore gets the same race-safe cursor as send.
       this.lastSendTurnSequence.set(`${caller.taskId}:${info.id}`, 0);
@@ -572,7 +600,7 @@ export class TerminalControlService implements TerminalControlPort {
       commanderTerminalId: caller.terminalId ?? null,
       idempotencyKey: input.idempotencyKey ?? null,
     });
-    if (directAgent && initialPrompt) {
+    if (promptSubmittedByLaunch) {
       // The first prompt was submitted through argv before the external-session
       // detector can bind its task. Persist the start edge now so a daemon
       // reattach can restore the working indicator without a fresh repaint.
@@ -810,7 +838,7 @@ export class TerminalControlService implements TerminalControlPort {
       });
       return;
     }
-    this.writeInjection(terminalId, text, submit);
+    await this.deliverRuntimeNotification(terminalId, text, submit, signal);
   }
 
   /**
@@ -976,6 +1004,7 @@ export class TerminalControlService implements TerminalControlPort {
       source: 'input' | 'launch';
     },
   ): void {
+    this.confirmRuntimeNotification(terminalId);
     const state = this.stateFor(terminalId);
     if (state.turnPending) return;
     this.markTurnStarted(terminalId);
@@ -1080,9 +1109,14 @@ export class TerminalControlService implements TerminalControlPort {
     for (const timer of this.workerIdleRefreshTimers.values()) clearTimeout(timer);
     this.workerIdleRefreshTimers.clear();
     this.heldRuntimeInput.clear();
-    for (const terminalId of this.queuedRuntimeNotifications.keys()) {
+    const notificationTerminalIds = new Set([
+      ...this.queuedRuntimeNotifications.keys(),
+      ...this.runtimeNotificationConfirmations.keys(),
+    ]);
+    for (const terminalId of notificationTerminalIds) {
       this.rejectRuntimeNotifications(terminalId, 'Terminal orchestration is shutting down.');
     }
+    this.runtimeNotificationsInFlight.clear();
     this.externalCallers.clear();
   }
 
@@ -1395,24 +1429,150 @@ export class TerminalControlService implements TerminalControlPort {
     this.queuedRuntimeNotifications.delete(terminalId);
     const active = queued.filter((item) => !item.signal?.aborted);
     if (active.length === 0) return;
+    const submit = active.some((item) => item.submit);
+    void this.deliverRuntimeNotification(
+      terminalId,
+      active.map((item) => item.text).join('\n\n'),
+      submit,
+    ).then(
+      () => {
+        for (const item of active) {
+          if (item.signal && item.onAbort) item.signal.removeEventListener('abort', item.onAbort);
+          item.resolve();
+        }
+      },
+      (error: unknown) => {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        for (const item of active) {
+          if (item.signal && item.onAbort) item.signal.removeEventListener('abort', item.onAbort);
+          item.reject(failure);
+        }
+      },
+    );
+  }
+
+  /** Paste first, submit in a later PTY write, then require a provider turn
+   * edge before the durable outbox may call the doorbell delivered. */
+  private async deliverRuntimeNotification(
+    terminalId: string,
+    text: string,
+    submit: boolean,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (signal?.aborted) throw this.cancelledNotification();
+    if (!submit || !this.runtimeNeedsConfirmedNotification(terminalId)) {
+      this.writeInjection(terminalId, text, submit);
+      return;
+    }
+
+    this.runtimeNotificationsInFlight.add(terminalId);
     try {
-      const submit = active.some((item) => item.submit);
-      this.writeInjection(terminalId, active.map((item) => item.text).join('\n\n'), submit);
-      for (const item of active) {
-        if (item.signal && item.onAbort) item.signal.removeEventListener('abort', item.onAbort);
-        item.resolve();
+      this.writeInjection(terminalId, text, false);
+      await this.notificationDelay(this.runtimeNotificationEnterDelayMs(text), signal);
+      for (let attempt = 1; attempt <= RUNTIME_NOTIFICATION_SUBMIT_ATTEMPTS; attempt += 1) {
+        const confirmed = this.awaitRuntimeNotificationStart(terminalId, signal);
+        this.terminals.write(terminalId, '\r', 'orchestrator');
+        try {
+          await confirmed;
+          return;
+        } catch (error) {
+          if (attempt === RUNTIME_NOTIFICATION_SUBMIT_ATTEMPTS || signal?.aborted) throw error;
+          await this.notificationDelay(250, signal);
+        }
       }
-    } catch (error) {
-      const failure = error instanceof Error ? error : new Error(String(error));
-      for (const item of active) {
-        if (item.signal && item.onAbort) item.signal.removeEventListener('abort', item.onAbort);
-        item.reject(failure);
-      }
+    } finally {
+      this.runtimeNotificationsInFlight.delete(terminalId);
+      this.flushRuntimeNotifications(terminalId);
     }
   }
 
+  private runtimeNeedsConfirmedNotification(terminalId: string): boolean {
+    if (this.terminals.agentFor(terminalId)) return true;
+    const worker = this.workers.get(terminalId);
+    return Boolean(worker?.taskId && worker.launch !== 'shell');
+  }
+
+  private notificationDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
+    if (delayMs <= 0) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, delayMs);
+      timer.unref?.();
+      const onAbort = (): void => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        reject(this.cancelledNotification());
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  private awaitRuntimeNotificationStart(terminalId: string, signal?: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const previous = this.runtimeNotificationConfirmations.get(terminalId);
+      if (previous) {
+        clearTimeout(previous.timeout);
+        previous.reject(new Error('A newer Mission doorbell replaced the pending confirmation.'));
+      }
+      const timeout = setTimeout(() => {
+        const current = this.runtimeNotificationConfirmations.get(terminalId);
+        if (current !== confirmation) return;
+        this.runtimeNotificationConfirmations.delete(terminalId);
+        signal?.removeEventListener('abort', onAbort);
+        reject(new Error('The Agent did not acknowledge the Mission doorbell submission.'));
+      }, this.runtimeNotificationAckMs);
+      timeout.unref?.();
+      const onAbort = (): void => {
+        const current = this.runtimeNotificationConfirmations.get(terminalId);
+        if (current !== confirmation) return;
+        clearTimeout(timeout);
+        this.runtimeNotificationConfirmations.delete(terminalId);
+        signal?.removeEventListener('abort', onAbort);
+        reject(this.cancelledNotification());
+      };
+      const confirmation: RuntimeNotificationConfirmation = {
+        timeout,
+        resolve,
+        reject,
+        ...(signal ? { signal, onAbort } : {}),
+      };
+      this.runtimeNotificationConfirmations.set(terminalId, confirmation);
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  private confirmRuntimeNotification(terminalId: string): void {
+    const confirmation = this.runtimeNotificationConfirmations.get(terminalId);
+    if (!confirmation) return;
+    this.runtimeNotificationConfirmations.delete(terminalId);
+    clearTimeout(confirmation.timeout);
+    if (confirmation.signal && confirmation.onAbort) {
+      confirmation.signal.removeEventListener('abort', confirmation.onAbort);
+    }
+    confirmation.resolve();
+  }
+
+  private rejectRuntimeNotificationConfirmation(terminalId: string, message: string): void {
+    const confirmation = this.runtimeNotificationConfirmations.get(terminalId);
+    if (!confirmation) return;
+    this.runtimeNotificationConfirmations.delete(terminalId);
+    clearTimeout(confirmation.timeout);
+    if (confirmation.signal && confirmation.onAbort) {
+      confirmation.signal.removeEventListener('abort', confirmation.onAbort);
+    }
+    confirmation.reject(new Error(message));
+  }
+
   private runtimeNotificationBlocked(terminalId: string): boolean {
-    if (this.heldRuntimeInput.has(terminalId) || this.stateFor(terminalId).turnPending) return true;
+    if (
+      this.heldRuntimeInput.has(terminalId) ||
+      this.stateFor(terminalId).turnPending ||
+      this.runtimeNotificationsInFlight.has(terminalId)
+    ) {
+      return true;
+    }
     const worker = this.workers.get(terminalId);
     return Boolean(
       worker &&
@@ -1424,6 +1584,7 @@ export class TerminalControlService implements TerminalControlPort {
   }
 
   private rejectRuntimeNotifications(terminalId: string, message: string): void {
+    this.rejectRuntimeNotificationConfirmation(terminalId, message);
     const queued = this.queuedRuntimeNotifications.get(terminalId);
     if (!queued) return;
     this.queuedRuntimeNotifications.delete(terminalId);

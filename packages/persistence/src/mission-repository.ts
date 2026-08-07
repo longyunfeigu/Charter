@@ -323,6 +323,16 @@ interface ResumeIntentRow {
   updated_at: string;
 }
 
+/**
+ * Resume intents created with this contract are only marked DELIVERED after
+ * the runtime reports a real Agent turn-start edge. Older builds marked a PTY
+ * write as delivered, which could strand a waiting Mission forever when the
+ * TUI ignored Enter. The startup reconciler uses this marker to replay only
+ * those legacy, unconfirmed deliveries.
+ */
+const CONFIRMED_RESUME_DELIVERY_CONTRACT = 'agent-turn-start-v1';
+const LEGACY_RESUME_REPLAY_AFTER_MS = 30_000;
+
 export interface MissionSnapshot {
   mission: Mission;
   principals: OrchestrationPrincipal[];
@@ -2589,7 +2599,7 @@ export class MissionRepository {
   recoverAndReconcileContinuations(): { recovered: number; ready: number; cancelled: number } {
     return this.db.transaction(() => {
       const at = this.timestamp();
-      const recovered = this.db
+      const processingRecovered = this.db
         .prepare(
           `UPDATE orchestration_resume_intents SET state = 'PENDING', available_at = ?, updated_at = ?
            WHERE state = 'PROCESSING'`,
@@ -2600,6 +2610,48 @@ export class MissionRepository {
           "UPDATE orchestration_continuations SET state = 'READY', updated_at = ? WHERE state = 'DELIVERING'",
         )
         .run(at);
+
+      // Before confirmed doorbells, DELIVERED meant only that bytes reached
+      // the PTY. Replay stale, unacknowledged rows from that legacy contract.
+      // The continuation command is idempotent, and new-contract rows are
+      // excluded so a genuinely running Agent is never interrupted.
+      const legacyCutoff = new Date(
+        this.now().getTime() - LEGACY_RESUME_REPLAY_AFTER_MS,
+      ).toISOString();
+      const legacyDelivered = this.db
+        .prepare(
+          `SELECT * FROM orchestration_resume_intents
+           WHERE state = 'DELIVERED' AND acknowledged_at IS NULL AND updated_at <= ?
+           ORDER BY created_at, rowid`,
+        )
+        .all(legacyCutoff) as unknown as ResumeIntentRow[];
+      let legacyRecovered = 0;
+      for (const row of legacyDelivered) {
+        const payload = parseJson<Record<string, unknown>>(row.payload_json, {});
+        if (payload.deliveryContract === CONFIRMED_RESUME_DELIVERY_CONTRACT) continue;
+        const upgradedPayload = {
+          ...payload,
+          deliveryContract: CONFIRMED_RESUME_DELIVERY_CONTRACT,
+        };
+        const reset = this.db
+          .prepare(
+            `UPDATE orchestration_resume_intents
+             SET state = 'PENDING', available_at = ?, delivered_at = NULL, payload_json = ?,
+                 last_error = 'Replaying a legacy delivery without a confirmed Agent turn.',
+                 updated_at = ?
+             WHERE id = ? AND state = 'DELIVERED' AND acknowledged_at IS NULL`,
+          )
+          .run(at, JSON.stringify(upgradedPayload), at, row.id);
+        if (Number(reset.changes) !== 1) continue;
+        this.db
+          .prepare(
+            `UPDATE orchestration_continuations
+             SET state = 'READY', delivered_at = NULL, updated_at = ?
+             WHERE id = ? AND state = 'DELIVERED'`,
+          )
+          .run(at, row.continuation_id);
+        legacyRecovered += 1;
+      }
 
       let ready = 0;
       let cancelled = 0;
@@ -2627,7 +2679,11 @@ export class MissionRepository {
         const after = this.reconcileContinuation(continuation.id).continuation.state;
         if (before === 'ARMED' && after === 'READY') ready += 1;
       }
-      return { recovered: Number(recovered.changes), ready, cancelled };
+      return {
+        recovered: Number(processingRecovered.changes) + legacyRecovered,
+        ready,
+        cancelled,
+      };
     });
   }
 
@@ -4376,6 +4432,7 @@ export class MissionRepository {
       continuationId: continuation.id,
       reason: continuation.reason,
       trigger,
+      deliveryContract: CONFIRMED_RESUME_DELIVERY_CONTRACT,
     };
     this.db
       .prepare(

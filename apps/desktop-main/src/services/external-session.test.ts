@@ -6,6 +6,8 @@ import {
   codexStartupComposerReady,
   codexStartupTrustGateActive,
   codexStartupUpdateGateActive,
+  externalStartupComposerReady,
+  externalStartupTrustGateActive,
   externalPromptEnterDelayMs,
   externalInjectText,
   isExternalPromptSubmit,
@@ -14,6 +16,8 @@ import {
   isAccountablePath,
   isTerminalViewportRepaint,
   isTerminalViewportScrollInput,
+  kimiStartupComposerReady,
+  kimiStartupTrustGateActive,
   observedTuiTitleActivity,
   selectFileAttributionOwner,
   shouldReconcileSnapshotPath,
@@ -167,6 +171,42 @@ describe('bracketedPasteComposerReady', () => {
     expect(bracketedPasteComposerReady('\u001b[?2004h shell\u001b[?2004l kimi')).toBe(false);
     expect(
       bracketedPasteComposerReady('\u001b[?2004h shell\u001b[?2004l kimi\u001b[?2004h composer'),
+    ).toBe(true);
+  });
+});
+
+describe('provider startup Composer gates', () => {
+  const pasteMode = '\u001b[?2004h';
+
+  it('does not confuse Kimi folder trust with its real Composer', () => {
+    const gate =
+      `${pasteMode} Trust this folder? ` +
+      "Kimi Code loads project-level MCP servers. Trust this folder Don't trust";
+    expect(kimiStartupTrustGateActive(gate)).toBe(true);
+    expect(kimiStartupComposerReady(gate)).toBe(false);
+    expect(externalStartupTrustGateActive('kimi', gate)).toBe(true);
+    expect(externalStartupComposerReady('kimi', gate)).toBe(false);
+  });
+
+  it('accepts Kimi only after the post-trust welcome and Composer paint', () => {
+    const output =
+      `${pasteMode} Trust this folder? Don't trust` +
+      '\u001b[2J Welcome to Kimi Code! Send /help for help information. ' +
+      'No session yet — one will be created on your first message.';
+    expect(kimiStartupTrustGateActive(output)).toBe(false);
+    expect(kimiStartupComposerReady(output)).toBe(true);
+    expect(externalStartupComposerReady('kimi', output)).toBe(true);
+  });
+
+  it('blocks Claude folder trust even though the chooser enables paste mode', () => {
+    const gate = `${pasteMode} Do you trust the files in this folder? Yes, I trust this folder`;
+    expect(externalStartupTrustGateActive('claude', gate)).toBe(true);
+    expect(externalStartupComposerReady('claude', gate)).toBe(false);
+    expect(
+      externalStartupComposerReady(
+        'claude',
+        `${gate}\u001b[2J Claude Code Welcome back! Tips for getting started`,
+      ),
     ).toBe(true);
   });
 });
@@ -418,6 +458,7 @@ describe('isExternalPromptSubmit', () => {
   it('recognizes Enter without treating multiline pasted content as submitted', () => {
     expect(isExternalPromptSubmit('\r')).toBe(true);
     expect(isExternalPromptSubmit('\u001b[200~line one\nline two\u001b[201~')).toBe(false);
+    expect(isExternalPromptSubmit('\u001b[200~line one\rline two\u001b[201~')).toBe(false);
   });
 });
 

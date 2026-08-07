@@ -93,7 +93,6 @@ test.describe('P3 full mode (ADR-0012)', () => {
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
         timeout: 30000,
       });
-      await expect(page.getByTestId('task-state')).toContainText('checks failed');
       await expect(page.getByTestId('review-failed-checks-warning')).toContainText(
         'accepting keeps an unverified result',
       );

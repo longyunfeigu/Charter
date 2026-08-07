@@ -7,7 +7,7 @@ import { useActivityStore, currentActionLine } from '../store/activityStore.js';
 import { navigationSnapshotLabel, useAppStore } from '../store/appStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useEditorStore } from '../store/editorStore.js';
-import { PermissionCard, StateBadge } from './AgentPanel.js';
+import { PermissionCard, TaskStateProbe } from './AgentPanel.js';
 import { RoomTimeline } from './RoomTimeline.js';
 import { DistillCards } from './DistillCards.js';
 import { ConfirmDangerButton, ModelEffortControl } from './ui.js';
@@ -44,7 +44,7 @@ import {
 } from './ExternalRoom.js';
 import { roomCopyFor } from './roomCopy.js';
 import { SessionActionDock, SessionToolCanvas, type SessionFileStat } from './SessionToolCanvas.js';
-import { isCurrentVerificationPass, useVerificationEvidence } from './verification-evidence.js';
+import { useVerificationEvidence } from './verification-evidence.js';
 import { SessionSplitHandle } from './SessionSplitHandle.js';
 import { CodeContextAttachments } from './CodeContextAttachments.js';
 import { sessionDisplayTitle } from '../store/sessionAttention.js';
@@ -163,10 +163,6 @@ export function TaskRoomView(): React.JSX.Element {
     task?.updatedAt ?? null,
     store.timeline,
   ).slice(-8);
-  const reviewHasFailedChecks =
-    task?.state === 'REVIEW_READY' &&
-    verifications.some((verification) => !isCurrentVerificationPass(verification));
-
   if (!task) {
     return (
       <div className="tr-root" data-testid="task-room">
@@ -306,14 +302,7 @@ export function TaskRoomView(): React.JSX.Element {
               >
                 {sessionDisplayTitle(task)}
               </span>
-              <StateBadge
-                state={task.state}
-                {...(answered
-                  ? { label: 'Answered', tone: 'ok' as const }
-                  : reviewHasFailedChecks
-                    ? { label: 'Review required · checks failed', tone: 'err' as const }
-                    : {})}
-              />
+              <TaskStateProbe state={task.state} />
               {task.external ? <ExternalSessionIdentity task={task} /> : null}
             </div>
           </div>
