@@ -78,6 +78,7 @@ import {
   SshHostDtoSchema,
   SshHostInputSchema,
   SshSecretKindSchema,
+  SshWorkerStatusSchema,
 } from './ssh.js';
 import { UpdateStateSchema } from './updates.js';
 import { AgentCatalogDtoSchema, AgentIdSchema } from './agents.js';
@@ -186,6 +187,12 @@ const TerminalRemoteInfoSchema = z.object({
   username: z.string(),
   host: z.string(),
   port: z.number().int(),
+  /** Present for a managed Agent Session; absent for a plain SSH shell. */
+  root: z.string().optional(),
+  workerSessionId: z.string().optional(),
+  workerVersion: z.string().optional(),
+  /** Where the canonical project files live. Missing on legacy Sessions. */
+  workspaceKind: z.enum(['remote', 'local']).optional(),
 });
 
 const TerminalInfoSchema = z.object({
@@ -724,9 +731,9 @@ export const CHANNELS = {
         /** Fixed host-owned launch presets; arbitrary commands still go through terminal.write. */
         launch: AgentIdSchema.default('shell'),
         /**
-         * Composer text delivered to a claude/codex launch once its TUI is
-         * ready (main-process paste + separate Enter). Never shell input —
-         * ignored for plain shell launches.
+         * Composer text delivered by the selected Agent backend. Local
+         * deferred Agents receive it after TUI readiness; SSH Agents receive
+         * it as a quoted first-prompt argument. Ignored for plain shells.
          */
         initialPrompt: z.string().min(1).max(20000).optional(),
         /** Create a task-owned worktree immediately before launching a visible
@@ -743,7 +750,17 @@ export const CHANNELS = {
         /** ADR-0047: run this session on a saved SSH host instead of a local
          * PTY. Orthogonal to launch — claude/codex start on the remote. */
         target: z
-          .object({ kind: z.literal('ssh'), hostId: z.string().min(1) })
+          .object({
+            kind: z.literal('ssh'),
+            hostId: z.string().min(1),
+            /** `remote`: use the host's selected folder. `local`: snapshot the
+             * host-resolved focused project into an isolated remote copy and
+             * keep both sides synchronized for the Session. */
+            workspaceKind: z.enum(['remote', 'local']).default('remote'),
+            /** Renderer assertion only; Main resolves the focused workspace
+             * independently and rejects a mismatch. */
+            projectPath: z.string().min(1).max(4096).optional(),
+          })
           .strict()
           .optional(),
       })
@@ -858,6 +875,18 @@ export const CHANNELS = {
     1,
     z.object({ hostId: z.string().min(1), cli: AgentIdSchema }).strict(),
     z.object({ found: z.boolean(), path: z.string().nullable() }),
+  ),
+  'ssh.workerStatus': ch(
+    'ssh.workerStatus',
+    1,
+    z.object({ hostId: z.string().min(1) }).strict(),
+    z.object({ worker: SshWorkerStatusSchema }),
+  ),
+  'ssh.installWorker': ch(
+    'ssh.installWorker',
+    1,
+    z.object({ hostId: z.string().min(1) }).strict(),
+    z.object({ worker: SshWorkerStatusSchema }),
   ),
   'ssh.respondHostKey': ch(
     'ssh.respondHostKey',
@@ -1346,8 +1375,8 @@ export const CHANNELS = {
    * actually owns the revived session. */
   'external.resumeSession': ch(
     'external.resumeSession',
-    3,
-    z.object({ taskId: z.string(), terminalId: z.string() }).strict(),
+    4,
+    z.object({ taskId: z.string(), terminalId: z.string().optional() }).strict(),
     z.object({
       terminalId: z.string(),
       cli: z.string(),

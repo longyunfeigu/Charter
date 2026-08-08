@@ -65,6 +65,18 @@ export const bundles = [
     define: { 'process.env.NODE_ENV': '"production"' },
   },
   {
+    // Uploaded verbatim after an explicit user action. Keep this bundle
+    // dependency-free and compatible with the Node versions required by the
+    // supported remote Agent CLIs.
+    entryPoints: [join(root, 'apps/desktop-main/src/remote-session-worker.ts')],
+    outfile: join(root, 'apps/desktop-main/dist/remote-session-worker.cjs'),
+    platform: 'node',
+    format: 'cjs',
+    bundle: true,
+    sourcemap: false,
+    target: 'node18',
+  },
+  {
     entryPoints: [join(root, 'apps/desktop-preload/src/index.ts')],
     outfile: join(root, 'apps/desktop-preload/dist/preload.cjs'),
     platform: 'node',

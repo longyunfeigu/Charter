@@ -43,6 +43,15 @@ test.describe('Room ending — review bar (ADR-0016, direction B)', () => {
 
       // Rollback lives in the one Action Dock, still double-confirmed.
       await page.getByTestId('task-rollback').click();
+      await expect(page.getByTestId('task-rollback-description')).toContainText(
+        'pre-Session bytes',
+      );
+      await expect(page.getByTestId('task-rollback-description')).toContainText(
+        'Git commits are not rewritten',
+      );
+      await expect(page.getByTestId('task-rollback-description')).toContainText(
+        'verification becomes stale',
+      );
       await page.getByTestId('task-rollback-confirm').click();
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'IDLE', {
         timeout: 15000,

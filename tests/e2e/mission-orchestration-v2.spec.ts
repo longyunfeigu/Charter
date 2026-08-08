@@ -322,12 +322,137 @@ test('Mission Experience separates Agent requests from user actions and persists
     await expect(second.page.getByTestId('mission-graph-timeline')).toContainText('Live');
     await expect(second.page.getByTestId('mission-graph-detail-drawer')).not.toBeVisible();
 
+    const graphLayout = second.page.locator('.mission-work-layout-graph');
+    const fullscreenButton = second.page.getByTestId('mission-graph-fullscreen');
+    const graphLayoutBeforeFullscreen = await graphLayout.boundingBox();
+    await expect(fullscreenButton).toContainText('Full screen');
+    await fullscreenButton.click();
+    await expect(graphLayout).toHaveClass(/graph-fullscreen/);
+    await expect(fullscreenButton).toContainText('Exit full screen');
+    const graphLayoutFullscreen = await graphLayout.boundingBox();
+    expect(graphLayoutFullscreen?.width ?? 0).toBeGreaterThan(
+      (graphLayoutBeforeFullscreen?.width ?? 0) + 80,
+    );
+    expect(graphLayoutFullscreen?.height ?? 0).toBeGreaterThan(700);
+    await expect
+      .poll(() =>
+        second.page.evaluate(() =>
+          Boolean(
+            document
+              .elementFromPoint(24, 120)
+              ?.closest('.mission-work-layout-graph.graph-fullscreen'),
+          ),
+        ),
+      )
+      .toBe(true);
+    await second.page.screenshot({ path: '/tmp/charter-mission-graph-fullscreen.png' });
+    await expect
+      .poll(() =>
+        second.page.evaluate(() =>
+          [
+            '.titlebar',
+            '.titlebar .tb-brand-lockup',
+            '.titlebar .tb-spacer',
+            '[data-testid="mission-graph-fullscreen"]',
+          ].map((selector) => {
+            const element = document.querySelector(selector);
+            return element
+              ? getComputedStyle(element).getPropertyValue('-webkit-app-region')
+              : null;
+          }),
+        ),
+      )
+      .toEqual(['no-drag', 'no-drag', 'no-drag', 'no-drag']);
+    const fullscreenExitBox = await fullscreenButton.boundingBox();
+    expect(fullscreenExitBox).not.toBeNull();
+    await second.page.mouse.click(
+      fullscreenExitBox!.x + fullscreenExitBox!.width / 2,
+      fullscreenExitBox!.y + fullscreenExitBox!.height / 2,
+    );
+    await expect(graphLayout).not.toHaveClass(/graph-fullscreen/);
+    await expect(fullscreenButton).toContainText('Full screen');
+    await fullscreenButton.click();
+    await expect(graphLayout).toHaveClass(/graph-fullscreen/);
+    await second.page.keyboard.press('Escape');
+    await expect(graphLayout).not.toHaveClass(/graph-fullscreen/);
+    await expect(fullscreenButton).toContainText('Full screen');
+
+    const graphViewport = second.page.getByTestId('mission-graph-viewport');
+    const graphScene = second.page.getByTestId('mission-graph-scene');
+    await second.page.waitForTimeout(180);
+    const blankCanvasPoint = await graphViewport.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      for (let y = bounds.top + 32; y < bounds.bottom - 32; y += 18) {
+        for (let x = bounds.left + 32; x < bounds.right - 32; x += 18) {
+          const target = document.elementFromPoint(x, y);
+          if (
+            target?.closest('.mission-graph-scene') &&
+            !target.closest(
+              '.mission-graph-node, .mission-graph-human, .mission-graph-edge.communication, .mission-graph-edge.human',
+            )
+          ) {
+            return { x, y };
+          }
+        }
+      }
+      return null;
+    });
+    expect(blankCanvasPoint).not.toBeNull();
+    const sceneBeforePan = await graphScene.evaluate((element) => {
+      const matrix = new DOMMatrix(getComputedStyle(element).transform);
+      return { x: matrix.e, y: matrix.f, scale: matrix.a };
+    });
+    await second.page.mouse.move(blankCanvasPoint!.x, blankCanvasPoint!.y);
+    await second.page.mouse.down();
+    await expect(graphViewport).toHaveClass(/panning/);
+    await second.page.mouse.move(blankCanvasPoint!.x + 72, blankCanvasPoint!.y + 44, { steps: 4 });
+    await second.page.mouse.up();
+    await expect(graphViewport).not.toHaveClass(/panning/);
+    const sceneAfterPan = await graphScene.evaluate((element) => {
+      const matrix = new DOMMatrix(getComputedStyle(element).transform);
+      return { x: matrix.e, y: matrix.f };
+    });
+    expect(sceneAfterPan.x - sceneBeforePan.x).toBeGreaterThan(60);
+    expect(sceneAfterPan.y - sceneBeforePan.y).toBeGreaterThan(32);
+
+    await second.page.mouse.move(blankCanvasPoint!.x + 72, blankCanvasPoint!.y + 44);
+    await second.page.mouse.wheel(0, -120);
+    await expect
+      .poll(async () =>
+        graphScene.evaluate((element) => new DOMMatrix(getComputedStyle(element).transform).a),
+      )
+      .toBeGreaterThan(sceneBeforePan.scale);
+
     const persistenceNode = workMap
       .locator('.mission-graph-node')
       .filter({ hasText: 'Persistence specialist B' });
     const migrationNode = workMap
       .locator('.mission-graph-node')
       .filter({ hasText: 'Migration investigator D' });
+    const persistenceNodeBeforeDrag = await persistenceNode.evaluate((element) => ({
+      left: Number.parseFloat((element as HTMLElement).style.left),
+      top: Number.parseFloat((element as HTMLElement).style.top),
+    }));
+    const persistenceNodeBox = await persistenceNode.boundingBox();
+    expect(persistenceNodeBox).not.toBeNull();
+    await second.page.mouse.move(
+      persistenceNodeBox!.x + persistenceNodeBox!.width / 2,
+      persistenceNodeBox!.y + persistenceNodeBox!.height / 2,
+    );
+    await second.page.mouse.down();
+    await second.page.mouse.move(
+      persistenceNodeBox!.x + persistenceNodeBox!.width / 2 + 54,
+      persistenceNodeBox!.y + persistenceNodeBox!.height / 2 + 28,
+      { steps: 4 },
+    );
+    await second.page.mouse.up();
+    const persistenceNodeAfterDrag = await persistenceNode.evaluate((element) => ({
+      left: Number.parseFloat((element as HTMLElement).style.left),
+      top: Number.parseFloat((element as HTMLElement).style.top),
+    }));
+    expect(persistenceNodeAfterDrag.left).toBeGreaterThan(persistenceNodeBeforeDrag.left + 25);
+    expect(persistenceNodeAfterDrag.top).toBeGreaterThan(persistenceNodeBeforeDrag.top + 12);
+    await expect(second.page.getByTestId('mission-graph-detail-drawer')).not.toBeVisible();
     await persistenceNode.click();
     await expect(workMap.locator('.mission-graph-edge.communication')).toHaveCount(2);
     const graphDrawer = second.page.getByTestId('mission-graph-detail-drawer');
@@ -369,6 +494,12 @@ test('Mission Experience separates Agent requests from user actions and persists
     await second.page.waitForTimeout(300);
     await second.page.screenshot({ path: '/tmp/charter-mission-graph-narrow.png' });
     await workMap.screenshot({ path: '/tmp/charter-mission-graph-canvas-narrow.png' });
+    await fullscreenButton.click();
+    await expect(graphLayout).toHaveClass(/graph-fullscreen/);
+    await expect(second.page.getByTestId('mission-graph-viewport')).toBeVisible();
+    await second.page.screenshot({ path: '/tmp/charter-mission-graph-fullscreen-narrow.png' });
+    await second.page.keyboard.press('Escape');
+    await expect(graphLayout).not.toHaveClass(/graph-fullscreen/);
     if (wideViewport) await second.page.setViewportSize(wideViewport);
 
     await second.page.getByTestId('mission-view-outline').click();

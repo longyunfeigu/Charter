@@ -260,7 +260,7 @@ export class SshConnectionManager {
   }
 
   /** Run a non-interactive command on its own exec channel. */
-  async exec(target: SshTargetConfig, command: string): Promise<ExecResult> {
+  async exec(target: SshTargetConfig, command: string, input?: string): Promise<ExecResult> {
     await this.connect(target);
     const m = this.managed(target);
     const client = m.client;
@@ -287,6 +287,10 @@ export class SshConnectionManager {
           this.untrackChannel(m, stream);
           resolve({ code, stdout, stderr });
         });
+        // Worker mutations use stdin JSON so file bytes never become shell
+        // arguments (or renderer IPC). Ending stdin is also required for the
+        // remote process to begin parsing the complete request.
+        stream.end(input);
       });
     });
   }

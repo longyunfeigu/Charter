@@ -27,7 +27,10 @@ describe('AgentRegistry', () => {
     });
     const agents = registry.catalog().agents;
     expect(agents.find((agent) => agent.id === 'claude')?.installed).toBe(true);
-    expect(agents.find((agent) => agent.id === 'codex')?.installed).toBe(false);
+    expect(agents.find((agent) => agent.id === 'codex')).toMatchObject({
+      installed: false,
+      capabilities: { terminal: false, remote: true },
+    });
     expect(agents.find((agent) => agent.id === 'kimi')?.capabilities.acp).toBe(true);
   });
 
@@ -68,6 +71,11 @@ describe('AgentRegistry', () => {
       executable: kimi,
       args: ['--session', 'session_b04b292c-b7b4-456a-893c-3a22675771f9'],
     });
+    expect(registry.resumeArguments('kimi', null)).toEqual(['--continue']);
+    expect(registry.resumeArguments('codex', 'b04b292c-b7b4-456a-893c-3a22675771f9')).toEqual([
+      'resume',
+      'b04b292c-b7b4-456a-893c-3a22675771f9',
+    ]);
     expect(registry.terminalExitSequence('kimi')).toEqual(['interrupt', 'interrupt', 'interrupt']);
     expect(registry.terminalExitSequence('codex')).toEqual(['interrupt', 'eof']);
   });

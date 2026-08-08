@@ -175,7 +175,16 @@ export class SearchService {
     let usedRipgrep = false;
     if (rg) {
       try {
-        candidates = await this.rgCandidateFiles(rg, options, signal);
+        // A candidate file contains at least one match, so collecting every matching
+        // path is unnecessary when the caller only asked for a small first batch.
+        // Keep a little slack for files that disappear or become unreadable between
+        // the rg snapshot and the content read. Glob filtering still needs the full
+        // candidate set because it is applied below.
+        const candidateLimit =
+          options.includeGlob || options.excludeGlob
+            ? undefined
+            : Math.max(1, options.maxResults) + 32;
+        candidates = await this.rgCandidateFiles(rg, options, candidateLimit, signal);
         usedRipgrep = true;
       } catch {
         candidates = await this.listFiles(60000, signal);
@@ -263,6 +272,7 @@ export class SearchService {
   private rgCandidateFiles(
     rg: string,
     options: TextSearchOptions,
+    maxCandidates?: number,
     signal?: AbortSignal,
   ): Promise<string[]> {
     return new Promise((resolve, reject) => {
@@ -296,6 +306,11 @@ export class SearchService {
         buffer = lines.pop() ?? '';
         for (const line of lines) {
           if (line) files.push(line.replace(/^\.\//, ''));
+          if (maxCandidates !== undefined && files.length >= maxCandidates) {
+            child.kill('SIGTERM');
+            finish();
+            return;
+          }
         }
       });
       child.on('error', (e) => {

@@ -1281,6 +1281,11 @@ export function SessionActionDock({
         <ConfirmDangerButton
           label={task.worktree ? 'Discard worktree' : 'Rollback'}
           confirmLabel={task.worktree ? 'Confirm — discard worktree' : 'Confirm — roll back'}
+          confirmDescription={
+            task.worktree
+              ? `Deletes this Session’s isolated worktree and its ${files.length} unaccepted changed ${files.length === 1 ? 'file' : 'files'}. Your main checkout and Git commits stay unchanged; current verification becomes stale.`
+              : `Restores ${files.length} changed ${files.length === 1 ? 'file' : 'files'} to the recorded pre-Session bytes and discards this Session’s unaccepted edits. Git commits are not rewritten; current verification becomes stale.`
+          }
           testid="task-rollback"
           quiet
           icon="undo"
@@ -1360,6 +1365,11 @@ export function SessionActionDock({
           <ConfirmDangerButton
             label={task.worktree ? 'Discard…' : 'Rollback…'}
             confirmLabel={task.worktree ? 'Confirm — discard worktree' : 'Confirm — roll back'}
+            confirmDescription={
+              task.worktree
+                ? `Deletes this Session’s isolated worktree and its ${files.length} changed ${files.length === 1 ? 'file' : 'files'}. Your main checkout and Git commits stay unchanged; current verification becomes stale.`
+                : `Restores ${files.length} changed ${files.length === 1 ? 'file' : 'files'} to the recorded pre-Session bytes. Git commits are not rewritten; current verification becomes stale.`
+            }
             testid="task-rollback"
             quiet
             onConfirm={() => void store.rollbackTask({ confirmDestructive: true })}
@@ -1442,6 +1452,7 @@ export function SessionActionDock({
         <ConfirmDangerButton
           label="Roll back everything…"
           confirmLabel="Confirm — restore all files"
+          confirmDescription="Restores every recorded file to its pre-Session bytes. Git commits are not rewritten; current verification becomes stale."
           testid="task-rollback"
           quiet
           onConfirm={() => void store.rollbackTask({ confirmDestructive: true })}
@@ -1459,6 +1470,7 @@ export function SessionActionDock({
         <ConfirmDangerButton
           label="Rollback…"
           confirmLabel="Confirm — restore all files"
+          confirmDescription="Restores every recorded file to its pre-Session bytes. Git commits are not rewritten; current verification becomes stale."
           testid="task-rollback"
           quiet
           onConfirm={() => void store.rollbackTask({ confirmDestructive: true })}

@@ -80,6 +80,8 @@ export interface RailGroup {
   path: string | null;
   entries: SessionEntry[];
   needs: number;
+  /** Server-owned groups cannot feed a local workspace picker/action. */
+  remote?: boolean;
   history?: boolean;
 }
 
@@ -222,15 +224,28 @@ export function buildRailGroups(entries: readonly SessionEntry[]): RailGroup[] {
       history.entries.push(entry);
       continue;
     }
-    const name = entry.kind === 'task' ? entry.task.projectName : entry.projectName;
+    const remote = entry.kind === 'task' ? entry.task.external?.remote : undefined;
+    const remoteOwned = Boolean(remote && (remote.workspaceKind ?? 'remote') === 'remote');
+    const name = remoteOwned
+      ? `${remote!.hostLabel} · ${remote!.root.split('/').filter(Boolean).at(-1) ?? remote!.root}`
+      : entry.kind === 'task'
+        ? entry.task.projectName
+        : entry.projectName;
     let group = byName.get(name);
     if (!group) {
-      group = { key: `proj:${name}`, name, path: null, entries: [], needs: 0 };
+      group = {
+        key: `proj:${name}`,
+        name,
+        path: null,
+        entries: [],
+        needs: 0,
+        ...(remoteOwned ? { remote: true } : {}),
+      };
       byName.set(name, group);
       active.push(group);
     }
     if (entry.kind === 'task') {
-      group.path ??= entry.task.projectPath;
+      group.path ??= remoteOwned ? remote!.root : entry.task.projectPath;
       if (needsAttention(entry.task)) group.needs += 1;
     } else if (entry.kind === 'mission') {
       group.path ??= entry.projectPath;

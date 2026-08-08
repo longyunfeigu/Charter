@@ -19,6 +19,8 @@ export interface AppPaths {
   sshDir: string;
   /** Encrypted SSH passwords/passphrases (ADR-0047), isolated from provider secrets. */
   sshSecretsDir: string;
+  /** Sparse local mirrors backing managed remote Diff/Review sessions. */
+  remoteMirrorsDir: string;
 }
 
 export function createAppPaths(userData: string): AppPaths {
@@ -35,6 +37,7 @@ export function createAppPaths(userData: string): AppPaths {
     memoryDir: join(userData, 'memory'),
     sshDir: join(userData, 'ssh'),
     sshSecretsDir: join(userData, 'secrets', 'ssh'),
+    remoteMirrorsDir: join(userData, 'remote-mirrors'),
   };
   for (const dir of [
     paths.secretsDir,
@@ -46,6 +49,7 @@ export function createAppPaths(userData: string): AppPaths {
     paths.memoryDir,
     paths.sshDir,
     paths.sshSecretsDir,
+    paths.remoteMirrorsDir,
   ]) {
     mkdirSync(dir, { recursive: true });
   }

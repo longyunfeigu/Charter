@@ -6,10 +6,12 @@ import {
   type Page,
 } from '@playwright/test';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { TerminalDaemonClient } from '../../../apps/desktop-main/src/services/terminal-daemon-client';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -26,6 +28,43 @@ export interface LaunchedPackagedApp {
   userDataDir: string;
   output: () => string;
   close: () => Promise<void>;
+}
+
+/**
+ * Explicit restart intent for daemon recovery coverage. Main performs its
+ * normal Agent/LSP/database teardown while preserving only daemon-owned PTYs.
+ * Product builds ignore this E2E-only switch.
+ */
+export async function restartMainPreservingTerminals(app: ElectronApplication): Promise<void> {
+  const closed = app.waitForEvent('close');
+  await app.evaluate(({ app: electronApp }) => {
+    process.env.PI_IDE_TERMINAL_PRESERVE_ON_QUIT = '1';
+    setTimeout(() => electronApp.quit(), 0);
+  });
+  await closed;
+}
+
+/** Failure-safe cleanup for a daemon intentionally preserved by fault injection. */
+export async function shutdownPersistentTestTerminals(userDataDir: string): Promise<void> {
+  if (!userDataDir.split(/[\\/]/).at(-1)?.startsWith('pi-ide-e2e-')) {
+    throw new Error(`Refusing to clean a non-E2E terminal daemon: ${userDataDir}`);
+  }
+  const tokenFile = join(userDataDir, 'runtime', 'terminal-daemon.token');
+  if (!existsSync(tokenFile)) return;
+  const identity = createHash('sha256').update(userDataDir).digest('hex').slice(0, 20);
+  const socketPath =
+    process.platform === 'win32'
+      ? `\\\\.\\pipe\\charter-terminal-${identity}`
+      : join(tmpdir(), `charter-terminal-${identity}.sock`);
+  if (process.platform !== 'win32' && !existsSync(socketPath)) return;
+  const client = await TerminalDaemonClient.connect({
+    socketPath,
+    tokenFile,
+    launchDaemon: () => {
+      throw new Error('The E2E cleanup helper must never launch a daemon.');
+    },
+  });
+  await client.shutdown();
 }
 
 const root = join(__dirname, '../../..');

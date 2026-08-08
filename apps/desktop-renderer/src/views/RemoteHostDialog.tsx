@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { SshHostDto, SshHostInput } from '@pi-ide/ipc-contracts';
 import { useSshStore } from '../store/sshStore.js';
 import { Ic } from './home-icons.js';
@@ -20,8 +20,9 @@ export function RemoteHostDialog(props: {
   mode: 'create' | 'edit';
   host?: SshHostDto;
   onClose: () => void;
+  onSaved?: (host: SshHostDto) => void;
 }): React.JSX.Element {
-  const { mode, host, onClose } = props;
+  const { mode, host, onClose, onSaved } = props;
   const saveHost = useSshStore((s) => s.saveHost);
   const setSecret = useSshStore((s) => s.setSecret);
   const clearSecret = useSshStore((s) => s.clearSecret);
@@ -42,26 +43,41 @@ export function RemoteHostDialog(props: {
   const [hasPassphrase, setHasPassphrase] = useState(host?.hasPassphrase ?? false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const returnFocus = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || busy) return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [busy, onClose]);
+
+  useEffect(
+    () => () => {
+      returnFocus.current?.focus();
+    },
+    [],
+  );
 
   const portNum = Number(port);
   const portValid = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535;
-  const ready =
-    label.trim().length > 0 &&
-    hostname.trim().length > 0 &&
-    username.trim().length > 0 &&
-    portValid &&
-    !busy;
+  const ready = hostname.trim().length > 0 && username.trim().length > 0 && portValid && !busy;
 
   const submit = async (): Promise<void> => {
     if (!ready) {
-      setError('Fill label, host and username, with a port between 1 and 65535.');
+      setError('Fill host and username, with a port between 1 and 65535.');
       return;
     }
     setBusy(true);
     setError(null);
     const input: SshHostInput = {
       ...(host ? { id: host.id } : {}),
-      label: label.trim(),
+      label: label.trim() || hostname.trim(),
       host: hostname.trim(),
       port: portNum,
       username: username.trim(),
@@ -89,6 +105,7 @@ export function RemoteHostDialog(props: {
       await setSecret(saved.id, 'passphrase', passphrase);
     }
     setBusy(false);
+    onSaved?.(saved);
     onClose();
   };
 
@@ -116,7 +133,7 @@ export function RemoteHostDialog(props: {
 
         <div className="rm-dialog-body">
           <div className="rm-field">
-            <label>Label</label>
+            <label>{mode === 'create' ? 'Name (optional)' : 'Name'}</label>
             <input
               type="text"
               value={label}

@@ -3,6 +3,7 @@ import type { SshService } from '../services/ssh-service.js';
 import type { SshSftpService } from '../services/ssh-sftp-service.js';
 import type { SshForwardService } from '../services/ssh-forward-service.js';
 import type { LocalFilesService } from '../services/local-files-service.js';
+import type { RemoteWorkerService } from '../services/remote-worker-service.js';
 import { registerHandlers } from './router.js';
 
 /**
@@ -12,6 +13,7 @@ import { registerHandlers } from './router.js';
  */
 export function registerSshHandlers(
   ssh: SshService,
+  worker: RemoteWorkerService,
   sftp: SshSftpService,
   forwards: SshForwardService,
   localFiles: LocalFilesService,
@@ -45,6 +47,8 @@ export function registerSshHandlers(
       'ssh.importConfig': async () => ({ candidates: await ssh.importConfig() }),
       'ssh.applyImport': async ({ hosts }) => ({ added: ssh.applyImport(hosts) }),
       'ssh.probeCli': async ({ hostId, cli }) => ssh.probeCli(hostId, cli),
+      'ssh.workerStatus': async ({ hostId }) => ({ worker: await worker.status(hostId) }),
+      'ssh.installWorker': async ({ hostId }) => ({ worker: await worker.install(hostId) }),
       'ssh.respondHostKey': async ({ requestId, accept, remember }) => ({
         ok: ssh.respondHostKey(requestId, accept, remember),
       }),

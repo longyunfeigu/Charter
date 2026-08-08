@@ -81,6 +81,13 @@ function attrsOf(node: MemFile): { mode: number; size: number; atime: number; mt
 export interface FakeSshdOptions {
   password?: string;
   execReplies?: Record<string, string>;
+  /** Dynamic exec responder for stateful Worker/E2E commands. */
+  onExec?: (
+    command: string,
+    input: string,
+  ) =>
+    | { stdout?: string; stderr?: string; code?: number }
+    | Promise<{ stdout?: string; stderr?: string; code?: number }>;
   onShell?: (channel: ServerChannel) => void;
   /** In-memory FS served over SFTP; omit to reject the sftp subsystem. */
   fs?: MemFs;
@@ -142,14 +149,37 @@ export function startFakeSshd(opts: FakeSshdOptions = {}): Promise<FakeSshd> {
         });
         session.on('exec', (execAccept, _reject, info) => {
           const channel = execAccept();
-          const reply = opts.execReplies?.[info.command];
-          if (reply !== undefined) {
-            channel.write(reply);
+          const staticReply = opts.execReplies?.[info.command];
+          if (staticReply !== undefined) {
+            channel.write(staticReply);
             channel.exit(0);
-          } else {
-            channel.stderr.write('not found\n');
-            channel.exit(127);
+            channel.end();
+            return;
           }
+          if (opts.onExec) {
+            let input = '';
+            channel.on('data', (chunk: Buffer) => {
+              input += chunk.toString('utf8');
+            });
+            channel.on('end', () => {
+              void Promise.resolve(opts.onExec!(info.command, input)).then(
+                (response) => {
+                  if (response.stdout) channel.write(response.stdout);
+                  if (response.stderr) channel.stderr.write(response.stderr);
+                  channel.exit(response.code ?? 0);
+                  channel.end();
+                },
+                (error) => {
+                  channel.stderr.write(error instanceof Error ? error.message : String(error));
+                  channel.exit(1);
+                  channel.end();
+                },
+              );
+            });
+            return;
+          }
+          channel.stderr.write('not found\n');
+          channel.exit(127);
           channel.end();
         });
         if (opts.fs) attachSftp(session, opts.fs);
@@ -255,6 +285,11 @@ function attachSftp(
       })
       .on('STAT', statReply)
       .on('LSTAT', statReply)
+      .on('SETSTAT', (reqid: number) => {
+        // Modes are not material to this in-memory fixture; acknowledging the
+        // request keeps its SFTP contract aligned with production chmod.
+        sftp.status(reqid, STATUS_CODE.OK);
+      })
       .on('OPEN', (reqid: number, rawPath: string, flags: number) => {
         const path = fs.normalize(rawPath);
         const wantsWrite = (flags & sshUtils.sftp.OPEN_MODE.WRITE) !== 0;

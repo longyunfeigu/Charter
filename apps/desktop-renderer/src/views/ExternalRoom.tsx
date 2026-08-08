@@ -431,10 +431,10 @@ async function injectFileRef(taskId: string, rel: string): Promise<boolean> {
  * has them, else a one-shot hydrate from the recorded change set (restarts,
  * ended sessions).
  */
-export function useExternalFiles(task: TaskDto): ExternalSessionFile[] {
-  const session = useExternalStore((s) => s.sessions[task.id]);
+export function useExternalFiles(task: TaskDto | null): ExternalSessionFile[] {
+  const session = useExternalStore((s) => (task ? s.sessions[task.id] : undefined));
   useEffect(() => {
-    if (!task.external || session) return;
+    if (!task?.external || session) return;
     let cancelled = false;
     void rpcResult('task.changeSet', { taskId: task.id }).then((res) => {
       if (cancelled || !res.ok) return;
@@ -463,6 +463,6 @@ export function useExternalFiles(task: TaskDto): ExternalSessionFile[] {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task.id, session === undefined]);
+  }, [task?.id, session === undefined]);
   return session?.files ?? [];
 }

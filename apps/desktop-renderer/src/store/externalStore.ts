@@ -260,18 +260,25 @@ export const useExternalStore = create<ExternalStore>((set, get) => ({
     set({ resumingTaskId: task.id });
     try {
       const terminals = useTerminalStore.getState();
-      let terminalId = terminals.items.find(
-        (item) => item.id === external.terminalId && !item.exited,
-      )?.id;
-      if (!terminalId) {
-        terminalId =
-          (await terminals.create({ taskId: task.id, title: `${external.cli} resume` })) ??
-          undefined;
+      let terminalId: string | undefined;
+      if (!external.remote) {
+        terminalId = terminals.items.find(
+          (item) => item.id === external.terminalId && !item.exited,
+        )?.id;
+        if (!terminalId) {
+          terminalId =
+            (await terminals.create({ taskId: task.id, title: `${external.cli} resume` })) ??
+            undefined;
+        }
+        if (!terminalId) return;
+        useTerminalStore.setState({ active: terminalId });
       }
-      if (!terminalId) return;
-      useTerminalStore.setState({ active: terminalId });
-      const result = await rpcResult('external.resumeSession', { taskId: task.id, terminalId });
+      const result = await rpcResult('external.resumeSession', {
+        taskId: task.id,
+        ...(terminalId ? { terminalId } : {}),
+      });
       if (!okOrToast(result)) return;
+      useTerminalStore.setState({ active: result.data.terminalId });
       // A settled source task continues as a NEW task (fresh baseline, same
       // CLI conversation) — follow the session to where it actually lives.
       const continuedAs = result.data.taskId !== task.id ? result.data.taskId : null;

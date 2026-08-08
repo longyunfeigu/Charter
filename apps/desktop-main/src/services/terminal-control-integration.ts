@@ -249,8 +249,11 @@ export function installTerminalControlIntegration(input: {
       return {
         PATH: `${binDir}${delimiter}${basePath}`,
         CHARTER_TERMINAL_BIN: binDir,
-        CHARTER_TERMINAL_COMMAND: 'charter-terminal',
-        CHARTER_COMMAND: 'charter',
+        // Agent login shells may rebuild PATH from scratch. Keep the command
+        // doors absolute so Skills and nested Mission calls cannot lose the
+        // product-owned bridge after .zshrc/.bashrc runs.
+        CHARTER_TERMINAL_COMMAND: join(binDir, 'charter-terminal'),
+        CHARTER_COMMAND: join(binDir, 'charter'),
       };
     },
   };

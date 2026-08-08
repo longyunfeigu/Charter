@@ -1,6 +1,15 @@
 import { connect } from 'node:net';
-import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { launchApp } from './helpers/launch';
@@ -33,11 +42,21 @@ async function addHost(page: Page, port: number): Promise<void> {
  * password may or may not satisfy auth silently — handle both. */
 async function acceptPrompts(page: Page): Promise<void> {
   const hostKey = page.getByTestId('ssh-hostkey-modal');
-  if (await hostKey.isVisible({ timeout: 5000 }).catch(() => false)) {
+  if (
+    await hostKey
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await page.getByTestId('ssh-hostkey-accept').click();
   }
   const authModal = page.getByTestId('ssh-auth-modal');
-  if (await authModal.isVisible({ timeout: 2000 }).catch(() => false)) {
+  if (
+    await authModal
+      .waitFor({ state: 'visible', timeout: 2000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await page.getByTestId('ssh-auth-input-0').fill('e2e-password');
     await page.getByTestId('ssh-auth-submit').click();
   }
@@ -50,6 +69,7 @@ test.describe('SSH Remotes (ADR-0047)', () => {
     const fs = new MemFs('/home/tester');
     fs.writeFile('/home/tester/readme.txt', 'hello from the fake server');
     fs.mkdirp('/home/tester/docs');
+    fs.writeFile('/home/tester/docs/orbit.html', '<title>Remote orbit</title>\n');
     sshd = await startFakeSshServer({
       password: 'e2e-password',
       shellBanner: 'fake-sshd ready',
@@ -58,6 +78,498 @@ test.describe('SSH Remotes (ADR-0047)', () => {
   });
   test.afterEach(async () => {
     await sshd.close();
+  });
+
+  test('New Host dialog closes with Escape and restores focus to its opener', async () => {
+    const { app, page } = await launchApp({ home: 'keep' });
+    try {
+      await page.getByTestId('rail-view-remotes').click();
+      const opener = page.getByRole('button', { name: 'New Host' }).first();
+      await opener.click();
+      await expect(page.getByTestId('rm-dialog')).toBeVisible();
+      await expect(page.getByTestId('rm-field-label')).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('rm-dialog')).toBeHidden();
+      await expect(opener).toBeFocused();
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('E2E: New Session connects by IP, discovers a remote Agent, and launches it there', async () => {
+    const firstLaunch = await launchApp({ home: 'keep' });
+    let app = firstLaunch.app;
+    let page = firstLaunch.page;
+    const prompt = "Audit reconnects; don't touch local files";
+    try {
+      // The canonical 0→1 path starts in New Session, with no saved host and
+      // no local project: choose where the Agent runs before choosing files.
+      await expect(page.getByTestId('home-target')).toContainText('This Mac');
+      await page.getByTestId('home-target').click();
+      await page.getByTestId('home-target-connect').click();
+      await expect(page.getByTestId('rm-dialog')).toBeVisible();
+
+      await page.getByTestId('rm-field-label').fill('e2e-agent-host');
+      await page.getByTestId('rm-field-host').fill('127.0.0.1');
+      await page.getByTestId('rm-field-port').fill(String(sshd.port));
+      await page.getByTestId('rm-field-username').fill('tester');
+      await page.getByTestId('rm-auth-password').click();
+      await page.getByTestId('rm-field-password').fill('e2e-password');
+      await page.getByTestId('rm-dialog-submit').click();
+
+      await acceptPrompts(page);
+      await expect(page.getByTestId('remote-setup-configure')).toBeVisible({ timeout: 20000 });
+      // The setup is portalled above the Sessions rail instead of being
+      // trapped in Home's stacking context.
+      await expect
+        .poll(() =>
+          page.evaluate(() =>
+            Boolean(
+              document.elementFromPoint(100, 300)?.closest('[data-testid="remote-session-setup"]'),
+            ),
+          ),
+        )
+        .toBe(true);
+      await expect(page.getByTestId('remote-setup-agent-claude')).toContainText(
+        'Ready on this server',
+      );
+      await expect(page.getByTestId('remote-setup-agent-codex')).toContainText(
+        'Ready on this server',
+      );
+      await expect(page.getByTestId('remote-worker-section')).toContainText('Not installed');
+      await page.getByTestId('remote-worker-install').click();
+      await expect(page.getByTestId('remote-worker-section')).toContainText('Ready · v1.2.0', {
+        timeout: 15000,
+      });
+      await app.evaluate(({ BrowserWindow }) => {
+        BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 1024, height: 640 });
+      });
+      await expect
+        .poll(() => page.evaluate(() => window.innerWidth), { timeout: 5000 })
+        .toBeLessThanOrEqual(1024);
+      const narrowLayout = await page.getByTestId('remote-session-setup').evaluate((backdrop) => {
+        const dialog = backdrop.querySelector<HTMLElement>('.remote-setup-dialog');
+        const rect = dialog?.getBoundingClientRect();
+        return {
+          viewportWidth: window.innerWidth,
+          documentWidth: document.documentElement.scrollWidth,
+          left: rect?.left ?? -1,
+          right: rect?.right ?? Number.POSITIVE_INFINITY,
+        };
+      });
+      expect(narrowLayout.documentWidth).toBeLessThanOrEqual(narrowLayout.viewportWidth);
+      expect(narrowLayout.left).toBeGreaterThanOrEqual(0);
+      expect(narrowLayout.right).toBeLessThanOrEqual(narrowLayout.viewportWidth);
+      await app.evaluate(({ BrowserWindow }) => {
+        BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 1440, height: 900 });
+      });
+
+      // The working tree is chosen from the remote filesystem, not from the
+      // MacBook's project picker.
+      await page.getByTestId('remote-setup-browse').click();
+      await expect(page.getByTestId('remote-folder-docs')).toBeVisible();
+      await page.getByTestId('remote-folder-docs').click();
+      await page
+        .getByTestId('remote-folder-browser')
+        .getByRole('button', { name: 'Use this folder' })
+        .click();
+      await page.getByTestId('remote-setup-agent-claude').click();
+      await page.getByTestId('remote-setup-use').click();
+
+      await expect(page.getByTestId('remote-session-setup')).toBeHidden();
+      await expect(page.getByTestId('home-target')).toContainText('e2e-agent-host');
+      await expect(page.getByTestId('home-remote-folder')).toContainText('/home/tester/docs');
+      await expect(page.getByTestId('home-agent')).toContainText('Claude');
+
+      // The selected path remains an active folder picker; users can change
+      // it without clearing and recreating the remote execution target.
+      await page.getByTestId('home-remote-folder').click();
+      await expect(page.getByTestId('remote-setup-configure')).toBeVisible({ timeout: 20000 });
+      await expect(page.getByTestId('remote-setup-workdir')).toHaveValue('/home/tester/docs');
+      await expect(page.getByTestId('remote-worker-section')).toContainText('Ready · v1.2.0');
+      await page.getByTestId('remote-session-setup').getByRole('button', { name: 'Close' }).click();
+      await expect(page.getByTestId('remote-session-setup')).toBeHidden();
+
+      await page.getByTestId('home-intent').fill(prompt);
+      await page.getByTestId('home-submit').click();
+      // Detection may promote the bare terminal route into its tracked Room
+      // before this assertion runs; the external terminal host is stable on
+      // both surfaces and proves the remote PTY actually mounted.
+      await expect(page.getByTestId('external-terminal-host')).toBeVisible({ timeout: 15000 });
+      const managedMetadata = await page.evaluate(async () => {
+        const terminals = (await window.product.rpc['terminal.list']!({})) as {
+          data?: {
+            items: Array<{
+              launch: string;
+              projectName: string;
+              remote?: { hostLabel: string; root?: string; workerSessionId?: string };
+            }>;
+          };
+        };
+        return terminals.data?.items.find((terminal) => terminal.launch === 'claude') ?? null;
+      });
+      expect(managedMetadata).toMatchObject({
+        projectName: 'e2e-agent-host · docs',
+        remote: {
+          hostLabel: 'e2e-agent-host',
+          root: '/home/tester/docs',
+        },
+      });
+      expect(managedMetadata?.remote?.workerSessionId).toMatch(/^rws_/);
+
+      // The first prompt and selected folder cross the SSH PTY as one quoted
+      // launch command; no local Agent process is involved.
+      await expect
+        .poll(() => sshd.shellInput.join(''), { timeout: 10000 })
+        .toContain(
+          "cd -- '/home/tester/docs' && exec claude 'Audit reconnects; don'\\''t touch local files'\r",
+        );
+      await expect(page.getByTestId('external-terminal-host').locator('.xterm')).toBeVisible();
+
+      // A remote write is collected by the Worker (not by a local fs watcher)
+      // and appears in the ordinary Charter Diff ledger.
+      await expect
+        .poll(
+          () =>
+            page.evaluate(async () => {
+              const result = (await window.product.rpc['task.list']!({
+                filter: 'all',
+                includeArchived: false,
+                scope: 'all',
+              })) as {
+                ok: boolean;
+                data?: { tasks: Array<{ id: string; external: { remote?: unknown } | null }> };
+              };
+              return result.data?.tasks.find((task) => task.external?.remote)?.id ?? null;
+            }),
+          { timeout: 15000 },
+        )
+        .toBeTruthy();
+      const remoteTaskId = await page.evaluate(async () => {
+        const result = (await window.product.rpc['task.list']!({
+          filter: 'all',
+          includeArchived: false,
+          scope: 'all',
+        })) as {
+          data?: { tasks: Array<{ id: string; external: { remote?: unknown } | null }> };
+        };
+        return result.data!.tasks.find((task) => task.external?.remote)!.id;
+      });
+
+      // Product identity is the real server folder. The generated Worker id
+      // and sparse accounting mirror stay internal, while Files browses the
+      // canonical remote tree directly over SFTP.
+      await expect(page.getByTestId('rail-session-group-e2e-agent-host · docs')).toBeVisible();
+      await expect(page.getByTestId('rail-session-group-e2e-agent-host · docs')).not.toContainText(
+        'rws_',
+      );
+      await page.getByTestId(`home-task-${remoteTaskId}`).click();
+      await page.getByTestId('rail-tab-files').click();
+      await expect(page.getByTestId('session-remote-files-pane')).toBeVisible();
+      await expect(page.getByTestId('session-remote-files-root')).toHaveText('/home/tester/docs');
+      await expect(page.getByTestId('session-remote-file-orbit.html')).toBeVisible({
+        timeout: 15000,
+      });
+      await expect(page.getByTestId('session-remote-files-pane')).not.toContainText('rws_');
+      sshd.fs.writeFile('/home/tester/docs/worker-change.txt', 'written on remote\n');
+      await expect
+        .poll(
+          () =>
+            page.evaluate(async (taskId) => {
+              const result = (await window.product.rpc['task.changeSet']!({ taskId })) as {
+                data?: { changeSet: { files: Array<{ path: string }> } };
+              };
+              return result.data?.changeSet.files.map((file) => file.path) ?? [];
+            }, remoteTaskId),
+          { timeout: 15000 },
+        )
+        .toContain('worker-change.txt');
+
+      // Ending the PTY performs one final Worker sync before REVIEW_READY.
+      sshd.closeLatestShell();
+      await expect
+        .poll(
+          () =>
+            page.evaluate(async (taskId) => {
+              const result = (await window.product.rpc['task.get']!({
+                taskId,
+                eventsAfter: 0,
+              })) as { data?: { task: { state: string } } };
+              return result.data?.task.state ?? null;
+            }, remoteTaskId),
+          { timeout: 15000 },
+        )
+        .toBe('REVIEW_READY');
+
+      // The normal Review UI can reject it; the protected apply path removes
+      // the file on the server too (no local-only fake rollback).
+      await page.getByTestId('rail-tab-sessions').click();
+      await page.getByTestId(`home-task-${remoteTaskId}`).click();
+      if (!(await page.getByTestId('review-bar-open').isVisible())) {
+        await page.getByTestId('session-tools-open').click();
+      }
+      await page.getByTestId('review-bar-open').click();
+      await expect(page.getByTestId('review-file-worker-change.txt')).toBeVisible({
+        timeout: 15000,
+      });
+      page.once('dialog', (dialog) => dialog.accept());
+      await page.getByTestId('file-reject-worker-change.txt').click();
+      await expect.poll(() => sshd.fs.nodes.has('/home/tester/docs/worker-change.txt')).toBe(false);
+
+      // Resume stays remote and reuses the same Worker baseline. It must not
+      // create a local Mac terminal or silently take a fresh baseline. Relaunch
+      // the desktop first to prove the durable task/Worker binding survives a
+      // real main-process restart, including remote writes made while offline.
+      await page.getByTestId('review-close').click();
+      await app.close();
+      sshd.fs.writeFile(
+        '/home/tester/docs/after-restart.txt',
+        'written while Charter was closed\n',
+      );
+      const relaunched = await launchApp({
+        home: 'keep',
+        userDataDir: firstLaunch.userDataDir,
+      });
+      app = relaunched.app;
+      page = relaunched.page;
+      await expect(page.getByTestId(`home-resume-${remoteTaskId}`)).toBeVisible();
+      await page.getByTestId(`home-resume-${remoteTaskId}`).click();
+      await acceptPrompts(page);
+      await expect
+        .poll(() => sshd.shellInput.join(''), { timeout: 15000 })
+        .toContain(
+          "cd -- '/home/tester/docs' && exec claude '--resume' '11111111-2222-4333-8444-555555555555'\r",
+        );
+      await expect
+        .poll(
+          () =>
+            page.evaluate(async (taskId) => {
+              const result = (await window.product.rpc['task.get']!({
+                taskId,
+                eventsAfter: 0,
+              })) as {
+                data?: { task: { state: string; external: { terminalId: string } } };
+              };
+              return result.data?.task ?? null;
+            }, remoteTaskId),
+          { timeout: 15000 },
+        )
+        .toMatchObject({ state: 'IN_PROGRESS' });
+      await expect
+        .poll(
+          () =>
+            page.evaluate(async (taskId) => {
+              const result = (await window.product.rpc['task.changeSet']!({ taskId })) as {
+                data?: { changeSet: { files: Array<{ path: string }> } };
+              };
+              return result.data?.changeSet.files.map((file) => file.path) ?? [];
+            }, remoteTaskId),
+          { timeout: 15000 },
+        )
+        .toContain('after-restart.txt');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('E2E: a local project stays canonical while its Agent runs in an isolated remote copy', async () => {
+    const localRoot = realpathSync(mkdtempSync(join(tmpdir(), 'charter-e2e-local-remote-')));
+    execFileSync('git', ['init', '-q', localRoot]);
+    writeFileSync(join(localRoot, '.gitignore'), 'private.env\n');
+    writeFileSync(join(localRoot, 'app.txt'), 'local baseline\n');
+    writeFileSync(join(localRoot, 'private.env'), 'must stay on this Mac\n');
+
+    const launched = await launchApp({
+      home: 'keep',
+      env: { PI_IDE_OPEN_WORKSPACE: localRoot },
+    });
+    const { app, page } = launched;
+    try {
+      // Opening the local project enters the workspace surface. Return to New
+      // Session without closing it, so SSH setup can offer it as the source.
+      const homeButton = page.locator('button[data-testid="surface-home"]');
+      if (await homeButton.isVisible({ timeout: 10000 }).catch(() => false)) {
+        await homeButton.click();
+      }
+      await expect(page.getByTestId('home-view')).toBeVisible({ timeout: 10000 });
+      await page.getByTestId('home-target').click();
+      await page.getByTestId('home-target-connect').click();
+      await expect(page.getByTestId('rm-dialog')).toBeVisible();
+      await page.getByTestId('rm-field-label').fill('e2e-local-agent');
+      await page.getByTestId('rm-field-host').fill('127.0.0.1');
+      await page.getByTestId('rm-field-port').fill(String(sshd.port));
+      await page.getByTestId('rm-field-username').fill('tester');
+      await page.getByTestId('rm-auth-password').click();
+      await page.getByTestId('rm-field-password').fill('e2e-password');
+      await page.getByTestId('rm-dialog-submit').click();
+      await acceptPrompts(page);
+
+      await expect(page.getByTestId('remote-setup-configure')).toBeVisible({ timeout: 20000 });
+      await page.getByTestId('remote-worker-install').click();
+      await expect(page.getByTestId('remote-worker-section')).toContainText('Ready · v1.2.0', {
+        timeout: 15000,
+      });
+      await page.getByTestId('remote-workspace-local').click();
+      await expect(page.getByTestId('remote-local-workdir')).toHaveText(localRoot);
+      await expect(page.getByTestId('remote-local-workspace')).toContainText(
+        'synchronizes file changes both ways',
+      );
+      await page.getByTestId('remote-setup-agent-claude').click();
+      await page.getByTestId('remote-setup-use').click();
+
+      await expect(page.getByTestId('home-remote-folder')).toContainText(localRoot);
+      await expect(page.getByTestId('home-remote-folder')).toContainText('LOCAL · REMOTE AGENT');
+      await page.getByTestId('home-intent').fill('Work remotely against my local project');
+      await page.getByTestId('home-submit').click();
+      await expect(page.getByTestId('external-terminal-host')).toBeVisible({ timeout: 20000 });
+
+      const localTask = await expect
+        .poll(
+          () =>
+            page.evaluate(async () => {
+              const result = (await window.product.rpc['task.list']!({
+                filter: 'all',
+                includeArchived: false,
+                scope: 'all',
+              })) as {
+                data?: {
+                  tasks: Array<{
+                    id: string;
+                    projectPath: string;
+                    external: {
+                      remote?: { root: string; workspaceKind?: 'remote' | 'local' };
+                    } | null;
+                  }>;
+                };
+              };
+              const task = result.data?.tasks.find(
+                (entry) => entry.external?.remote?.workspaceKind === 'local',
+              );
+              return task
+                ? {
+                    id: task.id,
+                    projectPath: task.projectPath,
+                    root: task.external!.remote!.root,
+                  }
+                : null;
+            }),
+          { timeout: 20000 },
+        )
+        .not.toBeNull()
+        .then(async () =>
+          page.evaluate(async () => {
+            const result = (await window.product.rpc['task.list']!({
+              filter: 'all',
+              includeArchived: false,
+              scope: 'all',
+            })) as {
+              data: {
+                tasks: Array<{
+                  id: string;
+                  projectPath: string;
+                  external: { remote?: { root: string; workspaceKind?: string } } | null;
+                }>;
+              };
+            };
+            const task = result.data.tasks.find(
+              (entry) => entry.external?.remote?.workspaceKind === 'local',
+            )!;
+            return {
+              id: task.id,
+              projectPath: task.projectPath,
+              root: task.external!.remote!.root,
+            };
+          }),
+        );
+
+      expect(localTask.projectPath).toBe(localRoot);
+      expect(localTask.root).toMatch(/^\/home\/tester\/\.charter\/workspaces\/rws_/);
+      expect(sshd.fs.nodes.get(`${localTask.root}/app.txt`)?.data.toString()).toBe(
+        'local baseline\n',
+      );
+      expect(sshd.fs.nodes.has(`${localTask.root}/private.env`)).toBe(false);
+      expect(
+        [...sshd.fs.nodes.keys()].some((path) => path.startsWith(`${localTask.root}/.git/`)),
+      ).toBe(false);
+      await expect
+        .poll(() => sshd.shellInput.join(''), { timeout: 10000 })
+        .toContain(
+          `cd -- '${localTask.root}' && exec claude 'Work remotely against my local project'\r`,
+        );
+
+      // Files remains the real local ProjectTree in this mode, while the
+      // generated remote execution root is kept out of product navigation.
+      const localProjectName = localRoot.split('/').at(-1)!;
+      await expect(page.getByTestId(`rail-session-group-${localProjectName}`)).toBeVisible();
+      await expect(page.getByTestId(`rail-session-group-${localProjectName}`)).not.toContainText(
+        'rws_',
+      );
+      await page.getByTestId(`home-task-${localTask.id}`).click();
+      await page.getByTestId('rail-tab-files').click();
+      await expect(page.getByTestId('session-files-pane')).toBeVisible();
+      await expect(page.getByTestId('session-remote-files-pane')).toHaveCount(0);
+      await expect(page.getByTestId('session-files-pane')).toContainText('app.txt');
+      // Remote Agent writes flow down to the canonical local directory.
+      sshd.fs.writeFile(`${localTask.root}/from-remote.txt`, 'remote edit\n');
+      await expect
+        .poll(
+          () =>
+            existsSync(join(localRoot, 'from-remote.txt'))
+              ? readFileSync(join(localRoot, 'from-remote.txt'), 'utf8')
+              : null,
+          { timeout: 15000 },
+        )
+        .toBe('remote edit\n');
+
+      // Local edits flow up through expected-hash protected writes.
+      writeFileSync(join(localRoot, 'from-local.txt'), 'local edit\n');
+      await expect
+        .poll(
+          () => sshd.fs.nodes.get(`${localTask.root}/from-local.txt`)?.data.toString() ?? null,
+          { timeout: 15000 },
+        )
+        .toBe('local edit\n');
+
+      // A same-file race preserves both versions: synchronization pauses on
+      // the hash mismatch rather than choosing either side implicitly.
+      sshd.fs.writeFile(`${localTask.root}/app.txt`, 'remote conflict\n');
+      writeFileSync(join(localRoot, 'app.txt'), 'local conflict\n');
+      await page.waitForTimeout(2500);
+      expect(readFileSync(join(localRoot, 'app.txt'), 'utf8')).toBe('local conflict\n');
+      expect(sshd.fs.nodes.get(`${localTask.root}/app.txt`)?.data.toString()).toBe(
+        'remote conflict\n',
+      );
+
+      // Deleting the Session reclaims only Charter's isolated server copy.
+      sshd.closeLatestShell();
+      await expect
+        .poll(
+          () =>
+            page.evaluate(async (taskId) => {
+              const result = (await window.product.rpc['task.get']!({
+                taskId,
+                eventsAfter: 0,
+              })) as { data?: { task: { external: { status: string } | null } } };
+              return result.data?.task.external?.status ?? null;
+            }, localTask.id),
+          { timeout: 15000 },
+        )
+        .toBe('ended');
+      const deleted = await page.evaluate(
+        async (taskId) => window.product.rpc['task.delete']!({ taskId }),
+        localTask.id,
+      );
+      expect(deleted).toMatchObject({ ok: true, data: { deleted: true } });
+      expect(existsSync(localRoot)).toBe(true);
+      expect(
+        [...sshd.fs.nodes.keys()].some(
+          (path) => path === localTask.root || path.startsWith(`${localTask.root}/`),
+        ),
+      ).toBe(false);
+    } finally {
+      await app.close();
+      rmSync(localRoot, { recursive: true, force: true });
+    }
   });
 
   test('E2E: add a host, verify its key, authenticate, and open a remote session', async () => {
@@ -204,7 +716,9 @@ test.describe('SSH Remotes (ADR-0047)', () => {
         timeout: 10000,
       });
 
-      // Remote sessions are shell-only for now — no launch-type menu on the host.
+      // The host explorer remains a shell-first connection surface. Remote
+      // Agents are selected through New Session, so the host card has no
+      // duplicate launch-type menu.
       await expect(page.getByTestId('rm-launch-menu-e2e-host')).toHaveCount(0);
 
       // Disconnect deletes the final live Session as soon as its channel exits.

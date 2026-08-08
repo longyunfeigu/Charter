@@ -49,6 +49,7 @@ import { SshService } from './services/ssh-service.js';
 import { SshVaultService } from './services/ssh-vault-service.js';
 import { SshSftpService } from './services/ssh-sftp-service.js';
 import { SshForwardService } from './services/ssh-forward-service.js';
+import { RemoteWorkerService } from './services/remote-worker-service.js';
 import { LocalFilesService } from './services/local-files-service.js';
 import { registerSshHandlers } from './ipc/ssh-handlers.js';
 import { M5Services, registerM5Handlers } from './ipc/m5-handlers.js';
@@ -148,6 +149,7 @@ let boot: Bootstrap | null = null;
 let mainWindow: BrowserWindow | null = null;
 let updateServiceRef: UpdateService | null = null;
 let m4Ref: M4Services | null = null;
+let terminalDaemonRef: TerminalDaemonClient | null = null;
 let m5Ref: M5Services | null = null;
 let agentHostRef: AgentHost | null = null;
 let terminalRecordingRef: TerminalRecordingCoordinator | null = null;
@@ -163,6 +165,7 @@ let terminalControlRef: TerminalControlService | null = null;
 let sshServiceRef: SshService | null = null;
 let sshSftpRef: SshSftpService | null = null;
 let sshForwardsRef: SshForwardService | null = null;
+let remoteWorkerRef: RemoteWorkerService | null = null;
 let terminalIdentitiesRef: TerminalControlIdentityRegistry | null = null;
 let ctlServerRef: CtlServer | null = null;
 let missionOrchestrationRef: MissionOrchestrationService | null = null;
@@ -622,6 +625,7 @@ if (!gotLock) {
           tokenFile,
           launchDaemon: () => launchTerminalDaemon(paths, socketPath, tokenFile),
         });
+        terminalDaemonRef = terminalDaemon;
         logger.info('terminal daemon connected', {
           restored: terminalDaemon.restoredSessions().length,
         });
@@ -820,6 +824,25 @@ if (!gotLock) {
           ? { knownHostsPath: process.env.PI_IDE_SSH_KNOWN_HOSTS }
           : {}),
       });
+      const remoteWorkerRuntimeRoot = app.getAppPath().endsWith('app.asar')
+        ? `${app.getAppPath()}.unpacked`
+        : app.getAppPath();
+      remoteWorkerRef = new RemoteWorkerService({
+        exec: (hostId, command, input) => sshServiceRef!.execCommand(hostId, command, input),
+        probeNode: (hostId) => sshServiceRef!.probeCli(hostId, 'node'),
+        openSftp: (hostId) => sshServiceRef!.openSftpSession(hostId),
+        bundlePath: join(
+          remoteWorkerRuntimeRoot,
+          'apps',
+          'desktop-main',
+          'dist',
+          'remote-session-worker.cjs',
+        ),
+        paths,
+        logger: logger.child('remote-worker'),
+        isConnected: (hostId) => sshServiceRef!.isConnected(hostId),
+      });
+      sshServiceRef.attachManagedSessions(remoteWorkerRef, externalLaunchIntents!);
       // PR2/PR3: SFTP panel + local port forwards on the same transports.
       sshSftpRef = new SshSftpService({
         openSession: (hostId) => sshServiceRef!.openSftpSession(hostId),
@@ -848,6 +871,7 @@ if (!gotLock) {
       });
       registerSshHandlers(
         sshServiceRef,
+        remoteWorkerRef,
         sshSftpRef,
         sshForwardsRef,
         new LocalFilesService(),
@@ -1039,6 +1063,13 @@ if (!gotLock) {
         terminalControlRef,
       );
       taskServiceRef = taskService;
+      remoteWorkerRef.attachTaskLookup((taskId) => taskService.getTask(taskId));
+      remoteWorkerRef.attachChangedPathLookup(async (taskId) =>
+        (await taskService.changeSetForReview(taskId)).files.map((file) => ({
+          path: file.path,
+          currentHash: file.currentHash,
+        })),
+      );
       const missionRepository = new MissionRepository(state.db);
       const missionRuntimes = new OrchestrationRuntimeRegistry();
       const settleVisibleMissionSession = async (terminalId: string): Promise<void> => {
@@ -1232,10 +1263,11 @@ if (!gotLock) {
         modelCatalog,
         logger.child('ipc'),
         artifactService,
+        remoteWorkerRef,
       );
       registerM7Handlers(taskService, logger.child('ipc'));
-      registerM8Handlers(taskService, logger.child('ipc'));
-      registerM9Handlers(taskService, logger.child('ipc'));
+      registerM8Handlers(taskService, logger.child('ipc'), remoteWorkerRef);
+      registerM9Handlers(taskService, logger.child('ipc'), remoteWorkerRef);
       registerActivityHandlers(taskService, workspaceHost, logger.child('ipc'));
       // Replay V3 (ADR-0017 am.8): main-side projection over the same ledger.
       const replayService = new ReplayService(
@@ -1335,7 +1367,10 @@ if (!gotLock) {
             taskId,
             source,
           }),
-        ({ terminalId, taskId }) => terminalControlRef?.bindWorkerTask(terminalId, taskId),
+        ({ terminalId, taskId }) => {
+          terminalControlRef?.bindWorkerTask(terminalId, taskId);
+          remoteWorkerRef?.bindTask(terminalId, taskId);
+        },
         async ({ sourceTaskId, targetTaskId, commanderTerminalId }) => {
           const control = terminalControlRef;
           if (!control) {
@@ -1358,6 +1393,16 @@ if (!gotLock) {
         },
         agentRegistryRef,
       );
+      remoteWorkerRef.attachExternalSessions(externalSessionsRef);
+      externalSessionsRef.attachRemoteReconcile((taskId) => remoteWorkerRef!.syncTask(taskId));
+      externalSessionsRef.attachRemoteMirrorPush((taskId, paths) =>
+        remoteWorkerRef!.pushMirrorPaths(taskId, paths),
+      );
+      externalSessionsRef.attachRemoteSessionBridge({
+        discoverIdentity: (taskId, cli, options) =>
+          remoteWorkerRef!.discoverCliSession(taskId, cli, options),
+        prepareResume: (task) => sshServiceRef!.prepareRemoteResume(task),
+      });
       registerExternalHandlers(externalSessionsRef, logger.child('ipc'), artifactService);
       // Daemon-backed PTYs outlive Electron, while worker relationships are a
       // main-process projection. Run after external-session polling has been
@@ -1620,9 +1665,19 @@ if (!gotLock) {
     sshForwardsRef?.stopAll(); // listeners first, so nothing re-dials mid-quit
     sshSftpRef?.closeAll();
     sshServiceRef?.disconnectAll(); // close ssh transports before their PTY-equivalents
-    m4Ref?.dispose();
+    // Release M4's timers/listeners immediately, but keep the authenticated
+    // daemon socket open for the shutdown request below.
+    m4Ref?.dispose({ closeTerminalDaemon: false });
     terminalIdentitiesRef?.clear();
+    // Recovery tests model an explicit "keep terminals while Main restarts"
+    // intent. It is deliberately unavailable outside E2E; Command+Q and
+    // update/install exits always satisfy TERM-004 by shutting the daemon down.
+    const preserveTerminalDaemon =
+      process.env.PI_IDE_E2E === '1' && process.env.PI_IDE_TERMINAL_PRESERVE_ON_QUIT === '1';
     const disposal = Promise.all([
+      preserveTerminalDaemon
+        ? Promise.resolve()
+        : (terminalDaemonRef?.shutdown() ?? Promise.resolve()),
       ctlServerRef?.stop() ?? Promise.resolve(),
       acpPoolRef?.shutdown() ?? Promise.resolve(),
       agentHostRef?.dispose() ?? Promise.resolve(),
@@ -1636,6 +1691,7 @@ if (!gotLock) {
         // same tick, i.e. no worker was running) — defer one macrotask.
         setTimeout(() => {
           boot?.state?.close();
+          terminalDaemonRef = null;
           cleanupDone = true;
           boot?.logger.info('teardown complete, quitting');
           app.quit();

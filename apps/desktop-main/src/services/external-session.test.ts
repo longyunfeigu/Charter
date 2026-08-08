@@ -368,6 +368,19 @@ describe('externalResumeCommand', () => {
 
     expect(externalResumeCommand('codex', id, null, registry)).toBe(`codex 'resume' '${id}'`);
   });
+
+  it('uses manifest arguments without requiring the Agent on this Mac for remote Resume', () => {
+    const id = '924241d6-f2e8-444d-8d75-0386362bf52f';
+    const registry = {
+      sessionIdSafe: () => true,
+      resumeCommand: () => null,
+      resumeArguments: () => ['--resume', id],
+    } as Pick<AgentRegistry, 'resumeArguments' | 'resumeCommand' | 'sessionIdSafe'>;
+
+    expect(externalResumeCommand('claude', id, null, registry, true)).toBe(
+      `claude '--resume' '${id}'`,
+    );
+  });
 });
 
 describe('externalInjectText (ADR-0030: unsent input-line references)', () => {

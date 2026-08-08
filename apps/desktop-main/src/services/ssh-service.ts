@@ -1,10 +1,11 @@
-import { newId, type Logger } from '@pi-ide/foundation';
+import { newId, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import {
   SshConnectionManager,
   createHostKeyStore,
   parseSshConfig,
   type ConnectionEndReason,
   type HostKeyStore,
+  type ShellSession,
   type SftpSession,
   type SshPromptBridge,
   type SshTargetConfig,
@@ -19,15 +20,22 @@ import {
   type SshHostInput,
   type SshHostRecord,
   type SshSecretKind,
+  type TaskDto,
 } from '@pi-ide/ipc-contracts';
 import type { Duplex } from 'node:stream';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { broadcast } from '../broadcast.js';
 import type { SettingsService } from './settings-service.js';
 import type { SshVaultService } from './ssh-vault-service.js';
-import { createSshTerminalBackend, remoteLaunchSequence } from './ssh-terminal-bridge.js';
+import {
+  createSshTerminalBackend,
+  remoteCliProbeCommand,
+  remoteLaunchSequence,
+} from './ssh-terminal-bridge.js';
+import type { RemoteWorkerService } from './remote-worker-service.js';
+import type { ExternalLaunchIntents } from './external-launch-intents.js';
 
 const PROMPT_TIMEOUT_MS = 120_000;
 const REMOTE_LAUNCH_DELAY_MS = 350;
@@ -46,6 +54,10 @@ interface PendingAuth {
 export interface CreateRemoteTerminalOptions {
   hostId: string;
   launch: string;
+  initialPrompt?: string | null;
+  /** Canonical local project chosen through WorkspaceHost. When present the
+   * Worker prepares an isolated remote execution copy and bridges changes. */
+  localProjectPath?: string;
   cols?: number;
   rows?: number;
 }
@@ -68,6 +80,8 @@ export class SshService implements SshPromptBridge {
   private readonly terminalsByHost = new Map<string, Set<string>>();
   /** Last broadcast state per host, to stamp lastConnectedAt on edges only. */
   private readonly lastState = new Map<string, string>();
+  private remoteWorker: RemoteWorkerService | null = null;
+  private launchIntents: ExternalLaunchIntents | null = null;
 
   constructor(
     private readonly settings: SettingsService,
@@ -117,6 +131,11 @@ export class SshService implements SshPromptBridge {
   }
 
   private readonly sshConfigPath: string;
+
+  attachManagedSessions(worker: RemoteWorkerService, intents: ExternalLaunchIntents): void {
+    this.remoteWorker = worker;
+    this.launchIntents = intents;
+  }
 
   // -------------------------------------------------------------------------
   // Host book (settings.ssh.hosts) — renderer never rewrites the whole section.
@@ -262,10 +281,27 @@ export class SshService implements SshPromptBridge {
   }
 
   async disconnect(hostId: string): Promise<boolean> {
+    // Preserve the final remote file versions while the existing transport is
+    // still usable. Removing the Worker binding first also prevents the shell
+    // close callback from reconnecting after an intentional Disconnect.
+    const terminalIds = [...(this.terminalsByHost.get(hostId) ?? [])];
+    for (const terminalId of terminalIds) {
+      if (!this.remoteWorker?.sessionForTerminal(terminalId)) continue;
+      await this.remoteWorker.beforeTerminalExit(terminalId).catch((error) => {
+        this.logger.warn('remote final sync failed before disconnect', {
+          hostId,
+          terminalId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
     return this.manager.disconnect(hostId);
   }
 
   disconnectAll(): void {
+    // App shutdown is recoverable from the retained remote baseline. Do not
+    // let asynchronous PTY close bookkeeping establish fresh SSH transports.
+    this.remoteWorker?.dispose();
     this.manager.disconnectAll();
     for (const p of this.pendingHostKeys.values()) {
       clearTimeout(p.timer);
@@ -285,6 +321,14 @@ export class SshService implements SshPromptBridge {
 
   async openSftpSession(hostId: string): Promise<SftpSession> {
     return this.manager.openSftp(this.target(this.requireHost(hostId)));
+  }
+
+  async execCommand(hostId: string, command: string, input?: string) {
+    return this.manager.exec(this.target(this.requireHost(hostId)), command, input);
+  }
+
+  isConnected(hostId: string): boolean {
+    return this.manager.snapshot(hostId).state === 'connected';
   }
 
   async openForwardStream(hostId: string, dstHost: string, dstPort: number): Promise<Duplex> {
@@ -348,10 +392,17 @@ export class SshService implements SshPromptBridge {
     try {
       const result = await this.manager.exec(
         this.target(this.requireHost(hostId)),
-        `sh -lc 'command -v ${cli}'`,
+        remoteCliProbeCommand(cli),
       );
-      const path = result.stdout.trim();
-      return { found: result.code === 0 && path.length > 0, path: path || null };
+      const outputLines = result.stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const path =
+        [...outputLines].reverse().find((line) => line.startsWith('/')) ??
+        outputLines.at(-1) ??
+        null;
+      return { found: result.code === 0 && path !== null, path };
     } catch {
       return { found: false, path: null };
     }
@@ -371,46 +422,198 @@ export class SshService implements SshPromptBridge {
     const agentLaunch = launch === 'shell' ? null : launch;
     const agentFound = agentLaunch ? (await this.probeCli(host.id, agentLaunch)).found : false;
 
-    const session = await this.manager.openShell(target, { cols, rows });
-    const backend = createSshTerminalBackend(session);
-    const info = this.terminals.adoptBackend(backend, {
-      title: host.label,
-      shell: `ssh://${host.username}@${host.host}`,
-      cwd: host.remoteWorkdir ?? '~',
-      projectName: host.label,
-      projectPath: null,
-      contextKind: 'focused',
-      contextLabel: host.label,
-      launch,
-      knownAgent: agentFound && agentLaunch ? agentLaunch : undefined,
-      remote: {
-        hostId: host.id,
-        hostLabel: host.label,
-        username: host.username,
-        host: host.host,
-        port: host.port,
-      },
-    });
+    if (agentLaunch && !agentFound) {
+      throw new ProductFailure(
+        productError('AGENT_NOT_AVAILABLE', {
+          userMessage: `${agentLaunch} was not found on ${host.label}. Install it on the remote server, then check again.`,
+          retryable: true,
+        }),
+      );
+    }
 
-    let set = this.terminalsByHost.get(host.id);
-    if (!set) this.terminalsByHost.set(host.id, (set = new Set()));
-    set.add(info.id);
-
+    const terminalId = newId('term');
+    let managed = null as Awaited<ReturnType<RemoteWorkerService['begin']>> | null;
     if (agentLaunch) {
-      if (agentFound) {
-        // Let the renderer attach its xterm before the CLI's first repaint.
-        setTimeout(
-          () => backend.write(remoteLaunchSequence(launch, host.remoteWorkdir)),
-          REMOTE_LAUNCH_DELAY_MS,
-        ).unref();
-      } else {
-        this.terminals.injectData(
-          info.id,
-          `\r\n\x1b[33m[charter] ${launch} was not found on ${host.label}. Install that Agent on the remote host, then retry.\x1b[0m\r\n`,
+      if (!this.remoteWorker || !this.launchIntents) {
+        throw new ProductFailure(
+          productError('SSH_WORKER_REQUIRED', {
+            userMessage: 'Managed remote Sessions are unavailable until Charter Worker is ready.',
+            retryable: true,
+          }),
         );
       }
+      if (!options.localProjectPath && !host.remoteWorkdir) {
+        throw new ProductFailure(
+          productError('SSH_REMOTE_FOLDER_REQUIRED', {
+            userMessage: 'Choose a remote working folder before starting the Agent Session.',
+            retryable: true,
+          }),
+        );
+      }
+      managed = await this.remoteWorker.begin({
+        terminalId,
+        hostId: host.id,
+        hostLabel: host.label,
+        ...(options.localProjectPath
+          ? { localProjectPath: options.localProjectPath }
+          : { root: host.remoteWorkdir! }),
+      });
+      // Register before adoptBackend: knownAgent emits on a microtask and owns
+      // the first prompt/accounting edge.
+      this.launchIntents.register(terminalId, {
+        cli: agentLaunch,
+        sessionId: null,
+        prompt: options.initialPrompt?.trim() || null,
+        promptDelivery: 'argv',
+      });
     }
-    return info;
+
+    let openedSession: ShellSession | null = null;
+    try {
+      openedSession = await this.manager.openShell(target, { cols, rows });
+      const session = openedSession;
+      const backend = createSshTerminalBackend(session, {
+        ...(managed && this.remoteWorker
+          ? { beforeExit: () => this.remoteWorker!.beforeTerminalExit(terminalId) }
+          : {}),
+      });
+      const info = this.terminals.adoptBackend(backend, {
+        id: terminalId,
+        title: host.label,
+        shell: `ssh://${host.username}@${host.host}`,
+        cwd: managed?.root ?? host.remoteWorkdir ?? '~',
+        projectName: managed
+          ? managed.workspaceKind === 'local'
+            ? `${basename(managed.mirrorRoot)} · ${host.label}`
+            : `${host.label} · ${managed.root.split('/').filter(Boolean).at(-1) ?? managed.root}`
+          : host.label,
+        projectPath: managed?.mirrorRoot ?? null,
+        contextKind: 'focused',
+        contextLabel: host.label,
+        launch,
+        knownAgent: agentFound && agentLaunch ? agentLaunch : undefined,
+        remote: {
+          hostId: host.id,
+          hostLabel: host.label,
+          username: host.username,
+          host: host.host,
+          port: host.port,
+          ...(managed
+            ? {
+                root: managed.root,
+                workerSessionId: managed.workerSessionId,
+                workerVersion: managed.workerVersion,
+                workspaceKind: managed.workspaceKind,
+              }
+            : {}),
+        },
+      });
+
+      let set = this.terminalsByHost.get(host.id);
+      if (!set) this.terminalsByHost.set(host.id, (set = new Set()));
+      set.add(info.id);
+
+      if (agentLaunch) {
+        // Let the renderer attach its xterm before the CLI's first repaint.
+        setTimeout(() => {
+          try {
+            backend.write(
+              remoteLaunchSequence(
+                launch,
+                managed?.root ?? host.remoteWorkdir,
+                options.initialPrompt ?? null,
+              ),
+            );
+          } catch (error) {
+            this.logger.warn('remote Agent launch write failed', {
+              hostId: host.id,
+              terminalId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }, REMOTE_LAUNCH_DELAY_MS).unref();
+      }
+      return info;
+    } catch (error) {
+      openedSession?.close();
+      this.launchIntents?.remove(terminalId);
+      await this.remoteWorker?.abandonTerminal(terminalId);
+      throw error;
+    }
+  }
+
+  /** Open an SSH PTY for an existing managed task without taking a new
+   * baseline. ExternalSessionService writes the manifest-owned resume command,
+   * then calls activate so the remote Agent edge cannot race its bookkeeping. */
+  async prepareRemoteResume(task: TaskDto): Promise<{ terminalId: string; activate: () => void }> {
+    const remote = task.external?.remote;
+    const cli = task.external?.cli;
+    if (!remote || !cli || !this.remoteWorker) {
+      throw new ProductFailure(
+        productError('SSH_WORKER_REQUIRED', {
+          userMessage: 'This Session does not have a managed remote Worker baseline.',
+          retryable: true,
+        }),
+      );
+    }
+    const host = this.requireHost(remote.hostId);
+    const target = this.target(host);
+    await this.manager.connect(target);
+    if (!(await this.probeCli(host.id, cli)).found) {
+      throw new ProductFailure(
+        productError('AGENT_NOT_AVAILABLE', {
+          userMessage: `${cli} is no longer available on ${host.label}.`,
+          retryable: true,
+        }),
+      );
+    }
+
+    const terminalId = newId('term');
+    const shell = await this.manager.openShell(target, { cols: 80, rows: 24 });
+    try {
+      const managed = await this.remoteWorker.attachTerminal(task.id, terminalId);
+      const backend = createSshTerminalBackend(shell, {
+        beforeExit: () => this.remoteWorker!.beforeTerminalExit(terminalId),
+      });
+      this.terminals.adoptBackend(backend, {
+        id: terminalId,
+        title: host.label,
+        shell: `ssh://${host.username}@${host.host}`,
+        cwd: managed.root,
+        projectName: task.projectName,
+        projectPath: managed.mirrorRoot,
+        contextKind: 'task',
+        contextLabel: host.label,
+        contextTaskId: task.id,
+        launch: cli,
+        remote: {
+          hostId: host.id,
+          hostLabel: host.label,
+          username: host.username,
+          host: host.host,
+          port: host.port,
+          root: managed.root,
+          workerSessionId: managed.workerSessionId,
+          workerVersion: managed.workerVersion,
+          workspaceKind: managed.workspaceKind,
+        },
+      });
+      let set = this.terminalsByHost.get(host.id);
+      if (!set) this.terminalsByHost.set(host.id, (set = new Set()));
+      set.add(terminalId);
+      return {
+        terminalId,
+        activate: () => {
+          if (!this.terminals.declareKnownAgent(terminalId, cli)) {
+            throw new Error('The remote resume terminal closed before the Agent started.');
+          }
+        },
+      };
+    } catch (error) {
+      this.remoteWorker.detachTerminal(terminalId);
+      shell.close();
+      throw error;
+    }
   }
 
   // -------------------------------------------------------------------------

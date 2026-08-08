@@ -354,6 +354,7 @@ export interface TerminalDaemonServerOptions {
   stateDir: string;
   recordingsDir?: string;
   log?: (event: string, context?: Record<string, unknown>) => void;
+  onShutdown?: () => void;
 }
 
 export class TerminalDaemonServer {
@@ -402,18 +403,33 @@ export class TerminalDaemonServer {
   }
 
   async close(): Promise<void> {
+    if (this.closing) return;
     this.closing = true;
     if (this.statusTimer) clearInterval(this.statusTimer);
     if (this.checkpointTimer) clearInterval(this.checkpointTimer);
     if (this.idleTimer) clearTimeout(this.idleTimer);
     for (const connection of this.connections) connection.socket.destroy();
-    for (const session of [...this.sessions.values()]) session.kill();
-    this.sessions.clear();
+    await this.terminateSessions();
     if (this.server) {
       await new Promise<void>((resolve) => this.server!.close(() => resolve()));
       this.server = null;
     }
     if (process.platform !== 'win32') rmSync(this.options.socketPath, { force: true });
+  }
+
+  /**
+   * End every PTY and keep the daemon alive through the process-group grace
+   * window. The escalation timer is intentionally unref'ed by the terminal
+   * service, so exiting the daemon earlier would strand stubborn descendants.
+   */
+  private async terminateSessions(): Promise<number> {
+    const sessions = [...this.sessions.values()];
+    for (const session of sessions) session.kill();
+    this.sessions.clear();
+    if (sessions.length > 0 && process.platform !== 'win32') {
+      await new Promise((resolve) => setTimeout(resolve, 1_650));
+    }
+    return sessions.length;
   }
 
   private accept(socket: Socket): void {
@@ -596,10 +612,18 @@ export class TerminalDaemonServer {
       this.respond(connection, request.requestId, true);
       return;
     }
+    if (request.type === 'shutdown') {
+      const terminated = await this.terminateSessions();
+      this.respond(connection, request.requestId, true, { terminated });
+      setTimeout(() => {
+        void this.close().finally(() => this.options.onShutdown?.());
+      }, 0);
+      return;
+    }
     if (request.type === 'shutdownIfIdle') {
       this.respond(connection, request.requestId, true, { idle: this.sessions.size === 0 });
       if (this.sessions.size === 0)
-        setTimeout(() => void this.close().then(() => process.exit(0)), 0);
+        setTimeout(() => void this.close().finally(() => this.options.onShutdown?.()), 0);
     }
   }
 
@@ -755,6 +779,7 @@ export async function startTerminalDaemonFromArgs(): Promise<void> {
     stateDir,
     ...(recordingsDir ? { recordingsDir } : {}),
     ...(log ? { log } : {}),
+    onShutdown: () => process.exit(0),
   });
   const shutdown = (): void => {
     void server.close().finally(() => process.exit(0));

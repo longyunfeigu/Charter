@@ -325,6 +325,72 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.hm-target-picker-wrap {
+  position: relative;
+  min-width: 0;
+}
+.hm-target-chip {
+  color: var(--fg);
+}
+.hm-target-chip.remote {
+  border-color: color-mix(in srgb, var(--info) 38%, var(--border));
+  background: color-mix(in srgb, var(--info) 7%, transparent);
+  color: var(--info);
+}
+.hm-target-remote {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  font: 8px var(--font-mono);
+  letter-spacing: 0.06em;
+}
+.hm-target-menu {
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(410px, calc(100vw - 48px));
+  max-width: none;
+}
+.hm-target-menu .hm-row {
+  min-height: 48px;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+}
+.hm-target-menu .hm-sec:not(:first-child) {
+  padding-top: 9px;
+}
+.hm-target-state {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--bg-chip);
+  color: var(--fg-faint);
+  font-size: 8.5px;
+}
+.hm-target-state.connected {
+  background: color-mix(in srgb, var(--success) 11%, transparent);
+  color: var(--success);
+}
+.hm-target-connect {
+  color: var(--info);
+}
+.hm-remote-folder {
+  max-width: min(420px, 52vw);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.hm-remote-folder > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-folder-origin {
+  flex: none;
+  color: var(--fg-faint);
+  font: 7.5px var(--font-sans);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
 .hm-run-picker-wrap {
   position: relative;
   min-width: 0;
@@ -511,6 +577,10 @@
 }
 .hm-iconbtn:hover {
   background: var(--bg-hover);
+}
+.hm-iconbtn:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 .hm-select {
   appearance: none;

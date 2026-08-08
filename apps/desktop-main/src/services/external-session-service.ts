@@ -7,6 +7,7 @@ import {
   formatPromptWithArtifactFeedback,
   formatPromptWithCodeContext,
   type ExternalInjectRefDto,
+  type TaskDto,
   type TaskWorktreeDto,
 } from '@pi-ide/ipc-contracts';
 import { broadcast } from '../broadcast.js';
@@ -21,6 +22,9 @@ import {
 import type { ExternalLaunchIntents } from './external-launch-intents.js';
 import { TypedLineTracker } from './typed-line-tracker.js';
 import type { AgentRegistry, AgentTerminalExitAction } from './agent-registry.js';
+import { createHash } from 'node:crypto';
+import { chmod, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 /** Paths never attributed to an external session (product/tooling noise). */
 const IGNORED_SEGMENTS = ['node_modules', '.git'];
@@ -341,6 +345,9 @@ interface LiveSession {
   snapshotRef: string | null;
   git: GitService | null;
   watcher: WorkspaceWatcher;
+  /** File truth arrives from the versioned SSH Worker, not fs.watch. */
+  remoteManaged: boolean;
+  remoteWorkspaceKind: 'remote' | 'local';
   unsubscribe: () => void;
   seen: Set<string>;
   /** Once terminals overlap on one root, full-tree recovery becomes ambiguous. */
@@ -393,6 +400,21 @@ interface LiveSession {
   ended: boolean;
 }
 
+/** Integrity-checked file version emitted by Charter's remote Worker. */
+export interface RemoteExternalChange {
+  path: string;
+  kind: 'created' | 'modified' | 'deleted';
+  beforeHash: string | null;
+  afterHash: string | null;
+  beforeBase64: string | null;
+  afterBase64: string | null;
+  beforeMode: number | null;
+  afterMode: number | null;
+  /** Local-workspace bridge only: the last version Charter placed at the
+   * local path. `null` means the path was absent. */
+  expectedMirrorHash?: string | null;
+}
+
 interface PendingResume {
   taskId: string;
   cli: string;
@@ -428,11 +450,20 @@ export function externalResumeCommand(
   cli: string,
   sessionId?: string | null,
   codexHome?: string | null,
-  registry?: Pick<AgentRegistry, 'resumeCommand' | 'sessionIdSafe'> | null,
+  registry?:
+    | (Pick<AgentRegistry, 'resumeCommand' | 'sessionIdSafe'> &
+        Partial<Pick<AgentRegistry, 'resumeArguments'>>)
+    | null,
+  remote = false,
 ): string | null {
   if (registry) {
     const id = sessionId && registry.sessionIdSafe(cli, sessionId) ? sessionId : null;
-    const resolved = registry.resumeCommand(cli, id);
+    const resolved = remote
+      ? (() => {
+          const args = registry.resumeArguments?.(cli, id) ?? null;
+          return args ? { executable: cli, args } : null;
+        })()
+      : registry.resumeCommand(cli, id);
     if (!resolved) return null;
     const home = cli === 'codex' && codexHome ? `CODEX_HOME=${shellQuote(codexHome)} ` : '';
     // Registry resolution remains the availability/security gate, while the
@@ -448,6 +479,7 @@ export function externalResumeCommand(
     const home = codexHome ? `CODEX_HOME=${shellQuote(codexHome)} ` : '';
     return `${home}codex resume ${id}`;
   }
+  if (cli === 'kimi') return id ? `kimi --session ${id}` : 'kimi --continue';
   return null;
 }
 
@@ -531,6 +563,18 @@ export class ExternalSessionService {
   private readonly unsubscribeManager: () => void;
   private readonly unsubscribeData: () => void;
   private readonly unsubscribeInput: () => void;
+  private remoteReconcile: ((taskId: string) => Promise<number>) | null = null;
+  private remoteMirrorPush: ((taskId: string, paths: string[]) => Promise<void>) | null = null;
+  private readonly remoteMirrorPushWork = new Map<string, Promise<void>>();
+  private remoteSessionIdentity:
+    | ((
+        taskId: string,
+        cli: string,
+        options?: { allowConnect?: boolean },
+      ) => Promise<string | null>)
+    | null = null;
+  private remoteResume:
+    ((task: TaskDto) => Promise<{ terminalId: string; activate: () => void }>) | null = null;
 
   private registerLiveSession(session: LiveSession): void {
     const peers = [...this.byTerminal.values()].filter(
@@ -603,6 +647,10 @@ export class ExternalSessionService {
   private async backfillSessionIds(): Promise<void> {
     let recovered = 0;
     for (const task of this.tasks.externalTasksMissingSessionId()) {
+      // Remote transcript discovery requires an SSH connection and may prompt
+      // for trust/authentication. Never do that as a background startup side
+      // effect; the explicit Resume action performs that recovery instead.
+      if (this.tasks.getTask(task.taskId).external?.remote) continue;
       const sessionId = await discoverCliSessionId({
         cli: task.cli,
         cwd: task.cwd,
@@ -627,6 +675,33 @@ export class ExternalSessionService {
     return [...this.byTerminal.values()].map((session) => this.snapshot(session));
   }
 
+  attachRemoteReconcile(reconcile: (taskId: string) => Promise<number>): void {
+    this.remoteReconcile = reconcile;
+  }
+
+  attachRemoteMirrorPush(push: (taskId: string, paths: string[]) => Promise<void>): void {
+    this.remoteMirrorPush = push;
+  }
+
+  attachRemoteSessionBridge(input: {
+    discoverIdentity(
+      taskId: string,
+      cli: string,
+      options?: { allowConnect?: boolean },
+    ): Promise<string | null>;
+    prepareResume(task: TaskDto): Promise<{ terminalId: string; activate: () => void }>;
+  }): void {
+    this.remoteSessionIdentity = input.discoverIdentity;
+    this.remoteResume = input.prepareResume;
+  }
+
+  noteRemoteSyncFailure(taskId: string, detail: string): void {
+    this.tasks.recordEvent(taskId, 'system.diagnostic', {
+      code: 'REMOTE_FINAL_SYNC_FAILED',
+      detail: `The SSH Agent ended before Charter could complete its final Worker sync: ${detail}`,
+    });
+  }
+
   /** Reconcile the live worktree with its entry snapshot before opening Diff.
    * The watcher remains the fast path; this closes correctness gaps when a
    * platform watcher coalesces or drops a filesystem event. */
@@ -639,7 +714,9 @@ export class ExternalSessionService {
         }),
       );
     }
-    const reconciled = await this.reconcileSnapshotChanges(session, 'on-demand');
+    const reconciled = session.remoteManaged
+      ? await (this.remoteReconcile?.(taskId) ?? Promise.resolve(0))
+      : await this.reconcileSnapshotChanges(session, 'on-demand');
     await this.publish(session, 'active');
     return { reconciled, session: this.snapshot(session) };
   }
@@ -1360,6 +1437,10 @@ export class ExternalSessionService {
       }
     }
     const root = worktree?.path ?? projectPath;
+    const remoteManaged = Boolean(
+      terminal.remote?.workerSessionId && terminal.remote.root && terminal.remote.workerVersion,
+    );
+    const remoteWorkspaceKind = terminal.remote?.workspaceKind ?? 'remote';
     let rootInfo;
     try {
       rootInfo = await openWorkspaceInfo(root);
@@ -1417,6 +1498,21 @@ export class ExternalSessionService {
           worktree,
           snapshotRef,
           title: intent?.prompt ? externalTitleFromPrompt(intent.prompt) : null,
+          ...(remoteManaged && remoteWorkspaceKind === 'remote'
+            ? { projectDisplayName: terminal.projectName }
+            : {}),
+          ...(remoteManaged && terminal.remote
+            ? {
+                remote: {
+                  hostId: terminal.remote.hostId,
+                  hostLabel: terminal.remote.hostLabel,
+                  root: terminal.remote.root!,
+                  workerSessionId: terminal.remote.workerSessionId!,
+                  workerVersion: terminal.remote.workerVersion!,
+                  workspaceKind: terminal.remote.workspaceKind ?? 'remote',
+                },
+              }
+            : {}),
         });
         taskId = task.id;
       } catch (e) {
@@ -1442,6 +1538,8 @@ export class ExternalSessionService {
       snapshotRef,
       git,
       watcher,
+      remoteManaged,
+      remoteWorkspaceKind,
       unsubscribe: () => {},
       seen: new Set(),
       sharedRoot: false,
@@ -1615,6 +1713,10 @@ export class ExternalSessionService {
 
   private onBatch(session: LiveSession, changes: FsChange[]): void {
     if (session.ended) return;
+    if (session.remoteManaged) {
+      if (session.remoteWorkspaceKind === 'local') this.onLocalWorkspaceBatch(session, changes);
+      return;
+    }
     if (this.fileAttributionOwner(session.root) !== session) return;
     const candidates = changes.filter(
       (change) => !change.isDirectory && isAccountablePath(change.relativePath),
@@ -1688,6 +1790,179 @@ export class ExternalSessionService {
     }
   }
 
+  /** Local-workspace mode is a real two-way bridge. Local editor/user writes
+   * are pushed through the same expected-hash Worker apply path; its next net
+   * change poll records them in the ordinary Session ledger. */
+  private onLocalWorkspaceBatch(session: LiveSession, changes: FsChange[]): void {
+    if (!this.remoteMirrorPush) return;
+    const candidates = changes.filter(
+      (change) => !change.isDirectory && isAccountablePath(change.relativePath),
+    );
+    if (candidates.length === 0) return;
+    const previous = this.remoteMirrorPushWork.get(session.taskId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        const ignored = session.git
+          ? await session.git.ignoredPaths(candidates.map((change) => change.relativePath))
+          : new Set<string>();
+        const paths = [
+          ...new Set(
+            candidates.map((change) => change.relativePath).filter((path) => !ignored.has(path)),
+          ),
+        ];
+        if (paths.length > 0) await this.remoteMirrorPush!(session.taskId, paths);
+      })
+      .catch((error) => {
+        this.logger.warn('local-to-remote workspace sync failed', {
+          taskId: session.taskId,
+          error: errorMessage(error),
+        });
+        this.tasks.recordEvent(session.taskId, 'system.diagnostic', {
+          code: 'SSH_LOCAL_WORKSPACE_SYNC_FAILED',
+          detail: errorMessage(error),
+        });
+      })
+      .finally(() => {
+        if (this.remoteMirrorPushWork.get(session.taskId) === next) {
+          this.remoteMirrorPushWork.delete(session.taskId);
+        }
+      });
+    this.remoteMirrorPushWork.set(session.taskId, next);
+  }
+
+  /**
+   * Materialize Worker-observed versions into the sparse local review mirror,
+   * then feed the existing byte-exact ChangeService ledger. This is callable
+   * after the PTY ended too, allowing a reconnect to refresh an open Review.
+   */
+  async ingestRemoteChanges(
+    terminalId: string | null,
+    taskId: string,
+    changes: RemoteExternalChange[],
+  ): Promise<void> {
+    if (changes.length === 0) return;
+    const session = terminalId ? this.byTerminal.get(terminalId) : undefined;
+    if (session && session.taskId !== taskId) {
+      throw new Error('Remote Worker task binding does not match the terminal Session');
+    }
+    const task = this.tasks.getTask(taskId);
+    const external = task.external;
+    if (!external?.remote) throw new Error('Task is not a managed remote Session');
+    const remote = external.remote;
+    const root = task.projectPath;
+    const context = this.tasks.contextForTask(taskId);
+    const apply = async (): Promise<void> => {
+      for (const change of changes) {
+        if (!isAccountablePath(change.path)) continue;
+        const decode = (
+          base64: string | null,
+          hash: string | null,
+          side: string,
+        ): Buffer | null => {
+          if (base64 === null) {
+            if (hash !== null)
+              throw new Error(`Remote ${side} hash has no bytes for ${change.path}`);
+            return null;
+          }
+          const bytes = Buffer.from(base64, 'base64');
+          const actual = createHash('sha256').update(bytes).digest('hex');
+          if (actual !== hash)
+            throw new Error(`Remote ${side} integrity check failed for ${change.path}`);
+          return bytes;
+        };
+        const before = decode(change.beforeBase64, change.beforeHash, 'baseline');
+        const after = decode(change.afterBase64, change.afterHash, 'current version');
+        await context.changes.ensureBaselineFromBytes(
+          taskId,
+          change.path,
+          before,
+          change.beforeMode,
+        );
+        const absolute = join(root, ...change.path.split('/'));
+        if (
+          (remote.workspaceKind ?? 'remote') === 'local' &&
+          change.expectedMirrorHash !== undefined
+        ) {
+          let actualHash: string | null = null;
+          try {
+            const fileStat = await stat(absolute);
+            if (!fileStat.isFile()) {
+              throw new Error(`Local bridge target is not a file: ${change.path}`);
+            }
+            actualHash = createHash('sha256')
+              .update(await readFile(absolute))
+              .digest('hex');
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          }
+          // Retried delivery after an interrupted publish is idempotent when
+          // the desired bytes already landed. Any other mismatch is a real
+          // concurrent local edit and must never be overwritten silently.
+          if (actualHash !== change.expectedMirrorHash && actualHash !== change.afterHash) {
+            throw new ProductFailure(
+              productError('SSH_LOCAL_WORKSPACE_CONFLICT', {
+                userMessage: `Local file ${change.path} changed while the remote Agent was editing it. Charter paused synchronization instead of overwriting either side.`,
+                retryable: true,
+                context: {
+                  path: change.path,
+                  expectedHash: change.expectedMirrorHash,
+                  actualHash,
+                  remoteHash: change.afterHash,
+                },
+              }),
+            );
+          }
+        }
+        if (after === null) {
+          await unlink(absolute).catch((error: NodeJS.ErrnoException) => {
+            if (error.code !== 'ENOENT') throw error;
+          });
+        } else {
+          await mkdir(dirname(absolute), { recursive: true });
+          const temporary = `${absolute}.charter-remote-${process.pid}.tmp`;
+          try {
+            await writeFile(temporary, after);
+            if (change.afterMode !== null) await chmod(temporary, change.afterMode);
+            await rename(temporary, absolute);
+          } catch (error) {
+            await unlink(temporary).catch(() => undefined);
+            throw error;
+          }
+        }
+        const kind = after === null ? 'deleted' : before === null ? 'created' : 'modified';
+        const record = await context.changes.reconcileExternalChange(
+          taskId,
+          change.path,
+          kind,
+          before,
+        );
+        session?.seen.add(change.path);
+        if (!record) continue;
+        const stats = countPatchLines(record.patch);
+        this.tasks.recordEvent(taskId, 'external.fileChanged', {
+          cli: external.cli,
+          captureGrade: external.captureGrade ?? 'observed',
+          changeId: record.id,
+          path: record.relativePath,
+          kind: record.kind,
+          additions: stats.additions,
+          deletions: stats.deletions,
+          beforeHash: record.beforeHash,
+          afterHash: record.afterHash,
+          source: 'remote-worker',
+        });
+      }
+    };
+    if (session) {
+      session.work = session.work.then(apply);
+      await session.work;
+      await this.publish(session, session.ended ? 'ended' : 'active');
+    } else {
+      await apply();
+    }
+  }
+
   private async publish(session: LiveSession, status: 'active' | 'ended'): Promise<void> {
     try {
       await session.work;
@@ -1748,12 +2023,14 @@ export class ExternalSessionService {
     // later resume targets THIS session even after newer ones ran in the same
     // directory. Transcript discovery is bounded by this session's lifetime.
     if (!session.sessionId) {
-      session.sessionId = await discoverCliSessionId({
-        cli: session.cli,
-        cwd: session.cwd,
-        startedAtMs: session.startedAtMs,
-        endedAtMs: Date.now(),
-      });
+      session.sessionId = session.remoteManaged
+        ? await (this.remoteSessionIdentity?.(session.taskId, session.cli) ?? Promise.resolve(null))
+        : await discoverCliSessionId({
+            cli: session.cli,
+            cwd: session.cwd,
+            startedAtMs: session.startedAtMs,
+            endedAtMs: Date.now(),
+          });
     }
     try {
       if (session.sessionId) this.tasks.setExternalSessionId(session.taskId, session.sessionId);
@@ -1788,17 +2065,40 @@ export class ExternalSessionService {
    */
   async resume(
     taskId: string,
-    terminalId: string,
+    requestedTerminalId?: string | null,
     options: { resumeFleet?: boolean } = {},
   ): Promise<ExternalSessionResumeResult> {
     const source = this.tasks.getTask(taskId);
-    const sourceExternal = source.external;
+    let sourceExternal = source.external;
     if (!sourceExternal) {
       throw new ProductFailure(
         productError('EXTERNAL_SESSION_REQUIRED', {
           userMessage: 'This task is not an external terminal session.',
         }),
       );
+    }
+    const remoteManaged = Boolean(sourceExternal.remote);
+    const settled = ['ACCEPTED', 'ROLLED_BACK', 'CANCELLED'].includes(source.state);
+    if (remoteManaged && settled) {
+      throw new ProductFailure(
+        productError('EXTERNAL_SESSION_NOT_RESUMABLE', {
+          userMessage:
+            'This historic remote Session is already closed. Start a new remote Session from Home to take a fresh Worker baseline.',
+        }),
+      );
+    }
+    if (
+      remoteManaged &&
+      (!sourceExternal.sessionId || !isSafeCliSessionId(sourceExternal.sessionId)) &&
+      this.remoteSessionIdentity
+    ) {
+      const recoveredSessionId = await this.remoteSessionIdentity(taskId, sourceExternal.cli, {
+        allowConnect: true,
+      }).catch(() => null);
+      if (recoveredSessionId && isSafeCliSessionId(recoveredSessionId)) {
+        this.tasks.setExternalSessionId(taskId, recoveredSessionId);
+        sourceExternal = this.tasks.getTask(taskId).external!;
+      }
     }
     if (
       sourceExternal.cli === 'codex' &&
@@ -1811,53 +2111,90 @@ export class ExternalSessionService {
         }),
       );
     }
-    if (this.byTerminal.has(terminalId) || this.pendingResumes.has(terminalId)) {
-      throw new ProductFailure(
-        productError('EXTERNAL_SESSION_ACTIVE', {
-          userMessage: `This terminal already has an active external session.`,
-        }),
-      );
-    }
-    const terminal = this.terminals.list().find((item) => item.id === terminalId);
-    if (!terminal) {
-      throw new ProductFailure(
-        productError('TERMINAL_NOT_FOUND', {
-          userMessage:
-            'The original terminal is no longer available. Open a new terminal and try again.',
-        }),
-      );
-    }
     const expectedCwd = sourceExternal.cwd ?? source.projectPath;
-    if (terminal.cwd !== expectedCwd) {
-      throw new ProductFailure(
-        productError('EXTERNAL_RESUME_CWD_MISMATCH', {
-          userMessage: `The resume terminal must start in ${expectedCwd}.`,
-        }),
+    let terminalId = requestedTerminalId ?? '';
+    let activateRemote: (() => void) | undefined;
+    let command: string | null;
+    let codexLocation = null as Awaited<ReturnType<typeof locateCodexSession>>;
+
+    if (remoteManaged) {
+      command = externalResumeCommand(
+        sourceExternal.cli,
+        sourceExternal.sessionId ?? null,
+        null,
+        this.agents,
+        true,
+      );
+      if (!command) {
+        throw new ProductFailure(
+          productError('EXTERNAL_RESUME_UNSUPPORTED', {
+            userMessage: `${sourceExternal.cli} does not have a supported remote session-resume command.`,
+          }),
+        );
+      }
+      if (!this.remoteResume) {
+        throw new ProductFailure(
+          productError('SSH_WORKER_REQUIRED', {
+            userMessage: 'The managed SSH resume service is not available.',
+            retryable: true,
+          }),
+        );
+      }
+      const prepared = await this.remoteResume(source);
+      terminalId = prepared.terminalId;
+      activateRemote = prepared.activate;
+      command = `cd -- ${shellQuote(expectedCwd)} && exec ${command}`;
+    } else {
+      if (!terminalId) {
+        throw new ProductFailure(
+          productError('TERMINAL_NOT_FOUND', {
+            userMessage: 'Open a terminal for this Session and try again.',
+          }),
+        );
+      }
+      if (this.byTerminal.has(terminalId) || this.pendingResumes.has(terminalId)) {
+        throw new ProductFailure(
+          productError('EXTERNAL_SESSION_ACTIVE', {
+            userMessage: `This terminal already has an active external session.`,
+          }),
+        );
+      }
+      const terminal = this.terminals.list().find((item) => item.id === terminalId);
+      if (!terminal) {
+        throw new ProductFailure(
+          productError('TERMINAL_NOT_FOUND', {
+            userMessage:
+              'The original terminal is no longer available. Open a new terminal and try again.',
+          }),
+        );
+      }
+      if (terminal.cwd !== expectedCwd) {
+        throw new ProductFailure(
+          productError('EXTERNAL_RESUME_CWD_MISMATCH', {
+            userMessage: `The resume terminal must start in ${expectedCwd}.`,
+          }),
+        );
+      }
+
+      // Older builds could discover the host Codex Desktop rollout in
+      // `.codex-app`, then later resume from the CLI's default `.codex` home.
+      codexLocation =
+        sourceExternal.cli === 'codex' && sourceExternal.sessionId
+          ? await locateCodexSession({
+              cli: 'codex',
+              sessionId: sourceExternal.sessionId,
+              cwd: expectedCwd,
+              startedAtMs: Date.parse(source.createdAt),
+              endedAtMs: Date.parse(source.updatedAt),
+            })
+          : null;
+      command = externalResumeCommand(
+        sourceExternal.cli,
+        sourceExternal.sessionId ?? null,
+        codexLocation?.codexHome,
+        this.agents,
       );
     }
-
-    // Older builds could discover the host Codex Desktop rollout in
-    // `.codex-app`, then later resume from the CLI's default `.codex` home.
-    // Resolve the recorded UUID back to its owning home and pin only this
-    // command. New terminals remain isolated from all ambient CODEX_* state.
-    const codexLocation =
-      sourceExternal.cli === 'codex' &&
-      terminal.persistence !== 'remote' &&
-      sourceExternal.sessionId
-        ? await locateCodexSession({
-            cli: 'codex',
-            sessionId: sourceExternal.sessionId,
-            cwd: expectedCwd,
-            startedAtMs: Date.parse(source.createdAt),
-            endedAtMs: Date.parse(source.updatedAt),
-          })
-        : null;
-    const command = externalResumeCommand(
-      sourceExternal.cli,
-      sourceExternal.sessionId ?? null,
-      codexLocation?.codexHome,
-      this.agents,
-    );
     if (!command) {
       throw new ProductFailure(
         productError('EXTERNAL_RESUME_UNSUPPORTED', {
@@ -1873,7 +2210,6 @@ export class ExternalSessionService {
       });
     }
 
-    const settled = ['ACCEPTED', 'ROLLED_BACK', 'CANCELLED'].includes(source.state);
     let task = source;
     let external = sourceExternal;
     if (settled) {
@@ -1928,6 +2264,7 @@ export class ExternalSessionService {
       terminalId,
       expectedCwd,
       command,
+      ...(activateRemote ? { activateRemote } : {}),
       retireStubOnMiss: settled,
       sameTaskResume: !settled,
     });
@@ -2056,6 +2393,9 @@ export class ExternalSessionService {
     terminalId: string;
     expectedCwd: string;
     command: string;
+    /** Remote terminals have no local process table; declare the independently
+     * probed Agent only after the resume command has actually been written. */
+    activateRemote?: () => void;
     /** Retire the freshly-minted stub task if the CLI never shows up. */
     retireStubOnMiss: boolean;
     /** Same-task resumes flip the source task active again (state-gated). */
@@ -2084,6 +2424,8 @@ export class ExternalSessionService {
       snapshotRef: external.snapshotRef,
       git,
       watcher,
+      remoteManaged: Boolean(external.remote),
+      remoteWorkspaceKind: external.remote?.workspaceKind ?? 'remote',
       unsubscribe: () => {},
       seen: new Set(changeSet.files.map((file) => file.path)),
       sharedRoot: false,
@@ -2185,6 +2527,7 @@ export class ExternalSessionService {
     const resuming = this.byTerminal.get(terminalId);
     if (resuming) this.writeProduct(resuming, `${command}\r`);
     else this.terminals.write(terminalId, `${command}\r`);
+    input.activateRemote?.();
     await detected;
     return { terminalId, cli: external.cli, taskId: task.id };
   }

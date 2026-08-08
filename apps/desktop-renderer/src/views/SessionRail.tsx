@@ -641,7 +641,9 @@ function TerminalSessionRow({
           hoverTooltip.hide();
           // ADR-0046: entering a session moves the working context (and the
           // Files tree) to its project.
-          void useWorkspaceStore.getState().followProject(item.projectPath);
+          if (!item.remote || item.remote.workspaceKind === 'local') {
+            void useWorkspaceStore.getState().followProject(item.projectPath);
+          }
           app.openTerminalSession(terminalId);
         }}
       >
@@ -1440,7 +1442,9 @@ export function SessionRail(): React.JSX.Element {
         const item = useTerminalStore
           .getState()
           .items.find((candidate) => candidate.id === entry.terminalId);
-        void useWorkspaceStore.getState().followProject(item?.projectPath ?? null);
+        if (!item?.remote || item.remote.workspaceKind === 'local') {
+          void useWorkspaceStore.getState().followProject(item?.projectPath ?? null);
+        }
         app.openTerminalSession(entry.terminalId);
       } else {
         app.openMission(entry.mission.missionId, entry.mission.assignmentId, 'session');
@@ -1743,7 +1747,7 @@ export function SessionRail(): React.JSX.Element {
                   </button>
                   {group.history ? (
                     sessionArchiveButton('history')
-                  ) : group.path ? (
+                  ) : group.path && !group.remote ? (
                     <button
                       className="sr-group-add"
                       aria-label={`New session in ${group.name}`}

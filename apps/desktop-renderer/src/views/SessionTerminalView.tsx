@@ -404,7 +404,9 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
               {lifecycle?.terminalHeadline ?? `${launchName(item.launch)} PTY`}
             </span>
             <span data-testid="session-terminal-detail">
-              {lifecycle?.terminalDetail ?? 'external · unmanaged · state preserved'}
+              {item.remote?.workerSessionId
+                ? 'remote SSH · Worker-tracked changes · state preserved'
+                : (lifecycle?.terminalDetail ?? 'external · unmanaged · state preserved')}
             </span>
             <span className="stv-spacer" />
             <span>{item.projectName} · main</span>

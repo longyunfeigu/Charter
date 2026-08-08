@@ -2,7 +2,11 @@ import { expect, test, type Page } from '@playwright/test';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { launchApp } from './helpers/launch';
+import {
+  launchApp,
+  restartMainPreservingTerminals,
+  shutdownPersistentTestTerminals,
+} from './helpers/launch';
 import { createGitFixture } from './helpers/fixtures';
 import { typeTerminalCommand, waitForTerminalOutput } from './helpers/terminal';
 
@@ -195,11 +199,7 @@ test.describe('External Session identity and presence', () => {
           })
           .toBe('REVIEW_READY');
 
-        const closed = first.app.waitForEvent('close');
-        await first.app.evaluate(({ app }) => {
-          setTimeout(() => app.quit(), 0);
-        });
-        await closed;
+        await restartMainPreservingTerminals(first.app);
         restarted = await launchApp({ userDataDir: first.userDataDir, env });
         const { page } = restarted;
         const rendererErrors: string[] = [];
@@ -293,6 +293,7 @@ test.describe('External Session identity and presence', () => {
       } finally {
         if (restarted) await restarted.app.close();
         else await first.app.close().catch(() => undefined);
+        await shutdownPersistentTestTerminals(first.userDataDir).catch(() => undefined);
       }
     });
   }

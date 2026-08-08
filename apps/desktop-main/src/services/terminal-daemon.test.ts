@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LocalTerminalBackendRequest, TerminalInfo } from '@pi-ide/terminal-service';
@@ -220,5 +220,61 @@ describe.skipIf(process.platform === 'win32')('terminal daemon session survival'
     backend.write("printf 'INPUT_AFTER_RECONNECT\\n'\r");
     await vi.waitFor(() => expect(output).toContain('INPUT_AFTER_RECONNECT'), { timeout: 5000 });
     expect(exits).toEqual([]);
+  });
+
+  it('authenticated shutdown reaps every hosted PTY before the daemon closes', async () => {
+    root = mkdtempSync(join(tmpdir(), 'td-shutdown-'));
+    const socketPath = join(root, 'daemon.sock');
+    const tokenFile = join(root, 'token');
+    writeFileSync(tokenFile, 'test-secret\n', { mode: 0o600 });
+    server = new TerminalDaemonServer({
+      socketPath,
+      tokenFile,
+      stateDir: join(root, 'sessions'),
+      recordingsDir: join(root, 'recordings'),
+    });
+    await server.start();
+    first = await TerminalDaemonClient.connect({
+      socketPath,
+      tokenFile,
+      launchDaemon: () => {
+        throw new Error('the test server should already be available');
+      },
+    });
+    const backend = first.createBackend({
+      info: {
+        id: 'term_shutdown_test',
+        title: 'sh',
+        shell: '/bin/sh',
+        pid: -1,
+        cwd: root,
+        projectName: 'fixture',
+        projectPath: root,
+        contextKind: 'focused',
+        contextLabel: 'fixture',
+        contextTaskId: null,
+        launch: 'shell',
+        persistence: 'daemon',
+      },
+      executable: '/bin/sh',
+      args: [],
+      cwd: root,
+      env: { ...(process.env as Record<string, string>), TERM: 'xterm-256color' },
+      cols: 90,
+      rows: 28,
+      scrollback: 2000,
+    }).backend;
+    await vi.waitFor(() => expect(backend.processId?.()).toBeGreaterThan(0), { timeout: 5000 });
+    const pid = backend.processId!();
+
+    await first.shutdown();
+    first = null;
+    await vi.waitFor(
+      () => {
+        expect(() => process.kill(pid, 0)).toThrow();
+        expect(existsSync(socketPath)).toBe(false);
+      },
+      { timeout: 5000 },
+    );
   });
 });

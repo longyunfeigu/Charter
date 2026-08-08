@@ -33,6 +33,10 @@ export class ExternalLaunchIntents {
     this.byTerminal.set(terminalId, { ...intent, registeredAtMs: this.now() });
   }
 
+  remove(terminalId: string): void {
+    this.byTerminal.delete(terminalId);
+  }
+
   /** One-shot: the first agent-enter on the terminal owns (or voids) the intent. */
   consume(terminalId: string, cli: string): ExternalLaunchIntent | null {
     const entry = this.byTerminal.get(terminalId);

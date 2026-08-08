@@ -44,7 +44,7 @@ describe('terminal control external CLI integration', () => {
     const env = integration!.environment('/usr/bin');
     expect(env.PATH?.split(delimiter)[0]).toBe(integration!.binDir);
     expect(env.CHARTER_TERMINAL_BIN).toBe(integration!.binDir);
-    expect(env.CHARTER_TERMINAL_COMMAND).toBe('charter-terminal');
+    expect(env.CHARTER_TERMINAL_COMMAND).toBe(join(integration!.binDir, 'charter-terminal'));
     expect(integration!.executableFor('claude')).toBe(join(sourceBin, 'claude'));
     expect(integration!.executableFor('codex')).toBe(join(sourceBin, 'codex'));
     expect(integration!.mcpExecutableFor('claude')).toBe(
@@ -67,7 +67,7 @@ describe('terminal control external CLI integration', () => {
     expect(codexWrapper).toContain('mcp_servers.charter.tool_timeout_sec=3605');
     expect(readFileSync(join(integration!.binDir, 'charter-terminal'), 'utf8')).toContain('--cli');
     expect(readFileSync(join(integration!.binDir, 'charter'), 'utf8')).toContain('--cli');
-    expect(env.CHARTER_COMMAND).toBe('charter');
+    expect(env.CHARTER_COMMAND).toBe(join(integration!.binDir, 'charter'));
     expect(existsSync(join(integration!.binDir, 'claude'))).toBe(false);
     expect(existsSync(join(integration!.binDir, 'codex'))).toBe(false);
     const config = JSON.parse(

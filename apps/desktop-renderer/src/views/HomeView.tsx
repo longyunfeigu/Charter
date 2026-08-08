@@ -15,6 +15,11 @@ import { useSkillSlash } from './SkillSlashPicker.js';
 import { useTerminalStore } from './TerminalPanel.js';
 import { selectableRecentWorkspaces } from './recent-workspaces.js';
 import { agentDisplayName, useAgentCatalogStore } from '../store/agentCatalogStore.js';
+import { useSshStore } from '../store/sshStore.js';
+import {
+  RemoteSessionSetupDialog,
+  type RemoteSessionSelection,
+} from './RemoteSessionSetupDialog.js';
 
 const MAX_CONVERSATION_REFS = 3;
 
@@ -26,6 +31,7 @@ interface SelectedConversationRef {
 
 type ReferencePickerItem = { kind: 'conversation'; task: TaskDto } | { kind: 'file'; path: string };
 type ComposerAgent = string;
+type ComposerTarget = { kind: 'local' } | ({ kind: 'ssh' } & RemoteSessionSelection);
 
 function parseCustomCommand(raw: string): VerificationCommand | null {
   const parts = raw.trim().split(/\s+/);
@@ -54,10 +60,14 @@ export function HomeView(): React.JSX.Element {
     () => catalogAgents.filter((item) => item.installed && item.capabilities.terminal),
     [catalogAgents],
   );
+  const sshHosts = useSshStore((state) => state.hosts);
 
   const [intent, setIntent] = useState('');
   const [agent, setAgent] = useState<ComposerAgent>('pi');
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [target, setTarget] = useState<ComposerTarget>({ kind: 'local' });
+  const [targetMenuOpen, setTargetMenuOpen] = useState(false);
+  const [remoteSetupHostId, setRemoteSetupHostId] = useState<string | null | undefined>(undefined);
   // Settings → Agent → default mode seeds the composer (it loads before mount).
   const [mode, setMode] = useState<AgentMode>(
     () => useAppStore.getState().settings?.agent.defaultMode ?? 'edit',
@@ -102,6 +112,34 @@ export function HomeView(): React.JSX.Element {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pickerInputRef = useRef<HTMLInputElement>(null);
   const workspace = workspaceStore.workspace;
+  const remoteFilesOnly = target.kind === 'ssh' && target.workspaceKind === 'remote';
+  const localFilesAvailable = target.kind === 'local' || target.workspaceKind === 'local';
+  const remoteHost =
+    target.kind === 'ssh' ? (sshHosts.find((host) => host.id === target.hostId) ?? null) : null;
+  const agentChoices = useMemo(
+    () =>
+      target.kind === 'local'
+        ? [
+            {
+              id: 'pi',
+              label: 'Charter Agent',
+              detail: 'Plans, permissions, tools and evidence ledger',
+            },
+            ...externalAgents.map((item) => ({
+              id: item.id,
+              label: item.displayName,
+              detail: item.description || 'Native CLI, preserved inside the same Session shell',
+            })),
+          ]
+        : catalogAgents
+            .filter((item) => target.availableAgentIds.includes(item.id))
+            .map((item) => ({
+              id: item.id,
+              label: item.displayName,
+              detail: `Detected on ${remoteHost?.label ?? 'the remote host'} · native SSH PTY`,
+            })),
+    [catalogAgents, externalAgents, remoteHost?.label, target],
+  );
 
   // "/" in the empty composer → enabled-skills picker (ADR-0015).
   const slash = useSkillSlash({
@@ -113,6 +151,7 @@ export function HomeView(): React.JSX.Element {
 
   useEffect(() => {
     initAgentCatalog();
+    useSshStore.getState().init();
     taskStore.init();
     useActivityStore.getState().init();
     void taskStore.refreshModels();
@@ -125,8 +164,16 @@ export function HomeView(): React.JSX.Element {
   }, [initAgentCatalog]);
 
   useEffect(() => {
-    if (agent !== 'pi' && !externalAgents.some((item) => item.id === agent)) setAgent('pi');
-  }, [agent, externalAgents]);
+    if (agentChoices.some((item) => item.id === agent)) return;
+    setAgent(agentChoices[0]?.id ?? 'pi');
+  }, [agent, agentChoices]);
+
+  useEffect(() => {
+    if (target.kind !== 'ssh') return;
+    if (sshHosts.some((host) => host.id === target.hostId)) return;
+    setTarget({ kind: 'local' });
+    setAgent('pi');
+  }, [sshHosts, target]);
 
   // Sidebar "New task" (and friends) ask the composer to take focus.
   const composerFocusSeq = useAppStore((s) => s.composerFocusSeq);
@@ -214,13 +261,21 @@ export function HomeView(): React.JSX.Element {
 
   // Dropdowns close on any outside interaction (they overlay the composer).
   useEffect(() => {
-    if (!projectMenuOpen && !pickerOpen && !agentMenuOpen && !workingCopyMenuOpen) return;
+    if (
+      !projectMenuOpen &&
+      !pickerOpen &&
+      !agentMenuOpen &&
+      !targetMenuOpen &&
+      !workingCopyMenuOpen
+    )
+      return;
     const onDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
       if (
         target &&
         !target.closest('.hm-menu') &&
         !target.closest('.hm-agent-picker-wrap') &&
+        !target.closest('.hm-target-picker-wrap') &&
         !target.closest('.hm-run-picker-wrap') &&
         !target.closest('[data-testid="home-project"]') &&
         !target.closest('[data-testid="home-attach"]')
@@ -228,12 +283,13 @@ export function HomeView(): React.JSX.Element {
         setProjectMenuOpen(false);
         setPickerOpen(false);
         setAgentMenuOpen(false);
+        setTargetMenuOpen(false);
         setWorkingCopyMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
-  }, [projectMenuOpen, pickerOpen, agentMenuOpen, workingCopyMenuOpen]);
+  }, [projectMenuOpen, pickerOpen, agentMenuOpen, targetMenuOpen, workingCopyMenuOpen]);
 
   useEffect(() => {
     if (!workspace?.isGitRepo) {
@@ -249,11 +305,46 @@ export function HomeView(): React.JSX.Element {
     [setRefs],
   );
 
+  const selectLocalTarget = (): void => {
+    setTarget({ kind: 'local' });
+    setTargetMenuOpen(false);
+    setRemoteSetupHostId(undefined);
+    if (agent !== 'pi' && !externalAgents.some((item) => item.id === agent)) setAgent('pi');
+  };
+
+  const selectRemoteTarget = (selection: RemoteSessionSelection): void => {
+    setTarget({ kind: 'ssh', ...selection });
+    setAgent(selection.agentId);
+    setTargetMenuOpen(false);
+    setRemoteSetupHostId(undefined);
+    setAdvanced(false);
+    setExternalWorktree(false);
+    setWorkingCopyMenuOpen(false);
+    setProjectMenuOpen(false);
+    if (selection.workspaceKind === 'remote' && (refs.length > 0 || conversationRefs.length > 0)) {
+      setRefs([]);
+      setConversationRefs([]);
+      app.pushToast(
+        'info',
+        'Local file and conversation references were cleared for the remote Session.',
+      );
+    }
+  };
+
   const submit = async (): Promise<void> => {
     if (!intent.trim() || submitting) return;
-    if (!workspace) {
+    if (target.kind === 'local' && !workspace) {
       app.pushToast('warning', 'Choose a project first.');
       setProjectMenuOpen(true);
+      return;
+    }
+    if (
+      target.kind === 'ssh' &&
+      target.workspaceKind === 'local' &&
+      workspace?.path !== target.localProjectPath
+    ) {
+      app.pushToast('warning', 'Reopen SSH setup and choose the current local project again.');
+      setRemoteSetupHostId(target.hostId);
       return;
     }
     let goal = intent.trim();
@@ -275,32 +366,49 @@ export function HomeView(): React.JSX.Element {
     if (agent !== 'pi') {
       setSubmitting(true);
       useTerminalStore.getState().init();
-      // The first message rides the create call: the host delivers it once the
-      // CLI's TUI is actually ready and presses Enter itself; a blind timed
-      // write from here raced the TUI startup and left the text unsent.
+      // The first message rides the create call so each terminal backend can
+      // deliver it using its own launch contract. A later blind PTY write can
+      // race TUI startup and leave the text unsent.
       const id = await useTerminalStore.getState().create({
         launch: agent,
-        ...(externalWorktree && workspace.isGitRepo
+        ...(target.kind === 'ssh'
           ? {
-              worktree: {
-                projectPath: workspace.path,
-                title: titleFromIntent(intent),
-                ...(wtSetup.trim() ? { setupCommand: wtSetup.trim() } : {}),
+              target: {
+                kind: 'ssh' as const,
+                hostId: target.hostId,
+                workspaceKind: target.workspaceKind,
+                ...(target.workspaceKind === 'local'
+                  ? { projectPath: target.localProjectPath }
+                  : {}),
               },
             }
-          : { context: { kind: 'focused' as const } }),
+          : externalWorktree && workspace!.isGitRepo
+            ? {
+                worktree: {
+                  projectPath: workspace!.path,
+                  title: titleFromIntent(intent),
+                  ...(wtSetup.trim() ? { setupCommand: wtSetup.trim() } : {}),
+                },
+              }
+            : { context: { kind: 'focused' as const } }),
         title: titleFromIntent(intent),
         reveal: false,
         // External CLIs read images behind @refs themselves — all-textual.
-        initialPrompt: goal + contextFilesBlock(refs),
+        initialPrompt: goal + contextFilesBlock(localFilesAvailable ? refs : []),
       });
       if (id) {
-        app.openTerminalSession(id);
+        if (target.kind === 'ssh') app.openRemoteTerminalSession(id, target.hostId);
+        else app.openTerminalSession(id);
         setIntent('');
         setRefs([]);
         setConversationRefs([]);
       }
       setSubmitting(false);
+      return;
+    }
+
+    if (remoteFilesOnly) {
+      app.pushToast('warning', 'Choose an Agent detected on the remote server.');
       return;
     }
 
@@ -322,9 +430,9 @@ export function HomeView(): React.JSX.Element {
       model: { providerId, modelId, thinkingLevel: thinking },
       verification,
       // ADR-0009: explicit dispatch target + optional worktree isolation.
-      projectPath: workspace.path,
-      isolation: advanced && worktree && workspace.isGitRepo ? 'worktree' : 'none',
-      ...(advanced && worktree && workspace.isGitRepo && wtSetup.trim()
+      projectPath: workspace!.path,
+      isolation: advanced && worktree && workspace!.isGitRepo ? 'worktree' : 'none',
+      ...(advanced && worktree && workspace!.isGitRepo && wtSetup.trim()
         ? { worktreeSetup: wtSetup.trim() }
         : {}),
       conversationRefTaskIds: conversationRefs.map((ref) => ref.taskId),
@@ -353,6 +461,13 @@ export function HomeView(): React.JSX.Element {
   const onDrop = async (e: React.DragEvent): Promise<void> => {
     e.preventDefault();
     setDropActive(false);
+    if (remoteFilesOnly) {
+      app.pushToast(
+        'warning',
+        'Local file references cannot be attached to a remote Agent Session.',
+      );
+      return;
+    }
     if (!workspace) {
       app.pushToast('warning', 'Choose a project before attaching files.');
       return;
@@ -386,6 +501,10 @@ export function HomeView(): React.JSX.Element {
   // ---------- @ file picker ----------
 
   const openPicker = (): void => {
+    if (remoteFilesOnly) {
+      app.pushToast('warning', 'Local references are unavailable for a remote Agent Session.');
+      return;
+    }
     if (!workspace) {
       app.pushToast('warning', 'Choose a project first.');
       return;
@@ -488,26 +607,143 @@ export function HomeView(): React.JSX.Element {
           onDrop={(e) => void onDrop(e)}
         >
           <div className="hm-chiprow">
-            <button
-              className="hm-chip"
-              data-testid="home-project"
-              onClick={() => {
-                setWorkingCopyMenuOpen(false);
-                setProjectMenuOpen(!projectMenuOpen);
-              }}
-            >
-              <Ic name="folder" size={14} />
-              <span>{workspace ? workspace.displayName : 'Select a project'}</span>
-              {workspace && branch && agent === 'pi' ? (
-                <>
-                  <span className="hm-sep">·</span>
-                  <Ic name="branch" size={13} />
-                  <span>{branch}</span>
-                </>
+            <div className="hm-target-picker-wrap">
+              <button
+                type="button"
+                className={`hm-chip hm-target-chip ${target.kind === 'ssh' ? 'remote' : ''}`}
+                data-testid="home-target"
+                aria-haspopup="menu"
+                aria-expanded={targetMenuOpen}
+                title="Choose whether the Agent runs here or over SSH"
+                onClick={() => {
+                  setProjectMenuOpen(false);
+                  setWorkingCopyMenuOpen(false);
+                  setTargetMenuOpen(!targetMenuOpen);
+                }}
+              >
+                <Ic name={target.kind === 'ssh' ? 'server' : 'home'} size={13} />
+                <span>
+                  {target.kind === 'ssh' ? (remoteHost?.label ?? 'Remote host') : 'This Mac'}
+                </span>
+                {target.kind === 'ssh' ? <span className="hm-target-remote">SSH</span> : null}
+                <Ic name="chevron" size={12} />
+              </button>
+              {targetMenuOpen ? (
+                <div className="hm-menu hm-target-menu" data-testid="home-target-menu" role="menu">
+                  <div className="hm-sec">AGENT RUNS ON</div>
+                  <button
+                    type="button"
+                    className={`hm-row ${target.kind === 'local' ? 'active' : ''}`}
+                    data-testid="home-target-local"
+                    role="menuitemradio"
+                    aria-checked={target.kind === 'local'}
+                    onClick={selectLocalTarget}
+                  >
+                    <Ic name="home" size={14} />
+                    <span className="hm-tt">
+                      This Mac
+                      <span className="hm-mono">Use locally installed Agents and projects</span>
+                    </span>
+                    {target.kind === 'local' ? (
+                      <Ic name="check" size={13} className="hm-check" />
+                    ) : null}
+                  </button>
+                  {sshHosts.length > 0 ? <div className="hm-sec">REMOTE OVER SSH</div> : null}
+                  {sshHosts.map((host) => (
+                    <button
+                      key={host.id}
+                      type="button"
+                      className={`hm-row ${target.kind === 'ssh' && target.hostId === host.id ? 'active' : ''}`}
+                      data-testid={`home-target-remote-${host.id}`}
+                      role="menuitemradio"
+                      aria-checked={target.kind === 'ssh' && target.hostId === host.id}
+                      onClick={() => {
+                        setTargetMenuOpen(false);
+                        setRemoteSetupHostId(host.id);
+                      }}
+                    >
+                      <Ic name="server" size={14} />
+                      <span className="hm-tt">
+                        {host.label}
+                        <span className="hm-mono">
+                          {host.username}@{host.host}:{host.port}
+                        </span>
+                      </span>
+                      <span className={`hm-target-state ${host.connection.state}`}>
+                        {host.connection.state === 'connected' ? 'Connected' : 'SSH'}
+                      </span>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="hm-row hm-target-connect"
+                    data-testid="home-target-connect"
+                    onClick={() => {
+                      setTargetMenuOpen(false);
+                      setRemoteSetupHostId(null);
+                    }}
+                  >
+                    <Ic name="plus" size={14} />
+                    <span className="hm-tt">
+                      Connect remote over SSH…
+                      <span className="hm-mono">IP address or hostname</span>
+                    </span>
+                  </button>
+                </div>
               ) : null}
-              <Ic name="chevron" size={13} />
-            </button>
-            {agent !== 'pi' && workspace ? (
+            </div>
+
+            {target.kind === 'local' ? (
+              <button
+                className="hm-chip"
+                data-testid="home-project"
+                onClick={() => {
+                  setWorkingCopyMenuOpen(false);
+                  setTargetMenuOpen(false);
+                  setProjectMenuOpen(!projectMenuOpen);
+                }}
+              >
+                <Ic name="folder" size={14} />
+                <span>{workspace ? workspace.displayName : 'Select a project'}</span>
+                {workspace && branch && agent === 'pi' ? (
+                  <>
+                    <span className="hm-sep">·</span>
+                    <Ic name="branch" size={13} />
+                    <span>{branch}</span>
+                  </>
+                ) : null}
+                <Ic name="chevron" size={13} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="hm-chip hm-remote-folder"
+                data-testid="home-remote-folder"
+                title={
+                  target.workspaceKind === 'local'
+                    ? 'Change local project or SSH server'
+                    : 'Change remote working folder'
+                }
+                onClick={() => {
+                  setProjectMenuOpen(false);
+                  setTargetMenuOpen(false);
+                  setWorkingCopyMenuOpen(false);
+                  setRemoteSetupHostId(target.hostId);
+                }}
+              >
+                <Ic name="folder" size={13} />
+                <span>
+                  {target.workspaceKind === 'local'
+                    ? target.localProjectPath
+                    : target.remoteWorkdir}
+                </span>
+                <small className="hm-folder-origin">
+                  {target.workspaceKind === 'local' ? 'LOCAL · REMOTE AGENT' : 'REMOTE'}
+                </small>
+                <Ic name="chevron" size={12} />
+              </button>
+            )}
+            {target.kind === 'local' && agent !== 'pi' && workspace ? (
               <div className="hm-run-picker-wrap">
                 <button
                   type="button"
@@ -632,7 +868,7 @@ export function HomeView(): React.JSX.Element {
               </span>
             ))}
 
-            {projectMenuOpen ? (
+            {target.kind === 'local' && projectMenuOpen ? (
               <div className="hm-menu" data-testid="home-project-menu">
                 {selectableRecentWorkspaces(recent).map((r) => (
                   <button
@@ -787,7 +1023,7 @@ export function HomeView(): React.JSX.Element {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 void submit();
-              } else if (e.key === '@' && workspace) {
+              } else if (e.key === '@' && target.kind === 'local' && workspace) {
                 e.preventDefault();
                 openPicker();
               }
@@ -955,8 +1191,13 @@ export function HomeView(): React.JSX.Element {
           <div className="hm-btmrow">
             <button
               className="hm-iconbtn"
-              title="Reference files or conversations (or drop files here)"
+              title={
+                remoteFilesOnly
+                  ? 'Local references are unavailable for remote Agent Sessions'
+                  : 'Reference files or conversations (or drop files here)'
+              }
               data-testid="home-attach"
+              disabled={remoteFilesOnly}
               onClick={openPicker}
             >
               <Ic name="at" size={15} />
@@ -977,19 +1218,7 @@ export function HomeView(): React.JSX.Element {
               </button>
               {agentMenuOpen ? (
                 <div className="hm-agent-menu" data-testid="home-agent-menu" role="menu">
-                  {[
-                    {
-                      id: 'pi',
-                      label: 'Charter Agent',
-                      detail: 'Plans, permissions, tools and evidence ledger',
-                    },
-                    ...externalAgents.map((item) => ({
-                      id: item.id,
-                      label: item.displayName,
-                      detail:
-                        item.description || 'Native CLI, preserved inside the same Session shell',
-                    })),
-                  ].map(({ id, label, detail }) => (
+                  {agentChoices.map(({ id, label, detail }) => (
                     <button
                       key={id}
                       type="button"
@@ -1039,7 +1268,10 @@ export function HomeView(): React.JSX.Element {
               </div>
             ) : (
               <span className="hm-native-chip">
-                <Ic name="terminal" size={12} /> Native CLI · terminal tools auto-allowed
+                <Ic name="terminal" size={12} />{' '}
+                {target.kind === 'ssh'
+                  ? `Native CLI · runs on ${remoteHost?.label ?? 'remote host'}`
+                  : 'Native CLI · terminal tools auto-allowed'}
               </span>
             )}
             <button
@@ -1098,14 +1330,27 @@ export function HomeView(): React.JSX.Element {
           ) : (
             <>
               <b>{agentDisplayName(agent)}</b> —{' '}
-              {externalWorktree
-                ? 'creates an isolated worktree when you start, then opens the native session there.'
-                : 'opens a preserved native session in the current checkout.'}
+              {target.kind === 'ssh'
+                ? target.workspaceKind === 'local'
+                  ? `runs over SSH on ${remoteHost?.label ?? 'the remote host'} while ${target.localProjectPath} stays the canonical local project; Charter synchronizes a guarded remote execution copy.`
+                  : `runs over SSH on ${remoteHost?.label ?? 'the remote host'} in ${target.remoteWorkdir}; it never falls back to this Mac.`
+                : externalWorktree
+                  ? 'creates an isolated worktree when you start, then opens the native session there.'
+                  : 'opens a preserved native session in the current checkout.'}
             </>
           )}{' '}
           ⏎ to start · ⇧⏎ new line.
         </div>
       </div>
+      {remoteSetupHostId !== undefined ? (
+        <RemoteSessionSetupDialog
+          initialHostId={remoteSetupHostId}
+          preferredAgentId={agent === 'pi' ? null : agent}
+          localWorkspace={workspace}
+          onClose={() => setRemoteSetupHostId(undefined)}
+          onSelect={selectRemoteTarget}
+        />
+      ) : null}
     </main>
   );
 }

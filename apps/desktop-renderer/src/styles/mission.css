@@ -2377,6 +2377,27 @@
 .mission-section-heading:has(.mission-work-view-switch) > p {
   max-width: 330px;
 }
+.mission-graph-fullscreen-entry {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 0 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  color: var(--fg-muted);
+  font: 600 8.5px var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mission-graph-fullscreen-entry:hover,
+.mission-graph-fullscreen-entry[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-card));
+  color: var(--accent);
+}
 .mission-graph-shell {
   min-width: 0;
   background: color-mix(in srgb, var(--bg-editor) 93%, transparent);
@@ -2620,8 +2641,15 @@
   font: inherit;
   text-align: left;
   box-shadow: 0 7px 18px color-mix(in srgb, var(--fg) 7%, transparent);
-  cursor: pointer;
+  cursor: grab;
   user-select: none;
+}
+.mission-graph-node.dragging {
+  z-index: 3;
+  cursor: grabbing;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent),
+    0 14px 30px color-mix(in srgb, var(--fg) 14%, transparent);
 }
 .mission-graph-node:hover {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
@@ -2865,6 +2893,19 @@
 }
 .mission-graph-zoom button:hover {
   background: var(--bg-hover);
+}
+.mission-graph-gesture-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 72%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-card) 78%, transparent);
+  color: var(--fg-faint);
+  font: 7.5px var(--font-ui);
+  pointer-events: none;
+  user-select: none;
 }
 .mission-graph-minimap {
   position: absolute;
@@ -3510,6 +3551,66 @@
 .mission-work-layout-graph > .mission-work-canvas {
   min-height: 660px;
 }
+/* The Home surface normally sits below the persistent rail. Lift that surface
+   while its graph is expanded so the fixed canvas really owns the whole app
+   viewport instead of leaving the rail painted above its left edge. */
+.session-home-host .hm-root:has(.mission-work-layout-graph.graph-fullscreen) {
+  z-index: 5;
+}
+/* The fixed graph is painted above the title bar, but Electron still includes
+   the obscured title bar and its children in the native window drag mask.
+   Clear that mask while the graph owns the viewport so coordinate clicks on
+   its header controls reach the renderer. */
+.workbench:has(.mission-work-layout-graph.graph-fullscreen) > .titlebar,
+.workbench:has(.mission-work-layout-graph.graph-fullscreen) > .titlebar * {
+  -webkit-app-region: no-drag !important;
+}
+.mission-work-layout-graph.graph-fullscreen {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  width: auto;
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-editor);
+  /* This overlay crosses the frameless macOS title bar. Explicitly subtract
+     it from Electron's drag region so its top-row controls receive real
+     pointer events instead of moving the window. */
+  -webkit-app-region: no-drag;
+}
+.mission-work-layout-graph.graph-fullscreen > .mission-work-canvas {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.mission-work-layout-graph.graph-fullscreen .mission-section-heading {
+  flex: none;
+  -webkit-app-region: no-drag;
+}
+.mission-work-layout-graph.graph-fullscreen .mission-section-heading button {
+  -webkit-app-region: no-drag;
+}
+.mission-work-layout-graph.graph-fullscreen .mission-graph-shell {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.mission-work-layout-graph.graph-fullscreen .mission-graph-viewport {
+  height: auto;
+  min-height: 0;
+  flex: 1;
+}
+.mission-work-layout-graph.graph-fullscreen .mission-graph-toolbar,
+.mission-work-layout-graph.graph-fullscreen .mission-graph-timeline {
+  flex: none;
+}
 .mission-graph-detail-drawer {
   position: absolute;
   z-index: 12;
@@ -3784,6 +3885,9 @@
   .mission-graph-layers button > i,
   .mission-graph-layers button > .app-icon {
     margin: 0 auto;
+  }
+  .mission-graph-fullscreen-entry > span {
+    display: none;
   }
 }
 

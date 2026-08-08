@@ -28,6 +28,24 @@ interface Viewport {
   scale: number;
 }
 
+const NODE_DRAG_THRESHOLD_PX = 4;
+
+function blocksCanvasPan(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest(
+      [
+        '.mission-graph-node',
+        '.mission-graph-human',
+        '.mission-graph-edge.communication',
+        '.mission-graph-edge.human',
+        '.mission-graph-zoom',
+        '.mission-graph-minimap',
+      ].join(','),
+    ),
+  );
+}
+
 interface DelegationTreeGeometry {
   id: string;
   sourceId: string;
@@ -230,13 +248,18 @@ export function MissionGraph({
   const [showCritical, setShowCritical] = useState(false);
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const [collapsedTaskIds, setCollapsedTaskIds] = useState<Set<string>>(new Set());
+  const [isPanning, setIsPanning] = useState(false);
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const panRef = useRef<{ x: number; y: number; viewport: Viewport } | null>(null);
   const nodeDragRef = useRef<{
     id: string;
     x: number;
     y: number;
     origin: Point;
+    scale: number;
+    moved: boolean;
   } | null>(null);
+  const suppressNodeClickRef = useRef<{ id: string; until: number } | null>(null);
 
   const events = useMemo(() => missionGraphTimeline(snapshot), [snapshot]);
   const replayIndex = useMemo(() => {
@@ -328,7 +351,7 @@ export function MissionGraph({
     const scale = Math.min(
       1.12,
       Math.max(
-        0.35,
+        0.52,
         Math.min(
           (availableWidth - 42) / projection.width,
           (bounds.height - 42) / projection.height,
@@ -361,9 +384,9 @@ export function MissionGraph({
     });
   }, [projection.visibleTaskIds]);
 
-  const updateViewportScale = (nextScale: number, anchor?: Point) => {
+  const zoomViewportBy = (factor: number, anchor?: Point) => {
     setViewport((current) => {
-      const scale = Math.min(1.8, Math.max(0.3, nextScale));
+      const scale = Math.min(1.8, Math.max(0.3, current.scale * factor));
       if (!anchor) return { ...current, scale };
       const worldX = (anchor.x - current.x) / current.scale;
       const worldY = (anchor.y - current.y) / current.scale;
@@ -378,8 +401,12 @@ export function MissionGraph({
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     if (nodeDragRef.current) {
       const drag = nodeDragRef.current;
-      const dx = (event.clientX - drag.x) / viewport.scale;
-      const dy = (event.clientY - drag.y) / viewport.scale;
+      const screenDx = event.clientX - drag.x;
+      const screenDy = event.clientY - drag.y;
+      if (!drag.moved && Math.hypot(screenDx, screenDy) < NODE_DRAG_THRESHOLD_PX) return;
+      drag.moved = true;
+      const dx = screenDx / drag.scale;
+      const dy = screenDy / drag.scale;
       setManualPositions((previous) => {
         const next = new Map(previous);
         next.set(drag.id, { x: drag.origin.x + dx, y: drag.origin.y + dy });
@@ -397,8 +424,14 @@ export function MissionGraph({
   };
 
   const endPointerGesture = () => {
+    const draggedNode = nodeDragRef.current;
+    if (draggedNode?.moved) {
+      suppressNodeClickRef.current = { id: draggedNode.id, until: Date.now() + 250 };
+    }
     panRef.current = null;
     nodeDragRef.current = null;
+    setIsPanning(false);
+    setDraggingNodeId(null);
   };
 
   return (
@@ -462,12 +495,17 @@ export function MissionGraph({
 
       <div
         ref={viewportRef}
-        className={`mission-graph-viewport ${panRef.current ? 'panning' : ''}`}
+        className={`mission-graph-viewport ${isPanning ? 'panning' : ''}`}
+        data-testid="mission-graph-viewport"
         data-replay={projection.isReplay ? 'true' : 'false'}
         onPointerDown={(event) => {
-          if (event.button !== 0 || event.target !== event.currentTarget) return;
+          const primaryPan = event.button === 0 && !blocksCanvasPan(event.target);
+          const middleButtonPan = event.button === 1;
+          if (!primaryPan && !middleButtonPan) return;
           panRef.current = { x: event.clientX, y: event.clientY, viewport };
+          setIsPanning(true);
           event.currentTarget.setPointerCapture(event.pointerId);
+          event.preventDefault();
         }}
         onPointerMove={onPointerMove}
         onPointerUp={endPointerGesture}
@@ -475,7 +513,7 @@ export function MissionGraph({
         onWheel={(event) => {
           event.preventDefault();
           const bounds = event.currentTarget.getBoundingClientRect();
-          updateViewportScale(viewport.scale * (event.deltaY > 0 ? 0.9 : 1.1), {
+          zoomViewportBy(event.deltaY > 0 ? 0.9 : 1.1, {
             x: event.clientX - bounds.left,
             y: event.clientY - bounds.top,
           });
@@ -490,6 +528,7 @@ export function MissionGraph({
         ) : null}
         <div
           className="mission-graph-scene"
+          data-testid="mission-graph-scene"
           style={{
             width: projection.width,
             height: projection.height,
@@ -626,6 +665,7 @@ export function MissionGraph({
                   `tone-${node.state.tone}`,
                   `coverage-${node.coverage}`,
                   selected ? 'selected' : '',
+                  draggingNodeId === node.id ? 'dragging' : '',
                   showCritical && node.critical ? 'critical' : '',
                   node.blockedByFailure ? 'blocked-by-failure' : '',
                 ]
@@ -633,19 +673,37 @@ export function MissionGraph({
                   .join(' ')}
                 style={{ left: position.x, top: position.y }}
                 data-testid={`mission-graph-node-${node.id}`}
-                onClick={() => onSelection({ kind: 'task', taskId: node.id })}
+                onClick={(event) => {
+                  const suppressed = suppressNodeClickRef.current;
+                  suppressNodeClickRef.current = null;
+                  if (suppressed?.id === node.id && suppressed.until >= Date.now()) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                  }
+                  onSelection({ kind: 'task', taskId: node.id });
+                }}
                 onDoubleClick={() =>
                   setFocusTaskId((current) => (current === node.id ? null : node.id))
                 }
                 onPointerDown={(event) => {
-                  if (event.button !== 0) return;
+                  if (
+                    event.button !== 0 ||
+                    (event.target instanceof Element &&
+                      event.target.closest('.mission-graph-collapse'))
+                  ) {
+                    return;
+                  }
                   event.stopPropagation();
                   nodeDragRef.current = {
                     id: node.id,
                     x: event.clientX,
                     y: event.clientY,
                     origin: position,
+                    scale: viewport.scale,
+                    moved: false,
                   };
+                  setDraggingNodeId(node.id);
                   // Capture on the node itself. Capturing on the viewport retargets
                   // pointerup away from this button, so the browser never emits its
                   // click and the inspector remains on the previously selected task.
@@ -743,10 +801,10 @@ export function MissionGraph({
         </div>
 
         <div className="mission-graph-zoom" aria-label="Graph zoom controls">
-          <button title="Zoom in" onClick={() => updateViewportScale(viewport.scale * 1.15)}>
+          <button title="Zoom in" onClick={() => zoomViewportBy(1.15)}>
             <Ic name="plus" size={12} />
           </button>
-          <button title="Zoom out" onClick={() => updateViewportScale(viewport.scale / 1.15)}>
+          <button title="Zoom out" onClick={() => zoomViewportBy(1 / 1.15)}>
             <span>−</span>
           </button>
           <button title="Fit graph" onClick={fit}>
@@ -762,6 +820,9 @@ export function MissionGraph({
           >
             <Ic name="refresh" size={12} />
           </button>
+        </div>
+        <div className="mission-graph-gesture-hint" aria-hidden="true">
+          Drag canvas to pan · Scroll to zoom
         </div>
         <div className="mission-graph-minimap" aria-hidden="true">
           <svg viewBox={`0 0 ${projection.width} ${projection.height}`}>

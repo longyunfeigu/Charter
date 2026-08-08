@@ -689,7 +689,6 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
         },
       );
       const live = terminals.create({ cwd: '/repo', launch: 'codex' });
-      terminals.agents.set(live.id, 'codex');
 
       // Daemon screen replay commonly arrives before the durable worker
       // relationship is rebuilt. Restoring it publishes a transient recent-

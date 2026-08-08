@@ -517,7 +517,12 @@ async function followTaskProject(taskId: string): Promise<void> {
       import('./workspaceStore.js'),
     ]);
     const task = useTaskStore.getState().tasks.find((t) => t.id === taskId);
-    if (task) await useWorkspaceStore.getState().followProject(task.projectPath);
+    if (
+      task &&
+      (!task.external?.remote || (task.external.remote.workspaceKind ?? 'remote') === 'local')
+    ) {
+      await useWorkspaceStore.getState().followProject(task.projectPath);
+    }
   } catch {
     // Context alignment is best-effort — the room itself has already opened.
   }

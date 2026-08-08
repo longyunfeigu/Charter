@@ -2,7 +2,11 @@ import { expect, test, type ElectronApplication, type Page } from '@playwright/t
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { launchApp } from './helpers/launch';
+import {
+  launchApp,
+  restartMainPreservingTerminals,
+  shutdownPersistentTestTerminals,
+} from './helpers/launch';
 import { createGitFixture } from './helpers/fixtures';
 import { terminalPtySnapshot, typeTerminalCommand } from './helpers/terminal';
 
@@ -79,14 +83,6 @@ async function killTerminal(page: Page, terminalId: string): Promise<void> {
   }, terminalId);
 }
 
-async function quitFromAppMenu(app: ElectronApplication): Promise<void> {
-  const closed = app.waitForEvent('close');
-  await app.evaluate(({ app: electronApp }) => {
-    setTimeout(() => electronApp.quit(), 0);
-  });
-  await closed;
-}
-
 test.describe('daemon recovery file accounting', () => {
   test('records and rolls back agent writes made while the app is fully closed', async () => {
     const fixture = createGitFixture();
@@ -102,10 +98,12 @@ test.describe('daemon recovery file accounting', () => {
     let firstApp: ElectronApplication | null = null;
     let secondApp: ElectronApplication | null = null;
     let terminalId: string | null = null;
+    let userDataDir: string | null = null;
 
     try {
       const first = await launchApp({ env: environment });
       firstApp = first.app;
+      userDataDir = first.userDataDir;
       await first.page.keyboard.press('Control+`');
       await expect(first.page.getByTestId('terminal-panel')).toBeVisible();
       let terminals = await terminalPtySnapshot(first.page);
@@ -122,7 +120,7 @@ test.describe('daemon recovery file accounting', () => {
       const beforeClose = await externalTask(first.page);
       expect(beforeClose).toMatchObject({ state: 'IN_PROGRESS', terminalId });
 
-      await quitFromAppMenu(first.app);
+      await restartMainPreservingTerminals(first.app);
       firstApp = null;
       writeFileSync(fake.trigger, 'write now');
       await expect.poll(() => existsSync(fake.done), { timeout: 10_000 }).toBe(true);
@@ -209,6 +207,7 @@ test.describe('daemon recovery file accounting', () => {
       }
       await firstApp?.close().catch(() => undefined);
       await secondApp?.close().catch(() => undefined);
+      if (userDataDir) await shutdownPersistentTestTerminals(userDataDir).catch(() => undefined);
     }
   });
 });

@@ -19,6 +19,11 @@ export interface TerminalRemoteInfo {
   username: string;
   host: string;
   port: number;
+  /** Managed remote change-plane metadata (plain SSH shells omit these). */
+  root?: string;
+  workerSessionId?: string;
+  workerVersion?: string;
+  workspaceKind?: 'remote' | 'local';
 }
 
 export interface TerminalInfo {
@@ -885,6 +890,24 @@ export class TerminalManager {
   /** Current agent CLI running in a terminal, if any. */
   agentFor(id: string): string | null {
     return this.sessions.get(id)?.tracker.agent ?? null;
+  }
+
+  /** Mark an SSH backend as a known Agent after the trusted launch command is
+   * written. Remote foreground processes are not visible in the Mac's process
+   * table, so the SSH service owns this explicit detection edge. */
+  declareKnownAgent(id: string, agent: string): boolean {
+    const session = this.sessions.get(id);
+    const normalized = agent.trim().toLowerCase();
+    if (!session || !this.agentClis.includes(normalized)) return false;
+    if (session.knownAgent === normalized) return true;
+    session.knownAgent = normalized;
+    const change = session.tracker.update(normalized);
+    if (change) {
+      for (const listener of this.agentListeners) {
+        listener({ id, agent: normalized, cwd: session.info.cwd });
+      }
+    }
+    return true;
   }
 
   /** Small in-memory lead-in so session detection cannot miss fast JSON init events. */

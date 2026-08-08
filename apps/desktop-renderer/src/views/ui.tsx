@@ -29,6 +29,7 @@ function visiblePopoverTop(trigger: HTMLElement): number {
 export function ConfirmDangerButton(props: {
   label: string;
   confirmLabel?: string;
+  confirmDescription?: React.ReactNode;
   testid: string;
   disabled?: boolean;
   quiet?: boolean;
@@ -62,24 +63,35 @@ export function ConfirmDangerButton(props: {
     );
   }
   return (
-    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-      <button
-        className="btn danger"
-        data-testid={`${props.testid}-confirm`}
-        onClick={() => {
-          setArmed(false);
-          props.onConfirm();
-        }}
-      >
-        {props.confirmLabel ?? `Confirm — ${props.label.replace(/…$/, '')}`}
-      </button>
-      <button
-        className="btn"
-        data-testid={`${props.testid}-cancel`}
-        onClick={() => setArmed(false)}
-      >
-        Keep
-      </button>
+    <span
+      className={`confirm-danger-inline${props.confirmDescription ? ' with-description' : ''}`}
+      role="group"
+      aria-label={`Confirm ${props.label.replace(/…$/, '')}`}
+    >
+      {props.confirmDescription ? (
+        <span className="confirm-danger-copy" data-testid={`${props.testid}-description`}>
+          {props.confirmDescription}
+        </span>
+      ) : null}
+      <span className="confirm-danger-actions">
+        <button
+          className="btn danger"
+          data-testid={`${props.testid}-confirm`}
+          onClick={() => {
+            setArmed(false);
+            props.onConfirm();
+          }}
+        >
+          {props.confirmLabel ?? `Confirm — ${props.label.replace(/…$/, '')}`}
+        </button>
+        <button
+          className="btn"
+          data-testid={`${props.testid}-cancel`}
+          onClick={() => setArmed(false)}
+        >
+          Keep
+        </button>
+      </span>
     </span>
   );
 }

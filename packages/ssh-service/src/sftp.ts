@@ -87,6 +87,10 @@ export function createSftpSession(sftp: SFTPWrapper): SftpSession {
       new Promise((resolve, reject) => sftp.unlink(path, (err) => (err ? reject(err) : resolve()))),
     rmdir: (path) =>
       new Promise((resolve, reject) => sftp.rmdir(path, (err) => (err ? reject(err) : resolve()))),
+    chmod: (path, mode) =>
+      new Promise((resolve, reject) =>
+        sftp.chmod(path, mode & 0o777, (err) => (err ? reject(err) : resolve())),
+      ),
 
     async stat(path: string): Promise<{ type: SftpEntryType; size: number }> {
       const attrs = await stat(path);

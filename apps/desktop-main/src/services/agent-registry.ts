@@ -303,15 +303,21 @@ export class AgentRegistry {
     agentId: string,
     sessionId?: string | null,
   ): { executable: string; args: string[] } | null {
-    const manifest = this.manifest(agentId);
     const path = this.executableFor(agentId);
-    if (!manifest?.sessions || !path) return null;
+    const args = this.resumeArguments(agentId, sessionId);
+    return path && args ? { executable: path, args } : null;
+  }
+
+  /** Manifest-owned resume arguments without requiring the Agent to be
+   * installed on this Mac. Managed SSH Sessions use these arguments with the
+   * independently probed executable on the remote server. */
+  resumeArguments(agentId: string, sessionId?: string | null): string[] | null {
+    const manifest = this.manifest(agentId);
+    if (!manifest?.sessions) return null;
     if (sessionId && this.sessionIdSafe(agentId, sessionId) && manifest.sessions.resumeArgs) {
-      return { executable: path, args: fillArgs(manifest.sessions.resumeArgs, { sessionId }) };
+      return fillArgs(manifest.sessions.resumeArgs, { sessionId });
     }
-    return manifest.sessions.continueArgs
-      ? { executable: path, args: [...manifest.sessions.continueArgs] }
-      : null;
+    return manifest.sessions.continueArgs ? [...manifest.sessions.continueArgs] : null;
   }
 
   acpCommand(
@@ -399,7 +405,10 @@ export class AgentRegistry {
       history: Boolean(manifest.sessions?.historyConnector && installed),
       skills: Boolean(manifest.surfaces.skillRoots.length && installed),
       instructions: Boolean(manifest.surfaces.instructionRoots.length && installed),
-      remote: Boolean(manifest.surfaces.remote && installed),
+      // Remote means the manifest is safe to probe and launch on another
+      // host. It must not depend on whether the same CLI happens to be
+      // installed on this computer.
+      remote: Boolean(manifest.surfaces.remote && manifest.terminal),
     };
     return {
       id: manifest.id,

@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { createTsSmallFixture } from './helpers/fixtures';
-import { launchApp } from './helpers/launch';
+import {
+  launchApp,
+  restartMainPreservingTerminals,
+  shutdownPersistentTestTerminals,
+} from './helpers/launch';
 import { waitForTerminalOutput } from './helpers/terminal';
 
 async function startOrchestrationTask(
@@ -128,9 +132,15 @@ function createDirectCodexWorker(): { bin: string; probe: string } {
     [
       '#!/usr/bin/env node',
       "const fs = require('node:fs');",
-      `fs.writeFileSync(${JSON.stringify(probe)}, JSON.stringify(process.argv.slice(2)));`,
+      `const probe = ${JSON.stringify(probe)};`,
+      'const args = process.argv.slice(2);',
+      "let input = '';",
+      'const save = () => fs.writeFileSync(probe, JSON.stringify({ args, input }));',
+      'save();',
+      "process.stdin.setEncoding('utf8');",
+      "process.stdin.on('data', (chunk) => { input += chunk; save(); });",
       "process.stdout.write('\\u001b[2J\\u001b[HSTALE_TUI_FRAME');",
-      "setTimeout(() => process.stdout.write('\\u001b[H\\u001b[2KCODEX_WORKER_READY\\n'), 50);",
+      "setTimeout(() => process.stdout.write('\\u001b[H\\u001b[2KOpenAI Codex · CODEX_WORKER_READY\\n'), 50);",
       "setTimeout(() => process.stdout.write(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } }) + '\\n'), 2000);",
       'setTimeout(() => process.exit(0), 30000);',
       '',
@@ -269,14 +279,6 @@ function createFleetResumeDriver(options?: {
   };
 }
 
-async function quitFromAppMenu(app: ElectronApplication): Promise<void> {
-  const closed = app.waitForEvent('close');
-  await app.evaluate(({ app: electronApp }) => {
-    setTimeout(() => electronApp.quit(), 0);
-  });
-  await closed;
-}
-
 async function killAllTerminals(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const listed = (await window.product.rpc['terminal.list']!({})) as
@@ -306,8 +308,27 @@ test.describe('M13 session orchestration', () => {
       await expect(pendingPermission(page, 'terminal.create')).toHaveCount(0);
 
       await expect.poll(() => existsSync(workerDriver.probe), { timeout: 10_000 }).toBe(true);
-      const args = JSON.parse(readFileSync(workerDriver.probe, 'utf8')) as string[];
-      expect(args.slice(-2)).toEqual(['--', 'Report your identity and wait for the commander.']);
+      await expect
+        .poll(() => {
+          const probe = JSON.parse(readFileSync(workerDriver.probe, 'utf8')) as {
+            args: string[];
+            input: string;
+          };
+          return probe.input;
+        })
+        .toContain('Report your identity and wait for the commander.');
+      const workerProbe = JSON.parse(readFileSync(workerDriver.probe, 'utf8')) as {
+        args: string[];
+        input: string;
+      };
+      expect(workerProbe.args).not.toContain('Report your identity and wait for the commander.');
+      expect(workerProbe.args).toEqual(
+        expect.arrayContaining([
+          '-c',
+          'mcp_servers.charter.startup_timeout_sec=120',
+          'mcp_servers.charter.tool_timeout_sec=3605',
+        ]),
+      );
 
       await expect(page.getByTestId('task-room-fleet-tab')).toHaveCount(0);
       await page.setViewportSize({ width: 1024, height: 700 });
@@ -795,9 +816,11 @@ test.describe('M13 session orchestration', () => {
     };
     let firstApp: ElectronApplication | null = null;
     let secondApp: ElectronApplication | null = null;
+    let userDataDir: string | null = null;
     try {
       const first = await launchApp({ env: environment });
       firstApp = first.app;
+      userDataDir = first.userDataDir;
       await first.page.keyboard.press('Control+`');
       await expect(first.page.getByTestId('terminal-panel')).toBeVisible();
       await first.page.getByTestId('terminal-new-menu').click();
@@ -826,7 +849,7 @@ test.describe('M13 session orchestration', () => {
         })
         .toBe(commanderTaskId);
 
-      await quitFromAppMenu(first.app);
+      await restartMainPreservingTerminals(first.app);
       firstApp = null;
 
       const second = await launchApp({ userDataDir: first.userDataDir, env: environment });
@@ -880,6 +903,7 @@ test.describe('M13 session orchestration', () => {
         if (page) await killAllTerminals(page).catch(() => undefined);
         await secondApp.close().catch(() => undefined);
       }
+      if (userDataDir) await shutdownPersistentTestTerminals(userDataDir).catch(() => undefined);
     }
   });
 
@@ -903,9 +927,11 @@ test.describe('M13 session orchestration', () => {
     };
     let firstApp: ElectronApplication | null = null;
     let secondApp: ElectronApplication | null = null;
+    let userDataDir: string | null = null;
     try {
       const first = await launchApp({ env: environment });
       firstApp = first.app;
+      userDataDir = first.userDataDir;
       await first.page.keyboard.press('Control+`');
       await expect(first.page.getByTestId('terminal-panel')).toBeVisible();
       await first.page.getByTestId('terminal-new-menu').click();
@@ -936,7 +962,7 @@ test.describe('M13 session orchestration', () => {
         })
         .toBe('completed');
 
-      await quitFromAppMenu(first.app);
+      await restartMainPreservingTerminals(first.app);
       firstApp = null;
 
       const second = await launchApp({ userDataDir: first.userDataDir, env: environment });
@@ -987,6 +1013,7 @@ test.describe('M13 session orchestration', () => {
         if (page) await killAllTerminals(page).catch(() => undefined);
         await secondApp.close().catch(() => undefined);
       }
+      if (userDataDir) await shutdownPersistentTestTerminals(userDataDir).catch(() => undefined);
     }
   });
 });

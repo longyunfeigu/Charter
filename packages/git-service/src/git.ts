@@ -388,6 +388,16 @@ export class GitService {
     return res.stdout.split('\0').filter(Boolean);
   }
 
+  /** Files safe to copy into a remote execution workspace: tracked plus
+   * non-ignored untracked files. Git-ignored secrets and dependency caches do
+   * not leave the local machine implicitly. */
+  async listWorktreeFiles(): Promise<string[]> {
+    const res = await this.run(['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
+      timeoutMs: 120000,
+    });
+    return res.stdout.split('\0').filter(Boolean);
+  }
+
   /** Return the supplied untracked paths that standard Git ignore rules exclude. */
   async ignoredPaths(paths: string[]): Promise<Set<string>> {
     if (paths.length === 0) return new Set();

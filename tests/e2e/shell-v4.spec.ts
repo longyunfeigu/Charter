@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { launchApp } from './helpers/launch.js';
 import { createTsSmallFixture, createGitFixture } from './helpers/fixtures.js';
@@ -150,6 +150,57 @@ test.describe('Shell v4 — global tasks on a multi-mount engine (ADR-0009)', ()
 });
 
 test.describe('Shell v4 — worktree isolation and merge-back (ADR-0009)', () => {
+  test('discarding an isolated Session removes its worktree without blanking the renderer', async () => {
+    const fixture = createGitFixture();
+    const { app, page } = await launchApp({
+      env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
+    });
+    const rendererErrors: string[] = [];
+    page.on('pageerror', (error) => rendererErrors.push(error.message));
+    try {
+      await page.getByTestId('surface-home').click();
+      await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
+      await page.getByTestId('home-advanced-toggle').click();
+      await page.getByTestId('home-adv-worktree').check();
+      await page.getByTestId('home-intent').fill('[scenario:edit-basic] discard isolated fix');
+      await page.getByTestId('home-submit').click();
+      await page.getByTestId('plan-approve').click({ timeout: 20000 });
+      await page.getByTestId('perm-allow-task').click({ timeout: 20000 });
+      await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
+        timeout: 30000,
+      });
+
+      const worktreePath = await page.evaluate(async () => {
+        const result = (await window.product.rpc['task.list']!({
+          filter: 'all',
+          includeArchived: false,
+        })) as {
+          ok: boolean;
+          data?: { tasks: Array<{ worktree: { path: string } | null }> };
+        };
+        return result.ok ? (result.data?.tasks[0]?.worktree?.path ?? null) : null;
+      });
+      expect(worktreePath).not.toBeNull();
+      expect(existsSync(worktreePath!)).toBe(true);
+
+      await page.getByTestId('task-rollback').click();
+      await expect(page.getByTestId('task-rollback-description')).toContainText(
+        'current verification becomes stale',
+      );
+      await page.getByTestId('task-rollback-confirm').click();
+
+      await expect(page.getByTestId('task-room')).toContainText('not available anymore', {
+        timeout: 20000,
+      });
+      expect(await page.locator('body').innerText()).not.toBe('');
+      expect(rendererErrors).toEqual([]);
+      expect(existsSync(worktreePath!)).toBe(false);
+      expect(readFileSync(join(fixture, 'src/index.ts'), 'utf8')).toContain('add(2, 3)');
+    } finally {
+      await app.close();
+    }
+  });
+
   test('an isolated Session never touches the main tree until ARCHIVE merges it back (ADR-0032)', async () => {
     const fixture = createGitFixture();
     const { app, page } = await launchApp({

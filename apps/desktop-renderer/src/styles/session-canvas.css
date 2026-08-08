@@ -330,6 +330,7 @@
 /* ---------- three-region Session Canvas ---------- */
 .session-canvas-body {
   min-width: 0;
+  flex-direction: row;
   overflow: hidden;
 }
 
@@ -337,6 +338,7 @@
   flex: 1 1 65%;
   width: 65%;
   min-width: 460px;
+  min-height: 0;
   border-right: 0;
   transition:
     width 160ms ease,
@@ -1468,6 +1470,15 @@ button.hm-board-now:hover {
   white-space: normal;
 }
 
+.session-action-dock.review-decision .confirm-danger-inline.with-description {
+  order: 2;
+  padding-top: 2px;
+}
+
+.session-action-dock.review-decision .confirm-danger-copy {
+  color: var(--danger);
+}
+
 .session-action-note.has-risk {
   color: var(--fg-muted);
 }
@@ -1670,10 +1681,10 @@ button.hm-board-now:hover {
 }
 
 /* ---------- responsive single-surface switch ----------
- * The room's own width decides when a split stops being useful. At this size
- * Conversation and Tools each get the full canvas instead of becoming two
- * cramped panes or a long vertical stack. */
-@container task-room (max-width: 1080px) {
+ * The desktop viewport decides when a split stops being useful. The Sessions
+ * rail can be wider on a large display, so the room's near-identical measured
+ * width must not make 1260px and 1024px windows choose the same density. */
+@media (max-width: 1100px) {
   .session-identity-head {
     min-height: var(--session-header-height);
     padding: 6px 10px;

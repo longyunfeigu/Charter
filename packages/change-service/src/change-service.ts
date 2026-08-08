@@ -197,6 +197,7 @@ export class ChangeService {
     taskId: string,
     relativePath: string,
     bytes: Buffer | null,
+    mode: number | null = null,
   ): Promise<FileBaseline> {
     const existing = this.repo.getBaseline(taskId, relativePath);
     if (existing) return existing;
@@ -219,7 +220,7 @@ export class ChangeService {
         relativePath,
         existed: true,
         blobHash: hash,
-        mode: null,
+        mode,
         size: bytes.length,
         capturedAt: new Date().toISOString(),
       };

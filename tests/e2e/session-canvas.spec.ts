@@ -134,9 +134,34 @@ test.describe('Unified Session Canvas', () => {
         .getByTestId('session-tool-canvas')
         .screenshot({ path: `${OUT}/diff-panel-1440.png` });
 
-      // At 900px, Tools owns the canvas instead of stacking under a cramped
+      // A wide Sessions rail can leave roughly 900–1000px for the room. That
+      // still fits the two-pane contract, so Tools must not replace the live
+      // Session at this common desktop width.
+      await page.setViewportSize({ width: 1260, height: 900 });
+      await expect(page.locator('.session-canvas-body > .tr-main')).toBeVisible();
+      await expect(page.getByTestId('session-tool-canvas')).toBeVisible();
+      await expect(page.getByTestId('session-split-handle')).toBeVisible();
+      const compactSplit = await page.evaluate(() => {
+        const body = document.querySelector('.session-canvas-body')?.getBoundingClientRect();
+        const session = document
+          .querySelector('.session-canvas-body > .tr-main')
+          ?.getBoundingClientRect();
+        const tools = document.querySelector('.session-tool-canvas')?.getBoundingClientRect();
+        return {
+          body: body?.width ?? 0,
+          session: session?.width ?? 0,
+          tools: tools?.width ?? 0,
+        };
+      });
+      expect(compactSplit.body).toBeGreaterThan(820);
+      expect(compactSplit.session).toBeGreaterThanOrEqual(400);
+      expect(compactSplit.tools).toBeGreaterThanOrEqual(360);
+      await settleLayout(page);
+      await page.screenshot({ path: `${OUT}/diff-split-1260.png` });
+
+      // At 800px, Tools owns the canvas instead of stacking under a cramped
       // conversation pane.
-      await page.setViewportSize({ width: 900, height: 900 });
+      await page.setViewportSize({ width: 800, height: 900 });
       await expect(page.getByTestId('task-room')).toBeVisible();
       await expect(page.locator('.session-canvas-body > .tr-main')).toBeHidden();
       await expect(page.getByTestId('session-tool-canvas')).toBeVisible();
@@ -156,13 +181,13 @@ test.describe('Unified Session Canvas', () => {
       );
       expect(overflow).toBeLessThanOrEqual(1);
       await settleLayout(page);
-      await page.screenshot({ path: `${OUT}/diff-zoom-900.png` });
+      await page.screenshot({ path: `${OUT}/diff-zoom-800.png` });
 
       await page.getByTestId('session-tool-close').click();
       await expect(page.locator('.session-canvas-body > .tr-main')).toBeVisible();
       await expect(page.getByTestId('session-tool-canvas')).toBeHidden();
       await expect(page.getByTestId('session-tools-open')).toBeVisible();
-      await page.screenshot({ path: `${OUT}/conversation-900.png` });
+      await page.screenshot({ path: `${OUT}/conversation-800.png` });
       await page.getByTestId('session-tools-open').click();
       await expect(page.getByTestId('session-tool-review')).toHaveAttribute(
         'aria-selected',

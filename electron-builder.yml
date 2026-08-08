@@ -30,6 +30,8 @@ asarUnpack:
   - 'apps/desktop-main/dist/terminal-daemon.cjs'
   - 'apps/desktop-main/dist/terminal-control-mcp.cjs'
   - 'apps/desktop-main/dist/static-preview-server.cjs'
+  # Read as ordinary bytes for the explicit SSH Worker install/update flow.
+  - 'apps/desktop-main/dist/remote-session-worker.cjs'
   - 'node_modules/@vscode/ripgrep/**'
   - 'node_modules/@agentclientprotocol/**'
   - 'node_modules/@openai/**'

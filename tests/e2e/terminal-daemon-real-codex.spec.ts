@@ -1,7 +1,11 @@
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { launchApp } from './helpers/launch';
+import {
+  launchApp,
+  restartMainPreservingTerminals,
+  shutdownPersistentTestTerminals,
+} from './helpers/launch';
 import { terminalPtyOutput, terminalPtySnapshot, waitForTerminalOutput } from './helpers/terminal';
 
 const REAL = process.env.PI_IDE_REAL_EXTERNAL_CLI === '1';
@@ -139,7 +143,7 @@ test.describe('real Codex daemon recovery', () => {
       expect(originalTask!.state).not.toBe('INTERRUPTED');
       await first.page.screenshot({ path: join(EVIDENCE_DIR, 'before-app-quit.png') });
 
-      await first.app.close();
+      await restartMainPreservingTerminals(first.app);
       firstApp = null;
       await new Promise((resolveWait) => setTimeout(resolveWait, 18_000));
 
@@ -198,6 +202,7 @@ test.describe('real Codex daemon recovery', () => {
       }
       await firstApp?.close().catch(() => undefined);
       await secondApp?.close().catch(() => undefined);
+      if (userDataDir) await shutdownPersistentTestTerminals(userDataDir).catch(() => undefined);
       if (userDataDir) rmSync(userDataDir, { recursive: true, force: true });
     }
   });

@@ -75,7 +75,7 @@ Session = 项目 + Agent + Worktree + 对话 + 计划
 
 ### 一个 Composer，选择最适合的 Agent
 
-从同一个 Composer 启动受管 Charter Agent 或自动探测到的 Agent CLI。内置 Manifest 当前覆盖 Claude Code、Codex 和 Kimi Code，Picker 只展示这台电脑上实际安装的 CLI。开始前可以选择项目、权限模式、模型、思考级别和检查项。
+从同一个 Composer 启动受管 Charter Agent 或自动探测到的 Agent CLI，并且先选择 Agent 在哪里运行：**This Mac** 或通过 SSH 连接的服务器。本地 Session 只显示这台电脑上安装的 CLI；远端 Session 会先让你填写 IP/主机名、验证 SSH 主机与凭据，再明确选择文件放在已有服务器目录，或保留当前本机目录、让 Agent 在服务器隔离副本里执行。界面只显示该服务器实际探测到的 Agent。第一次受管运行前，设置页会要求你明确点击安装版本化 Charter Worker（位置为 `~/.charter/worker`）；单纯连上 SSH 绝不会偷偷安装。内置 Manifest 当前覆盖 Claude Code、Codex 和 Kimi Code。
 
 ![Charter Composer 在同一个 Agent Picker 中展示 Charter Agent、Claude Code 和 Codex](docs/assets/readme/agent-picker.png)
 
@@ -131,6 +131,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 | --- | --- | --- |
 | 让 Agent 修改一个仓库 | 点击 **New Session**，选择项目和 Agent | 建立独立 Session；按所选模式规划、修改、运行命令，并把全过程记入账本 |
 | 使用本机已安装的 Agent CLI | 在 Composer 的 Agent Picker 中选择探测到的 Claude Code、Codex、Kimi Code 等 CLI | 打开真实交互终端，保留原生体验，同时记录会话身份、工作目录和文件改动 |
+| 让 Agent 在远端服务器工作 | 在 **New Session** 点击 **This Mac → Connect remote over SSH** | 输入 IP/主机名并完成 SSH 校验，选择“服务器目录”或“本机目录 + 远端执行”，再选择服务器上探测到的 Agent 并明确安装/更新 Worker；不会偷偷回退到本机 Agent |
 | 看 Agent 此刻在改哪里 | 打开 Session Room | 实时显示当前工具、正在写入的文件、增删行、耗时和命令；点击文件即可看进行中的 Diff |
 | 检查网页修改效果 | 打开 Session 的 **Preview** | 识别当前任务的开发服务器；可以操作页面、选择元素、圈出区域并把反馈发回 Agent |
 | 决定是否保留改动 | 打开 **Review** | 按文件或 Hunk 查看 Diff 和验证历史，然后要求修改、批准、回滚或丢弃 Worktree |
@@ -170,7 +171,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 - **终端是真实 PTY：** 可以运行交互式 CLI、测试、开发服务器、vim 等程序。每条命令形成独立 Block，保留输出、退出码、耗时和进度，并支持跳转与重新运行；切换页面后进程和滚动缓冲不会丢失。
 - **`⌥Space` 速召台：** 无论当前在哪个页面，都能拉起临时或项目终端；选中一段输出后可以直接 **Send to Room**，不必把整屏日志复制进 Prompt。
 - **终端路径可以直接打开：** `src/app.ts:42` 会跳到对应文件和行；本地 HTML 可以交给默认浏览器；带空格或中文的真实路径会先经过文件系统确认，减少误识别。
-- **SSH 远程连接：** 内置连接管理器保存主机，把远程 shell 当成会话栏里的普通终端来用；一台主机可在其卡片上开任意多个会话。SFTP 文件面板为双栏设计——本地与远端并排、多选、跨栏拖拽即传，所有传输统一进入全局传输中心（进度、速率、取消、重试）；也可直接在主机上配置本地端口转发（支持单跳跳板机）。密码与私钥口令存入系统钥匙串，主机密钥首次连接时校验，`~/.ssh/config` 一键导入。
+- **SSH 远程连接：** 在 **New Session** 里选择 **Connect remote over SSH**，校验主机密钥与凭据、探测服务器上的 Agent CLI，并在真实 SSH PTY 中启动它，绝不静默回退到本机 CLI。设置页提供两种明确的文件位置。**On this server** 使用已有远端目录：Files 通过 SFTP 展示真实服务器目录，本机仅保留 Diff/Review 所需的私有稀疏镜像。**On this Mac** 让本机项目保持唯一可见的主目录：Charter 把有界的 tracked/非 ignored 快照上传到服务器隔离目录 `~/.charter/workspaces/<session>`，随后按文件版本双向同步；同一文件两边同时变化时会因哈希冲突暂停，不会任选一边覆盖，删除 Session 也只删除服务器隔离副本。生成的 Worker id 和镜像路径不会作为项目名称或 Files 根目录出现。版本化 Worker 只在用户明确点击 **Install / Update Worker** 后写入 `~/.charter/worker`，两种模式都支持入口基线、普通 Diff、逐文件/逐 hunk Review、逐字节回滚、退出前最终同步、重启恢复和原生 CLI Resume。本地文件引用只在“本机目录 + 远端 Agent”模式可用；任务 Worktree 不会跨机桥接。主机卡片仍是以 shell 为主的多会话入口。SFTP 双栏、全局传输中心、单跳端口转发、系统钥匙串、首次 host key 校验与 `~/.ssh/config` 导入保持不变。
 - **皮肤不只是换强调色：** Studio、Terminal、Archive 和 Index 会一起调整背景、字体、图标、编辑器与终端配色；Light / Dark / System 主题仍可独立选择。
 
 ### Preview、变更控制与证据

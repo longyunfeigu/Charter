@@ -1940,6 +1940,31 @@ html.xp-resizing * {
   opacity: 0.5;
   cursor: not-allowed;
 }
+.confirm-danger-inline {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.confirm-danger-inline.with-description {
+  flex: 1 1 100%;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.confirm-danger-copy {
+  min-width: 220px;
+  max-width: 560px;
+  flex: 1 1 320px;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.confirm-danger-actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .text-muted {
   color: var(--fg-muted);
 }

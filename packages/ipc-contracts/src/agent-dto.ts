@@ -72,6 +72,20 @@ export const TaskExternalSchema = z.object({
    * could not be established — resume degrades to the CLI's most-recent flag.
    */
   sessionId: z.string().nullable().optional(),
+  /** Managed SSH session identity. For `remote`, projectPath is Charter's
+   * private sparse review mirror. For `local`, projectPath is the user's
+   * canonical local workspace and `root` is its isolated execution copy on
+   * the SSH server. Missing means a pre-workspace-mode remote Session. */
+  remote: z
+    .object({
+      hostId: z.string(),
+      hostLabel: z.string(),
+      root: z.string(),
+      workerSessionId: z.string(),
+      workerVersion: z.string(),
+      workspaceKind: z.enum(['remote', 'local']).optional(),
+    })
+    .optional(),
 });
 export type TaskExternalDto = z.infer<typeof TaskExternalSchema>;
 

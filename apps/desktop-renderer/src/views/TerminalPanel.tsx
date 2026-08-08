@@ -76,6 +76,10 @@ export interface TerminalRemote {
   username: string;
   host: string;
   port: number;
+  root?: string;
+  workerSessionId?: string;
+  workerVersion?: string;
+  workspaceKind?: 'remote' | 'local';
 }
 export type TerminalWorkingContext =
   | { kind: 'focused' }
@@ -146,7 +150,12 @@ interface CreateTerminalRequest {
     setupCommand?: string;
   };
   /** ADR-0047: run the session on a saved SSH host instead of a local PTY. */
-  target?: { kind: 'ssh'; hostId: string };
+  target?: {
+    kind: 'ssh';
+    hostId: string;
+    workspaceKind?: 'remote' | 'local';
+    projectPath?: string;
+  };
   quick?: boolean;
   reveal?: boolean;
 }
@@ -1421,12 +1430,18 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
 
   async create(options) {
     const launch = options?.launch ?? 'shell';
+    const target = options?.target
+      ? {
+          ...options.target,
+          workspaceKind: options.target.workspaceKind ?? ('remote' as const),
+        }
+      : undefined;
     const res = await rpcResult('terminal.create', {
       ...(options?.taskId ? { taskId: options.taskId } : {}),
       ...(options?.context ? { context: options.context } : {}),
       ...(options?.initialPrompt?.trim() ? { initialPrompt: options.initialPrompt } : {}),
       ...(options?.worktree ? { worktree: options.worktree } : {}),
-      ...(options?.target ? { target: options.target } : {}),
+      ...(target ? { target } : {}),
       launch,
     });
     if (!okOrToast(res)) return null;
@@ -1734,9 +1749,13 @@ export function SessionBar({ terminalId }: { terminalId: string }): React.JSX.El
       <span className="tsb-cli">✳ {agentDisplayName(name)}</span>
       <span
         className="term-agent-ext"
-        title="External agent session — unmanaged (outside the Tool Gateway); tracked & reviewable"
+        title={
+          task?.external?.remote
+            ? 'Remote Agent over SSH — Charter Worker protects Diff, Review and rollback'
+            : 'External agent session — unmanaged (outside the Tool Gateway); tracked & reviewable'
+        }
       >
-        EXT · unmanaged
+        {task?.external?.remote ? 'REMOTE · Worker tracked' : 'EXT · unmanaged'}
       </span>
       <span className="tsb-context" title={`Host-set context cwd: ${item.cwd}`}>
         {context}
@@ -2618,7 +2637,9 @@ export function TerminalPanel({ scope = { kind: 'all' } }: TerminalPanelProps): 
                             }
                           >
                             ✳ {lifecycle?.providerLabel ?? agentDisplayName(agent)}{' '}
-                            <span className="term-agent-ext">EXT</span>
+                            <span className="term-agent-ext">
+                              {terminal.remote?.workerSessionId ? 'REMOTE' : 'EXT'}
+                            </span>
                           </span>
                         ) : (
                           <>

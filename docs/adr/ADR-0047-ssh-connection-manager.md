@@ -230,3 +230,81 @@ New Terminal 对话框选中远程 target 时强制 launch=shell(Claude/Codex �
   多个 Electron 实例互相饿死,制造与代码无关的幻影失败(rail 已更新/终端视图停滞的半更新
   快照)。本次为此追了一小时。launchApp 顺带排水主进程 stdout/stderr 管道(防 64KB 缓冲
   填满阻塞 main 的 console.log)。
+
+## 修订 · 2026-08-07（New Session 恢复远端 Agent，入口改为 target-first）
+
+用户重新确认核心 user story：**IDE 在本机，Agent 与工作目录可以在任意 SSH 服务器**，
+而且首次使用必须从 IP/主机名连接开始，不能假设已经存在某台 Mac mini 或预配置工作区。
+
+- New Session Composer 增加执行目标，默认 **This Mac**；远端入口为 **Connect remote over
+  SSH**。无已保存主机时直接打开 IP/主机名、端口、用户名和认证表单；有主机时可以复用。
+- 连接继续复用既有 TOFU host-key、交互认证和 OS keychain 边界。连接后选择服务器目录，
+  并通过 SSH 对所有声明 `surfaces.remote` 且具有 terminal contract 的 Agent Manifest 逐一
+  `command -v`；远端探测与本机是否安装同名 CLI 完全独立。
+- 用户选定目录与 Agent 后回到同一个 Composer。提交时 `terminal.create` 携带
+  `target:{kind:'ssh',hostId}` 与 initialPrompt；主进程再次探测 CLI，并以 POSIX 单引号分别
+  转义目录和首条 Prompt，再执行 `cd -- <dir> && exec <agent> <prompt>`。不存在本机回退。
+- 服务器目录模式禁用本地文件/对话引用、Advanced charter 和 Worktree，避免把本机路径假装
+  成服务器上下文；本机目录模式的引用边界见 2026-08-07c 修订。远端仍是原生 PTY Session；
+  其文件变更由下述 Managed Worker 修订进入 Diff/Review。
+- 2026-07-24b 的 shell-only 决策继续适用于 **Remotes 主机卡片 / New Terminal**，它们保持
+  shell-first，避免出现第二套 Agent 启动菜单；恢复的唯一 Agent 入口是 New Session。
+
+## 修订 · 2026-08-07b（Managed Remote Worker：Diff / Review / rollback / Resume）
+
+仅有 SSH PTY 只能“看见 Agent 在跑”，不能给 Charter 提供入口基线、可靠变更、拒绝写回和恢复。
+因此远端 Agent Session 增加独立的 change-plane Worker；PTY 仍由 `ssh2` shell channel 提供，
+Worker 不冒充终端，也不在 SSH 握手成功时静默注入。
+
+- **显式安装与版本握手：** Folder & Agent 步骤同时显示 Worker 的 Missing / Update / Ready /
+  Unsupported / Error 状态。只有用户点击 Install / Update 才把本构建内置的单文件 Worker 上传到
+  `~/.charter/worker/bin/remote-session-worker.cjs`；临时文件原子换名，权限为 0700。每次运行前
+  校验 Node.js ≥18、协议版本、Worker 版本和完整文件 SHA-256；任一不符即 fail closed。
+- **基线与净变更：** `start` 在 Agent 启动前取基线。Git 根使用独立临时 index 生成包含 tracked
+  与 untracked（不含 ignored）的 tree，并用 `refs/charter/worker/<session>` 抵御 gc；非 Git 根
+  保存有界 manifest/blob（20k 文件、256 MiB 基线、32 MiB/文件）。`changes` 返回相对入口基线
+  的净变更与前后哈希/字节，Main 做二次路径、数量和 SHA-256 校验后写入 Session 专属稀疏镜像，
+  复用原 ChangeService / Diff / Review 账本。
+- **拒绝与回滚是真写回：** Review 在稀疏镜像算出目标字节，Main 通过 Worker `apply` 的 stdin
+  传递结构化 payload；文件内容不进入 shell argv 或 renderer IPC。Worker 对每个路径先核对上次
+  同步的 expected hash、拒绝软链穿越与 `..`，整批预检无冲突后再原子写入。远端抢先变化时，
+  本地 Review/rollback 决策保持 pending，不伪造成功。
+- **退出、恢复与继续：** SSH channel 结束时先等待最终 `changes`，再发终端退出边；失败会记入
+  Session diagnostic。Worker 状态保留到 Review/删除；应用重启后用 durable change paths 调
+  `inspect`，即使远端路径已恢复为“无净 Diff”也能清掉本地幽灵变更。`discover` 在远端 CLI 自己的
+  transcript 索引中按 cwd + 生命周期找出 Claude/Codex/Kimi conversation id；Resume 新开 SSH
+  PTY、复用同一 Worker 基线并执行 Manifest 拥有的精确 resume argv，绝不误开本机终端。
+- **生命周期与数据边界：** 普通 SSH shell 不要求 Worker。Managed Session 删除时尽力执行
+  `destroy`（含 Git keepalive ref）并删除本机稀疏镜像；离线删除不被远端清理失败阻塞。完整项目
+  和命令执行留在服务器，但 Diff 所需的基线/改动文件字节会随 Session 保存在本机——UI/README
+  明示此数据边界，不再笼统宣称“代码绝不离开服务器”。
+
+验证契约：Worker 非 Git/Git 独立进程测试；Main 对恢复 inspect、哈希冲突、安装握手的单测；
+Electron E2E 覆盖显式安装、远端目录选择、远端写入进入普通 Diff、PTY 退出前最终同步、Review
+拒绝删除服务器文件，以及 Resume 仍在同一服务器/目录/Worker baseline 上运行。
+
+## 修订 · 2026-08-07c（SSH Workspace 双模式与产品身份）
+
+远端 Agent 的“执行位置”和“用户认定的项目文件位置”不再被合并成一个选择。New Session 在
+服务器连接成功后显式提供两个互斥模式，并把该选择持久化为 `remote.workspaceKind`：
+
+- **On this server（`remote`）：** 用户选择已有服务器目录，Agent 与命令直接在该目录运行。
+  Session 分组名称由 host label + 远端 basename 派生，Files 通过 SFTP 读取 `remote.root`；内部
+  `rws_*` Worker id 与 `remote-mirrors` 稀疏核算目录不得作为项目名称、Files 根目录或本地
+  Workspace 被打开。因为 group path 是服务器路径，UI 也不提供误导性的“本地 New Session”按钮。
+- **On this Mac（`local`）：** 当前本机 Workspace 是 canonical project。Main 在启动前冻结一个
+  有界、无软链快照；Git 根只包含 tracked + non-ignored untracked 文件，`.git`、`.charter`、
+  `node_modules` 与 ignored secret/dependency 不上传。快照经 SFTP 写入严格生成的
+  `~/.charter/workspaces/<rws_id>`，Agent 的 SSH PTY 只在这个隔离副本中执行；Renderer 只能声明
+  当前 focused Workspace，不能授予任意本机路径。
+- **受保护双向同步：** Worker `changes` 向本机落地前核对 Main 记录的本机 expected hash；本机
+  watcher 向服务器 `apply` 前核对远端 expected hash。所有 change/apply 操作串行，同一路径两边
+  同时变化时两次写入都会 fail closed，哈希水位只在成功落地后推进，因此不会在下一拍反向覆盖。
+  Diff/Review 继续使用同一个 ChangeService 账本；本地引用可用，但 task-owned Worktree 不跨机桥接。
+- **所有权与清理：** `local` 隔离根必须精确等于远端 home 下由 Session id 生成的路径；Worker
+  `destroy` 才允许递归删除它。删除/启动失败清理绝不删除 canonical 本机项目。Git ignored 文件默认
+  不离开本机；UI 在选择前明示快照、双向同步和冲突边界。
+
+新增验证契约：纯函数测试禁止 `rws_*` 泄漏到 Session group；Worker 测试验证 local root 精确
+所有权与删除；Electron E2E 分别验证 server-owned Files 的真实 SFTP 根，以及 local-owned 的快照
+过滤、远端 PTY 根、双向同步、同文件冲突不覆盖和只清理远端隔离副本。

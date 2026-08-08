@@ -180,6 +180,7 @@ interface RuntimeNotificationConfirmation {
 interface TerminalState {
   buffer: string;
   rawTail: string;
+  hasOutput: boolean;
   bracketedPaste: boolean;
   lastOutputAt: number;
   exitSequence: number;
@@ -1282,6 +1283,7 @@ export class TerminalControlService implements TerminalControlPort {
       state = {
         buffer: '',
         rawTail: '',
+        hasOutput: false,
         bracketedPaste: false,
         lastOutputAt: this.now(),
         exitSequence: 0,
@@ -1302,6 +1304,7 @@ export class TerminalControlService implements TerminalControlPort {
 
   private onData(id: string, data: string): void {
     const state = this.stateFor(id);
+    state.hasOutput = true;
     state.lastOutputAt = this.now();
     const cleaned = stripTerminalAnsi(data);
     if (data.includes('\u001b[?2004h')) state.bracketedPaste = true;
@@ -1624,7 +1627,7 @@ export class TerminalControlService implements TerminalControlPort {
             ? state.lastExitCode === 0
               ? 'completed'
               : 'failed'
-            : busy && this.now() - state.lastOutputAt < WORKER_STREAMING_GRACE_MS
+            : state.hasOutput && this.now() - state.lastOutputAt < WORKER_STREAMING_GRACE_MS
               ? 'streaming'
               : 'quiet';
     return {

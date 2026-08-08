@@ -163,6 +163,60 @@ export function TaskRoomView(): React.JSX.Element {
     task?.updatedAt ?? null,
     store.timeline,
   ).slice(-8);
+  // Keep every TaskRoom hook mounted while an archived worktree Session drops
+  // out of the task list. Returning before these hooks made the successful
+  // discard transition render fewer hooks and blank the entire renderer.
+  const externalFiles = useExternalFiles(task);
+  const running = task ? RUNNING_TASK_STATES.has(task.state) : false;
+  const answered = task ? isAnswered(task) : false;
+  const actionDockVisible =
+    app.sessionToolsOpen ||
+    answered ||
+    task?.state === 'REVIEW_READY' ||
+    task?.state === 'FAILED' ||
+    task?.state === 'INTERRUPTED' ||
+    task?.state === 'AWAITING_USER' ||
+    task?.state === 'AWAITING_PERMISSION' ||
+    task?.state === 'AWAITING_PLAN_APPROVAL';
+  // ADR-0017: an external session's rail is fed by watcher accounting, not by
+  // agent tool events (there are none). Same rows, same peek behavior.
+  const projectedChangeSet =
+    task && store.activeTaskId === task.id && store.changeSet?.taskId === task.id
+      ? store.changeSet
+      : null;
+  const projectedChangeFiles = projectedChangeSet?.files.map((file) => file.path) ?? [];
+  const activityFiles = activity?.filesTouched ?? [];
+  const files = sessionFilePaths({
+    external: task?.external != null,
+    running,
+    projectedChangeSetLoaded: projectedChangeSet !== null,
+    projectedChangeFiles,
+    observedExternalFiles: externalFiles,
+    activityFiles,
+  });
+  const sameProject = task ? workspace?.path === task.projectPath : false;
+  const fileStats = useMemo<Record<string, SessionFileStat>>(() => {
+    const stats: Record<string, SessionFileStat> = {};
+    for (const file of externalFiles) {
+      stats[file.path] = { additions: file.additions, deletions: file.deletions };
+    }
+    if (task && store.activeTaskId === task.id) {
+      for (const file of store.changeSet?.files ?? []) {
+        stats[file.path] = { additions: file.additions, deletions: file.deletions };
+      }
+    }
+    return stats;
+  }, [externalFiles, store.activeTaskId, store.changeSet, task]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const close = (event: MouseEvent): void => {
+      if (moreRef.current && !moreRef.current.contains(event.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [moreOpen]);
+
   if (!task) {
     return (
       <div className="tr-root" data-testid="task-room">
@@ -183,55 +237,6 @@ export function TaskRoomView(): React.JSX.Element {
       </div>
     );
   }
-
-  const running = RUNNING_TASK_STATES.has(task.state);
-  const answered = isAnswered(task);
-  const actionDockVisible =
-    app.sessionToolsOpen ||
-    answered ||
-    task.state === 'REVIEW_READY' ||
-    task.state === 'FAILED' ||
-    task.state === 'INTERRUPTED' ||
-    task.state === 'AWAITING_USER' ||
-    task.state === 'AWAITING_PERMISSION' ||
-    task.state === 'AWAITING_PLAN_APPROVAL';
-  // ADR-0017: an external session's rail is fed by watcher accounting, not by
-  // agent tool events (there are none). Same rows, same peek behavior.
-  const externalFiles = useExternalFiles(task);
-  const projectedChangeSet =
-    store.activeTaskId === task.id && store.changeSet?.taskId === task.id ? store.changeSet : null;
-  const projectedChangeFiles = projectedChangeSet?.files.map((file) => file.path) ?? [];
-  const activityFiles = activity?.filesTouched ?? [];
-  const files = sessionFilePaths({
-    external: task.external !== null,
-    running,
-    projectedChangeSetLoaded: projectedChangeSet !== null,
-    projectedChangeFiles,
-    observedExternalFiles: externalFiles,
-    activityFiles,
-  });
-  const sameProject = workspace?.path === task.projectPath;
-  const fileStats = useMemo<Record<string, SessionFileStat>>(() => {
-    const stats: Record<string, SessionFileStat> = {};
-    for (const file of externalFiles) {
-      stats[file.path] = { additions: file.additions, deletions: file.deletions };
-    }
-    if (store.activeTaskId === task.id) {
-      for (const file of store.changeSet?.files ?? []) {
-        stats[file.path] = { additions: file.additions, deletions: file.deletions };
-      }
-    }
-    return stats;
-  }, [externalFiles, store.activeTaskId, store.changeSet, task.id]);
-
-  useEffect(() => {
-    if (!moreOpen) return;
-    const close = (event: MouseEvent): void => {
-      if (moreRef.current && !moreRef.current.contains(event.target as Node)) setMoreOpen(false);
-    };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [moreOpen]);
 
   // Editing is the expanded File tool state. The Session and conversation stay
   // mounted; there is no separate Full workspace surface.

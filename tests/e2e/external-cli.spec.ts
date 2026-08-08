@@ -309,7 +309,11 @@ function createDecReplayClaudeBin(): string {
       'setTimeout(() => {',
       "  process.stdout.write('\\u001b(0' + 'q'.repeat(70 * 1024));",
       "  process.stdout.write('\\u001b[2J\\u001b[HDEC REPLAY TOP\\r\\nlqqqqqqk\\r\\nx      x\\r\\nmqqqqqqj');",
-      '}, 1500);',
+      // Let the real process-tree detector promote the Session before the
+      // deliberately pathological 70 KiB DEC burst occupies the PTY parser.
+      // The regression under test is the truncated replay tail, not a race
+      // between detector startup and fixture output.
+      '}, 5000);',
       'process.stdin.resume();',
       'setTimeout(() => process.exit(0), 30000);',
       '',

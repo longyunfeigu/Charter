@@ -361,6 +361,16 @@ export class TerminalDaemonClient {
     throw new Error('Terminal daemon client closed.');
   }
 
+  /** Normal application exit is terminal ownership exit (TERM-004). */
+  async shutdown(): Promise<void> {
+    if (this.explicitlyClosed) return;
+    try {
+      await this.request({ type: 'shutdown' }, 8_000);
+    } finally {
+      this.close();
+    }
+  }
+
   private async sendRequest(
     socket: Socket,
     message: TerminalDaemonRequest,

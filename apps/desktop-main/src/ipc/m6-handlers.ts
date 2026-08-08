@@ -10,6 +10,7 @@ import type { SecretService } from '../services/secret-service.js';
 import type { SettingsService } from '../services/settings-service.js';
 import type { ModelCatalogService } from '../services/model-catalog.js';
 import type { ArtifactService } from '../services/artifact-service.js';
+import type { RemoteWorkerService } from '../services/remote-worker-service.js';
 
 export function registerM6Handlers(
   tasks: TaskService,
@@ -19,6 +20,7 @@ export function registerM6Handlers(
   catalog: ModelCatalogService,
   logger: Logger,
   artifacts?: ArtifactService,
+  remoteWorker?: RemoteWorkerService | null,
 ): void {
   registerHandlers(
     {
@@ -126,7 +128,17 @@ export function registerM6Handlers(
         };
       },
       'task.delete': async ({ taskId }) => {
+        // Validate and commit the ledger deletion before touching remote
+        // state. A rejected delete (for example, a still-running Session)
+        // must never have already removed its Worker baseline/workspace.
+        const task = tasks.getTask(taskId);
         await tasks.deleteTask(taskId);
+        await remoteWorker?.destroyTask(taskId, task).catch((error) => {
+          logger.warn('remote Worker cleanup skipped during Session deletion', {
+            taskId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
         return { deleted: true as const };
       },
       'task.turns': async ({ taskId }) => ({ turns: tasks.turns(taskId) }),

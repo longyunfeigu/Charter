@@ -327,10 +327,10 @@ export class M4Services {
     }
   }
 
-  dispose(): void {
+  dispose(options: { closeTerminalDaemon?: boolean } = {}): void {
     this.terminalOutput.dispose();
     this.terminals.dispose();
-    this.terminalDaemon?.close();
+    if (options.closeTerminalDaemon !== false) this.terminalDaemon?.close();
     void this.python?.dispose();
   }
 
@@ -350,7 +350,14 @@ export class M4Services {
 /** ADR-0047: creates a terminal that runs on a remote SSH host. Injected so
  * m4-handlers stays free of ssh2 while terminal.create keeps one code path. */
 export interface RemoteTerminalLauncher {
-  create(options: { hostId: string; launch: string }): Promise<TerminalInfo>;
+  create(options: {
+    hostId: string;
+    launch: string;
+    initialPrompt?: string | null;
+    /** Present only for the explicit "local files, remote Agent" mode. Main
+     * resolves this from WorkspaceHost; the renderer never grants a path. */
+    localProjectPath?: string;
+  }): Promise<TerminalInfo>;
 }
 
 export function registerM4Handlers(
@@ -494,7 +501,41 @@ export function registerM4Handlers(
               }),
             );
           }
-          return remoteTerminals.create({ hostId: target.hostId, launch });
+          let localProjectPath: string | undefined;
+          if (target.workspaceKind === 'local') {
+            if (launch === 'shell') {
+              throw new ProductFailure(
+                productError('SSH_LOCAL_WORKSPACE_AGENT_REQUIRED', {
+                  userMessage:
+                    'A local workspace can be bridged to a remote Agent Session, not to a plain SSH shell.',
+                }),
+              );
+            }
+            const resolved = await resolveTerminalContext({ kind: 'focused' });
+            if (!resolved.projectPath) {
+              throw new ProductFailure(
+                productError('TERMINAL_CONTEXT_UNKNOWN', {
+                  userMessage: 'Choose a local project before starting the remote Agent.',
+                }),
+              );
+            }
+            if (target.projectPath && target.projectPath !== resolved.projectPath) {
+              throw new ProductFailure(
+                productError('SSH_LOCAL_WORKSPACE_CHANGED', {
+                  userMessage:
+                    'The selected local project changed. Reopen the SSH setup and choose it again.',
+                  retryable: true,
+                }),
+              );
+            }
+            localProjectPath = resolved.projectPath;
+          }
+          return remoteTerminals.create({
+            hostId: target.hostId,
+            launch,
+            initialPrompt: initialPrompt?.trim() ? initialPrompt : null,
+            ...(localProjectPath ? { localProjectPath } : {}),
+          });
         }
         const userPrompt = initialPrompt?.trim() ? initialPrompt : null;
         const agentLaunch =

@@ -380,6 +380,96 @@
   color: var(--accent);
 }
 
+.sr-remote-files .sr-files-project {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+  align-items: center;
+  row-gap: 2px;
+}
+
+.sr-remote-files .sr-files-project > .app-icon {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.sr-remote-files .sr-files-project strong {
+  grid-column: 2;
+  grid-row: 1;
+  max-width: none;
+}
+
+.sr-remote-files .sr-files-project small {
+  grid-column: 2 / 5;
+  grid-row: 2;
+}
+
+.sr-remote-files .sr-files-actions {
+  grid-column: 4;
+  grid-row: 1;
+  margin-left: 0;
+}
+
+.sr-remote-files-badge {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: center;
+  padding: 2px 5px;
+  border: 1px solid color-mix(in srgb, var(--info) 32%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--info) 7%, transparent);
+  color: var(--info);
+  font: 7.5px var(--font-mono);
+  letter-spacing: 0.06em;
+}
+
+.sr-remote-files .hm-tree {
+  min-height: 0;
+  max-height: none;
+  flex: 1;
+  overflow: auto;
+}
+
+.sr-remote-file-row {
+  min-height: 25px;
+  cursor: default;
+}
+
+.sr-remote-file-row .hm-tree-name {
+  flex: 1;
+}
+
+.sr-remote-download {
+  display: none;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.sr-remote-file-row:hover .sr-remote-download,
+.sr-remote-download:focus-visible {
+  display: grid;
+}
+
+.sr-remote-loading {
+  color: var(--fg-faint);
+  font: 10px var(--font-mono);
+}
+
+.sr-remote-files-error {
+  margin: 4px 8px 8px;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border));
+  border-radius: 7px;
+  color: var(--danger);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 /* The tree virtualizes its own scroll — the host must not double-scroll. */
 .sr-files-tree-host {
   display: flex;
@@ -403,7 +493,7 @@
 }
 
 .pt-add {
-  display: none;
+  display: grid;
   flex: none;
   place-items: center;
   width: 18px;
@@ -413,12 +503,19 @@
   background: var(--bg-card);
   color: var(--fg-muted);
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 100ms ease,
+    border-color 100ms ease,
+    color 100ms ease;
 }
 
 .pt-row:hover .pt-add,
 .pt-row:focus-visible .pt-add,
 .pt-add:focus-visible {
-  display: grid;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .pt-add:hover {

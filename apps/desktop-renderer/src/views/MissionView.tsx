@@ -60,6 +60,7 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
   const [graphDetailExpanded, setGraphDetailExpanded] = useState(
     requestedDestination?.inspectorTab === 'session',
   );
+  const [graphFullscreen, setGraphFullscreen] = useState(false);
   const [replayAt, setReplayAt] = useState<number | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -95,15 +96,20 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
   }, [requestedAssignment, snapshot.mission.state, summary.attention, summary.issues]);
 
   useEffect(() => {
-    if (workView !== 'graph' || !graphSelection) return;
+    if (workView !== 'graph') return;
     const closeOnEscape = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return;
+      if (graphFullscreen) {
+        setGraphFullscreen(false);
+        return;
+      }
+      if (!graphSelection) return;
       setGraphSelection(null);
       setGraphDetailExpanded(false);
     };
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [graphSelection, workView]);
+  }, [graphFullscreen, graphSelection, workView]);
 
   const selectTask = (taskId: string): void => {
     setSelectedTaskId(taskId);
@@ -114,6 +120,7 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
 
   const selectWorkView = (view: 'graph' | 'outline'): void => {
     setWorkView(view);
+    if (view !== 'graph') setGraphFullscreen(false);
     try {
       window.localStorage.setItem('charter.mission.workView', view);
     } catch {
@@ -329,6 +336,7 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
                 'mission-work-layout',
                 workView === 'graph' ? 'mission-work-layout-graph' : '',
                 graphSelection ? 'has-graph-detail' : '',
+                graphFullscreen ? 'graph-fullscreen' : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
@@ -355,6 +363,21 @@ export function MissionView({ snapshot }: { snapshot: MissionSnapshotDto }): Rea
                       <Ic name="branch" size={11} /> Graph
                     </button>
                   </nav>
+                  {workView === 'graph' ? (
+                    <button
+                      type="button"
+                      className="mission-graph-fullscreen-entry"
+                      data-testid="mission-graph-fullscreen"
+                      aria-pressed={graphFullscreen}
+                      title={
+                        graphFullscreen ? 'Exit full-screen graph (Esc)' : 'Open graph full screen'
+                      }
+                      onClick={() => setGraphFullscreen((value) => !value)}
+                    >
+                      <Ic name={graphFullscreen ? 'minimize' : 'maximize'} size={12} />
+                      <span>{graphFullscreen ? 'Exit full screen' : 'Full screen'}</span>
+                    </button>
+                  ) : null}
                   <p>
                     {workView === 'graph'
                       ? 'Follow dependencies and delegated work. Select a task or enable Communication to reveal recorded Agent coordination.'

@@ -48,6 +48,7 @@ export type TerminalDaemonRequest =
   | { requestId: string; type: 'write'; id: string; data: string }
   | { requestId: string; type: 'resize'; id: string; cols: number; rows: number }
   | { requestId: string; type: 'kill'; id: string }
+  | { requestId: string; type: 'shutdown' }
   | { requestId: string; type: 'shutdownIfIdle' };
 
 export type TerminalDaemonRequestInput = TerminalDaemonRequest extends infer Request

@@ -143,6 +143,7 @@ export interface SftpSession {
   /** Unlink a file (directories go through rmdir). */
   delete(path: string): Promise<void>;
   rmdir(path: string): Promise<void>;
+  chmod(path: string, mode: number): Promise<void>;
   stat(path: string): Promise<{ type: SftpEntryType; size: number }>;
   upload(localPath: string, remotePath: string, opts?: SftpTransferOptions): Promise<void>;
   download(remotePath: string, localPath: string, opts?: SftpTransferOptions): Promise<void>;

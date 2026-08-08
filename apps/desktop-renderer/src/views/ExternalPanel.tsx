@@ -139,9 +139,13 @@ export function ExternalPanel(): React.JSX.Element | null {
               <span className="term-agent">✳ {cli ?? session?.cli ?? 'agent'}</span>
               <span
                 className="term-agent-ext"
-                title="External agent session — unmanaged (outside the Tool Gateway); tracked & reviewable"
+                title={
+                  task?.external?.remote
+                    ? 'Remote Agent over SSH — Charter Worker protects Diff, Review and rollback'
+                    : 'External agent session — unmanaged (outside the Tool Gateway); tracked & reviewable'
+                }
               >
-                EXT · unmanaged
+                {task?.external?.remote ? 'REMOTE · Worker tracked' : 'EXT · unmanaged'}
               </span>
               {!live ? (
                 <span className="xp-ended" data-testid="external-panel-ended">

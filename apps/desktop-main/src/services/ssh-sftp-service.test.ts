@@ -61,6 +61,7 @@ function fakeSession(): {
       if (children(p).length > 0) throw new Error('not empty');
       nodes.delete(p);
     },
+    chmod: async () => {},
     stat: async (p) => {
       const n = nodes.get(p);
       if (!n) throw new Error('no such file');

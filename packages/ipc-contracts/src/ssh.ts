@@ -85,6 +85,17 @@ export const SshHostDtoSchema = SshHostRecordSchema.extend({
 });
 export type SshHostDto = z.infer<typeof SshHostDtoSchema>;
 
+/** Versioned remote change-plane required for managed Agent Sessions. */
+export const SshWorkerStatusSchema = z.object({
+  state: z.enum(['ready', 'missing', 'outdated', 'unsupported', 'error']),
+  version: z.string().nullable(),
+  protocol: z.number().int().nullable(),
+  message: z.string().max(1000),
+  installPath: z.string().max(4096).nullable(),
+  nodePath: z.string().max(4096).nullable(),
+});
+export type SshWorkerStatus = z.infer<typeof SshWorkerStatusSchema>;
+
 /** One parsed ~/.ssh/config entry offered by the import preview. */
 export const SshConfigCandidateSchema = z.object({
   alias: z.string().min(1).max(255),

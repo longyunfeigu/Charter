@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TaskDto } from '@pi-ide/ipc-contracts';
 import {
   HISTORY_PERIOD_INITIAL_LIMIT,
+  buildRailGroups,
   buildHistoryPeriods,
   historyPeriodKey,
   missionSessionStatus,
@@ -20,7 +21,7 @@ function daysAgo(days: number, hour = 12): number {
   return value.getTime();
 }
 
-function taskEntry(id: string, updatedAt: number): SessionEntry {
+function taskEntry(id: string, updatedAt: number): Extract<SessionEntry, { kind: 'task' }> {
   return {
     key: `task:${id}`,
     kind: 'task',
@@ -83,6 +84,79 @@ describe('History periods', () => {
         filtering: true,
       }),
     ).toHaveLength(12);
+  });
+});
+
+describe('SSH workspace identity', () => {
+  it('groups a server-owned Session by its canonical SSH folder, never its private mirror', () => {
+    const entry = taskEntry('remote', daysAgo(0));
+    entry.task = {
+      ...entry.task,
+      state: 'IN_PROGRESS',
+      archived: false,
+      projectName: 'rws_6306b288f84c4ccd',
+      projectPath: '/Users/edy/Library/Application Support/Charter/remote-mirrors/rws_6306',
+      external: {
+        cli: 'claude',
+        terminalId: 'term-remote',
+        cwd: '/root/wanhua/charter-test',
+        snapshotRef: null,
+        status: 'active',
+        sessionId: null,
+        remote: {
+          hostId: 'host-1',
+          hostLabel: '10.0.3.46',
+          root: '/root/wanhua/charter-test',
+          workerSessionId: 'rws_6306b288f84c4ccd',
+          workerVersion: '1.2.0',
+          workspaceKind: 'remote',
+        },
+      },
+    } as TaskDto;
+
+    expect(buildRailGroups([entry])).toMatchObject([
+      {
+        name: '10.0.3.46 · charter-test',
+        path: '/root/wanhua/charter-test',
+        remote: true,
+      },
+    ]);
+    expect(buildRailGroups([entry])[0]?.name).not.toContain('rws_');
+  });
+
+  it('keeps a local-owned SSH Session grouped under the canonical local project', () => {
+    const entry = taskEntry('local-remote', daysAgo(0));
+    entry.task = {
+      ...entry.task,
+      state: 'IN_PROGRESS',
+      archived: false,
+      projectName: 'my-local-app',
+      projectPath: '/Users/edy/git/my-local-app',
+      external: {
+        cli: 'claude',
+        terminalId: 'term-local-remote',
+        cwd: '/home/edy/.charter/workspaces/rws_internal',
+        snapshotRef: null,
+        status: 'active',
+        sessionId: null,
+        remote: {
+          hostId: 'host-1',
+          hostLabel: 'server',
+          root: '/home/edy/.charter/workspaces/rws_internal',
+          workerSessionId: 'rws_internal',
+          workerVersion: '1.2.0',
+          workspaceKind: 'local',
+        },
+      },
+    } as TaskDto;
+
+    expect(buildRailGroups([entry])).toMatchObject([
+      {
+        name: 'my-local-app',
+        path: '/Users/edy/git/my-local-app',
+      },
+    ]);
+    expect(buildRailGroups([entry])[0]?.remote).toBeUndefined();
   });
 });
 

@@ -1,5 +1,11 @@
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { launchApp } from './helpers/launch';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+  launchApp,
+  restartMainPreservingTerminals,
+  shutdownPersistentTestTerminals,
+} from './helpers/launch';
 import { createGitFixture } from './helpers/fixtures';
 import {
   terminalPtySnapshot,
@@ -19,16 +25,88 @@ async function killAllTerminals(page: Page): Promise<void> {
   });
 }
 
-async function quitFromAppMenu(app: ElectronApplication): Promise<void> {
-  const closed = app.waitForEvent('close');
-  await app.evaluate(({ app: electronApp }) => {
-    setTimeout(() => electronApp.quit(), 0);
-  });
-  await closed;
+function latestDaemonPid(userDataDir: string): number | null {
+  const path = join(userDataDir, 'logs', 'terminal-daemon.log');
+  if (!existsSync(path)) return null;
+  const entries = readFileSync(path, 'utf8').trim().split('\n').reverse();
+  for (const line of entries) {
+    try {
+      const entry = JSON.parse(line) as { event?: string; pid?: number };
+      if (entry.event === 'started' && Number.isInteger(entry.pid)) return entry.pid!;
+    } catch {
+      // Ignore a partially flushed final log record while polling startup.
+    }
+  }
+  return null;
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 test.describe('daemon-backed terminal recovery', () => {
-  test('the PTY, offline output and input survive a full app restart', async () => {
+  test('normal application quit reaps the daemon, PTY leader and child process', async () => {
+    test.skip(process.platform === 'win32', 'Unix process-group lifecycle assertion');
+    const fixture = createGitFixture();
+    const childPidFile = join(fixture, 'terminal-child.pid');
+    let running: Awaited<ReturnType<typeof launchApp>> | null = null;
+    try {
+      running = await launchApp({
+        env: {
+          PI_IDE_OPEN_WORKSPACE: fixture,
+          PI_IDE_TERMINAL_PERSIST: '1',
+        },
+      });
+      await running.page.keyboard.press('Control+`');
+      let snapshot = await terminalPtySnapshot(running.page);
+      if (snapshot.items.length === 0) {
+        await running.page.getByTestId('terminal-new').click();
+      }
+      await expect
+        .poll(async () => {
+          snapshot = await terminalPtySnapshot(running!.page);
+          return snapshot.items.at(-1)?.pid ?? -1;
+        })
+        .toBeGreaterThan(0);
+      const ptyPid = snapshot.items.at(-1)!.pid;
+      await typeTerminalCommand(
+        running.page,
+        `${shellQuote(process.execPath)} -e 'setInterval(() => {}, 1000)' & echo $! > ${shellQuote(childPidFile)}; wait`,
+        { terminalId: snapshot.items.at(-1)!.id },
+      );
+      await expect.poll(() => existsSync(childPidFile)).toBe(true);
+      const childPid = Number(readFileSync(childPidFile, 'utf8').trim());
+      expect(childPid).toBeGreaterThan(0);
+      await expect.poll(() => latestDaemonPid(running!.userDataDir)).not.toBeNull();
+      const resolvedDaemonPid = latestDaemonPid(running.userDataDir)!;
+
+      const closed = running.app.waitForEvent('close');
+      await running.app.evaluate(({ app: electronApp }) => {
+        setTimeout(() => electronApp.quit(), 0);
+      });
+      await closed;
+      running = null;
+
+      await expect
+        .poll(() => [resolvedDaemonPid, ptyPid, childPid].filter((pid) => processIsAlive(pid)), {
+          timeout: 12_000,
+        })
+        .toEqual([]);
+    } finally {
+      await running?.app.close().catch(() => undefined);
+    }
+  });
+
+  test('the PTY, offline output and input survive an explicit Main restart', async () => {
     const fixture = createGitFixture();
     const environment = {
       PI_IDE_OPEN_WORKSPACE: fixture,
@@ -36,10 +114,12 @@ test.describe('daemon-backed terminal recovery', () => {
     };
     let firstApp: ElectronApplication | null = null;
     let secondApp: ElectronApplication | null = null;
+    let userDataDir: string | null = null;
 
     try {
       const first = await launchApp({ env: environment });
       firstApp = first.app;
+      userDataDir = first.userDataDir;
       await first.page.keyboard.press('Control+`');
       await expect(first.page.getByTestId('terminal-panel')).toBeVisible();
       let firstSnapshot = await terminalPtySnapshot(first.page);
@@ -56,8 +136,9 @@ test.describe('daemon-backed terminal recovery', () => {
       );
       await waitForTerminalOutput(first.page, 'BEFORE_RESTART', { terminalId });
 
-      // Exercise the real Command+Q lifecycle, including before/will-quit teardown.
-      await quitFromAppMenu(first.app);
+      // A distinct restart intent preserves daemon PTYs. A normal user quit
+      // is covered separately and must terminate the entire process tree.
+      await restartMainPreservingTerminals(first.app);
       firstApp = null;
       // Stay closed beyond the daemon's 5s idle-grace window. A daemon that
       // lost ownership of the PTY would be gone before the second launch.
@@ -121,6 +202,7 @@ test.describe('daemon-backed terminal recovery', () => {
       }
       await firstApp?.close().catch(() => undefined);
       await secondApp?.close().catch(() => undefined);
+      if (userDataDir) await shutdownPersistentTestTerminals(userDataDir).catch(() => undefined);
     }
   });
 });

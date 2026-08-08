@@ -61,6 +61,27 @@ describe('TerminalManager.adoptBackend (SSH remote sessions, ADR-0047)', () => {
     manager = null;
   });
 
+  it('declares a probed remote Agent only after the SSH launch command is written', () => {
+    manager = new TerminalManager(
+      () => {},
+      () => {},
+      { agentPollMs: 0 },
+    );
+    const events: Array<{ id: string; agent: string | null }> = [];
+    manager.onAgentState(({ id, agent }) => events.push({ id, agent }));
+    const info = manager.adoptBackend(new FakeBackend(null), {
+      title: 'remote resume',
+      cwd: '/srv/app',
+      projectName: 'app',
+    });
+
+    expect(manager.agentFor(info.id)).toBeNull();
+    expect(manager.declareKnownAgent(info.id, 'claude')).toBe(true);
+    expect(manager.agentFor(info.id)).toBe('claude');
+    expect(events).toEqual([{ id: info.id, agent: 'claude' }]);
+    expect(manager.declareKnownAgent(info.id, 'not-an-agent')).toBe(false);
+  });
+
   it('adopts a backend and fans out data, exit and list membership like a local pty', () => {
     const output: Array<{ id: string; data: string }> = [];
     const exits: Array<{ id: string; exitCode: number }> = [];

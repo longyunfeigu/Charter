@@ -608,16 +608,22 @@ export class TaskService {
   /** Workspace row for a dispatch target path, creating the identity if new. */
   private async workspaceRowForPath(
     path: string,
+    displayNameOverride?: string,
   ): Promise<{ id: string; canonicalPath: string; displayName: string; isGitRepo: boolean }> {
     const info = await openWorkspaceInfo(path);
     const row = this.db
       .prepare('SELECT id, display_name FROM workspaces WHERE canonical_path = ?')
       .get(info.canonicalPath) as { id: string; display_name: string } | undefined;
     if (row) {
+      if (displayNameOverride && row.display_name !== displayNameOverride) {
+        this.db
+          .prepare('UPDATE workspaces SET display_name = ? WHERE id = ?')
+          .run(displayNameOverride, row.id);
+      }
       return {
         id: row.id,
         canonicalPath: info.canonicalPath,
-        displayName: row.display_name,
+        displayName: displayNameOverride ?? row.display_name,
         isGitRepo: info.isGitRepo,
       };
     }
@@ -627,11 +633,11 @@ export class TaskService {
       .prepare(
         'INSERT INTO workspaces (id, canonical_path, display_name, trust_state, last_opened_at, created_at) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .run(id, info.canonicalPath, info.displayName, 'untrusted', now, now);
+      .run(id, info.canonicalPath, displayNameOverride ?? info.displayName, 'untrusted', now, now);
     return {
       id,
       canonicalPath: info.canonicalPath,
-      displayName: info.displayName,
+      displayName: displayNameOverride ?? info.displayName,
       isGitRepo: info.isGitRepo,
     };
   }
@@ -1326,6 +1332,8 @@ export class TaskService {
     decision: 'accept' | 'reject';
     hunkKey?: string;
     expectedCurrentHash?: string;
+    /** Managed remote Review records the decision only after Worker apply succeeds. */
+    deferRecord?: boolean;
   }): Promise<{ status: 'applied' | 'stale'; changeSet: ChangeSetDto }> {
     const task = this.getTask(input.taskId);
     if (task.state !== 'REVIEW_READY') {
@@ -1368,13 +1376,23 @@ export class TaskService {
         throw e;
       }
     }
+    if (!input.deferRecord) this.commitReviewDecision(input);
+    return { status: 'applied', changeSet: await this.changeSetForReview(input.taskId) };
+  }
+
+  commitReviewDecision(input: {
+    taskId: string;
+    path: string;
+    scope: 'file' | 'hunk';
+    decision: 'accept' | 'reject';
+    hunkKey?: string;
+  }): void {
     this.recordEvent(input.taskId, 'review.decision', {
       path: input.path,
       scope: input.scope,
       decision: input.decision,
       hunkKey: input.hunkKey ?? null,
     });
-    return { status: 'applied', changeSet: await this.changeSetForReview(input.taskId) };
   }
 
   /** ADR-0032: accepting settles the pending turn(s) and returns the Session
@@ -1678,9 +1696,9 @@ export class TaskService {
   /** Full rollback with preflight (CHG-009/010, M9-04). Conflicts stop; force overrides explicitly. */
   async rollbackTask(
     taskId: string,
-    options: { force?: boolean } = {},
+    options: { force?: boolean; deferSettlement?: boolean } = {},
   ): Promise<
-    | { status: 'ok'; task: TaskDto; restored: string[] }
+    | { status: 'ok'; task: TaskDto; restored: string[]; conflictsOverridden: string[] }
     | { status: 'conflicts'; task: TaskDto; conflicts: Array<{ path: string; reason: string }> }
   > {
     const task = this.getTask(taskId);
@@ -1727,6 +1745,7 @@ export class TaskService {
         status: 'ok',
         task: rolledBack,
         restored: [],
+        conflictsOverridden: [],
       };
     }
     const context = this.contextForTask(taskId);
@@ -1757,14 +1776,6 @@ export class TaskService {
           })),
         };
       }
-      this.settleRuns(taskId, 'rolled_back');
-      this.recordEvent(taskId, 'task.rolledBack', {
-        ok: result.ok,
-        restored: result.restored,
-        conflictsOverridden: result.conflicts.map((conflict) => conflict.path),
-        failed: result.verified.filter((verification) => !verification.ok),
-        aggregatedTaskIds: projected.taskIds,
-      });
       if (!result.ok) {
         throw new ProductFailure(
           productError('CHG_ROLLBACK_INCOMPLETE', {
@@ -1774,8 +1785,29 @@ export class TaskService {
           }),
         );
       }
-      context.verifications.markAllStale(taskId);
-      return { status: 'ok', task: this.safeSettleToIdle(taskId), restored: result.restored };
+      if (!options.deferSettlement) {
+        this.settleRuns(taskId, 'rolled_back');
+        this.recordEvent(taskId, 'task.rolledBack', {
+          ok: result.ok,
+          restored: result.restored,
+          conflictsOverridden: result.conflicts.map((conflict) => conflict.path),
+          failed: result.verified.filter((verification) => !verification.ok),
+          aggregatedTaskIds: projected.taskIds,
+        });
+        context.verifications.markAllStale(taskId);
+        return {
+          status: 'ok',
+          task: this.safeSettleToIdle(taskId),
+          restored: result.restored,
+          conflictsOverridden: result.conflicts.map((conflict) => conflict.path),
+        };
+      }
+      return {
+        status: 'ok',
+        task: this.getTask(taskId),
+        restored: result.restored,
+        conflictsOverridden: result.conflicts.map((conflict) => conflict.path),
+      };
     }
     const changes = context.changes;
     const preflight = await changes.rollbackPreflight(taskId);
@@ -1792,13 +1824,6 @@ export class TaskService {
     const report = await changes.rollback(taskId, { force: options.force ?? false });
     // ADR-0032: the rollback settles every unsettled turn; the Session stays
     // a live conversation on its restored workspace.
-    this.settleRuns(taskId, 'rolled_back');
-    this.recordEvent(taskId, 'task.rolledBack', {
-      ok: report.ok,
-      restored: report.restored,
-      conflictsOverridden: report.conflictsOverridden,
-      failed: report.verified.filter((v) => !v.ok),
-    });
     if (!report.ok) {
       throw new ProductFailure(
         productError('CHG_ROLLBACK_INCOMPLETE', {
@@ -1808,8 +1833,28 @@ export class TaskService {
         }),
       );
     }
-    this.contextForTask(taskId).verifications.markAllStale(taskId);
-    return { status: 'ok', task: this.safeSettleToIdle(taskId), restored: report.restored };
+    if (!options.deferSettlement) {
+      this.settleRuns(taskId, 'rolled_back');
+      this.recordEvent(taskId, 'task.rolledBack', {
+        ok: report.ok,
+        restored: report.restored,
+        conflictsOverridden: report.conflictsOverridden,
+        failed: report.verified.filter((v) => !v.ok),
+      });
+      this.contextForTask(taskId).verifications.markAllStale(taskId);
+      return {
+        status: 'ok',
+        task: this.safeSettleToIdle(taskId),
+        restored: report.restored,
+        conflictsOverridden: report.conflictsOverridden,
+      };
+    }
+    return {
+      status: 'ok',
+      task: this.getTask(taskId),
+      restored: report.restored,
+      conflictsOverridden: report.conflictsOverridden,
+    };
   }
 
   /**
@@ -1823,9 +1868,9 @@ export class TaskService {
   async rollbackTurn(
     taskId: string,
     runId: string,
-    options: { force?: boolean } = {},
+    options: { force?: boolean; deferSettlement?: boolean } = {},
   ): Promise<
-    | { status: 'ok'; task: TaskDto; restored: string[] }
+    | { status: 'ok'; task: TaskDto; restored: string[]; conflictsOverridden: string[] }
     | { status: 'conflicts'; task: TaskDto; conflicts: Array<{ path: string; reason: string }> }
   > {
     const task = this.getTask(taskId);
@@ -1922,20 +1967,62 @@ export class TaskService {
           }),
         );
       }
-      this.settleRuns(taskId, 'rolled_back', runId);
-      this.recordEvent(taskId, 'turn.rolledBack', {
-        runId,
+      if (!options.deferSettlement) {
+        this.settleRuns(taskId, 'rolled_back', runId);
+        this.recordEvent(taskId, 'turn.rolledBack', {
+          runId,
+          restored: result.restored,
+          conflictsOverridden: result.conflicts.map((c) => c.path),
+        });
+        const revision = await this.codeRevision(taskId);
+        if (revision) this.contextForTask(taskId).verifications.markStale(taskId, revision);
+        return {
+          status: 'ok',
+          task: this.safeSettleToIdle(taskId),
+          restored: result.restored,
+          conflictsOverridden: result.conflicts.map((conflict) => conflict.path),
+        };
+      }
+      return {
+        status: 'ok',
+        task: this.getTask(taskId),
         restored: result.restored,
-        conflictsOverridden: result.conflicts.map((c) => c.path),
-      });
-      const revision = await this.codeRevision(taskId);
-      if (revision) this.contextForTask(taskId).verifications.markStale(taskId, revision);
-      return { status: 'ok', task: this.safeSettleToIdle(taskId), restored: result.restored };
+        conflictsOverridden: result.conflicts.map((conflict) => conflict.path),
+      };
     }
     // A chat-only turn: nothing on disk — settling the ledger is the rollback.
     this.settleRuns(taskId, 'rolled_back', runId);
     this.recordEvent(taskId, 'turn.rolledBack', { runId, restored: [], conflictsOverridden: [] });
-    return { status: 'ok', task: this.safeSettleToIdle(taskId), restored: [] };
+    return {
+      status: 'ok',
+      task: this.safeSettleToIdle(taskId),
+      restored: [],
+      conflictsOverridden: [],
+    };
+  }
+
+  /** Commit the ledger/state half of a remote rollback only after the Worker
+   * has atomically accepted the restored bytes with expected-hash guards. */
+  async commitRemoteRollback(
+    taskId: string,
+    restored: string[],
+    conflictsOverridden: string[],
+    runId?: string,
+  ): Promise<TaskDto> {
+    this.settleRuns(taskId, 'rolled_back', runId);
+    this.recordEvent(taskId, runId ? 'turn.rolledBack' : 'task.rolledBack', {
+      ...(runId ? { runId } : { ok: true }),
+      restored,
+      conflictsOverridden,
+      remoteWorkerApplied: true,
+    });
+    if (runId) {
+      const revision = await this.codeRevision(taskId);
+      if (revision) this.contextForTask(taskId).verifications.markStale(taskId, revision);
+    } else {
+      this.contextForTask(taskId).verifications.markAllStale(taskId);
+    }
+    return this.safeSettleToIdle(taskId);
   }
 
   /** ADR-0032: land on IDLE from any settle-eligible state (historic ACCEPTED
@@ -2924,8 +3011,19 @@ export class TaskService {
     snapshotRef?: string | null;
     /** The user's first message names the session; null keeps the placeholder. */
     title?: string | null;
+    /** Managed SSH Worker identity; omitted for local external CLIs. */
+    remote?: {
+      hostId: string;
+      hostLabel: string;
+      root: string;
+      workerSessionId: string;
+      workerVersion: string;
+      workspaceKind?: 'remote' | 'local';
+    };
+    /** Human project identity when projectPath is an internal sparse mirror. */
+    projectDisplayName?: string;
   }): Promise<TaskDto> {
-    const project = await this.workspaceRowForPath(input.projectPath);
+    const project = await this.workspaceRowForPath(input.projectPath, input.projectDisplayName);
     const now = new Date().toISOString();
     const id = newId('task');
     const title = input.title?.trim() || `${input.cli} · external session`;
@@ -2970,6 +3068,7 @@ export class TaskService {
       status: 'active' as const,
       captureGrade: 'observed' as const,
       sessionId: null,
+      ...(input.remote ? { remote: input.remote } : {}),
     };
     this.db
       .prepare(
@@ -2980,7 +3079,11 @@ export class TaskService {
         id,
         project.id,
         title,
-        `External \`${input.cli}\` session in an embedded terminal (unmanaged — outside the Tool Gateway). Changes are tracked by the workspace watcher against the entry snapshot.`,
+        input.remote
+          ? input.remote.workspaceKind === 'local'
+            ? `Remote \`${input.cli}\` session on ${input.remote.hostLabel}, bridged to the local project \`${project.canonicalPath}\`. The Agent executes in the isolated server copy \`${input.remote.root}\`; Charter synchronizes guarded file versions in both directions.`
+            : `Remote \`${input.cli}\` session on ${input.remote.hostLabel} in \`${input.remote.root}\`. The Agent runs over SSH; Charter Worker protects the entry baseline, Diff, Review and rollback.`
+          : `External \`${input.cli}\` session in an embedded terminal (unmanaged — outside the Tool Gateway). Changes are tracked by the workspace watcher against the entry snapshot.`,
         JSON.stringify([]),
         JSON.stringify({ providerId: 'external', modelId: input.cli }),
         JSON.stringify([]),
@@ -3004,6 +3107,7 @@ export class TaskService {
       cli: input.cli,
       terminalId: input.terminalId,
       snapshotRef,
+      remote: input.remote ?? null,
     });
     if (setupResult) this.recordEvent(id, 'worktree.setup', { ...setupResult });
     this.hopStates(id, ['EXPLORING', 'IN_PROGRESS']);

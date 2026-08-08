@@ -91,6 +91,22 @@ const PATHS: Record<string, React.JSX.Element> = {
       <path d="M9 21V9" />
     </>
   ),
+  maximize: (
+    <>
+      <path d="M8 3H3v5" />
+      <path d="M16 3h5v5" />
+      <path d="M21 16v5h-5" />
+      <path d="M8 21H3v-5" />
+    </>
+  ),
+  minimize: (
+    <>
+      <path d="M8 3v5H3" />
+      <path d="M16 3v5h5" />
+      <path d="M21 16h-5v5" />
+      <path d="M3 16h5v5" />
+    </>
+  ),
   sliders: (
     <>
       <line x1="21" x2="14" y1="4" y2="4" />

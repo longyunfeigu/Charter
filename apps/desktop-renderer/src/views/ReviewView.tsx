@@ -575,6 +575,7 @@ export function ReviewView(): React.JSX.Element | null {
         <ConfirmDangerButton
           label="Roll back everything…"
           confirmLabel="Confirm — restore all files"
+          confirmDescription={`Restores ${cs?.files.length ?? 0} changed ${(cs?.files.length ?? 0) === 1 ? 'file' : 'files'} to the recorded pre-Session bytes and discards unaccepted edits. Git commits are not rewritten; current verification becomes stale.`}
           testid="review-rollback"
           quiet
           disabled={!canDecide}

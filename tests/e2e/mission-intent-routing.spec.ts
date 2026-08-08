@@ -46,7 +46,7 @@ function createMissionClaude(): { bin: string; probe: string; promotionGate: str
       "      integration: { mode: 'none' }",
       '    };',
       "    const result = spawnSync(process.env.CHARTER_COMMAND || 'charter', ['orchestration', 'promote', '--request-json', JSON.stringify(plan), '--json'], { encoding: 'utf8', timeout: 15000 });",
-      '    fs.appendFileSync(probe, `\\npromote=${JSON.stringify({ status: result.status, stdout: result.stdout, stderr: result.stderr })}\\n`);',
+      '    fs.appendFileSync(probe, `\\npromote=${JSON.stringify({ status: result.status, stdout: result.stdout, stderr: result.stderr, error: result.error ? { name: result.error.name, message: result.error.message, code: result.error.code } : null })}\\n`);',
       '  }, 50);',
       '});',
       'process.stdin.resume();',
