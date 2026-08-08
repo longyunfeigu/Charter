@@ -126,6 +126,8 @@ import {
   FallbackRuntimeAdapter,
 } from './services/acp-runtime.js';
 import { AgentRegistry } from './services/agent-registry.js';
+import { WorkItemService } from './services/work-item-service.js';
+import { registerWorkItemHandlers } from './ipc/work-item-handlers.js';
 
 const DEV_SERVER_URL = process.env.PI_IDE_DEV_SERVER_URL;
 const isDev = Boolean(DEV_SERVER_URL);
@@ -172,6 +174,7 @@ let missionOrchestrationRef: MissionOrchestrationService | null = null;
 let missionRecoveryRef: OrchestrationRecoveryService | null = null;
 let acpPoolRef: AcpProcessPool | null = null;
 let agentRegistryRef: AgentRegistry | null = null;
+let workItemServiceRef: WorkItemService | null = null;
 export function getM5(): M5Services | null {
   return m5Ref;
 }
@@ -183,6 +186,8 @@ function windowBackground(skin: string, dark: boolean): string {
   if (skin === 'terminal') return dark ? '#0d120f' : '#f0f6f1';
   if (skin === 'archive') return dark ? '#291f19' : '#fbf2df';
   if (skin === 'index') return dark ? '#070707' : '#ffffff';
+  if (skin === 'atelier') return dark ? '#292319' : '#fbf8f0';
+  if (skin === 'codex') return dark ? '#191b1a' : '#fcfcfb';
   return dark ? '#1a1917' : '#fbfaf7';
 }
 
@@ -715,6 +720,38 @@ if (!gotLock) {
     if (!isDev) registerAppProtocol(join(app.getAppPath(), 'apps/desktop-renderer/dist'));
     installApplicationMenu({ isDev });
     registerCoreHandlers(boot);
+    if (state && settings) {
+      workItemServiceRef = new WorkItemService(state.db, logger.child('work-items'), {
+        changed: (itemId, reason) => broadcast('workItem.changed', { itemId, reason }),
+        reminderDue: ({ item, reminder }) => {
+          broadcast('workItem.reminderDue', { item, reminder });
+          const win = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null;
+          const focusItem = (): void => {
+            if (win) {
+              if (win.isMinimized()) win.restore();
+              win.show();
+              win.focus();
+            }
+            broadcast('app.focusWorkItem', { itemId: item.id });
+          };
+          if (
+            settings.effective.notifications.enabled &&
+            !process.env.PI_IDE_E2E &&
+            BrowserWindow.getFocusedWindow() === null &&
+            Notification.isSupported()
+          ) {
+            const note = new Notification({
+              title: item.title,
+              body: reminder.message || `Work item reminder · ${item.assignee || 'Unassigned'}`,
+            });
+            note.on('click', focusItem);
+            note.show();
+          }
+        },
+      });
+      registerWorkItemHandlers(workItemServiceRef, logger.child('work-item-ipc'));
+      workItemServiceRef.start();
+    }
     let m4: M4Services | null = null;
     if (workspaceHost && state && settings) {
       registerWorkspaceHandlers(workspaceHost, state, logger.child('ipc'));
@@ -1652,6 +1689,7 @@ if (!gotLock) {
     if (cleanupDone) return;
     event.preventDefault();
     skillStoreRef?.dispose();
+    workItemServiceRef?.dispose();
     updateServiceRef?.dispose();
     clipboardWatcherRef?.dispose();
     screenshotWatcherRef?.dispose();

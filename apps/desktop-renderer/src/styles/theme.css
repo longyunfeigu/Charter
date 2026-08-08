@@ -1,4 +1,4 @@
-/* Five coordinated visual languages. A skin owns color, typography, icon
+/* Six coordinated visual languages. A skin owns color, typography, icon
  * geometry and syntax highlighting; data-theme supplies its light/dark variant.
  * Studio/light is repeated on :root so the first paint is stable before the
  * persisted setting arrives from Main.
@@ -58,8 +58,8 @@
     -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei',
     sans-serif;
   /* Charter Signal Desk owns structure, never material. Every chrome role is
-     resolved late from the active skin so Studio, Archive, Atelier, Terminal
-     and Index remain visually sovereign in both light and dark modes. */
+     resolved late from the active skin so Studio, Archive, Atelier, Terminal,
+     Index and Codex remain visually sovereign in both light and dark modes. */
   --chrome-ink: var(--bg-titlebar);
   --chrome-ink-raised: var(--bg-card);
   --chrome-paper: var(--fg);
@@ -67,7 +67,7 @@
   --chrome-line: var(--border);
   --chrome-signal: var(--accent);
   --chrome-signal-soft: color-mix(in srgb, var(--accent) 14%, transparent);
-  --titlebar-height: 52px;
+  --titlebar-height: 42px;
   --statusbar-height: 25px;
   --activitybar-width: 78px;
   --rail-width: 312px;
@@ -525,6 +525,116 @@
   --radius-chip: 0px;
 }
 
+/* Codex follows the supplied desktop reference: almost-white working planes,
+ * a slightly cooler navigation rail, graphite type, hairline separators and
+ * green reserved for live state and intent. Depth comes from surface contrast,
+ * not floating SaaS shadows. */
+[data-skin='codex'][data-theme='light'] {
+  color-scheme: light;
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+  --font-display:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+  --font-mono:
+    'SF Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, 'PingFang SC', 'Microsoft YaHei UI',
+    monospace;
+  --icon-stroke-width: 1.65;
+  --letter-ui: -0.003em;
+  --bg-app: #f1f2f1;
+  --bg-titlebar: #fafafa;
+  --bg-sidebar: #f4f5f4;
+  --bg-editor: #fcfcfb;
+  --bg-panel: #f7f8f7;
+  --bg-statusbar: #f4f5f4;
+  --bg-input: #ffffff;
+  --bg-card: #ffffff;
+  --bg-chip: #f1f2f1;
+  --bg-hover: #eceeed;
+  --bg-active: #e5e7e6;
+  --bg-selected: #e4f3ed;
+  --bg-overlay: rgba(25, 28, 26, 0.34);
+  --border: #e2e5e3;
+  --border-soft: #eceeec;
+  --border-strong: #c7ccc9;
+  --fg: #242725;
+  --fg-muted: #666b68;
+  --fg-faint: #9ba09d;
+  --fg-inverse: #ffffff;
+  --accent: #0d9f6e;
+  --accent-fg: #ffffff;
+  --danger: #d84f4f;
+  --danger-bg: #fbe9e8;
+  --warning: #c27616;
+  --warning-bg: #fbf0dc;
+  --success: #0d9f6e;
+  --success-bg: #e2f5ed;
+  --info: #2f7fd8;
+  --info-bg: #e8f1fb;
+  --diff-add-bg: rgba(13, 159, 110, 0.13);
+  --diff-del-bg: rgba(216, 79, 79, 0.12);
+  --focus-ring: #0d9f6e;
+  --scrollbar: rgba(77, 84, 80, 0.25);
+  --shadow-card: 0 1px 2px rgba(24, 28, 25, 0.035);
+  --shadow-menu: 0 24px 72px rgba(24, 28, 25, 0.16);
+  --radius-card: 12px;
+  --radius-chip: 10px;
+}
+
+[data-skin='codex'][data-theme='dark'] {
+  color-scheme: dark;
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+  --font-display:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+  --font-mono:
+    'SF Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, 'PingFang SC', 'Microsoft YaHei UI',
+    monospace;
+  --icon-stroke-width: 1.65;
+  --letter-ui: -0.003em;
+  --bg-app: #141615;
+  --bg-titlebar: #1b1d1c;
+  --bg-sidebar: #1d1f1e;
+  --bg-editor: #191b1a;
+  --bg-panel: #1d201e;
+  --bg-statusbar: #1b1d1c;
+  --bg-input: #232624;
+  --bg-card: #222523;
+  --bg-chip: #292c2a;
+  --bg-hover: #292d2a;
+  --bg-active: #333734;
+  --bg-selected: #173c2f;
+  --bg-overlay: rgba(0, 0, 0, 0.62);
+  --border: #343835;
+  --border-soft: #2a2e2b;
+  --border-strong: #515753;
+  --fg: #eef0ee;
+  --fg-muted: #a7ada9;
+  --fg-faint: #707672;
+  --fg-inverse: #10251d;
+  --accent: #38c793;
+  --accent-fg: #0c2119;
+  --danger: #ef7373;
+  --danger-bg: #3c2121;
+  --warning: #e1a34a;
+  --warning-bg: #382c18;
+  --success: #38c793;
+  --success-bg: #163629;
+  --info: #73a9e8;
+  --info-bg: #1b2b3e;
+  --diff-add-bg: rgba(56, 199, 147, 0.16);
+  --diff-del-bg: rgba(239, 115, 115, 0.14);
+  --focus-ring: #38c793;
+  --scrollbar: rgba(167, 173, 169, 0.25);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.26);
+  --shadow-menu: 0 26px 78px rgba(0, 0, 0, 0.54);
+  --radius-card: 12px;
+  --radius-chip: 10px;
+}
+
 [data-skin='studio'] {
   --syntax-comment: #008000;
   --syntax-keyword: #0000ff;
@@ -574,6 +684,20 @@
   --syntax-string: var(--fg);
   --syntax-number: var(--danger);
   --syntax-function: var(--fg);
+}
+[data-skin='codex'] {
+  --syntax-comment: #75807a;
+  --syntax-keyword: #6846c7;
+  --syntax-string: #087a55;
+  --syntax-number: #a95c16;
+  --syntax-function: #315fbd;
+}
+[data-skin='codex'][data-theme='dark'] {
+  --syntax-comment: #7d8781;
+  --syntax-keyword: #b39af2;
+  --syntax-string: #70d8ad;
+  --syntax-number: #e7ae6b;
+  --syntax-function: #8bb4ef;
 }
 
 * {

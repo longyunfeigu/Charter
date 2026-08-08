@@ -16,6 +16,7 @@ import { useTerminalStore } from './TerminalPanel.js';
 import { selectableRecentWorkspaces } from './recent-workspaces.js';
 import { agentDisplayName, useAgentCatalogStore } from '../store/agentCatalogStore.js';
 import { useSshStore } from '../store/sshStore.js';
+import { useWorkItemStore } from '../store/workItemStore.js';
 import {
   RemoteSessionSetupDialog,
   type RemoteSessionSelection,
@@ -63,6 +64,7 @@ export function HomeView(): React.JSX.Element {
   const sshHosts = useSshStore((state) => state.hosts);
 
   const [intent, setIntent] = useState('');
+  const [handoffWorkItemId, setHandoffWorkItemId] = useState<string | null>(null);
   const [agent, setAgent] = useState<ComposerAgent>('pi');
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [target, setTarget] = useState<ComposerTarget>({ kind: 'local' });
@@ -180,6 +182,18 @@ export function HomeView(): React.JSX.Element {
   useEffect(() => {
     if (composerFocusSeq > 0) inputRef.current?.focus();
   }, [composerFocusSeq]);
+
+  useEffect(() => {
+    const handoff = app.workHandoff;
+    if (!handoff) return;
+    setHandoffWorkItemId(handoff.workItemId);
+    setIntent(handoff.prompt);
+    setTitleDraft(handoff.title);
+    setCriteria(handoff.acceptance.join('\n'));
+    setAdvanced(true);
+    app.clearWorkHandoff();
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  }, [app, app.workHandoff]);
 
   // Selected project = dispatch target: show its branch in the chip.
   useEffect(() => {
@@ -391,12 +405,25 @@ export function HomeView(): React.JSX.Element {
                 },
               }
             : { context: { kind: 'focused' as const } }),
-        title: titleFromIntent(intent),
+        title: (advanced && titleDraft.trim()) || titleFromIntent(intent),
         reveal: false,
         // External CLIs read images behind @refs themselves — all-textual.
         initialPrompt: goal + contextFilesBlock(localFilesAvailable ? refs : []),
       });
       if (id) {
+        if (handoffWorkItemId) {
+          await useWorkItemStore.getState().linkExecution({
+            workItemId: handoffWorkItemId,
+            targetKind: 'terminal',
+            targetId: id,
+            role: 'primary',
+            approach: 'Agent session',
+            displayLabel: (advanced && titleDraft.trim()) || titleFromIntent(intent),
+            agentLabel: agentDisplayName(agent),
+            summary: '',
+          });
+          setHandoffWorkItemId(null);
+        }
         if (target.kind === 'ssh') app.openRemoteTerminalSession(id, target.hostId);
         else app.openTerminalSession(id);
         setIntent('');
@@ -440,6 +467,20 @@ export function HomeView(): React.JSX.Element {
     });
     setSubmitting(false);
     if (ok) {
+      const newId = useTaskStore.getState().activeTaskId;
+      if (newId && handoffWorkItemId) {
+        await useWorkItemStore.getState().linkExecution({
+          workItemId: handoffWorkItemId,
+          targetKind: 'session',
+          targetId: newId,
+          role: 'primary',
+          approach: 'Charter Agent session',
+          displayLabel: (advanced && titleDraft.trim()) || titleFromIntent(intent),
+          agentLabel: 'Charter Agent',
+          summary: '',
+        });
+        setHandoffWorkItemId(null);
+      }
       setIntent('');
       setRefs([]);
       setConversationRefs([]);
@@ -451,7 +492,6 @@ export function HomeView(): React.JSX.Element {
       setWorktreeTouched(false);
       setWtSetupTouched(false);
       // Stay on the Home surface (PIVOT-022): open the new task's room.
-      const newId = useTaskStore.getState().activeTaskId;
       if (newId) app.openTaskRoom(newId);
     }
   };

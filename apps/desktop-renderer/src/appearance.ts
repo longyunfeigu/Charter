@@ -24,6 +24,10 @@ export const SKIN_LABELS: Record<AppearanceSkin, { name: string; description: st
     name: 'Atelier',
     description: 'Paper · letterpress · warm ink',
   },
+  codex: {
+    name: 'Codex',
+    description: 'Soft white · graphite · signal green',
+  },
 };
 
 const EDITOR_FONTS: Record<AppearanceSkin, string> = {
@@ -38,6 +42,8 @@ const EDITOR_FONTS: Record<AppearanceSkin, string> = {
   index: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace",
   atelier:
     "Menlo, Monaco, 'SF Mono', 'SFMono-Regular', Consolas, 'PingFang SC', 'Microsoft YaHei UI', monospace",
+  codex:
+    "'SF Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, 'PingFang SC', 'Microsoft YaHei UI', monospace",
 };
 
 export function resolveEffectiveTheme(settings: Settings | null): EffectiveTheme {
@@ -59,7 +65,11 @@ export function applyAppearance(settings: Settings | null): void {
 
 export function currentSkin(): AppearanceSkin {
   const skin = document.documentElement.dataset.skin;
-  return skin === 'terminal' || skin === 'archive' || skin === 'index' || skin === 'atelier'
+  return skin === 'terminal' ||
+    skin === 'archive' ||
+    skin === 'index' ||
+    skin === 'atelier' ||
+    skin === 'codex'
     ? skin
     : 'studio';
 }

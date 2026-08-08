@@ -6,6 +6,7 @@ import { ScreenshotCaptureSchema } from './screenshots.js';
 import { MissionSnapshotSchema, OrchestrationSnapshotSchema } from './orchestration.js';
 import { SftpTransferStateSchema, SshConnectionStateSchema, SshForwardStateSchema } from './ssh.js';
 import { UpdateStateSchema } from './updates.js';
+import { WorkItemDtoSchema, WorkReminderDtoSchema } from './work-items.js';
 
 export interface EventChannelDef<S extends z.ZodType = z.ZodType> {
   name: string;
@@ -284,6 +285,17 @@ export const EVENT_CHANNELS = {
   ),
   /** A system notification was clicked — bring this task into view (PIVOT-014). */
   'app.focusTask': ev('app.focusTask', 1, z.object({ taskId: z.string() })),
+  'workItem.changed': ev(
+    'workItem.changed',
+    1,
+    z.object({ itemId: z.string().nullable(), reason: z.string() }),
+  ),
+  'workItem.reminderDue': ev(
+    'workItem.reminderDue',
+    1,
+    z.object({ item: WorkItemDtoSchema, reminder: WorkReminderDtoSchema }),
+  ),
+  'app.focusWorkItem': ev('app.focusWorkItem', 1, z.object({ itemId: z.string() })),
   'lsp.pythonDiagnostics': ev(
     'lsp.pythonDiagnostics',
     1,

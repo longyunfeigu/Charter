@@ -837,4 +837,155 @@ ALTER TABLE missions ADD COLUMN deleted_at TEXT;
 CREATE INDEX idx_missions_deleted_updated ON missions(deleted_at, updated_at);
 `,
   },
+  {
+    version: 15,
+    name: 'work-items-board',
+    // Long-lived, role-neutral work lives above execution Sessions and
+    // Missions. JSON columns hold user-authored schemas/checklists; the
+    // normalized reminder, evidence and execution tables remain queryable.
+    up: `
+CREATE TABLE work_board_columns (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  color TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  wip_limit INTEGER,
+  archived INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_work_board_columns_position
+  ON work_board_columns(archived, position);
+
+CREATE TABLE work_item_types (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  icon TEXT NOT NULL,
+  color TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  field_definitions_json TEXT NOT NULL DEFAULT '[]',
+  built_in INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0,
+  position INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_work_item_types_position
+  ON work_item_types(archived, position);
+
+CREATE TABLE work_items (
+  id TEXT PRIMARY KEY,
+  type_id TEXT NOT NULL REFERENCES work_item_types(id),
+  column_id TEXT NOT NULL REFERENCES work_board_columns(id),
+  title TEXT NOT NULL,
+  description_md TEXT NOT NULL DEFAULT '',
+  background_md TEXT NOT NULL DEFAULT '',
+  source_person TEXT NOT NULL DEFAULT '',
+  source_channel TEXT NOT NULL DEFAULT '',
+  source_url TEXT NOT NULL DEFAULT '',
+  assignee TEXT NOT NULL DEFAULT 'You',
+  priority TEXT NOT NULL DEFAULT 'none',
+  labels_json TEXT NOT NULL DEFAULT '[]',
+  start_at TEXT,
+  due_at TEXT,
+  acceptance_json TEXT NOT NULL DEFAULT '[]',
+  deliverables_json TEXT NOT NULL DEFAULT '[]',
+  custom_fields_json TEXT NOT NULL DEFAULT '{}',
+  position REAL NOT NULL,
+  archived INTEGER NOT NULL DEFAULT 0,
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE INDEX idx_work_items_board
+  ON work_items(archived, column_id, position, updated_at);
+CREATE INDEX idx_work_items_due
+  ON work_items(archived, due_at);
+
+CREATE TABLE work_item_executions (
+  id TEXT PRIMARY KEY,
+  work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+  target_kind TEXT NOT NULL,
+  target_id TEXT,
+  role TEXT NOT NULL,
+  approach TEXT NOT NULL DEFAULT '',
+  display_label TEXT NOT NULL DEFAULT '',
+  agent_label TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'linked',
+  summary TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_work_item_executions_item
+  ON work_item_executions(work_item_id, created_at);
+CREATE UNIQUE INDEX idx_work_item_executions_target
+  ON work_item_executions(work_item_id, target_kind, target_id)
+  WHERE target_id IS NOT NULL;
+
+CREATE TABLE work_item_reminders (
+  id TEXT PRIMARY KEY,
+  work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+  remind_at TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'scheduled',
+  message TEXT NOT NULL DEFAULT '',
+  fired_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_work_item_reminders_due
+  ON work_item_reminders(state, remind_at);
+CREATE INDEX idx_work_item_reminders_item
+  ON work_item_reminders(work_item_id, created_at);
+
+CREATE TABLE work_item_evidence (
+  id TEXT PRIMARY KEY,
+  work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  label TEXT NOT NULL,
+  value TEXT NOT NULL,
+  created_by TEXT NOT NULL DEFAULT 'You',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_work_item_evidence_item
+  ON work_item_evidence(work_item_id, created_at);
+
+CREATE TABLE work_item_events (
+  id TEXT PRIMARY KEY,
+  work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+  sequence INTEGER NOT NULL,
+  type TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  UNIQUE(work_item_id, sequence)
+);
+CREATE INDEX idx_work_item_events_item
+  ON work_item_events(work_item_id, sequence);
+`,
+  },
+  {
+    version: 16,
+    name: 'simplify-default-workflow',
+    // Inbox already represents work that is not yet committed. Start/deadline
+    // and priority carry scheduling intent, so the built-in Planned stage added
+    // a distinction without a reliable behavioral transition. Preserve every
+    // item by returning Planned work to Inbox before hiding the redundant stage.
+    up: `
+UPDATE work_items
+SET column_id = 'work-col-inbox', version = version + 1
+WHERE column_id = 'work-col-planned'
+  AND EXISTS (
+    SELECT 1 FROM work_board_columns WHERE id = 'work-col-inbox'
+  );
+
+UPDATE work_board_columns
+SET archived = 1
+WHERE id = 'work-col-planned'
+  AND EXISTS (
+    SELECT 1 FROM work_board_columns WHERE id = 'work-col-inbox'
+  );
+`,
+  },
 ];

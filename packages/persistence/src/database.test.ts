@@ -124,7 +124,7 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    expect(upgraded.appliedVersions).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
     const names = (
       upgraded.db
         .prepare(
@@ -216,7 +216,7 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([7, 8, 9, 10, 11, 12, 13, 14]);
+    expect(upgraded.appliedVersions).toEqual([7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
     const status = (id: string) =>
       (
         upgraded.db
@@ -230,11 +230,11 @@ describe('persistence database', () => {
     upgraded.db.close();
   });
 
-  it('v9-v13 add normalized Missions, runtime delivery, conversations, actions, and incidents', () => {
+  it('v9-v16 add normalized Missions, retention, and the long-lived Work domain', () => {
     const before = open(MIGRATIONS.slice(0, 8));
     before.db.close();
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([9, 10, 11, 12, 13, 14]);
+    expect(upgraded.appliedVersions).toEqual([9, 10, 11, 12, 13, 14, 15, 16]);
     const names = (
       upgraded.db
         .prepare(
@@ -283,6 +283,45 @@ describe('persistence database', () => {
     expect(messageColumns).toEqual(
       expect.arrayContaining(['conversation_id', 'action_request_id']),
     );
+    upgraded.db.close();
+  });
+
+  it('v16 preserves Planned work by returning it to Inbox before retiring the column', () => {
+    const before = open(MIGRATIONS.slice(0, 15));
+    const at = '2026-08-08T09:00:00.000Z';
+    const insertColumn = before.db.prepare(
+      `INSERT INTO work_board_columns
+       (id, name, category, color, position, archived, created_at, updated_at)
+       VALUES (?, ?, ?, '#64748b', ?, 0, ?, ?)`,
+    );
+    insertColumn.run('work-col-inbox', 'Inbox', 'inbox', 1, at, at);
+    insertColumn.run('work-col-planned', 'Planned', 'planned', 2, at, at);
+    before.db
+      .prepare(
+        `INSERT INTO work_item_types
+         (id, name, icon, color, position, built_in, archived, created_at, updated_at)
+         VALUES ('work-type-generic', 'General', 'circle', '#64748b', 1, 1, 0, ?, ?)`,
+      )
+      .run(at, at);
+    before.db
+      .prepare(
+        `INSERT INTO work_items
+         (id, type_id, column_id, title, position, version, created_at, updated_at)
+         VALUES ('work-1', 'work-type-generic', 'work-col-planned', 'Plan launch', 1, 3, ?, ?)`,
+      )
+      .run(at, at);
+    before.db.close();
+
+    const upgraded = open(MIGRATIONS);
+    expect(upgraded.appliedVersions).toEqual([16]);
+    expect(
+      upgraded.db.prepare('SELECT column_id, version FROM work_items WHERE id = ?').get('work-1'),
+    ).toEqual({ column_id: 'work-col-inbox', version: 4 });
+    expect(
+      upgraded.db
+        .prepare('SELECT archived FROM work_board_columns WHERE id = ?')
+        .get('work-col-planned'),
+    ).toEqual({ archived: 1 });
     upgraded.db.close();
   });
 });

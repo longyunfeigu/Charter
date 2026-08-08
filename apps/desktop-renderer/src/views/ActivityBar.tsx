@@ -6,6 +6,7 @@ import { visibleAttentionTasks } from '../store/attentionDismissals.js';
 import { Ic } from './home-icons.js';
 import { useOrchestrationStore } from '../store/orchestrationStore.js';
 import { TERMINAL_MISSION_STATES } from './mission/mission-view-model.js';
+import { useWorkItemStore, workAttentionCount } from '../store/workItemStore.js';
 
 export type ActivityDestination = RailView | 'remotes';
 
@@ -30,6 +31,7 @@ export function ActivityBar({
     (state) => visibleAttentionTasks(state.tasks, state.attentionDismissals).length,
   );
   const sessionsActive = active === 'sessions' || active === 'files';
+  const workAttention = useWorkItemStore((state) => workAttentionCount(state.snapshot));
   const activeMissionCount = useOrchestrationStore(
     (state) =>
       state.missionOrder.filter((id) => {
@@ -49,6 +51,17 @@ export function ActivityBar({
       >
         <Ic name="sessions" size={17} />
         <span className="sr-activity-label">Sessions</span>
+      </button>
+      <button
+        className={`sr-activity-item ${active === 'work' ? 'active' : ''}`}
+        data-testid="rail-view-work"
+        aria-label="Work"
+        title="Work — tasks, owners, deadlines and agent executions"
+        onClick={() => onSelect('work')}
+      >
+        <Ic name="check" size={17} />
+        <span className="sr-activity-label">Work</span>
+        {workAttention > 0 ? <span className="sr-mini-badge">{workAttention}</span> : null}
       </button>
       <button
         className={`sr-activity-item ${active === 'missions' ? 'active' : ''}`}

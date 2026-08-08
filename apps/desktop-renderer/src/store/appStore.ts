@@ -39,12 +39,13 @@ export type RemoteSubview = 'overview' | 'files' | 'forwards';
 /** The rail's contextual views inside the single navigation surface.
  * 'files' is the persistent context-feeding tree (ADR-0024, ADR-0029). */
 export type RailView =
-  'sessions' | 'missions' | 'inbox' | 'projects' | 'files' | 'memory' | 'skills';
+  'sessions' | 'work' | 'missions' | 'inbox' | 'projects' | 'files' | 'memory' | 'skills';
 
 /** ADR-0042 — the identity of what the main content area is showing
  * (mirrors HomeShell's render priority). */
 export type MainSurface =
   | { kind: 'home' }
+  | { kind: 'work' }
   | { kind: 'room'; taskId: string }
   | { kind: 'mission'; missionId: string | null }
   | { kind: 'terminal'; terminalId: string }
@@ -57,7 +58,7 @@ export type MainSurface =
  * Inbox and Files deliberately share one workbench because those panels feed
  * the same open conversation; Missions, Projects, Memory and Skills are independent
  * pages and must never leave another destination's main content on screen. */
-export type RailGroup = 'workbench' | 'missions' | 'projects' | 'memory' | 'skills';
+export type RailGroup = 'workbench' | 'work' | 'missions' | 'projects' | 'memory' | 'skills';
 
 /** A browser-like navigation entry. Unlike MainSurface this deliberately keeps
  * the contextual state around the surface, so Back restores the page the user
@@ -104,6 +105,8 @@ export function navigationSnapshotLabel(snapshot: NavigationSnapshot | null): st
       return 'Session';
     case 'mission':
       return surface.missionId ? 'Mission' : 'All Missions';
+    case 'work':
+      return 'Work';
     case 'terminal':
       return snapshot.remotesOpen ? 'Remote terminal' : 'Terminal';
     case 'archaeology':
@@ -139,6 +142,7 @@ export function navigationSnapshotLabel(snapshot: NavigationSnapshot | null): st
 }
 
 export function railGroupOf(view: RailView): RailGroup {
+  if (view === 'work') return 'work';
   if (view === 'missions') return 'missions';
   if (view === 'projects') return 'projects';
   if (view === 'memory') return 'memory';
@@ -155,8 +159,12 @@ export function mainSurfaceOf(
     | 'archaeology'
     | 'projectTool'
     | 'remotesOpen'
-  > & { projectCenter?: { path: string; tab: ProjectCenterTab } | null },
+  > & {
+    railView?: RailView;
+    projectCenter?: { path: string; tab: ProjectCenterTab } | null;
+  },
 ): MainSurface {
+  if (s.railView === 'work') return { kind: 'work' };
   if (s.sessionTerminalId) return { kind: 'terminal', terminalId: s.sessionTerminalId };
   if (s.missionCenter) return { kind: 'mission', missionId: s.missionCenter.missionId };
   if (s.taskRoomTaskId) return { kind: 'room', taskId: s.taskRoomTaskId };
@@ -264,6 +272,13 @@ interface AppStore {
   homePick: boolean;
   /** File refs queued for the next Home charter (e.g. "attach annotated image"). */
   pendingRefs: string[];
+  /** Durable Work context queued for the next Session composer submission. */
+  workHandoff: {
+    workItemId: string;
+    title: string;
+    prompt: string;
+    acceptance: string[];
+  } | null;
   /** New project dialog (empty/clone) — global so the sidebar entry works from any surface. */
   newProjectOpen: boolean;
   /** Diff-so-far lens (PIVOT-025) — global so boards in any surface share it. */
@@ -370,6 +385,8 @@ interface AppStore {
   focusComposer(): void;
   addPendingRefs(refs: string[]): void;
   consumePendingRefs(): string[];
+  queueWorkHandoff(handoff: NonNullable<AppStore['workHandoff']>): void;
+  clearWorkHandoff(): void;
   setNewProjectOpen(open: boolean): void;
   setLayout(patch: Partial<LayoutState>): void;
   toggleSidebar(): void;
@@ -478,6 +495,7 @@ function loadRailView(): RailView {
     const saved = window.sessionStorage.getItem(RAIL_VIEW_KEY);
     if (
       saved === 'sessions' ||
+      saved === 'work' ||
       saved === 'missions' ||
       saved === 'inbox' ||
       saved === 'projects' ||
@@ -630,6 +648,9 @@ export const useAppStore = create<AppStore>((set, get) => {
       case 'mission':
         get().openMission(surface.missionId);
         return;
+      case 'work':
+        get().setRailView('work');
+        return;
       case 'terminal':
         get().openTerminalSession(surface.terminalId);
         return;
@@ -685,6 +706,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     sessionTerminalScope: 'single',
     homePick: false,
     pendingRefs: [],
+    workHandoff: null,
     newProjectOpen: false,
     lens: null,
     peek: null,
@@ -705,6 +727,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     railView: typeof window === 'undefined' ? 'sessions' : loadRailView(),
     savedSurfaces: {
       workbench: { kind: 'home' },
+      work: { kind: 'work' },
       missions: { kind: 'mission', missionId: null },
       projects: { kind: 'home' },
       memory: { kind: 'home' },
@@ -1253,6 +1276,14 @@ export const useAppStore = create<AppStore>((set, get) => {
       const refs = get().pendingRefs;
       if (refs.length > 0) set({ pendingRefs: [] });
       return refs;
+    },
+
+    queueWorkHandoff(workHandoff) {
+      set({ workHandoff });
+    },
+
+    clearWorkHandoff() {
+      set({ workHandoff: null });
     },
 
     setNewProjectOpen(open) {

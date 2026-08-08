@@ -5,7 +5,7 @@ import { SshHostRecordSchema } from './ssh.js';
 export const SETTINGS_SCHEMA_VERSION = 1;
 
 export const ThemeSchema = z.enum(['light', 'dark', 'system']);
-export const SkinSchema = z.enum(['studio', 'terminal', 'archive', 'index', 'atelier']);
+export const SkinSchema = z.enum(['studio', 'terminal', 'archive', 'index', 'atelier', 'codex']);
 export const DEFAULT_EDITOR_FONT_FAMILY =
   "Menlo, Monaco, 'SF Mono', Consolas, 'Courier New', monospace";
 export const DEFAULT_TERMINAL_FONT_FAMILY =

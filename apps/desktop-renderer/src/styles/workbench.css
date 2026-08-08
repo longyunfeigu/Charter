@@ -11,8 +11,8 @@
   min-height: var(--titlebar-height);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 14px 0 84px;
+  gap: 8px;
+  padding: 0 12px 0 74px;
   background: var(--chrome-ink);
   border-bottom: 1px solid var(--chrome-line);
   color: var(--chrome-paper);
@@ -26,21 +26,21 @@
   -webkit-app-region: no-drag;
 }
 .tb-brand-lockup {
-  min-width: 150px;
-  height: 32px;
+  min-width: 134px;
+  height: 27px;
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  padding-right: 15px;
+  gap: 7px;
+  padding-right: 12px;
   border-right: 1px solid var(--chrome-line);
   -webkit-app-region: drag !important;
 }
 .tb-brand-mark {
-  width: 27px;
-  height: 27px;
+  width: 23px;
+  height: 23px;
   display: grid;
   place-items: center;
-  border-radius: 8px 8px 8px 2px;
+  border-radius: 7px 7px 7px 2px;
   background: var(--chrome-signal);
   color: var(--chrome-ink);
 }
@@ -52,14 +52,14 @@
 }
 .titlebar .tb-title b {
   font-family: var(--font-display);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 1;
 }
 .titlebar .tb-title small {
   color: var(--chrome-paper-muted);
-  font: 650 7.5px var(--font-shell);
+  font: 650 7px var(--font-shell);
   letter-spacing: 0.105em;
   line-height: 1;
   text-transform: uppercase;
@@ -71,11 +71,11 @@
 .tb-nav {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
 }
 .tb-nav-button {
-  width: 25px;
-  height: 24px;
+  width: 24px;
+  height: 22px;
   display: grid;
   place-items: center;
   padding: 0;

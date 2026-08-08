@@ -126,6 +126,8 @@ export function installApplicationMenu(opts: { isDev: boolean }): void {
             { label: 'Terminal', click: send('skin.terminal') },
             { label: 'Archive', click: send('skin.archive') },
             { label: 'Index', click: send('skin.index') },
+            { label: 'Atelier', click: send('skin.atelier') },
+            { label: 'Codex', click: send('skin.codex') },
           ],
         },
         ...(opts.isDev

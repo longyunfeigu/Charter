@@ -25,7 +25,7 @@ test.describe('Signal Desk product visual structure', () => {
       await expect(page.locator('.hm-eyebrow')).toHaveText(/New session brief/i);
       await expect(page.locator('.hm-hero h1')).toHaveText('What should we build?');
       await expect(page.getByTestId('home-intent')).toBeVisible();
-      await expect(page.locator('.titlebar')).toHaveCSS('height', '52px');
+      await expect(page.locator('.titlebar')).toHaveCSS('height', '42px');
       await expect(page.locator('.sr-rail')).toHaveCSS('width', '312px');
       await expect(page.locator('.sr-activity')).toHaveCSS('width', '78px');
 
@@ -50,7 +50,7 @@ test.describe('Signal Desk product visual structure', () => {
       await page.screenshot({ path: '/tmp/charter-signal-desk-home-wide.png' });
 
       const skinBackgrounds: string[] = [];
-      for (const skin of ['studio', 'archive', 'atelier', 'terminal', 'index']) {
+      for (const skin of ['studio', 'archive', 'atelier', 'terminal', 'index', 'codex']) {
         const resolved = await page.evaluate((nextSkin) => {
           document.documentElement.dataset.skin = nextSkin;
           document.documentElement.dataset.theme = 'light';
@@ -72,7 +72,7 @@ test.describe('Signal Desk product visual structure', () => {
         skinBackgrounds.push(resolved.titlebar);
         await page.screenshot({ path: `/tmp/charter-signal-desk-${skin}-light.png` });
       }
-      expect(new Set(skinBackgrounds).size).toBe(5);
+      expect(new Set(skinBackgrounds).size).toBe(6);
       await page.evaluate(() => {
         document.documentElement.dataset.skin = 'studio';
         document.documentElement.dataset.theme = 'light';

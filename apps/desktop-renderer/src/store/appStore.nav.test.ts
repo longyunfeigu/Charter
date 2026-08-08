@@ -13,6 +13,7 @@ function reset(): void {
     railView: 'sessions',
     savedSurfaces: {
       workbench: { kind: 'home' },
+      work: { kind: 'work' },
       missions: { kind: 'mission', missionId: null },
       projects: { kind: 'home' },
       memory: { kind: 'home' },

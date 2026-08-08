@@ -214,6 +214,13 @@ const PATHS: Record<string, React.JSX.Element> = {
       <path d="m13 6 6 6-6 6" />
     </>
   ),
+  bolt: <path d="m13 2-9 12h7l-1 8 9-12h-7z" />,
+  chart: (
+    <>
+      <path d="M3 3v18h18" />
+      <path d="m7 16 4-5 3 3 5-7" />
+    </>
+  ),
   alert: (
     <>
       <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />

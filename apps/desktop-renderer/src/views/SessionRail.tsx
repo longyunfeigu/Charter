@@ -852,7 +852,10 @@ export function SessionRail(): React.JSX.Element {
   const setView = (next: RailView): void => {
     if (next === 'missions') app.openMission(app.missionCenter?.missionId ?? null);
     else app.setRailView(next);
-    if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(true);
+    // Work owns the full board surface; it has no redundant contextual drawer.
+    // Keep only the compact global activity navigation at every viewport.
+    if (next === 'work') setCompactPanelOpen(false);
+    else if (window.matchMedia('(max-width: 1120px)').matches) setCompactPanelOpen(true);
     // Rail navigation dismisses the Remotes surface — switching the left panel
     // while the main area stays parked on hosts reads as a dead click.
     if (useAppStore.getState().remotesOpen) useAppStore.getState().closeRemotes();
@@ -2175,15 +2178,17 @@ export function SessionRail(): React.JSX.Element {
       aria-label={
         view === 'skills'
           ? 'Skills'
-          : view === 'memory'
-            ? 'Memory'
-            : view === 'missions'
-              ? 'Missions'
-              : view === 'projects'
-                ? 'Projects'
-                : view === 'inbox'
-                  ? 'For you'
-                  : 'Sessions'
+          : view === 'work'
+            ? 'Work'
+            : view === 'memory'
+              ? 'Memory'
+              : view === 'missions'
+                ? 'Missions'
+                : view === 'projects'
+                  ? 'Projects'
+                  : view === 'inbox'
+                    ? 'For you'
+                    : 'Sessions'
       }
       style={{ '--rail-width': `${railWidth}px` } as React.CSSProperties}
     >
@@ -2219,7 +2224,7 @@ export function SessionRail(): React.JSX.Element {
         >
           <Ic name="x" size={13} />
         </button>
-        {view === 'inbox' ? (
+        {view === 'work' ? null : view === 'inbox' ? (
           inboxPanel
         ) : view === 'missions' ? (
           <MissionRailPanel />

@@ -871,7 +871,14 @@ function UpdateSettingsSection(props: {
   );
 }
 
-const APPEARANCE_SKINS: AppearanceSkin[] = ['studio', 'terminal', 'archive', 'index', 'atelier'];
+const APPEARANCE_SKINS: AppearanceSkin[] = [
+  'studio',
+  'terminal',
+  'archive',
+  'index',
+  'atelier',
+  'codex',
+];
 
 function SkinPicker(props: {
   value: AppearanceSkin;

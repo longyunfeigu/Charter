@@ -87,8 +87,8 @@ describe('settings resolution (SET-002 / WS-014)', () => {
     });
   });
 
-  it('accepts the five coordinated application skins and rejects unknown ones', () => {
-    for (const skin of ['studio', 'terminal', 'archive', 'index', 'atelier'] as const) {
+  it('accepts the six coordinated application skins and rejects unknown ones', () => {
+    for (const skin of ['studio', 'terminal', 'archive', 'index', 'atelier', 'codex'] as const) {
       const { effective, issues } = resolveSettings({ general: { skin } }, undefined);
       expect(effective.general.skin).toBe(skin);
       expect(issues).toHaveLength(0);

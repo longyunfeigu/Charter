@@ -24,6 +24,8 @@ import type { BottomTab, SideBarView } from '@pi-ide/ipc-contracts';
 import { useTaskStore } from '../store/taskStore.js';
 import { stepZoom, ZOOM_DEFAULT } from '../views/ui-zoom.js';
 import { useTerminalStore } from '../views/TerminalPanel.js';
+import { WorkView } from '../views/WorkView.js';
+import { WorkReminderHost } from '../views/WorkReminderHost.js';
 
 function navigationLabel(
   snapshot: NavigationSnapshot | null,
@@ -213,6 +215,12 @@ function useRegisterCoreCommands(): void {
         run: () => void store.getState().updateSettings('global', { general: { skin: 'atelier' } }),
       },
       {
+        id: 'skin.codex',
+        title: 'Skin: Codex',
+        category: 'Preferences',
+        run: () => void store.getState().updateSettings('global', { general: { skin: 'codex' } }),
+      },
+      {
         id: 'view.zoomIn',
         title: 'Zoom In',
         category: 'View',
@@ -309,15 +317,17 @@ export function Workbench(): React.JSX.Element {
     ? { label: 'Remote Explorer', icon: 'server', title: 'Selected remote host overview' }
     : railView === 'missions'
       ? { label: 'Missions', icon: 'compass', title: 'Mission overview' }
-      : railView === 'projects'
-        ? { label: 'Projects', icon: 'folder', title: 'Project browser' }
-        : railView === 'inbox'
-          ? { label: 'For you', icon: 'inbox', title: 'Work needing your attention' }
-          : railView === 'memory'
-            ? { label: 'Memory', icon: 'brain', title: 'Agent and project memory' }
-            : railView === 'skills'
-              ? { label: 'Skills', icon: 'puzzle', title: 'Skills usage and installations' }
-              : { label: 'Sessions', icon: 'sessions', title: 'Session workspace' };
+      : railView === 'work'
+        ? { label: 'Work', icon: 'check', title: 'Task board' }
+        : railView === 'projects'
+          ? { label: 'Projects', icon: 'folder', title: 'Project browser' }
+          : railView === 'inbox'
+            ? { label: 'For you', icon: 'inbox', title: 'Work needing your attention' }
+            : railView === 'memory'
+              ? { label: 'Memory', icon: 'brain', title: 'Agent and project memory' }
+              : railView === 'skills'
+                ? { label: 'Skills', icon: 'puzzle', title: 'Skills usage and installations' }
+                : { label: 'Sessions', icon: 'sessions', title: 'Session workspace' };
   const openDestination =
     remotesOpen || railView === 'missions' || railView === 'sessions' || railView === 'files'
       ? (): void => {
@@ -481,7 +491,9 @@ export function Workbench(): React.JSX.Element {
 
       <div className="wb-main" inert={overlay !== 'none'}>
         {remotesOpen ? <RemoteRail /> : <SessionRail />}
-        {railView === 'memory' ? (
+        {railView === 'work' ? (
+          <WorkView />
+        ) : railView === 'memory' ? (
           <MemoryView />
         ) : railView === 'skills' ? (
           <SkillsView />
@@ -510,6 +522,7 @@ export function Workbench(): React.JSX.Element {
       </footer>
 
       <CommandPalette />
+      <WorkReminderHost />
 
       {overlay !== 'none' ? (
         <div

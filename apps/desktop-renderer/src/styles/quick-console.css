@@ -71,6 +71,15 @@
     0 38px 88px rgba(0, 0, 0, 0.5);
 }
 
+[data-skin='codex'] .quick-console-layer {
+  --qc-accent: #38c793;
+  --qc-accent-strong: #0d9f6e;
+  --qc-accent-fg: #ffffff;
+  --qc-shadow:
+    0 32px 78px rgba(16, 27, 21, 0.42),
+    0 0 0 1px color-mix(in srgb, var(--qc-accent) 12%, transparent);
+}
+
 .quick-console {
   position: absolute;
   top: var(--titlebar-height, 34px);

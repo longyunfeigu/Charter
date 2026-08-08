@@ -254,6 +254,38 @@ defineAppearanceTheme('charter-index-dark', 'vs-dark', {
   removed: '#ff405c',
   keywordBold: true,
 });
+defineAppearanceTheme('charter-codex-light', 'vs', {
+  background: '#fcfcfb',
+  foreground: '#242725',
+  muted: '#75807a',
+  faint: '#b2b8b4',
+  accent: '#0d9f6e',
+  keyword: '#6846c7',
+  string: '#087a55',
+  number: '#a95c16',
+  type: '#40649b',
+  fn: '#315fbd',
+  selection: '#cce9dd',
+  line: '#f1f3f1',
+  added: '#0d9f6e',
+  removed: '#d84f4f',
+});
+defineAppearanceTheme('charter-codex-dark', 'vs-dark', {
+  background: '#191b1a',
+  foreground: '#eef0ee',
+  muted: '#7d8781',
+  faint: '#4c524e',
+  accent: '#38c793',
+  keyword: '#b39af2',
+  string: '#70d8ad',
+  number: '#e7ae6b',
+  type: '#93b9e9',
+  fn: '#8bb4ef',
+  selection: '#225441',
+  line: '#202321',
+  added: '#38c793',
+  removed: '#ef7373',
+});
 
 export function monacoThemeName(): string {
   const skin = document.documentElement.dataset.skin ?? 'studio';

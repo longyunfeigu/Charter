@@ -82,6 +82,23 @@ import {
 } from './ssh.js';
 import { UpdateStateSchema } from './updates.js';
 import { AgentCatalogDtoSchema, AgentIdSchema } from './agents.js';
+import {
+  WorkBoardSnapshotDtoSchema,
+  WorkBoardColumnDtoSchema,
+  WorkEvidenceDtoSchema,
+  WorkEvidenceKindSchema,
+  WorkExecutionDtoSchema,
+  WorkExecutionRoleSchema,
+  WorkExecutionTargetKindSchema,
+  WorkItemCreateInputSchema,
+  WorkItemDetailDtoSchema,
+  WorkItemDtoSchema,
+  WorkItemFieldDefinitionSchema,
+  WorkItemStatusCategorySchema,
+  WorkItemTypeDtoSchema,
+  WorkItemUpdateInputSchema,
+  WorkReminderDtoSchema,
+} from './work-items.js';
 
 const SettingsStateSchema = z.object({
   effective: SettingsSchema,
@@ -273,6 +290,145 @@ export const CHANNELS = {
     1,
     z.object({ refresh: z.boolean().default(false) }).strict(),
     AgentCatalogDtoSchema,
+  ),
+  'workItem.snapshot': ch(
+    'workItem.snapshot',
+    1,
+    z.object({ includeArchived: z.boolean().default(false) }).strict(),
+    WorkBoardSnapshotDtoSchema,
+  ),
+  'workItem.get': ch(
+    'workItem.get',
+    1,
+    z.object({ id: z.string().min(1) }).strict(),
+    WorkItemDetailDtoSchema,
+  ),
+  'workItem.create': ch(
+    'workItem.create',
+    1,
+    WorkItemCreateInputSchema,
+    z.object({ item: WorkItemDtoSchema }).strict(),
+  ),
+  'workItem.update': ch(
+    'workItem.update',
+    1,
+    WorkItemUpdateInputSchema,
+    z.object({ item: WorkItemDtoSchema }).strict(),
+  ),
+  'workItem.move': ch(
+    'workItem.move',
+    1,
+    z
+      .object({
+        id: z.string().min(1),
+        columnId: z.string().min(1),
+        beforeId: z.string().min(1).nullable().default(null),
+        expectedVersion: z.number().int().positive(),
+      })
+      .strict(),
+    z.object({ item: WorkItemDtoSchema }).strict(),
+  ),
+  'workItem.archive': ch(
+    'workItem.archive',
+    1,
+    z
+      .object({ id: z.string().min(1), archived: z.boolean(), expectedVersion: z.number().int() })
+      .strict(),
+    z.object({ item: WorkItemDtoSchema }).strict(),
+  ),
+  'workItem.reminder.create': ch(
+    'workItem.reminder.create',
+    1,
+    z
+      .object({
+        workItemId: z.string().min(1),
+        remindAt: z.string().datetime(),
+        message: z.string().max(1000).default(''),
+      })
+      .strict(),
+    z.object({ reminder: WorkReminderDtoSchema }).strict(),
+  ),
+  'workItem.reminder.snooze': ch(
+    'workItem.reminder.snooze',
+    1,
+    z.object({ id: z.string().min(1), remindAt: z.string().datetime() }).strict(),
+    z.object({ reminder: WorkReminderDtoSchema }).strict(),
+  ),
+  'workItem.reminder.cancel': ch(
+    'workItem.reminder.cancel',
+    1,
+    z.object({ id: z.string().min(1) }).strict(),
+    z.object({ reminder: WorkReminderDtoSchema }).strict(),
+  ),
+  'workItem.execution.link': ch(
+    'workItem.execution.link',
+    1,
+    z
+      .object({
+        workItemId: z.string().min(1),
+        targetKind: WorkExecutionTargetKindSchema,
+        targetId: z.string().min(1).nullable().default(null),
+        role: WorkExecutionRoleSchema,
+        approach: z.string().max(500).default(''),
+        displayLabel: z.string().max(500).default(''),
+        agentLabel: z.string().max(500).default(''),
+        summary: z.string().max(5000).default(''),
+      })
+      .strict(),
+    z.object({ execution: WorkExecutionDtoSchema }).strict(),
+  ),
+  'workItem.execution.unlink': ch(
+    'workItem.execution.unlink',
+    1,
+    z.object({ id: z.string().min(1) }).strict(),
+    z.object({ removed: z.boolean() }).strict(),
+  ),
+  'workItem.evidence.add': ch(
+    'workItem.evidence.add',
+    1,
+    z
+      .object({
+        workItemId: z.string().min(1),
+        kind: WorkEvidenceKindSchema,
+        label: z.string().trim().min(1).max(500),
+        value: z.string().max(20_000).default(''),
+        createdBy: z.string().max(500).default('You'),
+      })
+      .strict(),
+    z.object({ evidence: WorkEvidenceDtoSchema }).strict(),
+  ),
+  'workItem.evidence.remove': ch(
+    'workItem.evidence.remove',
+    1,
+    z.object({ id: z.string().min(1) }).strict(),
+    z.object({ removed: z.boolean() }).strict(),
+  ),
+  'workItem.type.create': ch(
+    'workItem.type.create',
+    1,
+    z
+      .object({
+        name: z.string().trim().min(1).max(120),
+        icon: z.string().max(80).default('circle'),
+        color: z.string().max(40).default('#64748b'),
+        description: z.string().max(1000).default(''),
+        fieldDefinitions: z.array(WorkItemFieldDefinitionSchema).max(40).default([]),
+      })
+      .strict(),
+    z.object({ type: WorkItemTypeDtoSchema }).strict(),
+  ),
+  'workItem.column.create': ch(
+    'workItem.column.create',
+    1,
+    z
+      .object({
+        name: z.string().trim().min(1).max(120),
+        category: WorkItemStatusCategorySchema,
+        color: z.string().max(40).default('#64748b'),
+        wipLimit: z.number().int().positive().nullable().default(null),
+      })
+      .strict(),
+    z.object({ column: WorkBoardColumnDtoSchema }).strict(),
   ),
   'app.openExternal': ch(
     'app.openExternal',

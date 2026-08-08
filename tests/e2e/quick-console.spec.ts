@@ -34,7 +34,7 @@ test.describe('Ghostty-inspired quick console', () => {
         await Promise.all(element.getAnimations().map((animation) => animation.finished));
       });
 
-      const skins = ['studio', 'terminal', 'archive', 'index'] as const;
+      const skins = ['studio', 'terminal', 'archive', 'index', 'atelier', 'codex'] as const;
       const chrome = new Map<
         (typeof skins)[number],
         { head: string; canvas: string; radius: string; font: string }
@@ -77,7 +77,7 @@ test.describe('Ghostty-inspired quick console', () => {
         expect(darkChrome.canvas).toBe('rgb(36, 35, 31)');
       }
 
-      expect(new Set([...chrome.values()].map((value) => value.head)).size).toBe(4);
+      expect(new Set([...chrome.values()].map((value) => value.head)).size).toBe(6);
       expect(new Set([...chrome.values()].map((value) => value.canvas))).toEqual(
         new Set(['rgb(36, 35, 31)']),
       );
@@ -85,6 +85,8 @@ test.describe('Ghostty-inspired quick console', () => {
       expect(chrome.get('archive')?.radius).toBe('10px');
       expect(chrome.get('terminal')?.radius).toBe('3px');
       expect(chrome.get('index')?.radius).toBe('0px');
+      expect(chrome.get('atelier')?.radius).toBe('4px');
+      expect(chrome.get('codex')?.radius).toBe('12px');
       expect(new Set([...chrome.values()].map((value) => value.font)).size).toBeGreaterThan(2);
 
       await page.keyboard.press('Escape');

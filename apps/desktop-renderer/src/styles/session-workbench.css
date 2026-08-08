@@ -44,6 +44,16 @@
   min-width: var(--rail-width);
   grid-template-columns: var(--rail-compact-width) minmax(0, 1fr);
 }
+.sr-rail.view-work {
+  width: var(--rail-compact-width);
+  min-width: var(--rail-compact-width);
+  grid-template-columns: var(--rail-compact-width) 0;
+}
+.sr-rail.view-work .sr-panel,
+.sr-rail.view-work .sr-compact-backdrop,
+.sr-rail.view-work .sr-rail-resize {
+  display: none;
+}
 
 .sr-activity {
   width: var(--rail-compact-width);
