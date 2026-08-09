@@ -157,6 +157,8 @@ test.describe('M11-05 accessibility', () => {
       });
 
       await page.getByTestId('session-tool-diff').click();
+      // Design D (diff-panel-redesign): the diff expands only after picking a file.
+      await page.locator('[data-testid^="session-diff-file-"]').first().click();
       await expect(page.getByTestId('session-inline-diff')).toBeVisible();
 
       // Switch to the accessible text mode.

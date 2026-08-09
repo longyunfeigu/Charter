@@ -727,6 +727,7 @@ const ZH_CN = {
   'Copy diff': '复制差异',
   'Open advanced review': '打开高级审查',
   'Full review': '完整审查',
+  'Collapse diff': '收起差异',
   'Binary file — no inline text diff.': '二进制文件——没有行内文本差异。',
   'No text hunks recorded for this file.': '此文件没有记录文本差异块。',
   'No reviewable text changes were recorded.': '没有记录可审查的文本更改。',

@@ -1128,7 +1128,9 @@ button.hm-board-now:hover {
 }
 
 .session-diff-file-list > button.active {
+  background: var(--bg-selected);
   color: var(--fg);
+  box-shadow: inset 2.5px 0 0 var(--fg);
 }
 
 .session-diff-file-list > button > span:nth-child(2) {
@@ -1167,7 +1169,7 @@ button.hm-board-now:hover {
 .session-inline-diff > header {
   min-height: 48px;
   display: grid;
-  grid-template-columns: minmax(0, auto) 1fr auto 30px auto;
+  grid-template-columns: minmax(0, auto) 1fr auto 30px auto 30px;
   align-items: center;
   gap: 4px;
   padding: 0 13px 0 17px;

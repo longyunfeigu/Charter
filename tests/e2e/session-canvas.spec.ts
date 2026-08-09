@@ -124,10 +124,17 @@ test.describe('Unified Session Canvas', () => {
       await page.getByTestId('session-tool-diff').click();
       await expect(page.getByTestId('session-diff-review')).toBeVisible();
       await expect(page.locator('[data-testid^="session-diff-file-"]')).toHaveCount(3);
-      await expect(page.getByTestId('session-inline-diff')).toBeVisible();
+      // Design D (diff-panel-redesign): nothing expands until a file is picked.
+      await expect(page.getByTestId('session-inline-diff')).toHaveCount(0);
       await expect(page.locator('.session-diff-verification')).toContainText('1 check passed');
       await page.getByTestId('session-diff-file-src/index.ts').click();
+      await expect(page.getByTestId('session-inline-diff')).toBeVisible();
       await expect(page.getByTestId('session-inline-diff')).toContainText('src/index.ts');
+      // ✕ collapses the card; picking the file again reopens it.
+      await page.getByTestId('session-diff-collapse').click();
+      await expect(page.getByTestId('session-inline-diff')).toHaveCount(0);
+      await page.getByTestId('session-diff-file-src/index.ts').click();
+      await expect(page.getByTestId('session-inline-diff')).toBeVisible();
       const toastDismiss = page.locator('.toast button[aria-label="Dismiss"]');
       if (await toastDismiss.isVisible()) await toastDismiss.click();
       await expect(page.getByTestId('session-tool-expand')).toHaveAttribute('aria-pressed', 'true');

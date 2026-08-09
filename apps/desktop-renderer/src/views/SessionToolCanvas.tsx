@@ -426,8 +426,17 @@ function SessionDiffReview(props: {
   // "3 files" while the list visibly contains six aggregated worker changes.
   const displayedFiles = displayedDiffFiles(changeFiles, props.files);
   const requestedPath = peek?.taskId === props.task.id ? peek.active : null;
+  // Approved design D (docs/design/diff-panel-redesign.html): no file expands
+  // until the reviewer picks one, and the pick is reversible. Dismissal is
+  // view-local so collapsing the card never drops the shared peek tabs; any
+  // fresh openPeek (file row, rail, timeline) produces a new peek object and
+  // re-expands through the effect below.
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => setDismissed(false), [peek]);
   const selected =
-    changeFiles.find((file) => file.path === requestedPath) ?? changeFiles[0] ?? null;
+    !dismissed && requestedPath
+      ? (changeFiles.find((file) => file.path === requestedPath) ?? null)
+      : null;
 
   useEffect(() => setContextSelection(null), [selected?.path]);
 
@@ -490,7 +499,14 @@ function SessionDiffReview(props: {
     changeSet?.totalDeletions ??
     Object.values(props.fileStats).reduce((sum, stat) => sum + stat.deletions, 0);
 
-  const selectFile = (path: string): void => app.openPeek(props.task.id, path, 'diff');
+  const selectFile = (path: string): void => {
+    // Clicking the expanded file again collapses it (same as the ✕ button).
+    if (selected?.path === path) {
+      setDismissed(true);
+      return;
+    }
+    app.openPeek(props.task.id, path, 'diff');
+  };
   const copyPatch = async (): Promise<void> => {
     if (!selected) return;
     const patch = selected.hunks.flatMap((hunk) => [hunk.header, ...hunk.lines]).join('\n');
@@ -625,7 +641,7 @@ function SessionDiffReview(props: {
         </div>
       </section>
 
-      {loadingChangeSet && !selected ? (
+      {!selected && !dismissed && requestedPath && loadingChangeSet ? (
         <div className="session-diff-loading">Computing the review diff…</div>
       ) : selected ? (
         <section
@@ -680,6 +696,15 @@ function SessionDiffReview(props: {
             >
               <Ic name="sliders" size={14} />
               <span>Full review</span>
+            </button>
+            <button
+              type="button"
+              aria-label="Collapse diff"
+              title="Collapse diff"
+              data-testid="session-diff-collapse"
+              onClick={() => setDismissed(true)}
+            >
+              <Ic name="x" size={15} />
             </button>
           </header>
           {selected.binary ? (
@@ -747,9 +772,13 @@ function SessionDiffReview(props: {
             />
           ) : null}
         </section>
-      ) : (
-        <div className="session-diff-loading">No reviewable text changes were recorded.</div>
-      )}
+      ) : displayedFiles.length === 0 ? (
+        <div className="session-diff-loading">
+          {loadingChangeSet
+            ? 'Computing the review diff…'
+            : 'No reviewable text changes were recorded.'}
+        </div>
+      ) : null}
 
       <div className="visually-hidden" role="status" aria-live="polite" data-testid="diff-live">
         {announce}

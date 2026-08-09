@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diff 面板重设计 — 4 个交互方向</title>
+<style>
+  :root {
+    --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --font-mono: Menlo, Monaco, 'SF Mono', Consolas, 'Courier New', monospace;
+    --bg-app: #eceae5;
+    --bg-editor: #fbfaf7;
+    --bg-panel: #f6f5f1;
+    --bg-card: #ffffff;
+    --bg-chip: #edeae3;
+    --bg-hover: #e8e5de;
+    --bg-active: #e2dfd7;
+    --bg-selected: #e9e6df;
+    --border: #e5e1d8;
+    --border-soft: #edeae3;
+    --border-strong: #cfcabf;
+    --fg: #201e1a;
+    --fg-muted: #6e6a61;
+    --fg-faint: #a39e94;
+    --accent: #1b1a16;
+    --danger: #c4453d;
+    --success: #2f9e63;
+    --info: #3f7bd9;
+    --diff-add-bg: rgba(47, 158, 99, 0.14);
+    --diff-del-bg: rgba(196, 69, 61, 0.12);
+    --shadow-card: 0 1px 2px rgba(30, 26, 18, 0.05), 0 14px 40px rgba(30, 26, 18, 0.08);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg-app);
+    color: var(--fg);
+    font: 14px/1.6 var(--font-ui);
+  }
+  .page {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 40px 28px 120px;
+  }
+  h1 { font-size: 22px; font-weight: 620; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .lede { color: var(--fg-muted); font-size: 13.5px; margin: 0 0 10px; }
+  .problem {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin: 18px 0 26px;
+    font-size: 13px;
+    color: var(--fg-muted);
+  }
+  .problem b { color: var(--fg); }
+
+  /* variant switcher */
+  .switch {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    gap: 6px;
+    padding: 10px 0 14px;
+    background: linear-gradient(var(--bg-app) 80%, transparent);
+  }
+  .switch button {
+    flex: 1;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-card);
+    color: var(--fg-muted);
+    font: 550 13px var(--font-ui);
+    cursor: pointer;
+    text-align: left;
+  }
+  .switch button small { display: block; font-weight: 400; font-size: 11px; color: var(--fg-faint); margin-top: 2px; }
+  .switch button.on { border-color: var(--fg); color: var(--fg); box-shadow: 0 1px 0 var(--fg) inset 0 0 0; outline: 2px solid var(--fg); outline-offset: -1px; }
+  .variant { display: none; }
+  .variant.on { display: block; }
+
+  .note {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin: 16px 0 26px;
+    font-size: 12.5px;
+    color: var(--fg-muted);
+  }
+  .note > div {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+  .note b { display:block; color: var(--fg); font-size: 12px; margin-bottom: 4px; }
+  .note ul { margin: 0; padding-left: 16px; }
+  .note li { margin: 2px 0; }
+
+  /* ---------- the mocked canvas frame ---------- */
+  .frame {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--bg-card);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+  }
+  .frame-tabs {
+    display: flex;
+    gap: 22px;
+    padding: 0 22px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+  }
+  .frame-tabs span {
+    padding: 13px 2px 11px;
+    font-size: 13px;
+    color: var(--fg-muted);
+    border-bottom: 2px solid transparent;
+  }
+  .frame-tabs .cur { color: var(--fg); font-weight: 560; border-bottom-color: var(--fg); }
+  .canvas { padding: 21px 24px 28px; background: var(--bg-card); min-height: 430px; position: relative; }
+
+  .dr-head { display: flex; align-items: center; gap: 16px; min-height: 24px; margin-bottom: 13px; }
+  .dr-head h2 { margin: 0; font-size: 15px; font-weight: 520; letter-spacing: -0.01em; }
+  .grand { margin-left: auto; font: 13.5px var(--font-mono); white-space: nowrap; }
+  .plus { color: var(--success); font-style: normal; }
+  .minus { color: var(--danger); font-style: normal; }
+  .ghostbtn {
+    display: inline-flex; align-items: center; gap: 5px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--fg-muted);
+    font: 550 11px var(--font-ui); padding: 5px 9px; cursor: pointer;
+  }
+  .ghostbtn:hover { background: var(--bg-hover); color: var(--fg); }
+
+  /* file rows shared */
+  .ficon {
+    width: 19px; height: 19px; display: grid; place-items: center;
+    border: 1px solid var(--fg-faint); border-radius: 4px; color: var(--fg-muted);
+    font-size: 9px; flex: none;
+  }
+  .fstat { font: 11.5px var(--font-mono); white-space: nowrap; margin-left: auto; }
+  .badge-del {
+    font-size: 10px; font-weight: 600; color: var(--danger);
+    border: 1px solid rgba(196,69,61,.35); border-radius: 5px; padding: 1px 5px;
+  }
+
+  /* diff body shared */
+  .diffbody { overflow-x: auto; background: var(--bg-editor); }
+  .hunk {
+    padding: 7px 16px 7px 48px; font: 10.5px/18px var(--font-mono);
+    color: var(--fg-faint); background: var(--bg-panel);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .dl { display: grid; grid-template-columns: 38px 18px 1fr; font: 11.5px/20px var(--font-mono); color: var(--fg-muted); min-width: max-content; }
+  .dl .n { text-align: right; padding-right: 7px; border-right: 1px solid var(--border-soft); color: var(--fg-faint); user-select: none; }
+  .dl .m { text-align: center; user-select: none; }
+  .dl code { padding-left: 10px; white-space: pre; font-family: var(--font-mono); }
+  .dl.add { background: var(--diff-add-bg); }
+  .dl.add .m { color: var(--success); }
+  .dl.del { background: var(--diff-del-bg); }
+  .dl.del .m { color: var(--danger); }
+  .lazy {
+    padding: 14px 16px; font-size: 12px; color: var(--fg-muted); background: var(--bg-editor);
+    display: flex; align-items: center; gap: 12px;
+  }
+
+  /* toolbar inside an open diff */
+  .dtools { display: flex; align-items: center; gap: 4px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; padding: 4px 11px; font: 550 11px var(--font-ui); color: var(--fg-muted); cursor: pointer; }
+  .seg button.on { background: var(--bg-chip); color: var(--fg); }
+  .ibtn { width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--fg-muted); cursor: pointer; font-size: 13px; }
+  .ibtn:hover { background: var(--bg-hover); color: var(--fg); }
+
+  /* ============ A. 手风琴 ============ */
+  .acc { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg-card); }
+  .acc-item + .acc-item { border-top: 1px solid var(--border-soft); }
+  .acc-row {
+    width: 100%; min-height: 44px; display: flex; align-items: center; gap: 9px;
+    padding: 0 14px; border: 0; background: transparent; cursor: pointer;
+    font: 12px var(--font-ui); color: var(--fg-muted); text-align: left;
+  }
+  .acc-row:hover { background: rgba(232,229,222,.5); color: var(--fg); }
+  .acc-item.open .acc-row { color: var(--fg); }
+  .chev { flex: none; width: 12px; transition: transform .16s ease; color: var(--fg-faint); font-size: 10px; }
+  .acc-item.open .chev { transform: rotate(90deg); }
+  .acc-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .acc-panel { display: none; border-top: 1px solid var(--border-soft); }
+  .acc-item.open .acc-panel { display: block; }
+  .acc-toolbar {
+    display: flex; align-items: center; gap: 6px; padding: 7px 12px;
+    background: var(--bg-card); border-bottom: 1px solid var(--border-soft);
+  }
+  .acc-toolbar .sp { flex: 1; }
+
+  /* ============ B. 主从分栏 ============ */
+  .split { display: grid; grid-template-columns: 264px 1fr; gap: 16px; align-items: start; }
+  .split-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg-editor); }
+  .split-list button {
+    width: 100%; min-height: 44px; display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border: 0; border-top: 1px solid var(--border-soft);
+    background: transparent; color: var(--fg-muted); font: 12px var(--font-ui);
+    text-align: left; cursor: pointer;
+  }
+  .split-list button:first-child { border-top: 0; }
+  .split-list button:hover { background: rgba(232,229,222,.5); color: var(--fg); }
+  .split-list button.active { background: var(--bg-selected); color: var(--fg); box-shadow: inset 2.5px 0 0 var(--fg); }
+  .split-list .meta { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+  .split-list .meta .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .split-list .meta .s { font: 11px var(--font-mono); }
+  .split-detail { border: 1px solid var(--border); border-radius: 10px; background: var(--bg-editor); overflow: hidden; min-height: 320px; }
+  .split-empty {
+    min-height: 320px; display: grid; place-content: center; text-align: center;
+    color: var(--fg-faint); font-size: 12.5px; gap: 6px; padding: 30px;
+  }
+  .split-empty .big { font-size: 26px; }
+  .split-head {
+    display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px 0 15px;
+    border-bottom: 1px solid var(--border); background: var(--bg-card);
+  }
+  .split-head strong { font: 540 11.5px var(--font-mono); color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+
+  /* ============ C. 聚焦阅读层 ============ */
+  .c-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg-editor); }
+  .c-list button {
+    width: 100%; min-height: 46px; display: flex; align-items: center; gap: 9px;
+    padding: 0 14px; border: 0; border-top: 1px solid var(--border-soft);
+    background: transparent; color: var(--fg-muted); font: 12.5px var(--font-ui);
+    text-align: left; cursor: pointer;
+  }
+  .c-list button:first-child { border-top: 0; }
+  .c-list button:hover { background: rgba(232,229,222,.5); color: var(--fg); }
+  .c-list .go { margin-left: 6px; color: var(--fg-faint); font-size: 11px; }
+  .overlay {
+    position: absolute; inset: 0; z-index: 20; display: none;
+    background: var(--bg-card);
+    animation: rise .18s ease;
+  }
+  .overlay.on { display: flex; flex-direction: column; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .ov-head {
+    display: flex; align-items: center; gap: 8px; min-height: 50px;
+    padding: 0 14px 0 20px; border-bottom: 1px solid var(--border);
+  }
+  .ov-head strong { font: 560 12.5px var(--font-mono); }
+  .ov-count { color: var(--fg-faint); font-size: 11.5px; margin-left: 4px; }
+  .ov-body { flex: 1; overflow: auto; background: var(--bg-editor); }
+  .navbtn {
+    display: inline-flex; align-items: center; gap: 4px;
+    border: 1px solid var(--border); border-radius: 7px; background: var(--bg-card);
+    color: var(--fg-muted); font: 550 11px var(--font-ui); padding: 4px 9px; cursor: pointer;
+  }
+  .navbtn:disabled { opacity: .35; cursor: default; }
+  .navbtn:not(:disabled):hover { background: var(--bg-hover); color: var(--fg); }
+  .kbd { font: 10.5px var(--font-mono); border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; color: var(--fg-muted); background: var(--bg-panel); }
+
+  /* ============ D. 最小修正 ============ */
+  .d-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg-editor); }
+  .d-list button {
+    width: 100%; min-height: 42px; display: flex; align-items: center; gap: 8px;
+    padding: 0 14px; border: 0; border-top: 1px solid var(--border-soft);
+    background: transparent; color: var(--fg-muted); font: 12px var(--font-ui);
+    text-align: left; cursor: pointer;
+  }
+  .d-list button:first-child { border-top: 0; }
+  .d-list button:hover { background: rgba(232,229,222,.5); color: var(--fg); }
+  .d-list button.active { background: var(--bg-selected); color: var(--fg); box-shadow: inset 2.5px 0 0 var(--fg); }
+  .d-card { margin-top: 16px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg-editor); display: none; }
+  .d-card.on { display: block; }
+  .d-head {
+    display: flex; align-items: center; gap: 6px; min-height: 46px; padding: 0 10px 0 16px;
+    border-bottom: 1px solid var(--border); background: var(--bg-card);
+  }
+  .d-head strong { font: 540 11.5px var(--font-mono); color: var(--fg-muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Diff 面板重设计</h1>
+  <p class="lede">四个本质不同的交互方向，都解决同两个问题：<b>默认不展开任何 diff</b>、<b>展开之后随时收得起来</b>。内容用的是你截图里的真实改动。</p>
+  <div class="problem">
+    现状的病根：文件列表和下面的 diff 大卡片是两个割裂区域，代码里 <b>selected = 点击的文件 ?? 第一个文件</b>，所以一进来第一个文件的 diff 就自动全量展开；选中态只能换文件、没有任何"关闭"入口。
+  </div>
+
+  <div class="switch" role="tablist">
+    <button class="on" data-v="a">A · 手风琴<small>diff 就地展开在文件行下面（GitHub 式）</small></button>
+    <button data-v="b">B · 主从分栏<small>左边文件列表，右边 diff，默认空态</small></button>
+    <button data-v="c">C · 聚焦阅读层<small>列表极简，点开进入全屏阅读，Esc 退出</small></button>
+    <button data-v="d">D · 最小修正<small>保持现布局，只修默认展开和不可收起</small></button>
+  </div>
+
+  <!-- ================= A ================= -->
+  <section class="variant on" id="v-a">
+    <div class="frame">
+      <div class="frame-tabs"><span>File</span><span class="cur">Diff</span><span>Output</span><span>Terminal</span><span>Review</span></div>
+      <div class="canvas">
+        <div class="dr-head">
+          <h2>2 files changed</h2>
+          <button class="ghostbtn" id="a-toggle-all">全部展开</button>
+          <span class="grand"><i class="plus">+91</i> <i class="minus">−795</i></span>
+        </div>
+        <div class="acc" id="a-acc"></div>
+      </div>
+    </div>
+    <div class="note">
+      <div><b>交互规则</b>
+        <ul>
+          <li>默认全部收起，只看到文件清单和总量</li>
+          <li>点文件行 → diff 就地展开在这一行下面；再点一次 → 收起</li>
+          <li>可以同时展开多个文件，对照着看</li>
+          <li>右上角一键"全部展开 / 全部收起"</li>
+          <li>Inline / Text mode / 复制按钮跟着每个展开块走，不再有第二个重复文件名的表头</li>
+        </ul>
+      </div>
+      <div><b>取舍</b>
+        <ul>
+          <li>👍 和 GitHub PR 一个心智，零学习成本；上下文不跳</li>
+          <li>👍 结构最干净：一个列表，没有第二区域</li>
+          <li>👎 展开多个大文件后页面很长，需要靠滚动 + 收起管理</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= B ================= -->
+  <section class="variant" id="v-b">
+    <div class="frame">
+      <div class="frame-tabs"><span>File</span><span class="cur">Diff</span><span>Output</span><span>Terminal</span><span>Review</span></div>
+      <div class="canvas">
+        <div class="dr-head">
+          <h2>2 files changed</h2>
+          <span class="grand"><i class="plus">+91</i> <i class="minus">−795</i></span>
+        </div>
+        <div class="split">
+          <div class="split-list" id="b-list"></div>
+          <div class="split-detail" id="b-detail"></div>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <div><b>交互规则</b>
+        <ul>
+          <li>左列固定是文件列表，右侧默认是空态（只提示"选择文件查看改动"）</li>
+          <li>点文件 → 右侧显示它的 diff；再点同一个文件或点 diff 上的 × → 回到空态</li>
+          <li>diff 独占一列的高度，长文件滚动不影响列表</li>
+        </ul>
+      </div>
+      <div><b>取舍</b>
+        <ul>
+          <li>👍 文件多的时候最好用：列表永远在手边，切换零滚动</li>
+          <li>👍 一次只看一个文件，注意力集中</li>
+          <li>👎 横向被列表占掉 ~260px，宽 diff 行更容易横向滚动</li>
+          <li>👎 无法两个文件对照着看</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= C ================= -->
+  <section class="variant" id="v-c">
+    <div class="frame">
+      <div class="frame-tabs"><span>File</span><span class="cur">Diff</span><span>Output</span><span>Terminal</span><span>Review</span></div>
+      <div class="canvas" id="c-canvas">
+        <div class="dr-head">
+          <h2>2 files changed</h2>
+          <span class="grand"><i class="plus">+91</i> <i class="minus">−795</i></span>
+        </div>
+        <div class="c-list" id="c-list"></div>
+        <div class="overlay" id="c-overlay">
+          <div class="ov-head">
+            <button class="ibtn" id="c-close" title="关闭 (Esc)">✕</button>
+            <strong id="c-path"></strong>
+            <span class="ov-count" id="c-count"></span>
+            <span class="fstat" id="c-stat"></span>
+            <span style="width:10px"></span>
+            <button class="navbtn" id="c-prev">← 上一个</button>
+            <button class="navbtn" id="c-next">下一个 →</button>
+          </div>
+          <div class="ov-body" id="c-body"></div>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <div><b>交互规则</b>
+        <ul>
+          <li>Diff 页平时只有一张干净的文件清单</li>
+          <li>点文件 → 阅读层从下方浮起，占满整个画布，专心读这一个文件</li>
+          <li>顶部 ← → 在文件间切换（快捷键 ←/→），✕ 或 <span class="kbd">Esc</span> 回到清单</li>
+        </ul>
+      </div>
+      <div><b>取舍</b>
+        <ul>
+          <li>👍 阅读体验最好：全宽、全高、无干扰，"进入/退出"心智最清晰</li>
+          <li>👍 清单页极简，永远不乱</li>
+          <li>👎 清单和内容不同屏，扫一眼全部改动要多一次点击</li>
+          <li>👎 实现成本最高（浮层、键盘、焦点管理）</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= D ================= -->
+  <section class="variant" id="v-d">
+    <div class="frame">
+      <div class="frame-tabs"><span>File</span><span class="cur">Diff</span><span>Output</span><span>Terminal</span><span>Review</span></div>
+      <div class="canvas">
+        <div class="dr-head">
+          <h2>2 files changed</h2>
+          <span class="grand"><i class="plus">+91</i> <i class="minus">−795</i></span>
+        </div>
+        <div class="d-list" id="d-list"></div>
+        <div class="d-card" id="d-card">
+          <div class="d-head">
+            <strong id="d-path"></strong>
+            <div class="dtools">
+              <span class="seg"><button class="on">Inline</button><button>Text mode</button></span>
+              <button class="ibtn" title="Copy diff">⧉</button>
+              <button class="ibtn" id="d-close" title="收起">✕</button>
+            </div>
+          </div>
+          <div id="d-body"></div>
+        </div>
+      </div>
+    </div>
+    <div class="note">
+      <div><b>交互规则</b>
+        <ul>
+          <li>布局和现在完全一样：列表在上、diff 卡片在下</li>
+          <li>只改两点：默认不选中任何文件（下面没有卡片）；卡片右上角加 ✕，点它或再点当前文件行都能收起</li>
+          <li>选中的文件行有明确的高亮，和下面的卡片对得上</li>
+        </ul>
+      </div>
+      <div><b>取舍</b>
+        <ul>
+          <li>👍 改动最小、最快落地，风险最低</li>
+          <li>👎 列表和卡片"两个区域"的割裂感还在，只是不再失控</li>
+          <li>👎 文件多时，点下面卡片和上面列表之间来回跳，视线路径长</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ---------- 真实 diff 数据（来自截图里的改动） ---------- */
+const EARTH_LINES = [
+  { k:'ctx', n:1,  t:'<!DOCTYPE html>' },
+  { k:'ctx', n:2,  t:'<html lang="zh-CN">' },
+  { k:'ctx', n:3,  t:'<head>' },
+  { k:'ctx', n:4,  t:'<meta charset="UTF-8">' },
+  { k:'del', n:5,  t:'<meta name="viewport" content="width=device-width, initial-scale=1">' },
+  { k:'del', n:6,  t:'<title>地球绕着月球转</title>' },
+  { k:'add', n:5,  t:'<title>地球围绕月球公转</title>' },
+  { k:'ctx', n:6,  t:'<style>' },
+  { k:'del', n:8,  t:'  :root {' },
+  { k:'del', n:9,  t:'    --earth: 78px;' },
+  { k:'del', n:10, t:'    --moon: 140px;' },
+  { k:'del', n:11, t:'    --radius: 260px;      /* 公转半径 */' },
+  { k:'del', n:12, t:'    --orbit-period: 14s;  /* 公转一圈 */' },
+  { k:'del', n:13, t:'    --spin-period: 3.5s;  /* 自转一圈 */' },
+  { k:'add', n:7,  t:'  html, body {' },
+  { k:'add', n:8,  t:'    height: 100%;' },
+  { k:'add', n:9,  t:'    margin: 0;' },
+  { k:'add', n:10, t:'    background: radial-gradient(ellipse at center, #0a0e2a 0%, #000000 100%);' },
+  { k:'add', n:11, t:'    overflow: hidden;' },
+  { k:'add', n:12, t:'  }' },
+];
+
+const FILES = [
+  { path:'earth-around-moon.html', add:91, del:186, hunk:'@@ -1,238 +1,143 @@', lines:EARTH_LINES },
+  { path:'moon-explosion.html', add:0, del:609, deleted:true, hunk:'@@ -1,609 +0,0 @@', lines:null },
+];
+
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+function diffHtml(file){
+  if (file.deleted) {
+    return `<div class="lazy">该文件已被整个删除（−609 行）。<button class="ghostbtn" onclick="this.parentNode.outerHTML=window.__deletedBody">仍要查看删除内容</button></div>`;
+  }
+  const rows = file.lines.map(l =>
+    `<div class="dl ${l.k==='add'?'add':l.k==='del'?'del':''}"><span class="n">${l.n}</span><span class="m">${l.k==='add'?'+':l.k==='del'?'−':''}</span><code>${esc(l.t)}</code></div>`
+  ).join('');
+  return `<div class="diffbody"><div class="hunk">${file.hunk}</div>${rows}</div>`;
+}
+window.__deletedBody = `<div class="diffbody"><div class="hunk">@@ -1,609 +0,0 @@</div>` +
+  ['<!DOCTYPE html>','<html lang="zh-CN">','<head>','<meta charset="UTF-8">','<title>月球爆炸</title>','<style>','  html, body { height: 100%; margin: 0; }','  /* … 其余 602 行删除内容 … */']
+  .map((t,i)=>`<div class="dl del"><span class="n">${i+1}</span><span class="m">−</span><code>${esc(t)}</code></div>`).join('') + `</div>`;
+
+const statHtml = f => `<span class="fstat"><i class="plus">+${f.add}</i> <i class="minus">−${f.del}</i></span>`;
+const toolsHtml = `<div class="dtools"><span class="seg"><button class="on">Inline</button><button>Text mode</button></span><button class="ibtn" title="Copy diff">⧉</button></div>`;
+
+/* ---------- 方案切换 ---------- */
+document.querySelectorAll('.switch button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.switch button').forEach(b => b.classList.toggle('on', b===btn));
+    document.querySelectorAll('.variant').forEach(v => v.classList.toggle('on', v.id === 'v-'+btn.dataset.v));
+  });
+});
+
+/* ---------- A 手风琴 ---------- */
+const aAcc = document.getElementById('a-acc');
+aAcc.innerHTML = FILES.map((f,i) => `
+  <div class="acc-item" data-i="${i}">
+    <button class="acc-row">
+      <span class="chev">▶</span>
+      <span class="ficon">&lt;/&gt;</span>
+      <span class="acc-path">${f.path}</span>
+      ${f.deleted ? '<span class="badge-del">已删除</span>' : ''}
+      ${statHtml(f)}
+    </button>
+    <div class="acc-panel">
+      <div class="acc-toolbar">${toolsHtml}<span class="sp"></span><button class="ghostbtn">Full review</button></div>
+      ${diffHtml(f)}
+    </div>
+  </div>`).join('');
+aAcc.querySelectorAll('.acc-row').forEach(row => {
+  row.addEventListener('click', () => row.parentNode.classList.toggle('open'));
+});
+const aToggle = document.getElementById('a-toggle-all');
+aToggle.addEventListener('click', () => {
+  const items = [...aAcc.querySelectorAll('.acc-item')];
+  const anyClosed = items.some(it => !it.classList.contains('open'));
+  items.forEach(it => it.classList.toggle('open', anyClosed));
+  aToggle.textContent = anyClosed ? '全部收起' : '全部展开';
+});
+
+/* ---------- B 主从分栏 ---------- */
+const bList = document.getElementById('b-list');
+const bDetail = document.getElementById('b-detail');
+let bSel = -1;
+bList.innerHTML = FILES.map((f,i) => `
+  <button data-i="${i}">
+    <span class="ficon">&lt;/&gt;</span>
+    <span class="meta"><span class="p">${f.path}</span>
+    <span class="s"><i class="plus">+${f.add}</i> <i class="minus">−${f.del}</i></span></span>
+  </button>`).join('');
+function bRender(){
+  bList.querySelectorAll('button').forEach((b,i)=>b.classList.toggle('active', i===bSel));
+  if (bSel < 0) {
+    bDetail.innerHTML = `<div class="split-empty"><span class="big">⇤</span><span>从左侧选择一个文件查看改动</span><span style="font-family:var(--font-mono)"><i class="plus">+91</i> <i class="minus">−795</i> · 2 个文件</span></div>`;
+    return;
+  }
+  const f = FILES[bSel];
+  bDetail.innerHTML = `
+    <div class="split-head"><strong>${f.path}</strong>${toolsHtml}<button class="ibtn" title="收起" id="b-close">✕</button></div>
+    ${diffHtml(f)}`;
+  document.getElementById('b-close').addEventListener('click', () => { bSel = -1; bRender(); });
+}
+bList.addEventListener('click', e => {
+  const btn = e.target.closest('button[data-i]');
+  if (!btn) return;
+  const i = Number(btn.dataset.i);
+  bSel = (bSel === i) ? -1 : i;
+  bRender();
+});
+bRender();
+
+/* ---------- C 聚焦阅读层 ---------- */
+const cList = document.getElementById('c-list');
+const cOverlay = document.getElementById('c-overlay');
+let cSel = -1;
+cList.innerHTML = FILES.map((f,i) => `
+  <button data-i="${i}">
+    <span class="ficon">&lt;/&gt;</span>
+    <span class="acc-path">${f.path}</span>
+    ${f.deleted ? '<span class="badge-del">已删除</span>' : ''}
+    ${statHtml(f)}
+    <span class="go">查看 ›</span>
+  </button>`).join('');
+function cOpen(i){
+  cSel = i;
+  const f = FILES[i];
+  document.getElementById('c-path').textContent = f.path;
+  document.getElementById('c-count').textContent = `${i+1} / ${FILES.length}`;
+  document.getElementById('c-stat').innerHTML = `<i class="plus">+${f.add}</i> <i class="minus">−${f.del}</i>`;
+  document.getElementById('c-body').innerHTML = diffHtml(f);
+  document.getElementById('c-prev').disabled = i === 0;
+  document.getElementById('c-next').disabled = i === FILES.length-1;
+  cOverlay.classList.add('on');
+}
+function cClose(){ cSel = -1; cOverlay.classList.remove('on'); }
+cList.addEventListener('click', e => {
+  const btn = e.target.closest('button[data-i]');
+  if (btn) cOpen(Number(btn.dataset.i));
+});
+document.getElementById('c-close').addEventListener('click', cClose);
+document.getElementById('c-prev').addEventListener('click', () => cOpen(cSel-1));
+document.getElementById('c-next').addEventListener('click', () => cOpen(cSel+1));
+document.addEventListener('keydown', e => {
+  if (!cOverlay.classList.contains('on')) return;
+  if (e.key === 'Escape') cClose();
+  if (e.key === 'ArrowLeft' && cSel > 0) cOpen(cSel-1);
+  if (e.key === 'ArrowRight' && cSel < FILES.length-1) cOpen(cSel+1);
+});
+
+/* ---------- D 最小修正 ---------- */
+const dList = document.getElementById('d-list');
+const dCard = document.getElementById('d-card');
+let dSel = -1;
+dList.innerHTML = FILES.map((f,i) => `
+  <button data-i="${i}">
+    <span class="ficon">&lt;/&gt;</span>
+    <span class="acc-path">${f.path}</span>
+    ${statHtml(f)}
+  </button>`).join('');
+function dRender(){
+  dList.querySelectorAll('button').forEach((b,i)=>b.classList.toggle('active', i===dSel));
+  if (dSel < 0) { dCard.classList.remove('on'); return; }
+  const f = FILES[dSel];
+  document.getElementById('d-path').textContent = f.path;
+  document.getElementById('d-body').innerHTML = diffHtml(f);
+  dCard.classList.add('on');
+}
+dList.addEventListener('click', e => {
+  const btn = e.target.closest('button[data-i]');
+  if (!btn) return;
+  const i = Number(btn.dataset.i);
+  dSel = (dSel === i) ? -1 : i;
+  dRender();
+});
+document.getElementById('d-close').addEventListener('click', () => { dSel = -1; dRender(); });
+</script>
+</body>
+</html>

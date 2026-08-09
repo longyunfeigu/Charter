@@ -1055,6 +1055,8 @@ test.describe('ADR-0017 external CLI agent sessions', () => {
       await expect(page.getByTestId('session-diff-file-silent-new.html')).toBeVisible({
         timeout: 15_000,
       });
+      // Design D (diff-panel-redesign): the diff expands only after picking a file.
+      await page.getByTestId('session-diff-file-silent-new.html').click();
       await expect(page.getByTestId('session-inline-diff')).toContainText('silent write');
       await page.waitForTimeout(250);
       await page.screenshot({ path: '/tmp/charter-external-delayed-write-diff.png' });
