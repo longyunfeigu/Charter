@@ -57,6 +57,17 @@ test.describe('Project Files — one canonical tree in the rail', () => {
       await expect(page.getByTestId('search-input')).toBeFocused();
       await page.getByTestId('project-tool-changes').click();
       await expect(page.getByTestId('scm-view')).toBeVisible();
+
+      // The divider between the tool column and the editor is user-resizable
+      // (drag / arrows / Home reset), persisted per user.
+      const resizeHandle = page.getByTestId('project-context-resize');
+      await expect(resizeHandle).toBeVisible();
+      await resizeHandle.focus();
+      await page.keyboard.press('ArrowRight');
+      await expect(resizeHandle).toHaveAttribute('aria-valuenow', '288');
+      await page.keyboard.press('Home');
+      await expect(resizeHandle).toHaveAttribute('aria-valuenow', '278');
+
       await page.getByTestId('project-tool-changes').click();
       await expect(page.locator('.project-tool-body')).toHaveClass(/context-collapsed/);
       await expect(page.getByTestId('project-tool-context')).toHaveAttribute('aria-hidden', 'true');

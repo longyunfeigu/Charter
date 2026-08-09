@@ -2062,6 +2062,139 @@ kbd {
   color: var(--fg);
 }
 
+/* ---------- git diff as an editor tab (ADR-0057) ---------- */
+.git-diff-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-editor);
+}
+.gd-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  font-size: 12px;
+}
+.gd-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--fg);
+}
+.gd-name {
+  overflow: hidden;
+  max-width: 320px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.gd-scope {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.gd-stats i {
+  font-style: normal;
+}
+.gd-stats .plus {
+  color: var(--success);
+}
+.gd-stats .minus {
+  color: var(--danger);
+}
+.gd-clean,
+.gd-ro,
+.gd-live {
+  color: var(--fg-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.gd-live {
+  color: var(--success);
+}
+.gd-sp {
+  flex: 1;
+}
+.gd-head .ghostbtn {
+  padding: 3px 10px;
+  font-size: 11px;
+}
+.gd-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.gd-monaco {
+  position: absolute;
+  inset: 0;
+}
+.gd-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 20px;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+}
+
+.tab-diff-badge {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--fg-faint);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+/* ---------- SCM change rows ---------- */
+.scm-entry {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px;
+}
+/* Row actions surface on hover/focus; opacity (not visibility) keeps them
+ * keyboard-focusable and click-targetable at all times. */
+.scm-entry .scm-act {
+  opacity: 0;
+}
+.scm-entry:hover .scm-act,
+.scm-entry:focus-within .scm-act {
+  opacity: 1;
+}
+.scm-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.scm-act:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.scm-act.danger:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
 /* ---------- Tasks sidebar view (editor surface) ---------- */
 .tv-head {
   display: flex;

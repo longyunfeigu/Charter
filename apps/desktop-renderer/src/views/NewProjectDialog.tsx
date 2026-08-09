@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { rpcResult } from '../bridge.js';
 import { useAppStore } from '../store/appStore.js';
 import { Ic } from './home-icons.js';
@@ -69,7 +70,8 @@ export function NewProjectDialog(props: { onClose: () => void }): React.JSX.Elem
     props.onClose();
   };
 
-  return (
+  // Portaled to <body>: inside .hm-root the Session rail would paint over it.
+  return createPortal(
     <div className="modal-backdrop" data-testid="new-project-dialog">
       <div className="modal" style={{ width: 460 }} role="dialog" aria-label="New project">
         <div className="modal-header">
@@ -203,6 +205,7 @@ export function NewProjectDialog(props: { onClose: () => void }): React.JSX.Elem
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

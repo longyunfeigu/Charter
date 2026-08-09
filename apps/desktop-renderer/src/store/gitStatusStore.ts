@@ -89,6 +89,16 @@ export const useGitStatusStore = create<GitStatusStore>((set, get) => ({
         void get().refresh();
       }, 250);
     });
+    // Index-only transitions (stage/unstage/commit/branch switch) touch .git
+    // but not the working tree, so the fs watcher never sees them — without
+    // this, a commit clears the Changes panel while the tree stays decorated.
+    onEvent('git.changed', () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        void get().refresh();
+      }, 250);
+    });
     void get().refresh();
   },
 
@@ -98,18 +108,21 @@ export const useGitStatusStore = create<GitStatusStore>((set, get) => ({
       rpcResult('task.agentFileMarks', {}),
     ]);
     const byPath: Record<string, GitMark> = {};
-    // Agent change records first …
-    if (agentRes.ok) {
-      for (const m of agentRes.data.marks) byPath[m.path] = m.mark;
-    }
-    // … git overrides per path when the project is a repo (it also sees user edits).
     const isRepo = gitRes.ok && gitRes.data.isRepo;
     const statByPath: Record<string, DiffStat> = {};
-    if (gitRes.ok && gitRes.data.isRepo) {
+    if (isRepo && gitRes.ok) {
+      // In a repo git is authoritative for the WHOLE tree, not just the paths
+      // it reports: a committed file is clean even while its task's change
+      // record lives on. Overlaying agent marks here kept files green after
+      // the user committed them (2026-08-09 acceptance finding). Everything an
+      // agent writes on disk is visible to git anyway.
       for (const entry of gitRes.data.entries) byPath[entry.path] = markOf(entry);
       for (const s of gitRes.data.stats) {
         statByPath[s.path] = { insertions: s.insertions, deletions: s.deletions };
       }
+    } else if (agentRes.ok) {
+      // No git: the product's own change records are the only source.
+      for (const m of agentRes.data.marks) byPath[m.path] = m.mark;
     }
     const dirty: Record<string, true> = {};
     for (const path of Object.keys(byPath)) {

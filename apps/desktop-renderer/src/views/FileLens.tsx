@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ChangeSetDto } from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
 import { useActivityStore } from '../store/activityStore.js';
@@ -54,7 +55,9 @@ export function FileLens(props: {
 
   const file = changeSet?.files.find((f) => f.path === props.path) ?? null;
 
-  return (
+  // Portaled to <body>: inside .hm-root the Session rail would paint over the
+  // backdrop's left edge (ADR-0057 overlay discipline).
+  return createPortal(
     <div
       className="fl-backdrop"
       data-testid="file-lens"
@@ -114,6 +117,7 @@ export function FileLens(props: {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

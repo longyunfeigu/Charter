@@ -1,11 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import type { ChannelResponse } from '@pi-ide/ipc-contracts';
-import { monaco, monacoFontFamily, monacoThemeName } from '../monaco-setup.js';
 import { onEvent, rpcResult } from '../bridge.js';
 import { useAppStore } from '../store/appStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useEditorStore } from '../store/editorStore.js';
+import { t } from '../i18n.js';
+import { Ic } from './home-icons.js';
 
 type GitStatusDto = ChannelResponse<'git.status'>;
 
@@ -17,7 +19,6 @@ interface GitStore {
   refreshing: boolean;
   message: string;
   committing: boolean;
-  diffTarget: { path: string; staged: boolean } | null;
   discardConfirm: string[] | null;
   branchPickerOpen: boolean;
   initialized: boolean;
@@ -30,7 +31,6 @@ interface GitStore {
   requestDiscard(paths: string[]): void;
   confirmDiscard(confirmed: boolean): Promise<void>;
   commit(): Promise<void>;
-  openDiff(path: string, staged: boolean): void;
   setBranchPickerOpen(open: boolean): void;
 }
 
@@ -39,7 +39,6 @@ export const useGitStore = create<GitStore>((set, get) => ({
   refreshing: false,
   message: '',
   committing: false,
-  diffTarget: null,
   discardConfirm: null,
   branchPickerOpen: false,
   initialized: false,
@@ -116,9 +115,6 @@ export const useGitStore = create<GitStore>((set, get) => ({
       useAppStore.getState().pushToast('error', `${res.error.userMessage}`);
     }
   },
-  openDiff(path, staged) {
-    set({ diffTarget: { path, staged } });
-  },
   setBranchPickerOpen(open) {
     set({ branchPickerOpen: open });
   },
@@ -131,7 +127,15 @@ const GROUPS: Array<{ id: 'conflict' | 'staged' | 'changes' | 'untracked'; label
   { id: 'untracked', label: 'Untracked' },
 ];
 
-export function ScmView(): React.JSX.Element {
+export function ScmView({
+  onDidOpenTarget,
+}: {
+  /**
+   * Fired after a click opened a diff/file in the editor — hosts whose editor
+   * is not beside the change list (Terminal Session tools) flip to it here.
+   */
+  onDidOpenTarget?: () => void;
+} = {}): React.JSX.Element {
   const store = useGitStore();
   const workspace = useWorkspaceStore((s) => s.workspace);
 
@@ -140,6 +144,23 @@ export function ScmView(): React.JSX.Element {
     if (workspace && !store.status) void store.refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace]);
+
+  // ADR-0057: changes open as diff TABS in the adjacent editor, never a modal.
+  // Untracked and conflicted files have nothing meaningful to diff against —
+  // open the file itself (conflict markers are content).
+  const openEntry = (path: string, group: string): void => {
+    // git-service enumerates untracked files individually (-uall), so a
+    // directory row should never appear — but a "dir/" path is not a document
+    // and must never reach doc.open.
+    if (path.endsWith('/')) return;
+    const editor = useEditorStore.getState();
+    if (group === 'untracked' || group === 'conflict') {
+      void editor.openFile(path);
+    } else {
+      void editor.openDiff(path, { staged: group === 'staged' });
+    }
+    onDidOpenTarget?.();
+  };
 
   if (!workspace) return <div className="empty-state">Open a workspace to use source control.</div>;
 
@@ -182,7 +203,7 @@ export function ScmView(): React.JSX.Element {
       <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
         <textarea
           data-testid="commit-message"
-          placeholder={`Commit message (${status?.branch ?? 'no branch'})`}
+          placeholder={`${t('Commit message')} (${status?.branch ?? t('no branch')})`}
           value={store.message}
           rows={2}
           style={{
@@ -238,14 +259,16 @@ export function ScmView(): React.JSX.Element {
               {entries.map((entry) => (
                 <div
                   key={`${group.id}-${entry.path}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '1px 4px' }}
+                  className="scm-entry"
                   data-testid={`scm-entry-${entry.path}`}
                 >
                   <button
                     className="quickpick-item"
                     style={{ flex: 1, padding: '3px 6px', minWidth: 0 }}
+                    // The row text truncates, so the tooltip's job is the FULL
+                    // path (2026-08-09 acceptance feedback), not the action.
                     title={entry.path}
-                    onClick={() => store.openDiff(entry.path, group.id === 'staged')}
+                    onClick={() => openEntry(entry.path, group.id)}
                   >
                     <span
                       className="mono"
@@ -253,38 +276,42 @@ export function ScmView(): React.JSX.Element {
                     >
                       {entry.path}
                     </span>
-                    <span className="qp-detail">
+                    <span className="qp-detail" data-i18n-ignore>
                       {group.id === 'staged' ? entry.indexState : entry.workState}
                     </span>
                   </button>
                   {group.id === 'staged' ? (
                     <button
-                      className="modal-close"
-                      title="Unstage"
+                      className="scm-act"
+                      title={t('Unstage file')}
                       aria-label={`Unstage ${entry.path}`}
                       data-testid={`unstage-${entry.path}`}
                       onClick={() => void store.unstage([entry.path])}
                     >
-                      −
+                      <Ic name="minus" size={13} />
                     </button>
                   ) : (
                     <>
                       <button
-                        className="modal-close"
-                        title="Discard changes"
+                        className="scm-act danger"
+                        title={
+                          group.id === 'untracked'
+                            ? t('Discard (deletes the untracked file)')
+                            : t('Discard changes')
+                        }
                         aria-label={`Discard ${entry.path}`}
                         onClick={() => store.requestDiscard([entry.path])}
                       >
-                        ↩
+                        <Ic name="undo" size={13} />
                       </button>
                       <button
-                        className="modal-close"
-                        title="Stage"
+                        className="scm-act"
+                        title={t('Stage file')}
                         aria-label={`Stage ${entry.path}`}
                         data-testid={`stage-${entry.path}`}
                         onClick={() => void store.stage([entry.path])}
                       >
-                        ＋
+                        <Ic name="plus" size={13} />
                       </button>
                     </>
                   )}
@@ -295,7 +322,6 @@ export function ScmView(): React.JSX.Element {
         })}
       </div>
 
-      {store.diffTarget ? <GitDiffModal target={store.diffTarget} /> : null}
       {store.discardConfirm ? <DiscardConfirm paths={store.discardConfirm} /> : null}
     </div>
   );
@@ -303,7 +329,8 @@ export function ScmView(): React.JSX.Element {
 
 function DiscardConfirm({ paths }: { paths: string[] }): React.JSX.Element {
   const confirmDiscard = useGitStore((s) => s.confirmDiscard);
-  return (
+  // Portaled to <body>: inside .hm-root the Session rail would paint over it.
+  return createPortal(
     <div className="modal-backdrop">
       <div
         className="modal small"
@@ -336,86 +363,8 @@ function DiscardConfirm({ paths }: { paths: string[] }): React.JSX.Element {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function GitDiffModal({
-  target,
-}: {
-  target: { path: string; staged: boolean };
-}): React.JSX.Element {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const [inline, setInline] = useState(false);
-  const diffRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
-
-  useEffect(() => {
-    let disposed = false;
-    let models: monaco.editor.ITextModel[] = [];
-    void (async () => {
-      const [headRes, diskRes] = await Promise.all([
-        rpcResult('git.show', { path: target.path, ref: 'HEAD' }),
-        rpcResult('doc.readDisk', { path: target.path }),
-      ]);
-      if (disposed || !hostRef.current) return;
-      const original = headRes.ok ? headRes.data.content : '';
-      const modified = diskRes.ok && diskRes.data.exists ? diskRes.data.content : '';
-      const originalModel = monaco.editor.createModel(original, undefined);
-      const modifiedModel = monaco.editor.createModel(modified, undefined);
-      models = [originalModel, modifiedModel];
-      const diffEditor = monaco.editor.createDiffEditor(hostRef.current, {
-        automaticLayout: true,
-        readOnly: true,
-        renderSideBySide: !inline,
-        hideUnchangedRegions: { enabled: true },
-        fontFamily: monacoFontFamily(),
-        theme: monacoThemeName(),
-      });
-      diffEditor.setModel({ original: originalModel, modified: modifiedModel });
-      diffRef.current = diffEditor;
-    })();
-    return () => {
-      disposed = true;
-      diffRef.current?.dispose();
-      for (const model of models) model.dispose();
-    };
-  }, [target, inline]);
-
-  return (
-    <div className="modal-backdrop">
-      <div className="modal" style={{ width: '94vw', height: '86vh' }} data-testid="git-diff-modal">
-        <div className="modal-header">
-          <span>
-            {target.staged ? 'Staged' : 'Working tree'} diff —{' '}
-            <span className="mono">{target.path}</span>
-          </span>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn" onClick={() => setInline(!inline)}>
-              {inline ? 'Side by side' : 'Inline'}
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                useGitStore.setState({ diffTarget: null });
-                void useEditorStore.getState().openFile(target.path);
-              }}
-            >
-              Open file
-            </button>
-            <button
-              className="modal-close"
-              aria-label="Close"
-              onClick={() => useGitStore.setState({ diffTarget: null })}
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-        <div className="modal-body" style={{ overflow: 'hidden' }}>
-          <div ref={hostRef} style={{ width: '100%', height: '100%' }} />
-        </div>
-      </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

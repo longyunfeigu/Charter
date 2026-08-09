@@ -52,6 +52,18 @@ describe('GitService (GIT-001/002/008)', () => {
     expect(byPath['sub/staged.txt']!.group).toBe('staged');
   });
 
+  it('enumerates files inside untracked directories — never a "dir/" row (ADR-0057)', async () => {
+    mkdirSync(join(root, 'examples/nested'), { recursive: true });
+    writeFileSync(join(root, 'examples/demo.html'), '<html></html>\n');
+    writeFileSync(join(root, 'examples/nested/deep.txt'), 'deep\n');
+
+    const status = await git.status();
+    const paths = status.entries.filter((e) => e.group === 'untracked').map((e) => e.path);
+    expect(paths).toContain('examples/demo.html');
+    expect(paths).toContain('examples/nested/deep.txt');
+    expect(paths.some((p) => p.endsWith('/'))).toBe(false);
+  });
+
   it('stage / unstage / discard round-trip matches git CLI', async () => {
     writeFileSync(join(root, 'tracked.txt'), 'modified\n');
     await git.stage(['tracked.txt']);

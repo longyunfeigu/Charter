@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import {
   DEFAULT_TERMINAL_FONT_FAMILY,
@@ -16,6 +17,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { onEvent, rpcResult, send } from '../bridge.js';
+import { t } from '../i18n.js';
 import { okOrToast, useAppStore } from '../store/appStore.js';
 import { useEditorStore } from '../store/editorStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
@@ -890,7 +892,9 @@ function showLinkHint(event: MouseEvent, text: string): void {
     linkHint.className = 'terminal-link-hint';
     document.body.appendChild(linkHint);
   }
-  linkHint.textContent = text;
+  // The hint div hangs off <body>, outside the localized chrome root —
+  // translate here (exact-match; raw URLs pass through untouched).
+  linkHint.textContent = t(text);
   linkHint.style.left = `${Math.min(event.clientX + 12, window.innerWidth - 280)}px`;
   linkHint.style.top = `${event.clientY + 18}px`;
   linkHint.style.display = 'block';
@@ -908,7 +912,10 @@ function openModifierHeld(event: MouseEvent): boolean {
     lastModifierHintAt = now;
     useAppStore
       .getState()
-      .pushToast('info', `Hold ${isMac ? '⌘' : 'Ctrl'} and click to open the link.`);
+      .pushToast(
+        'info',
+        t(isMac ? 'Hold ⌘ and click to open the link.' : 'Hold Ctrl and click to open the link.'),
+      );
   }
   return false;
 }
@@ -2236,7 +2243,8 @@ function NewTerminalDialog({
     }
   };
 
-  return (
+  // Portaled to <body>: inside .hm-root the Session rail would paint over it.
+  return createPortal(
     <div
       className="terminal-create-backdrop"
       data-testid="terminal-create-dialog"
@@ -2392,7 +2400,8 @@ function NewTerminalDialog({
           </button>
         </footer>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -2749,31 +2758,35 @@ export function TerminalPanel({ scope = { kind: 'all' } }: TerminalPanelProps): 
 
       <NewTerminalDialog open={newTerminalOpen} onClose={() => setNewTerminalOpen(false)} />
 
-      {store.pendingKill ? (
-        <div className="modal-backdrop">
-          <div className="modal small" role="dialog" data-testid="terminal-kill-confirm">
-            <div className="modal-header">Terminal has running processes</div>
-            <div style={{ padding: 16 }}>
-              <p>Closing this terminal will terminate its running processes.</p>
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button
-                  className="btn"
-                  onClick={() => void store.confirmKill(store.pendingKill!, false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="btn danger"
-                  data-testid="terminal-kill-force"
-                  onClick={() => void store.confirmKill(store.pendingKill!, true)}
-                >
-                  Kill and close
-                </button>
+      {store.pendingKill
+        ? // Portaled to <body>: inside .hm-root the Session rail would paint over it.
+          createPortal(
+            <div className="modal-backdrop">
+              <div className="modal small" role="dialog" data-testid="terminal-kill-confirm">
+                <div className="modal-header">Terminal has running processes</div>
+                <div style={{ padding: 16 }}>
+                  <p>Closing this terminal will terminate its running processes.</p>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button
+                      className="btn"
+                      onClick={() => void store.confirmKill(store.pendingKill!, false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="btn danger"
+                      data-testid="terminal-kill-force"
+                      onClick={() => void store.confirmKill(store.pendingKill!, true)}
+                    >
+                      Kill and close
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

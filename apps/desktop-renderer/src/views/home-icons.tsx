@@ -40,6 +40,7 @@ const PATHS: Record<string, React.JSX.Element> = {
       <path d="M12 5v14" />
     </>
   ),
+  minus: <path d="M5 12h14" />,
   more: (
     <>
       <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />

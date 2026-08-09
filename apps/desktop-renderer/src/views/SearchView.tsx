@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { monaco, modelUri } from '../monaco-setup.js';
 import { onEvent, rpcResult } from '../bridge.js';
@@ -449,7 +450,8 @@ function ReplacePreview(): React.JSX.Element {
       });
     }
   }
-  return (
+  // Portaled to <body>: inside .hm-root the Session rail would paint over it.
+  return createPortal(
     <div className="modal-backdrop">
       <div
         className="modal"
@@ -512,7 +514,8 @@ function ReplacePreview(): React.JSX.Element {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

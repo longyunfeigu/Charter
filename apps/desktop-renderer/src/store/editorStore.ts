@@ -4,6 +4,16 @@ import { monaco, modelUri } from '../monaco-setup.js';
 import { onEvent, rpc, rpcResult } from '../bridge.js';
 import { okOrToast, useAppStore } from './appStore.js';
 import { useWorkspaceStore } from './workspaceStore.js';
+import {
+  diffTabId,
+  findTab,
+  nextActiveAfterClose,
+  parseDiffTabId,
+  tabHoldsDocument,
+  tabId,
+  toPersistedGroups,
+  type EditorTab,
+} from './editor-tabs.js';
 
 export interface DocMeta {
   path: string;
@@ -18,13 +28,11 @@ export interface DocMeta {
   sizeBytes: number;
 }
 
-export interface Tab {
-  path: string;
-  pinned: boolean;
-}
+export type { EditorTab as Tab } from './editor-tabs.js';
 
 export interface EditorGroup {
-  tabs: Tab[];
+  tabs: EditorTab[];
+  /** Tab id (a file tab's id is its path; diff tabs use `git-diff://…`). */
   active: string | null;
 }
 
@@ -46,16 +54,22 @@ interface EditorStore {
 
   init(): void;
   openFile(path: string, opts?: { group?: number }): Promise<void>;
-  closeTab(path: string, group: number): Promise<void>;
-  closeOthers(path: string, group: number): Promise<void>;
+  /**
+   * Open a git diff of `path` as an editor tab (ADR-0057). Working-tree diffs
+   * edit the live document buffer on the modified side; staged diffs are
+   * read-only on both sides.
+   */
+  openDiff(path: string, opts: { staged: boolean; group?: number }): Promise<void>;
+  closeTab(id: string, group: number): Promise<void>;
+  closeOthers(id: string, group: number): Promise<void>;
   closeSaved(group: number): void;
-  setActive(path: string, group: number): void;
+  setActive(id: string, group: number): void;
   setActiveGroup(group: number): void;
   save(path?: string): Promise<void>;
   saveAll(): Promise<void>;
   split(): void;
   unsplit(): void;
-  togglePin(path: string, group: number): void;
+  togglePin(id: string, group: number): void;
   resolveConflict(path: string, choice: 'reload' | 'keep'): Promise<void>;
   setCompareWith(path: string | null): void;
   setEol(path: string, eol: 'lf' | 'crlf'): Promise<void>;
@@ -80,10 +94,7 @@ function scheduleTabsPersist(get: () => EditorStore): void {
     const state = get();
     const tabs: OpenTabsState = {
       schemaVersion: 1,
-      groups: state.groups.map((g) => ({
-        tabs: g.tabs.map((t) => ({ path: t.path, pinned: t.pinned })),
-        active: g.active,
-      })),
+      groups: toPersistedGroups(state.groups),
       activeGroup: Math.min(state.activeGroup, state.groups.length - 1) as 0 | 1,
       splitDirection: state.groups.length > 1 ? 'vertical' : null,
     };
@@ -115,6 +126,81 @@ function metaFromDto(doc: DocumentDto): DocMeta {
 export function replaceModelContent(model: monaco.editor.ITextModel, content: string): void {
   const fullRange = model.getFullModelRange();
   model.pushEditOperations([], [{ range: fullRange, text: content }], () => null);
+}
+
+/**
+ * Open the document in the main-process store and materialize its Monaco model
+ * with dirty-tracking, mirror and autosave listeners. Shared by file tabs and
+ * working-tree diff tabs (both edit the same live buffer). Returns false when
+ * the document cannot be opened (missing, binary, too large) — callers decide
+ * whether that is fatal (file tab) or a read-only fallback (diff tab).
+ */
+async function ensureDocument(
+  path: string,
+  get: () => EditorStore,
+  set: (partial: Partial<EditorStore>) => void,
+  opts: { quiet?: boolean } = {},
+): Promise<boolean> {
+  const result = await rpcResult('doc.open', { path });
+  if (!result.ok) {
+    // quiet: a deletion diff legitimately has no working-tree file to open.
+    if (!opts.quiet) useAppStore.getState().pushToast('error', `${result.error.userMessage}`);
+    return false;
+  }
+  const doc = result.data.doc;
+  set({ docs: { ...get().docs, [path]: metaFromDto(doc) } });
+
+  if (doc.editable) {
+    let model = getModel(path);
+    if (!model) {
+      model = monaco.editor.createModel(doc.content, undefined, modelUri(path));
+      model.setEOL(
+        doc.eol === 'crlf'
+          ? monaco.editor.EndOfLineSequence.CRLF
+          : monaco.editor.EndOfLineSequence.LF,
+      );
+    } else if (!modelListeners.has(path) && model.getValue() !== doc.content) {
+      // Background project model may lag the store's view of the file.
+      model.setValue(doc.content);
+    }
+    if (!modelListeners.has(path)) {
+      savedVersions.set(path, model.getAlternativeVersionId());
+      const listener = model.onDidChangeContent(() => {
+        if (syncingModels.has(path)) return;
+        const meta = get().docs[path];
+        if (!meta) return;
+        const dirty = model!.getAlternativeVersionId() !== savedVersions.get(path);
+        if (dirty !== meta.dirty) {
+          set({ docs: { ...get().docs, [path]: { ...meta, dirty } } });
+          syncQuitBlockers(get());
+          if (dirty) {
+            // First keystroke: mirror immediately so the main process knows the
+            // buffer is dirty before any external-change arbitration happens.
+            void rpcResult('doc.update', { path, content: model!.getValue() });
+          }
+        }
+        // Mirror buffer to the main-process document store (debounced trailing).
+        clearTimeout(updateTimers.get(path));
+        updateTimers.set(
+          path,
+          setTimeout(() => {
+            void rpcResult('doc.update', { path, content: model!.getValue() });
+          }, 150),
+        );
+        // Autosave after delay.
+        const settings = useAppStore.getState().settings;
+        if (settings?.editor.autoSave === 'afterDelay') {
+          clearTimeout(autosaveTimers.get(path));
+          autosaveTimers.set(
+            path,
+            setTimeout(() => void get().save(path), settings.editor.autoSaveDelayMs),
+          );
+        }
+      });
+      modelListeners.set(path, listener);
+    }
+  }
+  return true;
 }
 
 /**
@@ -208,78 +294,47 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const groups = state.groups.map((g) => ({ ...g, tabs: [...g.tabs] }));
     const targetGroup = groups[Math.min(group, groups.length - 1)]!;
 
-    if (!targetGroup.tabs.some((t) => t.path === path)) {
-      const result = await rpcResult('doc.open', { path });
-      if (!result.ok) {
-        useAppStore.getState().pushToast('error', `${result.error.userMessage}`);
-        return;
-      }
-      const doc = result.data.doc;
-      set({ docs: { ...get().docs, [path]: metaFromDto(doc) } });
-
-      if (doc.editable) {
-        let model = getModel(path);
-        if (!model) {
-          model = monaco.editor.createModel(doc.content, undefined, modelUri(path));
-          model.setEOL(
-            doc.eol === 'crlf'
-              ? monaco.editor.EndOfLineSequence.CRLF
-              : monaco.editor.EndOfLineSequence.LF,
-          );
-        } else if (!modelListeners.has(path) && model.getValue() !== doc.content) {
-          // Background project model may lag the store's view of the file.
-          model.setValue(doc.content);
-        }
-        if (!modelListeners.has(path)) {
-          savedVersions.set(path, model.getAlternativeVersionId());
-          const listener = model.onDidChangeContent(() => {
-            if (syncingModels.has(path)) return;
-            const meta = get().docs[path];
-            if (!meta) return;
-            const dirty = model!.getAlternativeVersionId() !== savedVersions.get(path);
-            if (dirty !== meta.dirty) {
-              set({ docs: { ...get().docs, [path]: { ...meta, dirty } } });
-              syncQuitBlockers(get());
-              if (dirty) {
-                // First keystroke: mirror immediately so the main process knows the
-                // buffer is dirty before any external-change arbitration happens.
-                void rpcResult('doc.update', { path, content: model!.getValue() });
-              }
-            }
-            // Mirror buffer to the main-process document store (debounced trailing).
-            clearTimeout(updateTimers.get(path));
-            updateTimers.set(
-              path,
-              setTimeout(() => {
-                void rpcResult('doc.update', { path, content: model!.getValue() });
-              }, 150),
-            );
-            // Autosave after delay.
-            const settings = useAppStore.getState().settings;
-            if (settings?.editor.autoSave === 'afterDelay') {
-              clearTimeout(autosaveTimers.get(path));
-              autosaveTimers.set(
-                path,
-                setTimeout(() => void get().save(path), settings.editor.autoSaveDelayMs),
-              );
-            }
-          });
-          modelListeners.set(path, listener);
-        }
-      }
-      targetGroup.tabs.push({ path, pinned: false });
+    if (!findTab(targetGroup.tabs, path)) {
+      const opened = await ensureDocument(path, get, set);
+      if (!opened) return;
+      targetGroup.tabs.push({ kind: 'file', path, pinned: false });
     }
     targetGroup.active = path;
     set({ groups, activeGroup: Math.min(group, groups.length - 1) });
     scheduleTabsPersist(get);
   },
 
-  async closeTab(path, group) {
-    const meta = get().docs[path];
-    const inOtherGroup = get().groups.some(
-      (g, i) => i !== group && g.tabs.some((t) => t.path === path),
+  async openDiff(path, opts) {
+    const group = opts.group ?? get().activeGroup;
+    const id = diffTabId(path, opts.staged);
+    // The working-tree diff edits the live buffer on its modified side, so it
+    // holds the document open like a file tab. A failure (deleted file, binary,
+    // too large) is fine — the diff pane falls back to read-only git content.
+    if (!opts.staged) await ensureDocument(path, get, set, { quiet: true });
+    const groups = get().groups.map((g) => ({ ...g, tabs: [...g.tabs] }));
+    const targetGroup = groups[Math.min(group, groups.length - 1)]!;
+    if (!findTab(targetGroup.tabs, id)) {
+      targetGroup.tabs.push({ kind: 'diff', path, staged: opts.staged, pinned: false });
+    }
+    targetGroup.active = id;
+    set({ groups, activeGroup: Math.min(group, groups.length - 1) });
+    scheduleTabsPersist(get);
+  },
+
+  async closeTab(id, group) {
+    const closing = findTab(get().groups[group]?.tabs ?? [], id);
+    if (!closing) return;
+    const path = closing.path;
+    // The document stays open while any tab (in any group) still edits its
+    // buffer: file tabs and working-tree diff tabs both count, staged diffs
+    // read from git and never held it.
+    const holdsElsewhere = get().groups.some((g, i) =>
+      g.tabs.some(
+        (t) => tabHoldsDocument(t) && t.path === path && !(i === group && tabId(t) === id),
+      ),
     );
-    if (meta?.dirty && !inOtherGroup) {
+    const meta = get().docs[path];
+    if (meta?.dirty && tabHoldsDocument(closing) && !holdsElsewhere) {
       const choice = await new Promise<'save' | 'discard' | 'cancel'>((resolve) => {
         set({ closeRequest: { path, resolve } });
       });
@@ -290,15 +345,15 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const groups = get().groups.map((g) => ({ ...g, tabs: [...g.tabs] }));
     const targetGroup = groups[group];
     if (!targetGroup) return;
-    targetGroup.tabs = targetGroup.tabs.filter((t) => t.path !== path);
-    if (targetGroup.active === path) {
-      targetGroup.active = targetGroup.tabs.at(-1)?.path ?? null;
-    }
+    targetGroup.active = nextActiveAfterClose(targetGroup.tabs, targetGroup.active, id);
+    targetGroup.tabs = targetGroup.tabs.filter((t) => tabId(t) !== id);
     // Detach editing state when the file is closed everywhere. The Monaco model
     // itself stays alive as part of the TS project (cross-file intelligence);
     // fs events keep background models in sync.
-    const stillOpen = groups.some((g) => g.tabs.some((t) => t.path === path));
-    if (!stillOpen) {
+    const stillOpen = groups.some((g) =>
+      g.tabs.some((t) => tabHoldsDocument(t) && t.path === path),
+    );
+    if (!stillOpen && modelListeners.has(path)) {
       modelListeners.get(path)?.dispose();
       modelListeners.delete(path);
       savedVersions.delete(path);
@@ -312,11 +367,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     scheduleTabsPersist(get);
   },
 
-  async closeOthers(path, group) {
+  async closeOthers(id, group) {
     const targetGroup = get().groups[group];
     if (!targetGroup) return;
     for (const tab of [...targetGroup.tabs]) {
-      if (tab.path !== path && !tab.pinned) await get().closeTab(tab.path, group);
+      if (tabId(tab) !== id && !tab.pinned) await get().closeTab(tabId(tab), group);
     }
   },
 
@@ -325,14 +380,15 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     if (!targetGroup) return;
     for (const tab of [...targetGroup.tabs]) {
       const meta = get().docs[tab.path];
-      if (meta && !meta.dirty && !tab.pinned) void get().closeTab(tab.path, group);
+      const clean = tab.kind === 'diff' ? !meta?.dirty : Boolean(meta && !meta.dirty);
+      if (clean && !tab.pinned) void get().closeTab(tabId(tab), group);
     }
   },
 
-  setActive(path, group) {
+  setActive(id, group) {
     const settings = useAppStore.getState().settings;
     if (settings?.editor.autoSave === 'onFocusChange') void get().saveAll();
-    const groups = get().groups.map((g, i) => (i === group ? { ...g, active: path } : g));
+    const groups = get().groups.map((g, i) => (i === group ? { ...g, active: id } : g));
     set({ groups, activeGroup: group });
     scheduleTabsPersist(get);
   },
@@ -342,8 +398,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   },
 
   async save(path) {
-    const target = path ?? get().groups[get().activeGroup]?.active ?? null;
-    if (!target) return;
+    const requested = path ?? get().groups[get().activeGroup]?.active ?? null;
+    if (!requested) return;
+    // ⌘S inside a diff tab saves the underlying file buffer.
+    const target = parseDiffTabId(requested)?.path ?? requested;
     const model = getModel(target);
     if (!model) return;
     clearTimeout(autosaveTimers.get(target));
@@ -378,10 +436,14 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   split() {
     if (get().groups.length > 1) return;
-    const active = get().groups[0]!.active;
+    const first = get().groups[0]!;
+    const activeTab = first.active ? findTab(first.tabs, first.active) : undefined;
     const groups: EditorGroup[] = [
-      get().groups[0]!,
-      { tabs: active ? [{ path: active, pinned: false }] : [], active: active ?? null },
+      first,
+      {
+        tabs: activeTab ? [{ ...activeTab, pinned: false }] : [],
+        active: first.active ?? null,
+      },
     ];
     set({ groups, activeGroup: 1 });
     scheduleTabsPersist(get);
@@ -393,7 +455,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const merged: EditorGroup = {
       tabs: [
         ...first!.tabs,
-        ...second!.tabs.filter((t) => !first!.tabs.some((f) => f.path === t.path)),
+        ...second!.tabs.filter((t) => !first!.tabs.some((f) => tabId(f) === tabId(t))),
       ],
       active: first!.active ?? second!.active,
     };
@@ -401,10 +463,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     scheduleTabsPersist(get);
   },
 
-  togglePin(path, group) {
+  togglePin(id, group) {
     const groups = get().groups.map((g, i) =>
       i === group
-        ? { ...g, tabs: g.tabs.map((t) => (t.path === path ? { ...t, pinned: !t.pinned } : t)) }
+        ? { ...g, tabs: g.tabs.map((t) => (tabId(t) === id ? { ...t, pinned: !t.pinned } : t)) }
         : g,
     );
     set({ groups });
@@ -466,8 +528,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     for (let g = 0; g < saved.groups.length; g++) {
       if (g === 1 && get().groups.length === 1) get().split();
       for (const tab of saved.groups[g]!.tabs) {
-        await get().openFile(tab.path, { group: g });
-        if (tab.pinned) get().togglePin(tab.path, g);
+        if (tab.kind === 'diff') {
+          await get().openDiff(tab.path, { staged: tab.staged ?? false, group: g });
+          if (tab.pinned) get().togglePin(diffTabId(tab.path, tab.staged ?? false), g);
+        } else {
+          await get().openFile(tab.path, { group: g });
+          if (tab.pinned) get().togglePin(tab.path, g);
+        }
       }
       const active = saved.groups[g]!.active;
       if (active) get().setActive(active, g);

@@ -42,7 +42,18 @@ export const OpenTabsStateSchema = z.object({
   groups: z
     .array(
       z.object({
-        tabs: z.array(z.object({ path: z.string(), pinned: z.boolean().default(false) })),
+        tabs: z.array(
+          z.object({
+            path: z.string(),
+            pinned: z.boolean().default(false),
+            // Additive since beta.6: a tab is either a plain file buffer or a
+            // git diff view of that path. Older payloads default to 'file';
+            // older builds strip the extra keys and fall back to a file tab.
+            kind: z.enum(['file', 'diff']).default('file'),
+            /** Diff tabs only: staged (HEAD ↔ index) vs working tree (index ↔ disk). */
+            staged: z.boolean().optional(),
+          }),
+        ),
         active: z.string().nullable(),
       }),
     )

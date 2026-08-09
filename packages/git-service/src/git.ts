@@ -159,7 +159,16 @@ export class GitService {
   }
 
   async status(): Promise<GitStatus> {
-    const result = await this.run(['status', '--porcelain=v2', '--branch', '-z']);
+    // --untracked-files=all: enumerate files INSIDE untracked directories.
+    // The default collapses them into a single "dir/" row, which nothing
+    // downstream can open, diff, or stage as a document (ADR-0057).
+    const result = await this.run([
+      'status',
+      '--porcelain=v2',
+      '--branch',
+      '--untracked-files=all',
+      '-z',
+    ]);
     const records = result.stdout.split('\u0000');
     const entries: GitStatusEntry[] = [];
     let branch: string | null = null;

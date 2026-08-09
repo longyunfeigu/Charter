@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { errorMessage } from '@pi-ide/foundation';
 import { monaco, modelUri, monacoFontFamily, monacoThemeName } from '../monaco-setup.js';
 import { useEditorStore, isMdRich, type EditorGroup } from '../store/editorStore.js';
+import { findTab, tabId, tabHoldsDocument } from '../store/editor-tabs.js';
+import { GitDiffPane } from './GitDiffPane.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useAppStore } from '../store/appStore.js';
 import { useGitStatusStore, MARK_COLOR } from '../store/gitStatusStore.js';
@@ -75,9 +78,12 @@ function TabGitMark({ path }: { path: string }): React.JSX.Element | null {
 function MonacoPane({
   group,
   groupIndex,
+  hidden,
 }: {
   group: EditorGroup;
   groupIndex: number;
+  /** true while a diff tab owns this group's pane (ADR-0057). */
+  hidden: boolean;
 }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -92,7 +98,10 @@ function MonacoPane({
   const docs = useEditorStore((s) => s.docs);
   const mdRich = useEditorStore((s) => s.mdRich);
   const toggleMdRich = useEditorStore((s) => s.toggleMdRich);
-  const active = group.active;
+  // A diff tab active in this group means no FILE is active here — the Monaco
+  // pane keeps its instance alive underneath while GitDiffPane renders on top.
+  const activeTab = group.active ? findTab(group.tabs, group.active) : undefined;
+  const active = activeTab?.kind === 'file' ? activeTab.path : null;
   const meta = active ? docs[active] : undefined;
   const taskRoomTaskId = useAppStore((state) => state.taskRoomTaskId);
   const [codeSelection, setCodeSelection] = useState<{
@@ -281,7 +290,7 @@ function MonacoPane({
   return (
     <div
       className={richActive ? 'editor-pane md-rich-pane' : 'editor-pane'}
-      style={{ flex: 1, minHeight: 0, position: 'relative' }}
+      style={{ flex: 1, minHeight: 0, position: 'relative', display: hidden ? 'none' : undefined }}
     >
       <div
         ref={containerRef}
@@ -488,7 +497,9 @@ function CompareOverlay(): React.JSX.Element | null {
   }, [compareWith]);
 
   if (!compareWith) return null;
-  return (
+  // Portaled to <body>: rendered in place it would sit inside .hm-root's
+  // stacking context and paint below the Session rail (ADR-0057).
+  return createPortal(
     <div className="modal-backdrop">
       <div
         className="modal"
@@ -518,14 +529,15 @@ function CompareOverlay(): React.JSX.Element | null {
           <div ref={hostRef} style={{ width: '100%', height: '100%' }} />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
 function CloseDialog(): React.JSX.Element | null {
   const closeRequest = useEditorStore((s) => s.closeRequest);
   if (!closeRequest) return null;
-  return (
+  return createPortal(
     <div className="modal-backdrop">
       <div
         className="modal small"
@@ -551,7 +563,8 @@ function CloseDialog(): React.JSX.Element | null {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -568,7 +581,7 @@ function TabsRow({
   const closeOthers = useEditorStore((s) => s.closeOthers);
   const closeSaved = useEditorStore((s) => s.closeSaved);
   const togglePin = useEditorStore((s) => s.togglePin);
-  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null);
 
   return (
     <div
@@ -582,23 +595,29 @@ function TabsRow({
       }}
     >
       {group.tabs.map((tab) => {
+        const id = tabId(tab);
         const meta = docs[tab.path];
-        const isActive = group.active === tab.path;
+        const isActive = group.active === id;
         const name = tab.path.split('/').pop();
+        const isDiff = tab.kind === 'diff';
+        // The dirty dot belongs to the buffer; a staged diff never edits it.
+        const dirty = Boolean(meta?.dirty && tabHoldsDocument(tab));
         return (
           <div
-            key={tab.path}
+            key={id}
             role="tab"
             aria-selected={isActive}
-            data-testid={`tab-${tab.path}`}
-            title={tab.path}
-            onClick={() => setActive(tab.path, groupIndex)}
+            data-testid={`tab-${id}`}
+            title={
+              isDiff ? `${tab.staged ? 'Staged' : 'Working tree'} diff — ${tab.path}` : tab.path
+            }
+            onClick={() => setActive(id, groupIndex)}
             onContextMenu={(e) => {
               e.preventDefault();
-              setMenu({ x: e.clientX, y: e.clientY, path: tab.path });
+              setMenu({ x: e.clientX, y: e.clientY, id });
             }}
             onAuxClick={(e) => {
-              if (e.button === 1) void closeTab(tab.path, groupIndex);
+              if (e.button === 1) void closeTab(id, groupIndex);
             }}
             style={{
               display: 'flex',
@@ -618,23 +637,27 @@ function TabsRow({
                 <Ic name="pin" size={12} />
               </span>
             ) : null}
-            <span>{name}</span>
+            {isDiff ? <Ic name="branch" size={11} /> : null}
+            <span data-i18n-ignore>{name}</span>
+            {isDiff ? (
+              <span className="tab-diff-badge">{tab.staged ? 'Staged' : 'Diff'}</span>
+            ) : null}
             <TabGitMark path={tab.path} />
-            {meta?.externalState !== 'clean' && meta ? (
+            {meta?.externalState !== 'clean' && meta && !isDiff ? (
               <span className="text-warning" title="External change" aria-label="External change">
                 <Ic name="alert" size={12} />
               </span>
             ) : null}
             <button
-              aria-label={meta?.dirty ? `${name} has unsaved changes — close` : `Close ${name}`}
+              aria-label={dirty ? `${name} has unsaved changes — close` : `Close ${name}`}
               className="modal-close"
               style={{ padding: '0 2px', fontSize: 12 }}
               onClick={(e) => {
                 e.stopPropagation();
-                void closeTab(tab.path, groupIndex);
+                void closeTab(id, groupIndex);
               }}
             >
-              {meta?.dirty ? '●' : '✕'}
+              {dirty ? '●' : '✕'}
             </button>
           </div>
         );
@@ -655,10 +678,10 @@ function TabsRow({
             role="menu"
           >
             {[
-              { label: 'Close', run: () => void closeTab(menu.path, groupIndex) },
-              { label: 'Close Others', run: () => void closeOthers(menu.path, groupIndex) },
+              { label: 'Close', run: () => void closeTab(menu.id, groupIndex) },
+              { label: 'Close Others', run: () => void closeOthers(menu.id, groupIndex) },
               { label: 'Close Saved', run: () => closeSaved(groupIndex) },
-              { label: 'Pin / Unpin', run: () => togglePin(menu.path, groupIndex) },
+              { label: 'Pin / Unpin', run: () => togglePin(menu.id, groupIndex) },
             ].map((item) => (
               <button
                 key={item.label}
@@ -687,17 +710,22 @@ export function EditorArea(): React.JSX.Element {
 
   return (
     <div style={{ display: 'flex', flex: 1, minHeight: 0 }} data-testid="editor-groups">
-      {groups.map((group, i) => (
-        <React.Fragment key={i}>
-          {i > 0 ? <div style={{ width: 1, background: 'var(--border)' }} /> : null}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-            <TabsRow group={group} groupIndex={i} />
-            {group.active ? <ConflictBar path={group.active} /> : null}
-            {i === 0 ? editorBannerRegistry.map((C, bi) => <C key={bi} />) : null}
-            <MonacoPane group={group} groupIndex={i} />
-          </div>
-        </React.Fragment>
-      ))}
+      {groups.map((group, i) => {
+        const activeTab = group.active ? findTab(group.tabs, group.active) : undefined;
+        const diffTab = activeTab?.kind === 'diff' ? activeTab : null;
+        return (
+          <React.Fragment key={i}>
+            {i > 0 ? <div style={{ width: 1, background: 'var(--border)' }} /> : null}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              <TabsRow group={group} groupIndex={i} />
+              {activeTab ? <ConflictBar path={activeTab.path} /> : null}
+              {i === 0 ? editorBannerRegistry.map((C, bi) => <C key={bi} />) : null}
+              {diffTab ? <GitDiffPane key={tabId(diffTab)} tab={diffTab} groupIndex={i} /> : null}
+              <MonacoPane group={group} groupIndex={i} hidden={diffTab !== null} />
+            </div>
+          </React.Fragment>
+        );
+      })}
       <CompareOverlay />
       <CloseDialog />
     </div>

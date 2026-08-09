@@ -1,5 +1,6 @@
 import type { AgentMode } from '@pi-ide/agent-contract';
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { rpcResult } from '../bridge.js';
 import { useTaskStore } from '../store/taskStore.js';
 import { useAppStore } from '../store/appStore.js';
@@ -102,7 +103,8 @@ export function NewTaskDialog(): React.JSX.Element {
 
   const noAcceptance = acceptance.every((a) => a.trim() === '');
 
-  return (
+  // Portaled to <body>: inside .hm-root the Session rail would paint over it.
+  return createPortal(
     <div className="modal-backdrop">
       <div
         className="modal"
@@ -391,6 +393,7 @@ export function NewTaskDialog(): React.JSX.Element {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

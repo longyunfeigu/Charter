@@ -479,7 +479,13 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
               </div>
             ) : (
               <div className="stv-changes">
-                <ScmView />
+                <ScmView
+                  onDidOpenTarget={() => {
+                    // The diff/file opened in the editor tool — reveal it.
+                    toolPreferenceTouched.current = true;
+                    setTool('editor');
+                  }}
+                />
               </div>
             )}
           </aside>
