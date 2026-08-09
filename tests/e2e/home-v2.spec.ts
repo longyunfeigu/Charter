@@ -207,7 +207,7 @@ test.describe('Home v2 — advanced charter, persistent Inbox, context feeding',
       expect(['light', 'dark']).toContain(theme);
 
       await page.getByTestId('home-settings').click();
-      await expect(page.getByTestId('overlay-settings')).toBeVisible();
+      await expect(page.getByTestId('settings-page')).toBeVisible();
       const toggle = page.getByTestId('settings-notifications');
       await expect(toggle).toBeChecked(); // default on (PIVOT-014)
       await toggle.uncheck();
@@ -226,7 +226,7 @@ test.describe('Home v2 — advanced charter, persistent Inbox, context feeding',
 
       await page.getByTestId('home-model').click();
       await page.getByTestId('home-model-settings').click();
-      await expect(page.getByTestId('overlay-settings')).toBeVisible();
+      await expect(page.getByTestId('settings-page')).toBeVisible();
       await expect(page.getByTestId('settings-section-models')).toHaveAttribute(
         'aria-current',
         'page',

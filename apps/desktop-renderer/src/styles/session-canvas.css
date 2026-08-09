@@ -8,7 +8,7 @@
   --session-header-control-height: var(--control-height-sm);
   min-height: var(--session-header-height);
   gap: 10px;
-  padding: 8px 14px;
+  padding: 6px 14px;
   border-bottom-color: var(--chrome-line);
   background: var(--chrome-ink);
   color: var(--chrome-paper);
@@ -340,9 +340,12 @@
   min-width: 460px;
   min-height: 0;
   border-right: 0;
+  /* 90ms, was 160ms: animating width re-lays-out and re-wraps the entire
+     transcript on every frame of the tween — keep that window short. The
+     .splitting escape hatch below still disables it during drags. */
   transition:
-    width 160ms ease,
-    flex-basis 160ms ease;
+    width 90ms ease,
+    flex-basis 90ms ease;
 }
 
 .session-canvas-body.tool-expanded > .tr-main {

@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Editor 入口重设计 — 三个方向</title>
+<style>
+  :root {
+    --bg: #faf9f7;
+    --card: #ffffff;
+    --ink: #26221c;
+    --ink-2: #6b6459;
+    --ink-3: #a39b8e;
+    --line: #e9e4dc;
+    --line-2: #f1ede6;
+    --accent: #a05a2c;
+    --accent-soft: #f6ead9;
+    --good: #2f7a4d;
+    --bad: #b4452f;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.7 -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    padding: 48px 24px 96px;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  h1 { font-size: 26px; font-weight: 650; letter-spacing: .01em; }
+  .sub { color: var(--ink-2); margin-top: 8px; max-width: 720px; }
+
+  /* ---------- 诊断卡 ---------- */
+  .diagnosis {
+    margin-top: 32px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 24px 28px;
+  }
+  .diagnosis h2 { font-size: 16px; margin-bottom: 14px; }
+  .diag-flow { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+  .diag-node {
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px;
+    background: var(--line-2); font-size: 13px; color: var(--ink-2);
+    display: flex; flex-direction: column; justify-content: center; min-width: 170px;
+  }
+  .diag-node strong { color: var(--ink); font-size: 13.5px; }
+  .diag-node.src { background: var(--accent-soft); border-color: #e8d3b8; }
+  .diag-arrow { align-self: center; color: var(--ink-3); font-size: 18px; }
+  .diag-col { display: flex; flex-direction: column; gap: 8px; }
+  .diag-note { margin-top: 14px; font-size: 13.5px; color: var(--ink-2); }
+  .diag-note em { font-style: normal; color: var(--bad); }
+
+  /* ---------- Tabs ---------- */
+  .tabs { display: flex; gap: 8px; margin: 44px 0 0; }
+  .tab {
+    border: 1px solid var(--line); background: var(--card); border-radius: 10px 10px 0 0;
+    border-bottom: none; padding: 12px 20px 14px; cursor: pointer; font-size: 14.5px;
+    color: var(--ink-2); position: relative; top: 1px;
+  }
+  .tab small { display: block; font-size: 12px; color: var(--ink-3); }
+  .tab.active { color: var(--ink); font-weight: 600; background: var(--card); box-shadow: 0 -3px 0 var(--accent) inset; }
+  .tab .reco { color: var(--good); font-size: 11.5px; font-weight: 600; margin-left: 6px; }
+
+  .panel {
+    display: none; background: var(--card); border: 1px solid var(--line);
+    border-radius: 0 14px 14px 14px; padding: 28px;
+  }
+  .panel.active { display: block; }
+  .panel-grid { display: grid; grid-template-columns: 300px 1fr; gap: 28px; }
+  .panel h3 { font-size: 17px; }
+  .panel .bet { margin-top: 10px; font-size: 13.5px; color: var(--ink-2); }
+  .panel .bet b { color: var(--ink); }
+  .panel ul { margin: 12px 0 0 18px; font-size: 13.5px; color: var(--ink-2); }
+  .panel li { margin-top: 6px; }
+  .panel li.pro::marker { color: var(--good); }
+  .panel li.con::marker { color: var(--bad); }
+  .try { margin-top: 18px; font-size: 13px; color: var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 10px 12px; }
+
+  /* ---------- 迷你应用框架 ---------- */
+  .app {
+    border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+    height: 480px; display: flex; background: var(--bg); position: relative;
+    user-select: none;
+  }
+  .rail {
+    width: 84px; background: #f4f1ec; border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: center; padding: 14px 0; gap: 4px;
+  }
+  .rail .sp { flex: 1; }
+  .ritem {
+    width: 68px; padding: 9px 0 7px; border-radius: 9px; text-align: center;
+    font-size: 10.5px; color: var(--ink-2); cursor: pointer; border: 1px solid transparent;
+  }
+  .ritem .ic { font-size: 16px; display: block; margin-bottom: 2px; }
+  .ritem:hover { background: #ecE7df; }
+  .ritem.on { background: #fff; border-color: var(--line); color: var(--ink); font-weight: 600; }
+  .ritem.ghost { opacity: .28; text-decoration: line-through; pointer-events: none; }
+  .main { flex: 1; overflow: auto; position: relative; }
+
+  .stage { padding: 22px 26px; }
+  .stage h4 { font-size: 15px; margin-bottom: 4px; }
+  .stage .cap { font-size: 12.5px; color: var(--ink-3); margin-bottom: 16px; }
+
+  /* 会话时间线 */
+  .msg { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; font-size: 13px; }
+  .msg .who { font-size: 11px; color: var(--ink-3); margin-bottom: 4px; }
+  .filechip {
+    font-family: var(--mono); font-size: 12px; color: var(--accent);
+    background: var(--accent-soft); border-radius: 6px; padding: 1px 7px; cursor: pointer;
+    border: 1px solid #eadbc4;
+  }
+  .filechip:hover { border-color: var(--accent); }
+
+  /* 项目列表 / 项目中心 */
+  .pcard { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; cursor: pointer; }
+  .pcard:hover { border-color: var(--accent); }
+  .pcard b { font-size: 13.5px; }
+  .pcard span { display: block; font-size: 11.5px; color: var(--ink-3); font-family: var(--mono); }
+  .ptabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .ptab { font-size: 12.5px; padding: 7px 13px; cursor: pointer; color: var(--ink-2); border-bottom: 2px solid transparent; }
+  .ptab.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+
+  /* 编辑器 */
+  .ide { display: flex; height: 320px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
+  .tree { width: 190px; border-right: 1px solid var(--line-2); padding: 10px 0; font-size: 12.5px; }
+  .tnode { padding: 3px 14px; cursor: pointer; color: var(--ink-2); font-family: var(--mono); font-size: 11.5px; }
+  .tnode:hover { background: var(--line-2); }
+  .tnode.on { background: var(--accent-soft); color: var(--accent); }
+  .tnode.dir { color: var(--ink); font-weight: 600; font-family: inherit; font-size: 12px; }
+  .code { flex: 1; padding: 14px 18px; font-family: var(--mono); font-size: 11.5px; line-height: 1.9; color: var(--ink-2); overflow: auto; background: #fffdfa; }
+  .code .hl { background: #fdf3e3; display: inline-block; width: 100%; }
+  .code .kw { color: #8b4513; }
+
+  /* Lens 浮层 */
+  .lens {
+    position: absolute; top: 0; right: 0; bottom: 0; width: 62%;
+    background: #fff; border-left: 1px solid var(--line); box-shadow: -18px 0 40px rgba(60,50,30,.10);
+    transform: translateX(105%); transition: transform .28s cubic-bezier(.2,.8,.2,1);
+    display: flex; flex-direction: column;
+  }
+  .lens.open { transform: translateX(0); }
+  .lens header {
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    border-bottom: 1px solid var(--line-2); font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+  }
+  .lens header .close { margin-left: auto; cursor: pointer; font-family: inherit; font-size: 15px; color: var(--ink-3); padding: 2px 8px; border-radius: 6px; }
+  .lens header .close:hover { background: var(--line-2); color: var(--ink); }
+  .lens .code { border: none; }
+
+  /* 空态 → 项目选择器 */
+  .picker { max-width: 420px; margin: 60px auto 0; text-align: center; }
+  .picker h4 { font-size: 15px; }
+  .picker p { font-size: 12.5px; color: var(--ink-3); margin: 6px 0 18px; }
+  .picker .pcard { text-align: left; }
+  .btn {
+    display: inline-block; margin-top: 6px; border: 1px solid var(--line); background: #fff;
+    padding: 8px 18px; border-radius: 9px; font-size: 13px; cursor: pointer; color: var(--ink);
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* work board (方向 C 用) */
+  .board { display: flex; gap: 12px; }
+  .col { flex: 1; background: var(--line-2); border-radius: 10px; padding: 10px; }
+  .col h5 { font-size: 11.5px; color: var(--ink-3); margin: 2px 4px 8px; font-weight: 600; }
+  .wcard { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; margin-bottom: 8px; }
+
+  .verdict { margin-top: 44px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 24px 28px; }
+  .verdict h2 { font-size: 16px; margin-bottom: 10px; }
+  .verdict p { font-size: 14px; color: var(--ink-2); margin-top: 8px; }
+  .verdict b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Editor 入口重设计</h1>
+  <p class="sub">问题：左下角的 Editor 按钮点下去的结果取决于隐藏状态，而且没打开项目时是一片空白。下面是先诊断，再给三个本质不同的方向——每个都能点。</p>
+
+  <!-- 诊断 -->
+  <div class="diagnosis">
+    <h2>现状：一个按钮，三种结果（源码事实）</h2>
+    <div class="diag-flow">
+      <div class="diag-node src"><strong>点击 Editor</strong><span>setSurface('workspace')</span></div>
+      <div class="diag-arrow">→</div>
+      <div class="diag-col">
+        <div class="diag-node"><strong>有会话打开时</strong>展开这个会话的工具画布（和"编辑器"半毛钱关系没有）</div>
+        <div class="diag-node"><strong>有项目、无会话</strong>打开当前项目的编辑器视图</div>
+        <div class="diag-node"><strong>什么都没打开</strong>一片空白 + 一行小字"Open a project to edit files"——你截图里的状态</div>
+      </div>
+    </div>
+    <p class="diag-note">根因：Editor 被放在了全局导航栏里，看起来像一个<em>去处</em>（和 Sessions、Work 并列），但它实际上是一个<em>依赖上下文的工具</em>——没有项目它就没有意义。源码注释自己都承认这是旧版全屏 IDE 撤掉之后留下的"兼容垫片"。按钮没错，是它的身份错了。</p>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" data-t="a">方向 A：删掉它<small>编辑器跟着上下文走</small><span class="reco">推荐</span></div>
+    <div class="tab" data-t="b">方向 B：升格它<small>Files 成为一等目的地</small></div>
+    <div class="tab" data-t="c">方向 C：浮层化<small>编辑器不是面，是随叫随到的手术刀</small></div>
+  </div>
+
+  <!-- ============ 方向 A ============ -->
+  <div class="panel active" data-p="a">
+    <div class="panel-grid">
+      <div>
+        <h3>删掉全局按钮，编辑能力归还给拥有它的上下文</h3>
+        <p class="bet">这个方向赌的是：<b>你的产品主线是"会话 → 验收"，不是手写代码</b>。想改文件的时刻永远发生在某个上下文里——看 agent 改了什么、在项目里翻代码。那就让编辑器只在那些地方出现。</p>
+        <ul>
+          <li class="pro">空白死路从物理上消失——没有入口就没有空态</li>
+          <li class="pro">能删掉那个"兼容垫片"状态，状态机变简单</li>
+          <li class="pro">导航栏底部只剩 Settings，语义干净：底部=全局工具</li>
+          <li class="con">"我就想开个文件改两行"少了一键直达（缓解：⌘K 里保留命令）</li>
+        </ul>
+        <div class="try">试一下：① 在 Sessions 里点消息里的<b>文件路径</b>；② 切到 Projects → 点项目 → Files 标签。注意左下角已经没有 Editor 了。</div>
+      </div>
+      <div class="app" id="appA">
+        <div class="rail">
+          <div class="ritem on" data-v="sessions"><span class="ic">💬</span>Sessions</div>
+          <div class="ritem" data-v="projects"><span class="ic">📁</span>Projects</div>
+          <div class="sp"></div>
+          <div class="ritem ghost"><span class="ic">▦</span>Editor</div>
+          <div class="ritem"><span class="ic">⚙︎</span>Settings</div>
+        </div>
+        <div class="main">
+          <!-- 会话视图 -->
+          <div class="stage" data-view="sessions">
+            <h4>修复登录超时</h4>
+            <div class="cap">会话 · charter-site · claude</div>
+            <div class="msg"><div class="who">agent</div>问题出在 token 刷新的竞态。我改了 <span class="filechip" data-file="src/auth/refresh.ts">src/auth/refresh.ts</span>，把刷新锁提到了请求层。</div>
+            <div class="msg"><div class="who">agent</div>同时更新了测试 <span class="filechip" data-file="src/auth/refresh.test.ts">src/auth/refresh.test.ts</span>，全部通过。可以验收了。</div>
+          </div>
+          <!-- 项目列表 -->
+          <div class="stage" data-view="projects" style="display:none">
+            <h4>Projects</h4>
+            <div class="cap">选一个项目 → 它的中心页自带 Files</div>
+            <div class="pcard" data-open="center"><b>charter-site</b><span>~/git/charter-site</span></div>
+            <div class="pcard" data-open="center"><b>Pi_Agentic_IDE</b><span>~/git/Pi_Agentic_IDE_Spec_Package_v1.0</span></div>
+          </div>
+          <!-- 项目中心 -->
+          <div class="stage" data-view="center" style="display:none">
+            <h4>charter-site</h4>
+            <div class="cap">项目中心：编辑器住在这里，是项目的一个标签，不是全局按钮</div>
+            <div class="ptabs">
+              <div class="ptab" data-pt="ov">Overview</div>
+              <div class="ptab on" data-pt="files">Files</div>
+              <div class="ptab" data-pt="search">Search</div>
+              <div class="ptab" data-pt="changes">Changes</div>
+            </div>
+            <div data-ptv="files">
+              <div class="ide">
+                <div class="tree">
+                  <div class="tnode dir">src/</div>
+                  <div class="tnode on">auth/refresh.ts</div>
+                  <div class="tnode">auth/refresh.test.ts</div>
+                  <div class="tnode">views/Login.tsx</div>
+                  <div class="tnode dir">public/</div>
+                  <div class="tnode">index.html</div>
+                </div>
+                <div class="code">
+<span class="kw">export async function</span> refreshToken(): Promise&lt;Token&gt; {<br>
+&nbsp;&nbsp;<span class="hl"><span class="kw">if</span> (inflight) <span class="kw">return</span> inflight;   <span style="color:#a39b8e">// 刷新锁：并发请求共享同一次刷新</span></span><br>
+&nbsp;&nbsp;inflight = doRefresh();<br>
+&nbsp;&nbsp;<span class="kw">try</span> { <span class="kw">return await</span> inflight; }<br>
+&nbsp;&nbsp;<span class="kw">finally</span> { inflight = null; }<br>
+}
+                </div>
+              </div>
+            </div>
+            <div data-ptv="ov" style="display:none"><div class="msg">项目概览：最近会话、分支、待验收的东西。</div></div>
+            <div data-ptv="search" style="display:none"><div class="msg">全项目搜索（原 Search 工具原样搬进来）。</div></div>
+            <div data-ptv="changes" style="display:none"><div class="msg">工作区变更（原 Changes 工具原样搬进来）。</div></div>
+          </div>
+          <!-- Lens -->
+          <div class="lens" id="lensA">
+            <header><span id="lensAFile">src/auth/refresh.ts</span><span class="close" data-close="lensA">✕</span></header>
+            <div class="code">
+<span class="kw">export async function</span> refreshToken(): Promise&lt;Token&gt; {<br>
+&nbsp;&nbsp;<span class="hl"><span class="kw">if</span> (inflight) <span class="kw">return</span> inflight;   <span style="color:#a39b8e">// agent 本次改动 · 可直接编辑</span></span><br>
+&nbsp;&nbsp;inflight = doRefresh();<br>
+&nbsp;&nbsp;<span class="kw">try</span> { <span class="kw">return await</span> inflight; }<br>
+&nbsp;&nbsp;<span class="kw">finally</span> { inflight = null; }<br>
+}<br><br>
+<span style="color:#a39b8e">// 你还在会话里：改完关掉浮层，继续对话或验收。</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 方向 B ============ -->
+  <div class="panel" data-p="b">
+    <div class="panel-grid">
+      <div>
+        <h3>把它变成真正的目的地：Code 加入主导航组</h3>
+        <p class="bet">这个方向赌的是：<b>手动看代码/改代码是高频到值得占一个一等舱位的动作</b>。那就让它名副其实：搬进上面的主组，行为永远只有一种——打开当前项目的文件和编辑器。没项目时给你选项目，绝不空白。</p>
+        <ul>
+          <li class="pro">行为 100% 可预测，不再看隐藏状态的脸色</li>
+          <li class="pro">对 VSCode 迁移用户最友好，"我的编辑器在哪"永远有答案</li>
+          <li class="con">给了编辑器一等地位，和"agent-first"的产品叙事打架</li>
+          <li class="con">主导航从 6 项涨到 7 项，拥挤</li>
+        </ul>
+        <div class="try">试一下：点左侧的 <b>Code</b>——现在没有项目，你会看到选择器而不是空白；选一个项目，编辑器出现。</div>
+      </div>
+      <div class="app" id="appB">
+        <div class="rail">
+          <div class="ritem on" data-v="sessions"><span class="ic">💬</span>Sessions</div>
+          <div class="ritem" data-v="work"><span class="ic">▤</span>Work</div>
+          <div class="ritem" data-v="code"><span class="ic">▦</span>Code</div>
+          <div class="ritem" data-v="projects"><span class="ic">📁</span>Projects</div>
+          <div class="sp"></div>
+          <div class="ritem"><span class="ic">⚙︎</span>Settings</div>
+        </div>
+        <div class="main">
+          <div class="stage" data-view="sessions"><h4>Sessions</h4><div class="cap">主组的其他项照旧</div><div class="msg">会话列表…</div></div>
+          <div class="stage" data-view="work" style="display:none"><h4>Work</h4><div class="cap">主组的其他项照旧</div><div class="msg">看板…</div></div>
+          <div class="stage" data-view="projects" style="display:none"><h4>Projects</h4><div class="msg">项目列表…</div></div>
+          <!-- Code：无项目 → 选择器 -->
+          <div class="stage" data-view="code" style="display:none">
+            <div class="picker">
+              <h4>还没有打开项目</h4>
+              <p>Code 永远显示一个项目的文件——先选一个。这是同一个按钮从前会变成空白的地方。</p>
+              <div class="pcard" data-open="codeopen"><b>charter-site</b><span>~/git/charter-site · 2 小时前</span></div>
+              <div class="pcard" data-open="codeopen"><b>Pi_Agentic_IDE</b><span>~/git/Pi_Agentic_IDE_Spec_Package_v1.0 · 昨天</span></div>
+              <div class="btn">打开其他文件夹…</div>
+            </div>
+          </div>
+          <!-- Code：有项目 -->
+          <div class="stage" data-view="codeopen" style="display:none">
+            <h4>charter-site</h4>
+            <div class="cap">Code：文件树 + 编辑器，行为永远是这一种</div>
+            <div class="ide">
+              <div class="tree">
+                <div class="tnode dir">src/</div>
+                <div class="tnode on">auth/refresh.ts</div>
+                <div class="tnode">views/Login.tsx</div>
+                <div class="tnode dir">public/</div>
+                <div class="tnode">index.html</div>
+              </div>
+              <div class="code">
+<span class="kw">export async function</span> refreshToken(): Promise&lt;Token&gt; {<br>
+&nbsp;&nbsp;<span class="hl"><span class="kw">if</span> (inflight) <span class="kw">return</span> inflight;</span><br>
+&nbsp;&nbsp;inflight = doRefresh();<br>
+&nbsp;&nbsp;<span class="kw">try</span> { <span class="kw">return await</span> inflight; }<br>
+&nbsp;&nbsp;<span class="kw">finally</span> { inflight = null; }<br>
+}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 方向 C ============ -->
+  <div class="panel" data-p="c">
+    <div class="panel-grid">
+      <div>
+        <h3>编辑器彻底浮层化：哪里点到文件，哪里滑出编辑器</h3>
+        <p class="bet">最激进的方向。赌的是：<b>在这个产品里，"编辑文件"永远是某件事的中途动作，从来不是目的</b>。那就取消"编辑器面"这个概念——任何地方点到文件路径，编辑器作为浮层滑出来，改完即走，你从不离开当前上下文。</p>
+        <ul>
+          <li class="pro">零导航成本：不切页面、不丢上下文、没有"回去"的问题</li>
+          <li class="pro">和已有的 FileLens 机制同源，实现是顺水推舟</li>
+          <li class="con">重度编辑（多文件、分屏、长时间）体验受限</li>
+          <li class="con">"浏览整个项目的代码"没有自然入口，需要 Projects 兜底</li>
+        </ul>
+        <div class="try">试一下：在 Sessions 或 Work 看板里点任何<b>文件路径</b>，编辑器从右侧滑出；✕ 关掉，你还在原地。</div>
+      </div>
+      <div class="app" id="appC">
+        <div class="rail">
+          <div class="ritem on" data-v="sessions"><span class="ic">💬</span>Sessions</div>
+          <div class="ritem" data-v="work"><span class="ic">▤</span>Work</div>
+          <div class="sp"></div>
+          <div class="ritem"><span class="ic">⚙︎</span>Settings</div>
+        </div>
+        <div class="main">
+          <div class="stage" data-view="sessions">
+            <h4>修复登录超时</h4>
+            <div class="cap">会话里点文件 → 浮层</div>
+            <div class="msg"><div class="who">agent</div>改了 <span class="filechip" data-file="src/auth/refresh.ts">src/auth/refresh.ts</span>，刷新锁提到请求层。</div>
+          </div>
+          <div class="stage" data-view="work" style="display:none">
+            <h4>Work</h4>
+            <div class="cap">看板卡片里点文件 → 同一个浮层</div>
+            <div class="board">
+              <div class="col"><h5>进行中</h5>
+                <div class="wcard">登录超时修复<br><span class="filechip" data-file="src/auth/refresh.ts">src/auth/refresh.ts</span></div>
+              </div>
+              <div class="col"><h5>待验收</h5>
+                <div class="wcard">首页改版<br><span class="filechip" data-file="src/views/Login.tsx">src/views/Login.tsx</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="lens" id="lensC">
+            <header><span id="lensCFile">src/auth/refresh.ts</span><span class="close" data-close="lensC">✕</span></header>
+            <div class="code">
+<span class="kw">export async function</span> refreshToken(): Promise&lt;Token&gt; {<br>
+&nbsp;&nbsp;<span class="hl"><span class="kw">if</span> (inflight) <span class="kw">return</span> inflight;   <span style="color:#a39b8e">// 可直接编辑 · ⌘S 保存</span></span><br>
+&nbsp;&nbsp;inflight = doRefresh();<br>
+&nbsp;&nbsp;<span class="kw">try</span> { <span class="kw">return await</span> inflight; }<br>
+&nbsp;&nbsp;<span class="kw">finally</span> { inflight = null; }<br>
+}<br><br>
+<span style="color:#a39b8e">// 关掉浮层，你还停在刚才的看板/会话，没有任何导航发生。</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 结论 -->
+  <div class="verdict">
+    <h2>我的推荐：A 为主干，C 做补充；不选 B</h2>
+    <p><b>A + C 其实是一体的</b>：全局导航删掉 Editor 按钮（A），编辑器归属两个真实上下文——会话里点文件走浮层（C，FileLens 已经存在，顺水推舟），想整体浏览/编辑一个项目走 Projects → Files（A）。⌘K 里保留"Open Editor"命令给肌肉记忆兜底。</p>
+    <p><b>为什么不选 B</b>：B 治好了"行为不可预测"，但它把编辑器抬成一等目的地，等于宣布这是个传统 IDE——和整个产品"会话是主面、编辑器是验收工具"的骨架相反。而且 7 个主导航项太挤了。</p>
+    <p><b>反对 A 的最强理由</b>：刚打开应用、什么都没有、只想快速改个文件的人，路径从 1 步变 2 步（Projects → 项目）。我认为可以接受——这个动作在这个产品里本来就不该是第一动作。</p>
+  </div>
+
+</div>
+
+<script>
+  // tabs
+  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.dataset.p === t.dataset.t));
+  }));
+
+  // 迷你应用：rail 切视图 + 项目卡跳转 + lens
+  function wire(appId, lensId) {
+    const app = document.getElementById(appId);
+    const show = v => {
+      app.querySelectorAll('.stage').forEach(s => s.style.display = s.dataset.view === v ? '' : 'none');
+      app.querySelectorAll('.ritem[data-v]').forEach(r =>
+        r.classList.toggle('on', r.dataset.v === v || (v === 'codeopen' && r.dataset.v === 'code') || (v === 'center' && r.dataset.v === 'projects')));
+      const lens = lensId && document.getElementById(lensId);
+      if (lens) lens.classList.remove('open');
+    };
+    app.querySelectorAll('.ritem[data-v]').forEach(r => r.addEventListener('click', () => show(r.dataset.v)));
+    app.querySelectorAll('[data-open]').forEach(c => c.addEventListener('click', () => show(c.dataset.open)));
+    app.querySelectorAll('.filechip').forEach(chip => chip.addEventListener('click', () => {
+      const lens = document.getElementById(lensId);
+      if (!lens) return;
+      lens.querySelector('header span').textContent = chip.dataset.file;
+      lens.classList.add('open');
+    }));
+    app.querySelectorAll('[data-close]').forEach(x => x.addEventListener('click', () =>
+      document.getElementById(x.dataset.close).classList.remove('open')));
+  }
+  wire('appA', 'lensA');
+  wire('appB', null);
+  wire('appC', 'lensC');
+
+  // 方向 A 的项目中心标签
+  document.querySelectorAll('#appA .ptab').forEach(t => t.addEventListener('click', () => {
+    document.querySelectorAll('#appA .ptab').forEach(x => x.classList.toggle('on', x === t));
+    document.querySelectorAll('#appA [data-ptv]').forEach(v => v.style.display = v.dataset.ptv === t.dataset.pt ? '' : 'none');
+  }));
+</script>
+</body>
+</html>

@@ -10,18 +10,17 @@ import '../styles/preview.css';
  * (GIT-007). Dismissing is safe because the timeline entry remains.
  */
 export function PrDraftCard(): React.JSX.Element | null {
-  const store = useTaskStore();
-  const app = useAppStore();
-  const entry = store.prDraft;
+  const entry = useTaskStore((s) => s.prDraft);
+  const app = useAppStore.getState(); // actions only
 
   useEffect(() => {
     if (!entry) return;
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') store.dismissPrDraft();
+      if (e.key === 'Escape') useTaskStore.getState().dismissPrDraft();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [entry, store]);
+  }, [entry]);
 
   if (!entry) return null;
   const { draft } = entry;
@@ -40,7 +39,7 @@ export function PrDraftCard(): React.JSX.Element | null {
       className="modal-backdrop"
       data-testid="pr-draft-card"
       onClick={(e) => {
-        if (e.target === e.currentTarget) store.dismissPrDraft();
+        if (e.target === e.currentTarget) useTaskStore.getState().dismissPrDraft();
       }}
     >
       <div className="pr-card" role="dialog" aria-label="PR draft">
@@ -77,7 +76,7 @@ export function PrDraftCard(): React.JSX.Element | null {
           <button
             className="btn"
             data-testid="pr-draft-dismiss"
-            onClick={() => store.dismissPrDraft()}
+            onClick={() => useTaskStore.getState().dismissPrDraft()}
           >
             Done
           </button>

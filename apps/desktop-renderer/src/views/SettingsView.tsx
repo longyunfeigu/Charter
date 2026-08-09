@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   PROVIDER_PRESETS,
   providerPreset,
@@ -9,9 +9,12 @@ import { rpcResult } from '../bridge.js';
 import { useAppStore, type SettingsSection } from '../store/appStore.js';
 import { useTaskStore } from '../store/taskStore.js';
 import { Ic } from './home-icons.js';
+import { MemoryView } from './MemoryView.js';
+import { SkillsView } from './SkillsView.js';
 import { SkillSourcesSettingsSection } from './SkillSourcesSettings.js';
 import { SKIN_LABELS, type AppearanceSkin } from '../appearance.js';
 import { ZOOM_STEPS, zoomPercentLabel } from './ui-zoom.js';
+import { t } from '../i18n.js';
 import '../styles/settings.css';
 
 const API_LABEL: Record<string, string> = {
@@ -296,18 +299,83 @@ function ProvidersBlock(): React.JSX.Element {
   );
 }
 
-const SECTIONS: Array<{ id: SettingsSection; label: string; icon: string }> = [
-  { id: 'general', label: 'General', icon: 'sliders' },
-  { id: 'editor', label: 'Editor', icon: 'pencil' },
-  { id: 'terminal', label: 'Terminal', icon: 'terminal' },
-  { id: 'agent', label: 'Agent', icon: 'bot' },
-  { id: 'skills', label: 'Skill Sources', icon: 'folder' },
-  { id: 'models', label: 'Models', icon: 'provider' },
-  { id: 'permissions', label: 'Permissions', icon: 'shield' },
-  { id: 'privacy', label: 'Privacy', icon: 'eye' },
-  { id: 'updates', label: 'Updates', icon: 'refresh' },
-  { id: 'about', label: 'About', icon: 'info' },
+const SETTINGS_GROUPS: Array<{
+  label: string;
+  items: Array<{ id: SettingsSection; label: string; icon: string }>;
+}> = [
+  {
+    label: 'Application',
+    items: [
+      { id: 'general', label: 'General', icon: 'sliders' },
+      { id: 'editor', label: 'Editor', icon: 'pencil' },
+      { id: 'terminal', label: 'Terminal', icon: 'terminal' },
+    ],
+  },
+  {
+    label: 'AI & Agents',
+    items: [
+      { id: 'agent', label: 'Agent', icon: 'bot' },
+      { id: 'models', label: 'Models', icon: 'provider' },
+      { id: 'memory', label: 'Memory', icon: 'brain' },
+      { id: 'skills', label: 'Skills', icon: 'puzzle' },
+      { id: 'skill-sources', label: 'Skill Sources', icon: 'folder' },
+      { id: 'permissions', label: 'Permissions', icon: 'shield' },
+    ],
+  },
+  {
+    label: 'Data & System',
+    items: [
+      { id: 'privacy', label: 'Privacy', icon: 'eye' },
+      { id: 'updates', label: 'Updates', icon: 'refresh' },
+      { id: 'about', label: 'About', icon: 'info' },
+    ],
+  },
 ];
+
+const SECTION_COPY: Record<SettingsSection, { title: string; description: string }> = {
+  general: {
+    title: 'General',
+    description: 'Appearance, application behavior, and everyday workspace defaults.',
+  },
+  editor: { title: 'Editor', description: 'Typography, formatting, and file editing behavior.' },
+  terminal: {
+    title: 'Terminal',
+    description: 'Shell, rendering, typography, and command integration.',
+  },
+  agent: {
+    title: 'Agent',
+    description: 'Default autonomy, Mission Fabric, and knowledge capture behavior.',
+  },
+  models: {
+    title: 'Models',
+    description: 'Provider credentials, model discovery, and thinking defaults.',
+  },
+  memory: {
+    title: 'Memory',
+    description: 'Inspect and manage the knowledge carried by each Agent.',
+  },
+  skills: {
+    title: 'Skills',
+    description: 'Manage installed capabilities, observed usage, and Agent availability.',
+  },
+  'skill-sources': {
+    title: 'Skill Sources',
+    description: 'Choose where Charter discovers and synchronizes Agent Skills.',
+  },
+  permissions: {
+    title: 'Permissions',
+    description: 'Review the risk policy that governs Agent actions.',
+  },
+  privacy: {
+    title: 'Privacy',
+    description: 'Control local data, analytics, and crash reporting.',
+  },
+  updates: {
+    title: 'Updates',
+    description: 'Check the installed version and choose an update channel.',
+  },
+  about: { title: 'About', description: 'Build, runtime, and local data information.' },
+};
 
 /** ADR-0045: one click installs the orchestration manual into Charter's
  * managed store plus ~/.claude/skills and ~/.codex/skills, with a
@@ -887,10 +955,10 @@ function SkinPicker(props: {
   return (
     <div className="st-skin-block">
       <div className="st-skin-heading">
-        <span>Skin</span>
-        <small>Color · type · icons · code</small>
+        <span>{t('Skin')}</span>
+        <small>{t('Color · type · icons · code')}</small>
       </div>
-      <div className="st-skin-grid" role="radiogroup" aria-label="Application skin">
+      <div className="st-skin-grid" role="radiogroup" aria-label={t('Application skin')}>
         {APPEARANCE_SKINS.map((skin) => {
           const meta = SKIN_LABELS[skin];
           const selected = skin === props.value;
@@ -926,7 +994,7 @@ function SkinPicker(props: {
                 {meta.name}
                 <Ic name={selected ? 'checkCircle' : 'circle'} size={14} />
               </span>
-              <span className="st-skin-description">{meta.description}</span>
+              <span className="st-skin-description">{t(meta.description)}</span>
             </button>
           );
         })}
@@ -940,12 +1008,48 @@ export function SettingsView(): React.JSX.Element {
   const issues = useAppStore((s) => s.settingsIssues);
   const appInfo = useAppStore((s) => s.appInfo);
   const updateSettings = useAppStore((s) => s.updateSettings);
-  const requestedSection = useAppStore((s) => s.settingsSection);
-  const [section, setSection] = useState<SettingsSection>(requestedSection);
+  const section = useAppStore((s) => s.settingsSection);
+  const openSettings = useAppStore((s) => s.openSettings);
+  const closeSettings = useAppStore((s) => s.closeSettings);
+  const [navQuery, setNavQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLElement>(null);
 
-  useEffect(() => setSection(requestedSection), [requestedSection]);
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent): void => {
+      if (event.key.toLocaleLowerCase() !== 'f' || (!event.metaKey && !event.ctrlKey)) return;
+      event.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener('keydown', focusSearch);
+    return () => window.removeEventListener('keydown', focusSearch);
+  }, []);
 
-  if (!settings) return <div className="empty-state">Loading settings…</div>;
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 });
+  }, [section]);
+
+  const normalizedQuery = navQuery.trim().toLocaleLowerCase();
+  const groups = SETTINGS_GROUPS.map((group) => ({
+    ...group,
+    items: normalizedQuery
+      ? group.items.filter((item) =>
+          `${item.label} ${t(item.label)} ${SECTION_COPY[item.id].description} ${t(SECTION_COPY[item.id].description)}`
+            .toLocaleLowerCase()
+            .includes(normalizedQuery),
+        )
+      : group.items,
+  })).filter((group) => group.items.length > 0);
+  const workspaceSection = section === 'memory' || section === 'skills';
+  const copy = SECTION_COPY[section];
+
+  if (!settings) {
+    return (
+      <div className="st-root" data-testid="settings-page" aria-label={t('Settings')}>
+        <div className="empty-state">{t('Loading settings…')}</div>
+      </div>
+    );
+  }
 
   const set = (patch: Record<string, unknown>) => void updateSettings('global', patch);
   const setMockRuntime = async (useMockRuntime: boolean): Promise<void> => {
@@ -954,583 +1058,677 @@ export function SettingsView(): React.JSX.Element {
   };
 
   return (
-    <div className="st-root">
-      <nav aria-label="Settings sections" className="st-nav">
-        {SECTIONS.map((s) => (
+    <div className="st-root" data-testid="settings-page" aria-label={t('Settings')}>
+      <nav aria-label={t('Settings sections')} className="st-nav">
+        <div className="st-nav-head">
           <button
-            key={s.id}
-            className={`st-nav-item ${s.id === section ? 'active' : ''}`}
-            data-testid={`settings-section-${s.id}`}
-            aria-current={s.id === section ? 'page' : undefined}
-            onClick={() => setSection(s.id)}
+            type="button"
+            className="st-back"
+            data-testid="settings-back"
+            onClick={closeSettings}
+            autoFocus
           >
-            <Ic name={s.icon} size={14} />
-            {s.label}
+            <Ic name="chevron" size={12} />
+            {t('Back to app')}
           </button>
-        ))}
+          <div className="st-nav-title">
+            <span className="st-nav-mark" aria-hidden="true">
+              <Ic name="sliders" size={15} />
+            </span>
+            <div>
+              <strong>{t('Settings')}</strong>
+              <small>{t('Charter preferences')}</small>
+            </div>
+          </div>
+        </div>
+        <label className="st-nav-search">
+          <Ic name="search" size={13} />
+          <input
+            ref={searchRef}
+            value={navQuery}
+            aria-label={t('Search settings')}
+            placeholder={t('Search settings')}
+            onChange={(event) => setNavQuery(event.target.value)}
+          />
+          <kbd>⌘F</kbd>
+        </label>
+        <div className="st-nav-groups">
+          {groups.map((group) => (
+            <div className="st-nav-group" key={group.label}>
+              <span>{t(group.label)}</span>
+              {group.items.map((item) => (
+                <button
+                  key={item.id}
+                  className={`st-nav-item ${item.id === section ? 'active' : ''}`}
+                  data-testid={`settings-section-${item.id}`}
+                  aria-current={item.id === section ? 'page' : undefined}
+                  onClick={() => openSettings(item.id)}
+                >
+                  <Ic name={item.icon} size={14} />
+                  {t(item.label)}
+                </button>
+              ))}
+            </div>
+          ))}
+          {groups.length === 0 ? <p className="st-nav-empty">{t('No matching settings')}</p> : null}
+        </div>
       </nav>
-      <div className="st-body">
-        {issues.length > 0 ? (
-          <div className="st-issues">
-            {issues.length} setting value(s) were invalid and fell back to defaults.
-          </div>
-        ) : null}
-
-        {section === 'general' ? (
-          <div className="st-card">
-            <SkinPicker
-              value={settings.general.skin}
-              onChange={(skin) => set({ general: { skin } })}
-            />
-            <Row label="Brightness" hint="Each skin includes a coordinated light and dark variant">
-              <select
-                className="st-input"
-                value={settings.general.theme}
-                onChange={(e) => set({ general: { theme: e.target.value } })}
-              >
-                <option value="system">System</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </Row>
-            <Row
-              label="UI zoom"
-              hint="Whole window outside a focused terminal · terminal focus uses independent font zoom"
-            >
-              <div
-                className="st-zoom-seg"
-                role="radiogroup"
-                aria-label="UI zoom"
-                data-testid="settings-zoom"
-              >
-                {ZOOM_STEPS.map((z) => {
-                  const active = Math.abs(settings.general.uiScale - z) < 0.001;
-                  return (
-                    <button
-                      key={z}
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      className={`st-zoom-step${active ? ' on' : ''}`}
-                      data-testid={`settings-zoom-${Math.round(z * 100)}`}
-                      onClick={() => set({ general: { uiScale: z } })}
-                    >
-                      {zoomPercentLabel(z).replace('%', '')}
-                    </button>
-                  );
-                })}
-              </div>
-            </Row>
-            <Row
-              label="Rich Markdown by default"
-              hint="Open .md files in the Notion-style editor (toggle per file on the tab)"
-            >
-              <Toggle
-                testid="settings-md-rich"
-                checked={settings.editor.markdownRichDefault}
-                onChange={(v) => set({ editor: { markdownRichDefault: v } })}
-              />
-            </Row>
-            <Row
-              label="System notifications"
-              hint="Plan approval · permission · review ready · failed (silent while focused)"
-            >
-              <Toggle
-                testid="settings-notifications"
-                checked={settings.notifications.enabled}
-                onChange={(v) => set({ notifications: { enabled: v } })}
-              />
-            </Row>
-            <Row
-              label="Preview console → agent"
-              hint="Auto: errors landing right after the agent's own write are steered back (deduped, rate-limited). Manual: collect + one-click send. Off: count only."
-            >
-              <select
-                className="st-input"
-                data-testid="settings-preview-console"
-                value={settings.preview.consoleToAgent}
-                onChange={(e) => set({ preview: { consoleToAgent: e.target.value } })}
-              >
-                <option value="auto">Auto (self-heal)</option>
-                <option value="manual">Manual</option>
-                <option value="off">Off</option>
-              </select>
-            </Row>
-          </div>
-        ) : null}
-
-        {section === 'editor' ? (
-          <div className="st-card">
-            <Row label="Font size">
-              <input
-                className="st-input"
-                type="number"
-                min={8}
-                max={40}
-                value={settings.editor.fontSize}
-                onChange={(e) => set({ editor: { fontSize: Number(e.target.value) } })}
-              />
-            </Row>
-            <Row label="Font family">
-              <input
-                className="st-input wide"
-                value={settings.editor.fontFamily}
-                onChange={(e) => set({ editor: { fontFamily: e.target.value } })}
-              />
-            </Row>
-            <Row label="Tab size">
-              <input
-                className="st-input"
-                type="number"
-                min={1}
-                max={8}
-                value={settings.editor.tabSize}
-                onChange={(e) => set({ editor: { tabSize: Number(e.target.value) } })}
-              />
-            </Row>
-            <Row label="Word wrap">
-              <select
-                className="st-input"
-                value={settings.editor.wordWrap}
-                onChange={(e) => set({ editor: { wordWrap: e.target.value } })}
-              >
-                <option value="off">Off</option>
-                <option value="on">On</option>
-              </select>
-            </Row>
-            <Row label="Minimap">
-              <Toggle
-                checked={settings.editor.minimap}
-                onChange={(v) => set({ editor: { minimap: v } })}
-              />
-            </Row>
-            <Row label="Auto save">
-              <select
-                className="st-input"
-                value={settings.editor.autoSave}
-                onChange={(e) => set({ editor: { autoSave: e.target.value } })}
-              >
-                <option value="off">Off</option>
-                <option value="afterDelay">After delay</option>
-                <option value="onFocusChange">On focus change</option>
-              </select>
-            </Row>
-            <Row label="Auto save delay (ms)">
-              <input
-                className="st-input"
-                type="number"
-                min={200}
-                max={60000}
-                value={settings.editor.autoSaveDelayMs}
-                onChange={(e) => set({ editor: { autoSaveDelayMs: Number(e.target.value) } })}
-              />
-            </Row>
-            <Row
-              label="Large file threshold (MB)"
-              hint="Beyond this size semantic features degrade"
-            >
-              <input
-                className="st-input"
-                type="number"
-                min={1}
-                max={512}
-                value={settings.editor.largeFileSizeMb}
-                onChange={(e) => set({ editor: { largeFileSizeMb: Number(e.target.value) } })}
-              />
-            </Row>
-          </div>
-        ) : null}
-
-        {section === 'terminal' ? (
-          <div className="st-card">
-            <Row label="Font size">
-              <input
-                className="st-input"
-                data-testid="settings-terminal-font-size"
-                type="number"
-                min={8}
-                max={32}
-                value={settings.terminal.fontSize}
-                onChange={(e) => set({ terminal: { fontSize: Number(e.target.value) } })}
-              />
-            </Row>
-            <Row
-              label="Font family"
-              hint="SF Mono by default, with system CJK fallbacks for Chinese output"
-            >
-              <input
-                className="st-input wide mono"
-                data-testid="settings-terminal-font-family"
-                value={settings.terminal.fontFamily}
-                onChange={(e) => set({ terminal: { fontFamily: e.target.value } })}
-              />
-            </Row>
-            <Row label="Font weight" hint="Bold is at least 700 and 200 above normal">
-              <select
-                className="st-input"
-                data-testid="settings-terminal-font-weight"
-                value={settings.terminal.fontWeight}
-                onChange={(e) => set({ terminal: { fontWeight: Number(e.target.value) } })}
-              >
-                {[100, 200, 300, 400, 500, 600, 700, 800, 900].map((weight) => (
-                  <option key={weight} value={weight}>
-                    {weight}
-                  </option>
-                ))}
-              </select>
-            </Row>
-            <Row label="Line height">
-              <input
-                className="st-input"
-                data-testid="settings-terminal-line-height"
-                type="number"
-                min={1}
-                max={2}
-                step={0.05}
-                value={settings.terminal.lineHeight}
-                onChange={(e) => set({ terminal: { lineHeight: Number(e.target.value) } })}
-              />
-            </Row>
-            <Row label="Horizontal padding" hint="Pixels on the left and right of every terminal">
-              <input
-                className="st-input"
-                data-testid="settings-terminal-padding-x"
-                type="number"
-                min={0}
-                max={32}
-                value={settings.terminal.paddingX}
-                onChange={(e) => set({ terminal: { paddingX: Number(e.target.value) } })}
-              />
-            </Row>
-            <Row label="Vertical padding" hint="Pixels above and below every terminal">
-              <input
-                className="st-input"
-                data-testid="settings-terminal-padding-y"
-                type="number"
-                min={0}
-                max={32}
-                value={settings.terminal.paddingY}
-                onChange={(e) => set({ terminal: { paddingY: Number(e.target.value) } })}
-              />
-            </Row>
-            <Row
-              label="Terminal colors"
-              hint="Orca uses Tango Light and Ghostty Dark with contrast correction"
-            >
-              <select
-                className="st-input wide"
-                data-testid="settings-terminal-color-theme"
-                value={settings.terminal.colorTheme}
-                onChange={(e) => set({ terminal: { colorTheme: e.target.value } })}
-              >
-                <option value="orca">Orca · Tango Light / Ghostty Dark</option>
-                <option value="skin">Match Charter skin</option>
-              </select>
-            </Row>
-            <Row label="Shell path" hint="Empty = system default shell">
-              <input
-                className="st-input wide mono"
-                placeholder="/bin/zsh"
-                value={settings.terminal.shellPath ?? ''}
-                onChange={(e) => set({ terminal: { shellPath: e.target.value || null } })}
-              />
-            </Row>
-            <Row label="Scrollback lines">
-              <input
-                className="st-input"
-                type="number"
-                min={100}
-                max={200000}
-                value={settings.terminal.scrollback}
-                onChange={(e) => set({ terminal: { scrollback: Number(e.target.value) } })}
-              />
-            </Row>
-            <Row
-              label="Terminal renderer"
-              hint="Auto uses GPU acceleration when available and falls back safely after setup or context loss"
-            >
-              <select
-                className="st-input wide"
-                data-testid="settings-terminal-renderer"
-                value={settings.terminal.renderer}
-                onChange={(e) => set({ terminal: { renderer: e.target.value } })}
-              >
-                <option value="auto">Auto · WebGL with fallback</option>
-                <option value="software">Software compatibility</option>
-              </select>
-            </Row>
-            <Row
-              label="Terminal character widths"
-              hint="Unicode 11 improves CJK and emoji alignment; use Unicode 6 for older TUIs with different wcwidth tables"
-            >
-              <select
-                className="st-input wide"
-                data-testid="settings-terminal-unicode"
-                value={settings.terminal.unicodeVersion}
-                onChange={(e) => set({ terminal: { unicodeVersion: e.target.value } })}
-              >
-                <option value="11">Unicode 11 · recommended</option>
-                <option value="6">Unicode 6 · compatibility</option>
-              </select>
-            </Row>
-            <Row
-              label="Auto-move external agent sessions to the side panel"
-              hint="Off = a detected claude/codex session only decorates its terminal in place; moving it is your click"
-            >
-              <Toggle
-                checked={settings.terminal.autoPromoteExternal}
-                onChange={(v) => set({ terminal: { autoPromoteExternal: v } })}
-              />
-            </Row>
-            <Row
-              label="Shell integration (command blocks)"
-              hint="Injects OSC 133 marks into zsh/bash/fish: block jumps, marker rail, sourced progress, finish notifications. Off or an unknown shell = plain scrollback, nothing breaks"
-            >
-              <Toggle
-                checked={settings.terminal.shellIntegration}
-                onChange={(v) => set({ terminal: { shellIntegration: v } })}
-              />
-            </Row>
-            <Row
-              label="Notify when a long command finishes (seconds)"
-              hint="Unfocused only, one notification per command; its click lands on the command's block"
-            >
-              <input
-                className="st-input"
-                type="number"
-                min={5}
-                max={600}
-                value={settings.terminal.longCommandSeconds}
-                onChange={(e) => set({ terminal: { longCommandSeconds: Number(e.target.value) } })}
-              />
-            </Row>
-          </div>
-        ) : null}
-
-        {section === 'agent' ? (
-          <>
-            <div className="st-card">
-              <Row label="Default mode">
-                <select
-                  className="st-input"
-                  value={settings.agent.defaultMode}
-                  onChange={(e) => set({ agent: { defaultMode: e.target.value } })}
-                >
-                  <option value="ask">Read-only</option>
-                  <option value="edit">Approve changes</option>
-                  <option value="auto">Auto · pause on risk</option>
-                </select>
-              </Row>
-              <Row
-                label="Auto mode: auto-approve workspace edits (R1)"
-                hint="Off = Auto only auto-approves read-only tools"
-              >
-                <Toggle
-                  checked={settings.agent.autoApproveR1}
-                  onChange={(v) => set({ agent: { autoApproveR1: v } })}
-                />
-              </Row>
-              <Row
-                label="Auto mode: auto-approve recognized verification commands (R2)"
-                hint="npm test / lint / typecheck detected from the project"
-              >
-                <Toggle
-                  checked={settings.agent.autoApproveKnownR2}
-                  onChange={(v) => set({ agent: { autoApproveKnownR2: v } })}
-                />
-              </Row>
-              <Row
-                label="Show model thinking"
-                hint="Streams the model's reasoning, collapsed in the timeline — never treated as evidence"
-              >
-                <Toggle
-                  checked={settings.agent.showThinking}
-                  onChange={(v) => set({ agent: { showThinking: v } })}
-                />
-              </Row>
-            </div>
-            <div className="st-card">
-              <div className="st-card-head">
-                <Ic name="terminal" size={14} />
-                <div>
-                  <div className="st-card-title">Mission Fabric</div>
-                  <div className="st-card-sub">
-                    Recursive Agent teams with durable inboxes, parallel scheduling and ACP session
-                    reuse. Claude and Codex automatically fall back to visible terminals if ACP
-                    startup is unavailable.
-                  </div>
+      <section ref={bodyRef} className={`st-body ${workspaceSection ? 'workspace' : ''}`}>
+        {workspaceSection ? (
+          section === 'memory' ? (
+            <MemoryView embedded />
+          ) : (
+            <SkillsView />
+          )
+        ) : (
+          <div className="st-content-shell">
+            <header className="st-content-head">
+              <h1>{t(copy.title)}</h1>
+              <p>{t(copy.description)}</p>
+            </header>
+            <div className="st-content">
+              {issues.length > 0 ? (
+                <div className="st-issues">
+                  {issues.length} setting value(s) were invalid and fell back to defaults.
                 </div>
-              </div>
-              <Row
-                label="Mission Fabric"
-                hint="Master switch for Mission tools, ACP/MCP bridge, durable messaging and visible terminal fallback"
-              >
-                <Toggle
-                  testid="settings-orchestration"
-                  checked={settings.orchestration.enabled}
-                  onChange={(v) => set({ orchestration: { enabled: v } })}
-                />
-              </Row>
-              <Row label="Maximum live workers per session">
-                <input
-                  className="st-input"
-                  type="number"
-                  min={1}
-                  max={12}
-                  value={settings.orchestration.maxWorkers}
-                  onChange={(e) => set({ orchestration: { maxWorkers: Number(e.target.value) } })}
-                />
-              </Row>
-              <Row label="Maximum sends per minute">
-                <input
-                  className="st-input"
-                  type="number"
-                  min={1}
-                  max={120}
-                  value={settings.orchestration.maxSendsPerMinute}
-                  onChange={(e) =>
-                    set({ orchestration: { maxSendsPerMinute: Number(e.target.value) } })
-                  }
-                />
-              </Row>
-              <CharterTerminalManualRow />
-            </div>
-            <div className="st-card">
-              <Row
-                label="Capture review corrections as rule candidates"
-                hint="Request-fix notes and plan pushback offer a distill card (ADR-0028); nothing is captured when off"
-              >
-                <Toggle
-                  checked={settings.memory.captureEnabled}
-                  onChange={(v) => set({ memory: { captureEnabled: v } })}
-                />
-              </Row>
-              <Row
-                label="Project rules & agent memories"
-                hint="Shared rules, CLAUDE.md / AGENTS.md sync and private CLI memory live in Memory"
-              >
-                <button
-                  className="btn"
-                  data-testid="settings-open-memory"
-                  onClick={() => {
-                    useAppStore.getState().setOverlay('none');
-                    useAppStore.getState().setRailView('memory');
-                  }}
-                >
-                  Open Memory
-                </button>
-              </Row>
-              <Row label="Skills" hint="Usage and cross-Agent cleanup live on the main Skills page">
-                <button
-                  className="btn"
-                  data-testid="settings-open-skills"
-                  onClick={() => {
-                    useAppStore.getState().setOverlay('none');
-                    useAppStore.getState().setRailView('skills');
-                  }}
-                >
-                  Open Skills
-                </button>
-              </Row>
-            </div>
-          </>
-        ) : null}
+              ) : null}
 
-        {section === 'skills' ? <SkillSourcesSettingsSection /> : null}
+              {section === 'general' ? (
+                <div className="st-card">
+                  <Row
+                    label={t('Display language')}
+                    hint={t('Choose the language used by Charter controls, menus, and messages.')}
+                  >
+                    <select
+                      className="st-input"
+                      data-testid="settings-locale"
+                      aria-label={t('Display language')}
+                      value={settings.general.locale}
+                      onChange={(event) =>
+                        set({ general: { locale: event.target.value as 'en' | 'zh-CN' } })
+                      }
+                    >
+                      <option value="en">English</option>
+                      <option value="zh-CN">简体中文</option>
+                    </select>
+                  </Row>
+                  <SkinPicker
+                    value={settings.general.skin}
+                    onChange={(skin) => set({ general: { skin } })}
+                  />
+                  <Row
+                    label={t('Brightness')}
+                    hint={t('Each skin includes a coordinated light and dark variant')}
+                  >
+                    <select
+                      className="st-input"
+                      value={settings.general.theme}
+                      onChange={(e) => set({ general: { theme: e.target.value } })}
+                    >
+                      <option value="system">{t('System')}</option>
+                      <option value="light">{t('Light')}</option>
+                      <option value="dark">{t('Dark')}</option>
+                    </select>
+                  </Row>
+                  <Row
+                    label={t('UI zoom')}
+                    hint={t(
+                      'Whole window outside a focused terminal · terminal focus uses independent font zoom',
+                    )}
+                  >
+                    <div
+                      className="st-zoom-seg"
+                      role="radiogroup"
+                      aria-label={t('UI zoom')}
+                      data-testid="settings-zoom"
+                    >
+                      {ZOOM_STEPS.map((z) => {
+                        const active = Math.abs(settings.general.uiScale - z) < 0.001;
+                        return (
+                          <button
+                            key={z}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            className={`st-zoom-step${active ? ' on' : ''}`}
+                            data-testid={`settings-zoom-${Math.round(z * 100)}`}
+                            onClick={() => set({ general: { uiScale: z } })}
+                          >
+                            {zoomPercentLabel(z).replace('%', '')}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Row>
+                  <Row
+                    label={t('Rich Markdown by default')}
+                    hint={t(
+                      'Open .md files in the Notion-style editor (toggle per file on the tab)',
+                    )}
+                  >
+                    <Toggle
+                      testid="settings-md-rich"
+                      checked={settings.editor.markdownRichDefault}
+                      onChange={(v) => set({ editor: { markdownRichDefault: v } })}
+                    />
+                  </Row>
+                  <Row
+                    label={t('System notifications')}
+                    hint={t(
+                      'Plan approval · permission · review ready · failed (silent while focused)',
+                    )}
+                  >
+                    <Toggle
+                      testid="settings-notifications"
+                      checked={settings.notifications.enabled}
+                      onChange={(v) => set({ notifications: { enabled: v } })}
+                    />
+                  </Row>
+                  <Row
+                    label={t('Preview console → agent')}
+                    hint={t(
+                      "Auto: errors landing right after the agent's own write are steered back (deduped, rate-limited). Manual: collect + one-click send. Off: count only.",
+                    )}
+                  >
+                    <select
+                      className="st-input"
+                      data-testid="settings-preview-console"
+                      value={settings.preview.consoleToAgent}
+                      onChange={(e) => set({ preview: { consoleToAgent: e.target.value } })}
+                    >
+                      <option value="auto">{t('Auto (self-heal)')}</option>
+                      <option value="manual">{t('Manual')}</option>
+                      <option value="off">{t('Off')}</option>
+                    </select>
+                  </Row>
+                </div>
+              ) : null}
 
-        {section === 'models' ? (
-          <>
-            <div className="st-card">
-              <Row label="Default thinking level">
-                <select
-                  className="st-input"
-                  value={settings.models.defaultThinkingLevel}
-                  onChange={(e) => set({ models: { defaultThinkingLevel: e.target.value } })}
-                >
-                  {['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((l) => (
-                    <option key={l} value={l}>
-                      {l}
-                    </option>
-                  ))}
-                </select>
-              </Row>
-              <Row label="Deterministic mock runtime" hint="For demos/tests without a provider">
-                <Toggle
-                  testid="settings-use-mock-runtime"
-                  checked={settings.models.useMockRuntime}
-                  onChange={(v) => void setMockRuntime(v)}
+              {section === 'editor' ? (
+                <div className="st-card">
+                  <Row label="Font size">
+                    <input
+                      className="st-input"
+                      type="number"
+                      min={8}
+                      max={40}
+                      value={settings.editor.fontSize}
+                      onChange={(e) => set({ editor: { fontSize: Number(e.target.value) } })}
+                    />
+                  </Row>
+                  <Row label="Font family">
+                    <input
+                      className="st-input wide"
+                      value={settings.editor.fontFamily}
+                      onChange={(e) => set({ editor: { fontFamily: e.target.value } })}
+                    />
+                  </Row>
+                  <Row label="Tab size">
+                    <input
+                      className="st-input"
+                      type="number"
+                      min={1}
+                      max={8}
+                      value={settings.editor.tabSize}
+                      onChange={(e) => set({ editor: { tabSize: Number(e.target.value) } })}
+                    />
+                  </Row>
+                  <Row label="Word wrap">
+                    <select
+                      className="st-input"
+                      value={settings.editor.wordWrap}
+                      onChange={(e) => set({ editor: { wordWrap: e.target.value } })}
+                    >
+                      <option value="off">Off</option>
+                      <option value="on">On</option>
+                    </select>
+                  </Row>
+                  <Row label="Minimap">
+                    <Toggle
+                      checked={settings.editor.minimap}
+                      onChange={(v) => set({ editor: { minimap: v } })}
+                    />
+                  </Row>
+                  <Row label="Auto save">
+                    <select
+                      className="st-input"
+                      value={settings.editor.autoSave}
+                      onChange={(e) => set({ editor: { autoSave: e.target.value } })}
+                    >
+                      <option value="off">Off</option>
+                      <option value="afterDelay">After delay</option>
+                      <option value="onFocusChange">On focus change</option>
+                    </select>
+                  </Row>
+                  <Row label="Auto save delay (ms)">
+                    <input
+                      className="st-input"
+                      type="number"
+                      min={200}
+                      max={60000}
+                      value={settings.editor.autoSaveDelayMs}
+                      onChange={(e) => set({ editor: { autoSaveDelayMs: Number(e.target.value) } })}
+                    />
+                  </Row>
+                  <Row
+                    label="Large file threshold (MB)"
+                    hint="Beyond this size semantic features degrade"
+                  >
+                    <input
+                      className="st-input"
+                      type="number"
+                      min={1}
+                      max={512}
+                      value={settings.editor.largeFileSizeMb}
+                      onChange={(e) => set({ editor: { largeFileSizeMb: Number(e.target.value) } })}
+                    />
+                  </Row>
+                </div>
+              ) : null}
+
+              {section === 'terminal' ? (
+                <div className="st-card">
+                  <Row label="Font size">
+                    <input
+                      className="st-input"
+                      data-testid="settings-terminal-font-size"
+                      type="number"
+                      min={8}
+                      max={32}
+                      value={settings.terminal.fontSize}
+                      onChange={(e) => set({ terminal: { fontSize: Number(e.target.value) } })}
+                    />
+                  </Row>
+                  <Row
+                    label="Font family"
+                    hint="SF Mono by default, with system CJK fallbacks for Chinese output"
+                  >
+                    <input
+                      className="st-input wide mono"
+                      data-testid="settings-terminal-font-family"
+                      value={settings.terminal.fontFamily}
+                      onChange={(e) => set({ terminal: { fontFamily: e.target.value } })}
+                    />
+                  </Row>
+                  <Row label="Font weight" hint="Bold is at least 700 and 200 above normal">
+                    <select
+                      className="st-input"
+                      data-testid="settings-terminal-font-weight"
+                      value={settings.terminal.fontWeight}
+                      onChange={(e) => set({ terminal: { fontWeight: Number(e.target.value) } })}
+                    >
+                      {[100, 200, 300, 400, 500, 600, 700, 800, 900].map((weight) => (
+                        <option key={weight} value={weight}>
+                          {weight}
+                        </option>
+                      ))}
+                    </select>
+                  </Row>
+                  <Row label="Line height">
+                    <input
+                      className="st-input"
+                      data-testid="settings-terminal-line-height"
+                      type="number"
+                      min={1}
+                      max={2}
+                      step={0.05}
+                      value={settings.terminal.lineHeight}
+                      onChange={(e) => set({ terminal: { lineHeight: Number(e.target.value) } })}
+                    />
+                  </Row>
+                  <Row
+                    label="Horizontal padding"
+                    hint="Pixels on the left and right of every terminal"
+                  >
+                    <input
+                      className="st-input"
+                      data-testid="settings-terminal-padding-x"
+                      type="number"
+                      min={0}
+                      max={32}
+                      value={settings.terminal.paddingX}
+                      onChange={(e) => set({ terminal: { paddingX: Number(e.target.value) } })}
+                    />
+                  </Row>
+                  <Row label="Vertical padding" hint="Pixels above and below every terminal">
+                    <input
+                      className="st-input"
+                      data-testid="settings-terminal-padding-y"
+                      type="number"
+                      min={0}
+                      max={32}
+                      value={settings.terminal.paddingY}
+                      onChange={(e) => set({ terminal: { paddingY: Number(e.target.value) } })}
+                    />
+                  </Row>
+                  <Row
+                    label="Terminal colors"
+                    hint="Orca uses Tango Light and Ghostty Dark with contrast correction"
+                  >
+                    <select
+                      className="st-input wide"
+                      data-testid="settings-terminal-color-theme"
+                      value={settings.terminal.colorTheme}
+                      onChange={(e) => set({ terminal: { colorTheme: e.target.value } })}
+                    >
+                      <option value="orca">Orca · Tango Light / Ghostty Dark</option>
+                      <option value="skin">Match Charter skin</option>
+                    </select>
+                  </Row>
+                  <Row label="Shell path" hint="Empty = system default shell">
+                    <input
+                      className="st-input wide mono"
+                      placeholder="/bin/zsh"
+                      value={settings.terminal.shellPath ?? ''}
+                      onChange={(e) => set({ terminal: { shellPath: e.target.value || null } })}
+                    />
+                  </Row>
+                  <Row label="Scrollback lines">
+                    <input
+                      className="st-input"
+                      type="number"
+                      min={100}
+                      max={200000}
+                      value={settings.terminal.scrollback}
+                      onChange={(e) => set({ terminal: { scrollback: Number(e.target.value) } })}
+                    />
+                  </Row>
+                  <Row
+                    label="Terminal renderer"
+                    hint="Auto uses GPU acceleration when available and falls back safely after setup or context loss"
+                  >
+                    <select
+                      className="st-input wide"
+                      data-testid="settings-terminal-renderer"
+                      value={settings.terminal.renderer}
+                      onChange={(e) => set({ terminal: { renderer: e.target.value } })}
+                    >
+                      <option value="auto">Auto · WebGL with fallback</option>
+                      <option value="software">Software compatibility</option>
+                    </select>
+                  </Row>
+                  <Row
+                    label="Terminal character widths"
+                    hint="Unicode 11 improves CJK and emoji alignment; use Unicode 6 for older TUIs with different wcwidth tables"
+                  >
+                    <select
+                      className="st-input wide"
+                      data-testid="settings-terminal-unicode"
+                      value={settings.terminal.unicodeVersion}
+                      onChange={(e) => set({ terminal: { unicodeVersion: e.target.value } })}
+                    >
+                      <option value="11">Unicode 11 · recommended</option>
+                      <option value="6">Unicode 6 · compatibility</option>
+                    </select>
+                  </Row>
+                  <Row
+                    label="Auto-move external agent sessions to the side panel"
+                    hint="Off = a detected claude/codex session only decorates its terminal in place; moving it is your click"
+                  >
+                    <Toggle
+                      checked={settings.terminal.autoPromoteExternal}
+                      onChange={(v) => set({ terminal: { autoPromoteExternal: v } })}
+                    />
+                  </Row>
+                  <Row
+                    label="Shell integration (command blocks)"
+                    hint="Injects OSC 133 marks into zsh/bash/fish: block jumps, marker rail, sourced progress, finish notifications. Off or an unknown shell = plain scrollback, nothing breaks"
+                  >
+                    <Toggle
+                      checked={settings.terminal.shellIntegration}
+                      onChange={(v) => set({ terminal: { shellIntegration: v } })}
+                    />
+                  </Row>
+                  <Row
+                    label="Notify when a long command finishes (seconds)"
+                    hint="Unfocused only, one notification per command; its click lands on the command's block"
+                  >
+                    <input
+                      className="st-input"
+                      type="number"
+                      min={5}
+                      max={600}
+                      value={settings.terminal.longCommandSeconds}
+                      onChange={(e) =>
+                        set({ terminal: { longCommandSeconds: Number(e.target.value) } })
+                      }
+                    />
+                  </Row>
+                </div>
+              ) : null}
+
+              {section === 'agent' ? (
+                <>
+                  <div className="st-card">
+                    <Row label="Default mode">
+                      <select
+                        className="st-input"
+                        value={settings.agent.defaultMode}
+                        onChange={(e) => set({ agent: { defaultMode: e.target.value } })}
+                      >
+                        <option value="ask">Read-only</option>
+                        <option value="edit">Approve changes</option>
+                        <option value="auto">Auto · pause on risk</option>
+                      </select>
+                    </Row>
+                    <Row
+                      label="Auto mode: auto-approve workspace edits (R1)"
+                      hint="Off = Auto only auto-approves read-only tools"
+                    >
+                      <Toggle
+                        checked={settings.agent.autoApproveR1}
+                        onChange={(v) => set({ agent: { autoApproveR1: v } })}
+                      />
+                    </Row>
+                    <Row
+                      label="Auto mode: auto-approve recognized verification commands (R2)"
+                      hint="npm test / lint / typecheck detected from the project"
+                    >
+                      <Toggle
+                        checked={settings.agent.autoApproveKnownR2}
+                        onChange={(v) => set({ agent: { autoApproveKnownR2: v } })}
+                      />
+                    </Row>
+                    <Row
+                      label="Show model thinking"
+                      hint="Streams the model's reasoning, collapsed in the timeline — never treated as evidence"
+                    >
+                      <Toggle
+                        checked={settings.agent.showThinking}
+                        onChange={(v) => set({ agent: { showThinking: v } })}
+                      />
+                    </Row>
+                  </div>
+                  <div className="st-card">
+                    <div className="st-card-head">
+                      <Ic name="terminal" size={14} />
+                      <div>
+                        <div className="st-card-title">Mission Fabric</div>
+                        <div className="st-card-sub">
+                          Recursive Agent teams with durable inboxes, parallel scheduling and ACP
+                          session reuse. Claude and Codex automatically fall back to visible
+                          terminals if ACP startup is unavailable.
+                        </div>
+                      </div>
+                    </div>
+                    <Row
+                      label="Mission Fabric"
+                      hint="Master switch for Mission tools, ACP/MCP bridge, durable messaging and visible terminal fallback"
+                    >
+                      <Toggle
+                        testid="settings-orchestration"
+                        checked={settings.orchestration.enabled}
+                        onChange={(v) => set({ orchestration: { enabled: v } })}
+                      />
+                    </Row>
+                    <Row label="Maximum live workers per session">
+                      <input
+                        className="st-input"
+                        type="number"
+                        min={1}
+                        max={12}
+                        value={settings.orchestration.maxWorkers}
+                        onChange={(e) =>
+                          set({ orchestration: { maxWorkers: Number(e.target.value) } })
+                        }
+                      />
+                    </Row>
+                    <Row label="Maximum sends per minute">
+                      <input
+                        className="st-input"
+                        type="number"
+                        min={1}
+                        max={120}
+                        value={settings.orchestration.maxSendsPerMinute}
+                        onChange={(e) =>
+                          set({ orchestration: { maxSendsPerMinute: Number(e.target.value) } })
+                        }
+                      />
+                    </Row>
+                    <CharterTerminalManualRow />
+                  </div>
+                  <div className="st-card">
+                    <Row
+                      label="Capture review corrections as rule candidates"
+                      hint="Request-fix notes and plan pushback offer a distill card (ADR-0028); nothing is captured when off"
+                    >
+                      <Toggle
+                        checked={settings.memory.captureEnabled}
+                        onChange={(v) => set({ memory: { captureEnabled: v } })}
+                      />
+                    </Row>
+                    <Row
+                      label="Project rules & agent memories"
+                      hint="Shared rules, CLAUDE.md / AGENTS.md sync and private CLI memory live in Memory"
+                    >
+                      <button
+                        className="btn"
+                        data-testid="settings-open-memory"
+                        onClick={() => openSettings('memory')}
+                      >
+                        Open Memory
+                      </button>
+                    </Row>
+                    <Row
+                      label="Skills"
+                      hint="Usage and cross-Agent cleanup live on the main Skills page"
+                    >
+                      <button
+                        className="btn"
+                        data-testid="settings-open-skills"
+                        onClick={() => openSettings('skills')}
+                      >
+                        Open Skills
+                      </button>
+                    </Row>
+                  </div>
+                </>
+              ) : null}
+
+              {section === 'skill-sources' ? <SkillSourcesSettingsSection /> : null}
+
+              {section === 'models' ? (
+                <>
+                  <div className="st-card">
+                    <Row label="Default thinking level">
+                      <select
+                        className="st-input"
+                        value={settings.models.defaultThinkingLevel}
+                        onChange={(e) => set({ models: { defaultThinkingLevel: e.target.value } })}
+                      >
+                        {['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((l) => (
+                          <option key={l} value={l}>
+                            {l}
+                          </option>
+                        ))}
+                      </select>
+                    </Row>
+                    <Row
+                      label="Deterministic mock runtime"
+                      hint="For demos/tests without a provider"
+                    >
+                      <Toggle
+                        testid="settings-use-mock-runtime"
+                        checked={settings.models.useMockRuntime}
+                        onChange={(v) => void setMockRuntime(v)}
+                      />
+                    </Row>
+                  </div>
+                  <ProvidersBlock />
+                </>
+              ) : null}
+
+              {section === 'permissions' ? (
+                <div className="st-card st-prose">
+                  <div className="st-card-title" style={{ marginBottom: 8 }}>
+                    Risk policy defaults (spec §10.2)
+                  </div>
+                  <ul>
+                    <li>
+                      <b>R0</b> read-only — allowed automatically in every mode.
+                    </li>
+                    <li>
+                      <b>R1</b> reversible workspace writes — Edit asks / plan approval; Auto per
+                      setting.
+                    </li>
+                    <li>
+                      <b>R2</b> local execution — recognized verification commands may run; unknown
+                      ask.
+                    </li>
+                    <li>
+                      <b>R3</b> external / hard-to-reverse — always asks, never permanently allowed.
+                    </li>
+                    <li>
+                      <b>R4</b> forbidden — sudo, git push, writes outside the workspace: always
+                      blocked.
+                    </li>
+                  </ul>
+                  <p className="st-hint">
+                    Per-workspace grants appear here once made from permission cards.
+                  </p>
+                </div>
+              ) : null}
+
+              {section === 'privacy' ? (
+                <PrivacySection
+                  telemetryEnabled={settings.privacy.telemetryEnabled}
+                  crashReportsEnabled={settings.privacy.crashReportsEnabled}
+                  set={set}
                 />
-              </Row>
-            </div>
-            <ProvidersBlock />
-          </>
-        ) : null}
+              ) : null}
 
-        {section === 'permissions' ? (
-          <div className="st-card st-prose">
-            <div className="st-card-title" style={{ marginBottom: 8 }}>
-              Risk policy defaults (spec §10.2)
+              {section === 'updates' ? (
+                <UpdateSettingsSection
+                  channel={settings.updates.channel}
+                  autoCheck={settings.updates.autoCheck}
+                  set={set}
+                />
+              ) : null}
+
+              {section === 'about' && appInfo ? (
+                <div className="st-card st-prose">
+                  <div className="st-about-name">
+                    <Ic name="flag" size={18} />
+                    <b>Charter</b> <span className="text-muted">{appInfo.appVersion}</span>
+                  </div>
+                  <div className="mono st-about-meta">
+                    Electron {appInfo.electron} · Node {appInfo.node} · Chrome {appInfo.chrome}
+                    <br />
+                    Agent engine {appInfo.piSdkVersion ?? 'not installed'}
+                    <br />
+                    Commit {appInfo.commit ?? 'n/a'} · Channel {appInfo.updateChannel}
+                    <br />
+                    Data: {appInfo.userDataDir}
+                  </div>
+                  <p className="st-hint">
+                    Local-first: your code and tasks stay on this machine. License: MIT.
+                  </p>
+                </div>
+              ) : null}
             </div>
-            <ul>
-              <li>
-                <b>R0</b> read-only — allowed automatically in every mode.
-              </li>
-              <li>
-                <b>R1</b> reversible workspace writes — Edit asks / plan approval; Auto per setting.
-              </li>
-              <li>
-                <b>R2</b> local execution — recognized verification commands may run; unknown ask.
-              </li>
-              <li>
-                <b>R3</b> external / hard-to-reverse — always asks, never permanently allowed.
-              </li>
-              <li>
-                <b>R4</b> forbidden — sudo, git push, writes outside the workspace: always blocked.
-              </li>
-            </ul>
-            <p className="st-hint">
-              Per-workspace grants appear here once made from permission cards.
-            </p>
           </div>
-        ) : null}
-
-        {section === 'privacy' ? (
-          <PrivacySection
-            telemetryEnabled={settings.privacy.telemetryEnabled}
-            crashReportsEnabled={settings.privacy.crashReportsEnabled}
-            set={set}
-          />
-        ) : null}
-
-        {section === 'updates' ? (
-          <UpdateSettingsSection
-            channel={settings.updates.channel}
-            autoCheck={settings.updates.autoCheck}
-            set={set}
-          />
-        ) : null}
-
-        {section === 'about' && appInfo ? (
-          <div className="st-card st-prose">
-            <div className="st-about-name">
-              <Ic name="flag" size={18} />
-              <b>Charter</b> <span className="text-muted">{appInfo.appVersion}</span>
-            </div>
-            <div className="mono st-about-meta">
-              Electron {appInfo.electron} · Node {appInfo.node} · Chrome {appInfo.chrome}
-              <br />
-              Agent engine {appInfo.piSdkVersion ?? 'not installed'}
-              <br />
-              Commit {appInfo.commit ?? 'n/a'} · Channel {appInfo.updateChannel}
-              <br />
-              Data: {appInfo.userDataDir}
-            </div>
-            <p className="st-hint">
-              Local-first: your code and tasks stay on this machine. License: MIT.
-            </p>
-          </div>
-        ) : null}
-      </div>
+        )}
+      </section>
     </div>
   );
 }

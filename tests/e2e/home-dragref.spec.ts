@@ -67,7 +67,7 @@ test.describe('Projects — project actions without a duplicate file tree', () =
     }
   });
 
-  test('clicking a project opens its Center and files require explicit editor intent', async () => {
+  test('clicking a project opens its Center; its Files tab edits in place', async () => {
     const fixture = createTsSmallFixture();
     const { app, page } = await launchApp({
       env: { PI_IDE_OPEN_WORKSPACE: fixture, PI_IDE_FORCE_MOCK: '1' },
@@ -78,12 +78,11 @@ test.describe('Projects — project actions without a duplicate file tree', () =
       await page.locator('[data-testid^="home-recent-"]').first().click();
       await expect(page.getByTestId('project-center')).toBeVisible();
       await page.getByTestId('project-center-tab-files').click();
+      // ADR-0054: the current project's Files tab hosts the real editor —
+      // clicking a file opens it as an editable tab in place.
+      await expect(page.getByTestId('project-center-editor')).toBeVisible();
       await page.getByTestId('project-file-src').click();
       await page.getByTestId('project-file-src/index.ts').click();
-      await page.getByRole('button', { name: 'Open in editor' }).click();
-      await expect(page.getByTestId('project-tool-view')).toBeVisible();
-      await expect(page.getByTestId('explorer')).toBeVisible();
-      await expect(page.getByRole('tree', { name: 'Files' })).toHaveCount(1);
       await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
       await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
     } finally {

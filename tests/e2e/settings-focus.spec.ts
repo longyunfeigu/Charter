@@ -31,7 +31,7 @@ async function modelPickerGeometry(page: Page): Promise<{
   });
 }
 
-test.describe('Settings overlay focus return', () => {
+test.describe('Settings route and model picker focus', () => {
   test('long model picker stays inside the visible Home canvas', async () => {
     const { app, page } = await launchApp({
       home: 'keep',
@@ -88,7 +88,7 @@ test.describe('Settings overlay focus return', () => {
     }
   });
 
-  test('Escape, close, and backdrop return focus to the opener', async () => {
+  test('Escape and Back return routed Settings to the opener', async () => {
     const { app, page } = await launchApp({ home: 'keep' });
     try {
       const model = page.getByTestId('home-model');
@@ -101,43 +101,24 @@ test.describe('Settings overlay focus return', () => {
 
       await model.click();
       await page.getByTestId('home-model-settings').click();
-      const overlay = page.getByTestId('overlay-settings');
-      await expect(overlay).toBeVisible();
-      const close = overlay.getByRole('button', { name: 'Close' });
-      await expect(close).toBeFocused();
-
-      // Tab and Shift+Tab wrap inside the modal, and inert background controls
-      // cannot steal focus even when focus() is called directly.
-      await page.keyboard.press('Shift+Tab');
-      expect(await overlay.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(
-        true,
+      const settingsPage = page.getByTestId('settings-page');
+      await expect(settingsPage).toBeVisible();
+      await expect(page.getByTestId('settings-section-models')).toHaveAttribute(
+        'aria-current',
+        'page',
       );
-      await page.keyboard.press('Tab');
-      await expect(close).toBeFocused();
-      for (let i = 0; i < 40; i += 1) {
-        await page.keyboard.press('Tab');
-        expect(await overlay.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(
-          true,
-        );
-      }
-      await model.evaluate((element) => (element as HTMLElement).focus());
-      expect(await overlay.evaluate((dialog) => dialog.contains(document.activeElement))).toBe(
-        true,
-      );
+      await expect(page.getByTestId('settings-back')).toBeFocused();
+      await expect(page.locator('.modal-backdrop')).toHaveCount(0);
+      await expect(page.getByTestId('home-view')).toBeHidden();
 
       await page.keyboard.press('Escape');
-      await expect(overlay).toHaveCount(0);
+      await expect(settingsPage).toHaveCount(0);
       await expect(model).toBeFocused();
 
       const settings = page.getByTestId('home-settings');
       await settings.click();
-      await page.getByRole('button', { name: 'Close' }).click();
-      await expect(page.getByTestId('overlay-settings')).toHaveCount(0);
-      await expect(settings).toBeFocused();
-
-      await settings.click();
-      await page.locator('.modal-backdrop').click({ position: { x: 4, y: 4 } });
-      await expect(page.getByTestId('overlay-settings')).toHaveCount(0);
+      await page.getByTestId('settings-back').click();
+      await expect(page.getByTestId('settings-page')).toHaveCount(0);
       await expect(settings).toBeFocused();
     } finally {
       await app.close();

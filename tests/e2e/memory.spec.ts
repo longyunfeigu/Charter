@@ -67,7 +67,8 @@ test('memory: correction → distill card → rule → injected into the next ru
     expect(existsSync(rulesFile)).toBe(true);
     expect(readFileSync(rulesFile, 'utf8')).toContain('named exports only');
 
-    await page.getByTestId('rail-view-memory').click();
+    await page.getByTestId('home-settings').click();
+    await page.getByTestId('settings-section-memory').click();
     await expect(page.getByTestId('memory-view')).toBeVisible();
     // IA v3: rules live under the Charter agent; the current project's group
     // expands by default and its detail loads lazily.
@@ -75,7 +76,7 @@ test('memory: correction → distill card → rule → injected into the next ru
     await expect(page.getByTestId('memory-rule-row').first()).toContainText('named exports only', {
       timeout: 10000,
     });
-    await page.getByTestId('rail-view-sessions').click();
+    await page.getByTestId('settings-back').click();
     await expect(page.getByTestId('task-room')).toBeVisible();
 
     // ---- the very next managed run carries the rule (injection recorded) ----
@@ -88,7 +89,8 @@ test('memory: correction → distill card → rule → injected into the next ru
       timeout: 30000,
     });
 
-    await page.getByTestId('rail-view-memory').click();
+    await page.getByTestId('home-settings').click();
+    await page.getByTestId('settings-section-memory').click();
     await page.getByTestId('memory-nav-charter').click();
     await expect(page.getByTestId('memory-rule-row').first()).toContainText(
       /injected into \d+ task/,
@@ -110,7 +112,8 @@ test('memory: AGENTS.md sync — enable writes the block, hand edits drift, impo
     await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
 
     // Add a rule through the panel (IA v3: Charter agent → current project group).
-    await page.getByTestId('rail-view-memory').click();
+    await page.getByTestId('home-settings').click();
+    await page.getByTestId('settings-section-memory').click();
     await expect(page.getByTestId('memory-view')).toBeVisible();
     await page.getByTestId('memory-nav-charter').click();
     await page
@@ -185,7 +188,8 @@ test('memory: external private memory (fake home) — discover, view, promote, a
     await page.getByTestId('surface-home').click();
     await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
 
-    await page.getByTestId('rail-view-memory').click();
+    await page.getByTestId('home-settings').click();
+    await page.getByTestId('settings-section-memory').click();
     await expect(page.getByTestId('memory-view')).toBeVisible();
     await page.getByTestId('memory-nav-claude').click();
 

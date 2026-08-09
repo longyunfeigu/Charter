@@ -138,13 +138,14 @@ test.describe('Shell v3 — Home refinements (PIVOT-027, PIVOT-012 title)', () =
       await page.locator('[data-testid^="home-recent-"]').first().click();
       await expect(page.getByTestId('project-center')).toBeVisible();
       await page.getByTestId('project-center-tab-files').click();
+      // ADR-0054: the current project's Files tab hosts the real editor —
+      // clicking a file opens it as an editable tab in place.
+      await expect(page.getByTestId('project-center-editor')).toBeVisible();
       await page.getByTestId('project-file-src').click();
       await page.getByTestId('project-file-src/index.ts').click();
-      await page.getByRole('button', { name: 'Open in editor' }).click();
-      await expect(page.getByTestId('project-tool-view')).toBeVisible();
+      await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
       await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
       await expect(page.getByTestId('home-view')).toHaveCount(0);
-      await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
       await expect(page.getByTestId('agent-panel-main')).toHaveCount(0);
     } finally {
       await app.close();

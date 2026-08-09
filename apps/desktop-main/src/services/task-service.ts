@@ -4027,25 +4027,85 @@ export class TaskService {
 
   // ---------- agent event projection ----------
 
+  /**
+   * Stream coalescing (§16.5): providers emit deltas per token — 50–200/s per
+   * run, and every broadcast pays schema validation, a structured clone across
+   * the process boundary and a renderer store write. Terminal output already
+   * batches in its dispatcher; agent text gets the same treatment here.
+   * Deltas accumulate for one frame (16 ms) and flush as a single combined
+   * delta per (channel, message). Any non-delta agent event flushes first, so
+   * ordering against message completion and tool lifecycle is preserved.
+   */
+  private pendingStreamDeltas: Array<{
+    channel: 'task.stream' | 'task.streamThinking';
+    taskId: string;
+    runId: string;
+    messageId: string;
+    text: string;
+  }> = [];
+  private streamFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private queueStreamDelta(
+    channel: 'task.stream' | 'task.streamThinking',
+    taskId: string,
+    runId: string,
+    messageId: string,
+    delta: string,
+  ): void {
+    const last = this.pendingStreamDeltas.at(-1);
+    if (
+      last &&
+      last.channel === channel &&
+      last.taskId === taskId &&
+      last.runId === runId &&
+      last.messageId === messageId
+    ) {
+      last.text += delta;
+    } else {
+      this.pendingStreamDeltas.push({ channel, taskId, runId, messageId, text: delta });
+    }
+    if (!this.streamFlushTimer) {
+      this.streamFlushTimer = setTimeout(() => this.flushStreamDeltas(), 16);
+    }
+  }
+
+  private flushStreamDeltas(): void {
+    if (this.streamFlushTimer) {
+      clearTimeout(this.streamFlushTimer);
+      this.streamFlushTimer = null;
+    }
+    if (this.pendingStreamDeltas.length === 0) return;
+    const batch = this.pendingStreamDeltas;
+    this.pendingStreamDeltas = [];
+    for (const item of batch) {
+      broadcast(item.channel, {
+        taskId: item.taskId,
+        runId: item.runId,
+        messageId: item.messageId,
+        delta: item.text,
+      });
+    }
+  }
+
   private onAgentEvent(taskId: string, runId: string, event: AgentEvent): void {
+    // Keep the live text stream ordered against everything that isn't a delta
+    // (message completion, tool lifecycle, run settlement).
+    if (event.type !== 'message.delta' && event.type !== 'thinking.delta') {
+      this.flushStreamDeltas();
+    }
     switch (event.type) {
       case 'run.started':
         this.db.prepare("UPDATE agent_runs SET state = 'STREAMING' WHERE id = ?").run(runId);
         break;
       case 'message.delta':
-        broadcast('task.stream', { taskId, runId, messageId: event.messageId, delta: event.text });
+        this.queueStreamDelta('task.stream', taskId, runId, event.messageId, event.text);
         break;
       // ADR-0011: thinking is presentation-only — streamed live, persisted as a
       // collapsed timeline block, excluded from reports/evidence. A settings
       // switch drops it entirely.
       case 'thinking.delta':
         if (this.settings.effective.agent.showThinking) {
-          broadcast('task.streamThinking', {
-            taskId,
-            runId,
-            messageId: event.messageId,
-            delta: event.text,
-          });
+          this.queueStreamDelta('task.streamThinking', taskId, runId, event.messageId, event.text);
         }
         break;
       case 'thinking.completed':
@@ -4496,6 +4556,10 @@ export class TaskService {
   }
 
   private onWorkerCrashed(taskIds: string[]): void {
+    // Crash bypasses onAgentEvent, so pending coalesced deltas must go out
+    // BEFORE the INTERRUPTED broadcast — a delta arriving after it would
+    // resurrect a ghost streaming bubble the renderer just cleared.
+    this.flushStreamDeltas();
     for (const taskId of taskIds) {
       this.recordEvent(taskId, 'system.workerCrashed', {
         note: 'The agent worker exited unexpectedly. No tools were replayed (REL-002).',

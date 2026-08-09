@@ -15,6 +15,7 @@ import { useDraftStore } from '../store/draftStore.js';
 import { useExternalStore } from '../store/externalStore.js';
 import { agentDisplayName } from '../store/agentCatalogStore.js';
 import { restoreScroll, saveScroll } from './scrollMemory.js';
+import { STREAM_MARKDOWN_LIMIT } from './timeline-window.js';
 import { Markdown } from './Markdown.js';
 import { Ic } from './home-icons.js';
 import { ConfirmDangerButton } from './ui.js';
@@ -45,7 +46,9 @@ export function PermissionCard(props: {
   card: PermissionCardDto;
   resolution: { outcome: string; scope?: string | null } | null;
 }): React.JSX.Element {
-  const store = useTaskStore();
+  // Actions only — subscribing here would re-render every visible card per
+  // streaming token.
+  const store = useTaskStore.getState();
   const { card, resolution } = props;
   const [reason, setReason] = useState('');
   const riskColor = RISK_COLORS[card.risk.level] ?? 'var(--fg)';
@@ -217,7 +220,8 @@ export function PlanCard(props: {
   open: boolean;
   variant?: 'panel' | 'room';
 }): React.JSX.Element {
-  const store = useTaskStore();
+  // Actions only — no store fields are read, so don't subscribe.
+  const store = useTaskStore.getState();
   const { plan, open } = props;
   const [editing, setEditing] = useState(false);
   const [summary, setSummary] = useState(plan.summary);
@@ -470,7 +474,8 @@ export function QuestionCard(props: {
   prompt: AskUserPromptDto;
   answered: boolean;
 }): React.JSX.Element {
-  const store = useTaskStore();
+  // Actions only — no store fields are read, so don't subscribe.
+  const store = useTaskStore.getState();
   const [text, setText] = useState('');
   const { prompt, answered } = props;
   if (answered) {
@@ -1131,10 +1136,67 @@ const TimelineCard = React.memo(function TimelineCard({
   }
 });
 
+/** Stable empty-timeline sentinel for the pinned-selector path below. */
+const NO_TIMELINE: TimelineEventDto[] = [];
+
+/**
+ * Reference stability for the timeline context: most appends (messages, tool
+ * rows) change none of the derived decisions, so consumers keyed on the
+ * context reference (memoized rows) must not re-render for them. Equality is
+ * O(decisions), which is tiny next to re-rendering a 400-row window.
+ */
+function timelineContextEquals(a: TimelineContext, b: TimelineContext): boolean {
+  if (
+    a.taskState !== b.taskState ||
+    a.verificationCommands !== b.verificationCommands ||
+    a.openPlanSeq !== b.openPlanSeq ||
+    a.latestRollbackSeq !== b.latestRollbackSeq ||
+    a.permissionResolutions.size !== b.permissionResolutions.size ||
+    a.answeredCallIds.size !== b.answeredCallIds.size ||
+    a.visiblePlanSeqs.size !== b.visiblePlanSeqs.size ||
+    a.verificationRuns.length !== b.verificationRuns.length
+  ) {
+    return false;
+  }
+  for (const [key, value] of a.permissionResolutions) {
+    const other = b.permissionResolutions.get(key);
+    if (!other || other.outcome !== value.outcome || other.scope !== value.scope) return false;
+  }
+  for (const id of a.answeredCallIds) if (!b.answeredCallIds.has(id)) return false;
+  for (const seq of a.visiblePlanSeqs) if (!b.visiblePlanSeqs.has(seq)) return false;
+  for (let i = 0; i < a.verificationRuns.length; i++) {
+    const left = a.verificationRuns[i]!;
+    const right = b.verificationRuns[i]!;
+    if (
+      left.label !== right.label ||
+      left.state !== right.state ||
+      left.stale !== right.stale ||
+      left.superseded !== right.superseded
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Cross-event context shared by every timeline consumer (panel + Task Room). */
-export function useTimelineContext(taskState: string, verificationCommands = 0): TimelineContext {
-  const timeline = useTaskStore((s) => s.timeline);
-  return React.useMemo(() => {
+export function useTimelineContext(
+  taskState: string,
+  verificationCommands = 0,
+  /**
+   * ADR-0055: a kept-alive room passes its own per-task timeline; the
+   * subscription below then pins to a constant so the hidden room never
+   * re-renders for the ACTIVE task's timeline churn. Callers on active-only
+   * surfaces (editor agent panel) omit it and keep the singleton.
+   */
+  ownTimeline?: TimelineEventDto[],
+): TimelineContext {
+  const activeTimeline = useTaskStore((s) =>
+    ownTimeline === undefined ? s.timeline : NO_TIMELINE,
+  );
+  const timeline = ownTimeline ?? activeTimeline;
+  const stable = useRef<TimelineContext | null>(null);
+  const computed = React.useMemo(() => {
     const permissionResolutions = new Map<string, { outcome: string; scope?: string | null }>();
     const answeredCallIds = new Set<string>();
     const visiblePlanSeqs = new Set<number>();
@@ -1193,45 +1255,73 @@ export function useTimelineContext(taskState: string, verificationCommands = 0):
       taskState,
     };
   }, [timeline, taskState, verificationCommands]);
+  if (stable.current === null || !timelineContextEquals(stable.current, computed)) {
+    stable.current = computed;
+  }
+  return stable.current;
 }
 
 /** The scrollable event list (auto-scrolls on growth). Used by panel + room. */
 export function TimelineList({ taskState }: { taskState: string }): React.JSX.Element {
-  const store = useTaskStore();
+  // Narrow subscriptions: this list re-renders for its own data and the live
+  // tail — never for catalog/model/review churn elsewhere in the store.
+  const timeline = useTaskStore((s) => s.timeline);
+  const loadingTimeline = useTaskStore((s) => s.loadingTimeline);
+  const streaming = useTaskStore((s) => s.streaming);
+  const streamingThinking = useTaskStore((s) => s.streamingThinking);
+  const taskId = useTaskStore((s) => s.activeTaskId);
+  const verificationCommands = useTaskStore((s) => activeTask(s)?.verification.length ?? 0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
-  const timelineContext = useTimelineContext(
-    taskState,
-    activeTask(store)?.verification.length ?? 0,
+  const scrollRaf = useRef(0);
+  const followRaf = useRef(0);
+  const timelineContext = useTimelineContext(taskState, verificationCommands);
+
+  // Unmount cancels an in-flight measurement frame; the final inertial-scroll
+  // wheel may be dropped by design — a detached node measures 0/0/0 and a
+  // save would corrupt the position with a false AT_BOTTOM (parity with
+  // RoomTimeline; saveScroll also refuses detached elements).
+  useEffect(
+    () => () => {
+      if (followRaf.current) cancelAnimationFrame(followRaf.current);
+      if (scrollRaf.current) cancelAnimationFrame(scrollRaf.current);
+      scrollRaf.current = 0;
+      followRaf.current = 0;
+    },
+    [taskId],
   );
-  const taskId = store.activeTaskId;
 
   // PIVOT-036: the reading position is shared with the Task Room timeline —
   // ⌘E round-trips land where you left off.
   useEffect(() => {
-    if (store.loadingTimeline || !taskId) return;
+    if (loadingTimeline || !taskId) return;
     const el = scrollRef.current;
     if (el) pinnedToBottom.current = restoreScroll(taskId, el);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.loadingTimeline, taskId]);
+  }, [loadingTimeline, taskId]);
 
+  // Live tail follow: one scrollTop write per frame, not per token.
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [store.timeline.length, store.streaming?.text.length]);
+    if (!pinnedToBottom.current || followRaf.current) return;
+    followRaf.current = requestAnimationFrame(() => {
+      followRaf.current = 0;
+      const el = scrollRef.current;
+      if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight;
+    });
+  }, [timeline.length, streaming?.text.length]);
 
   // Cards are derived per timeline change; streaming deltas re-render the
   // list shell (for the live tail below) but must not rebuild every card.
   const cards = React.useMemo(
     () =>
-      store.timeline.map((event) => (
+      timeline.map((event) => (
         <TimelineCard
           key={`${event.id}-${event.sequence}`}
           event={event}
           context={timelineContext}
         />
       )),
-    [store.timeline, timelineContext],
+    [timeline, timelineContext],
   );
 
   return (
@@ -1239,29 +1329,45 @@ export function TimelineList({ taskState }: { taskState: string }): React.JSX.El
       ref={scrollRef}
       style={{ flex: 1, overflow: 'auto', minHeight: 0 }}
       data-testid="timeline"
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-        if (taskId) saveScroll(taskId, el);
+      onScroll={() => {
+        // One rAF per frame: a single set of layout reads feeds both the pin
+        // verdict and the saved reading position.
+        if (scrollRaf.current) return;
+        scrollRaf.current = requestAnimationFrame(() => {
+          scrollRaf.current = 0;
+          const el = scrollRef.current;
+          if (!el) return;
+          const pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+          pinnedToBottom.current = pinned;
+          if (taskId) saveScroll(taskId, el, pinned);
+        });
       }}
     >
-      {store.loadingTimeline ? (
+      {loadingTimeline ? (
         <div className="text-muted" style={{ padding: 12 }}>
           Loading timeline…
         </div>
       ) : (
         <>
           {cards}
-          {store.streamingThinking ? (
+          {streamingThinking ? (
             <Card icon="bot" title="✦ Thinking…" testid="tl-thinking-live">
               <div className="text-muted" style={{ whiteSpace: 'pre-wrap', fontSize: 11.5 }}>
-                {store.streamingThinking.text}
+                {streamingThinking.text}
               </div>
             </Card>
           ) : null}
-          {store.streaming ? (
+          {streaming ? (
             <Card icon="bot" title="Agent (streaming…)" testid="tl-streaming">
-              <Markdown text={store.streaming.text} />
+              {streaming.text.length > STREAM_MARKDOWN_LIMIT ? (
+                // Freeze guard (§16.5) — parity with the Task Room timeline:
+                // never re-parse a huge markdown string per token.
+                <pre className="rt-stream-raw" data-testid="tl-streaming-raw">
+                  {streaming.text.slice(-STREAM_MARKDOWN_LIMIT)}
+                </pre>
+              ) : (
+                <Markdown text={streaming.text} live />
+              )}
             </Card>
           ) : null}
         </>
@@ -1272,9 +1378,10 @@ export function TimelineList({ taskState }: { taskState: string }): React.JSX.El
 
 /** Reply composer (steer / queue / new run). Used by panel + room. */
 export function TaskComposer({ running }: { running: boolean }): React.JSX.Element {
-  const store = useTaskStore();
-  // PIVOT-036: the draft is per-task and shared with the Task Room composer.
-  const taskId = store.activeTaskId ?? '';
+  // Only the active task id is read; send() is called through getState so
+  // typing and streaming don't re-render each other.
+  const store = useTaskStore.getState();
+  const taskId = useTaskStore((s) => s.activeTaskId) ?? '';
   const input = useDraftStore((s) => (taskId ? (s.drafts[taskId] ?? '') : ''));
   const setInput = (text: string): void => {
     if (taskId) useDraftStore.getState().setDraft(taskId, text);
@@ -1355,14 +1462,16 @@ export function TaskComposer({ running }: { running: boolean }): React.JSX.Eleme
 }
 
 export function AgentPanel(): React.JSX.Element {
-  const store = useTaskStore();
+  // Header + shell: it needs the active task and the dialog flag; per-token
+  // streaming state belongs to TimelineList below.
+  const store = useTaskStore.getState();
+  const task = useTaskStore(activeTask);
+  const newTaskOpen = useTaskStore((s) => s.newTaskOpen);
   const workspace = useWorkspaceStore((s) => s.workspace);
-  const task = activeTask(store);
   const resumingExternalTaskId = useExternalStore((s) => s.resumingTaskId);
 
   useEffect(() => {
-    store.init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useTaskStore.getState().init();
   }, []);
 
   if (!workspace) {
@@ -1546,7 +1655,7 @@ export function AgentPanel(): React.JSX.Element {
 
       {task ? <TaskComposer running={running} /> : null}
 
-      {store.newTaskOpen ? <NewTaskDialog /> : null}
+      {newTaskOpen ? <NewTaskDialog /> : null}
     </div>
   );
 }

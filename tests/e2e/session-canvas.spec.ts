@@ -54,7 +54,7 @@ test.describe('Unified Session Canvas', () => {
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
-      await page.getByTestId('project-tool-back').click();
+      // ADR-0054: the shell boots on Home — no editor surface to leave first.
       await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
 
       // One Composer owns every backend; no secondary creation dialog or IDE rail.
@@ -81,6 +81,9 @@ test.describe('Unified Session Canvas', () => {
       });
 
       await expect(page.getByTestId('task-room')).toBeVisible();
+      const sessionHeader = await page.locator('.session-identity-head').boundingBox();
+      expect(sessionHeader).not.toBeNull();
+      expect(sessionHeader!.height).toBeLessThanOrEqual(44);
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
       await expect(page.getByTestId('session-tool-canvas')).toBeVisible();
       const toolCanvas = page.getByTestId('session-tool-canvas');
@@ -225,7 +228,7 @@ test.describe('Unified Session Canvas', () => {
 
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
-      await page.getByTestId('project-tool-back').click();
+      // ADR-0054: the shell boots on Home — no editor surface to leave first.
       await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-mode-auto').click();
       await page
@@ -317,7 +320,7 @@ test.describe('Unified Session Canvas', () => {
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
-      await page.getByTestId('project-tool-back').click();
+      // ADR-0054: the shell boots on Home — no editor surface to leave first.
       await page.getByTestId('home-agent').click();
       await page.getByTestId('home-agent-claude').click();
       await expect(page.getByTestId('home-agent')).toContainText('Claude');

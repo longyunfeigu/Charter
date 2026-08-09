@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import {
   navigationSnapshotLabel,
   useAppStore,
@@ -26,6 +26,8 @@ import { stepZoom, ZOOM_DEFAULT } from '../views/ui-zoom.js';
 import { useTerminalStore } from '../views/TerminalPanel.js';
 import { WorkView } from '../views/WorkView.js';
 import { WorkReminderHost } from '../views/WorkReminderHost.js';
+import { t } from '../i18n.js';
+import { observeLocalizedChrome } from '../i18n-dom.js';
 
 function navigationLabel(
   snapshot: NavigationSnapshot | null,
@@ -33,9 +35,9 @@ function navigationLabel(
 ): string {
   if (snapshot?.taskRoomTaskId) {
     const task = tasks.find((candidate) => candidate.id === snapshot.taskRoomTaskId);
-    if (task) return task.title || 'Session';
+    if (task) return task.title || t('Session');
   }
-  return navigationSnapshotLabel(snapshot);
+  return t(navigationSnapshotLabel(snapshot));
 }
 
 function useRegisterCoreCommands(): void {
@@ -44,64 +46,64 @@ function useRegisterCoreCommands(): void {
     registerCommands([
       {
         id: 'palette.open',
-        title: 'Command Palette',
-        category: 'View',
+        title: t('Command Palette'),
+        category: t('View'),
         keybinding: 'mod+shift+p',
         run: () => store.getState().setPaletteOpen(true),
       },
       {
         id: 'app.openSettings',
-        title: 'Open Settings',
-        category: 'Preferences',
+        title: t('Open Settings'),
+        category: t('Preferences'),
         keybinding: 'mod+,',
-        run: () => store.getState().setOverlay('settings'),
+        run: () => store.getState().openSettings(),
       },
       {
         id: 'app.openDiagnostics',
-        title: 'Open Diagnostics',
-        category: 'Help',
+        title: t('Open Diagnostics'),
+        category: t('Help'),
         run: () => store.getState().setOverlay('diagnostics'),
       },
       {
         id: 'app.openUpdates',
-        title: 'Check for Updates',
-        category: 'Help',
+        title: t('Check for Updates'),
+        category: t('Help'),
         run: () => store.getState().openSettings('updates'),
       },
       {
         id: 'navigation.back',
-        title: 'Go Back',
-        category: 'Navigation',
+        title: t('Go Back'),
+        category: t('Navigation'),
         keybinding: 'mod+[',
         enabled: () => store.getState().navigationBack.length > 0,
         run: () => store.getState().navigateBack(),
       },
       {
         id: 'navigation.forward',
-        title: 'Go Forward',
-        category: 'Navigation',
+        title: t('Go Forward'),
+        category: t('Navigation'),
         keybinding: 'mod+]',
         enabled: () => store.getState().navigationForward.length > 0,
         run: () => store.getState().navigateForward(),
       },
       {
         id: 'view.remotes',
-        title: 'Open SSH Remotes',
-        category: 'View',
+        title: t('Open SSH Remotes'),
+        category: t('View'),
         run: () => store.getState().openRemotes(),
       },
       {
         id: 'app.about',
-        title: 'About Charter',
-        category: 'Help',
+        title: t('About Charter'),
+        category: t('Help'),
         run: () => store.getState().setOverlay('about'),
       },
       {
         // The File tool expands in place; the Session rail and conversation
         // never unmount.
         id: 'surface.toggleEditor',
-        title: 'Toggle Session File Tool',
-        category: 'View',
+        title: t('Toggle Session File Tool'),
+        category: t('View'),
         keybinding: 'mod+e',
         run: () => {
           const s = store.getState();
@@ -120,67 +122,67 @@ function useRegisterCoreCommands(): void {
       },
       {
         id: 'layout.toggleSidebar',
-        title: 'Focus Sessions',
-        category: 'View',
+        title: t('Toggle Navigation Sidebar'),
+        category: t('View'),
         keybinding: 'mod+b',
         run: () => store.getState().toggleSidebar(),
       },
       {
         id: 'layout.toggleAgentPanel',
-        title: 'Toggle Session Summary',
-        category: 'View',
+        title: t('Toggle Session Summary'),
+        category: t('View'),
         keybinding: 'mod+l',
         run: () => store.getState().toggleAgentPanel(),
       },
       {
         id: 'layout.toggleBottomPanel',
-        title: 'Toggle Session Terminal',
-        category: 'View',
+        title: t('Toggle Session Terminal'),
+        category: t('View'),
         keybinding: 'mod+j',
         run: () => store.getState().toggleBottomPanel(),
       },
       {
         id: 'view.explorer',
-        title: 'Show Session Files',
-        category: 'View',
+        title: t('Show Session Files'),
+        category: t('View'),
         keybinding: 'mod+shift+e',
         run: () => store.getState().showSideBarView('explorer'),
       },
       {
         id: 'view.search',
-        title: 'Show Search',
-        category: 'View',
+        title: t('Show Search'),
+        category: t('View'),
         run: () => store.getState().showSideBarView('search'),
       },
       {
         id: 'view.scm',
-        title: 'Show Session Diff',
-        category: 'View',
+        title: t('Show Session Diff'),
+        category: t('View'),
         keybinding: 'ctrl+shift+g',
         run: () => store.getState().showSideBarView('scm'),
       },
       {
         id: 'view.tasks',
-        title: 'Show Session Summary',
-        category: 'View',
+        title: t('Show Session Summary'),
+        category: t('View'),
         run: () => store.getState().showSideBarView('tasks'),
       },
       {
         id: 'theme.light',
-        title: 'Theme: Light',
-        category: 'Preferences',
+        title: t('Theme: Light'),
+        category: t('Preferences'),
         run: () => void store.getState().updateSettings('global', { general: { theme: 'light' } }),
       },
       {
         id: 'theme.dark',
-        title: 'Theme: Dark',
-        category: 'Preferences',
+        title: t('Theme: Dark'),
+        category: t('Preferences'),
         run: () => void store.getState().updateSettings('global', { general: { theme: 'dark' } }),
       },
       {
         id: 'theme.system',
-        title: 'Theme: System',
-        category: 'Preferences',
+        title: t('Theme: System'),
+        category: t('Preferences'),
         run: () => void store.getState().updateSettings('global', { general: { theme: 'system' } }),
       },
       {
@@ -222,8 +224,8 @@ function useRegisterCoreCommands(): void {
       },
       {
         id: 'view.zoomIn',
-        title: 'Zoom In',
-        category: 'View',
+        title: t('Zoom In'),
+        category: t('View'),
         keybinding: 'mod+plus',
         run: () => {
           if (useTerminalStore.getState().zoomFocused('in')) return;
@@ -233,8 +235,8 @@ function useRegisterCoreCommands(): void {
       },
       {
         id: 'view.zoomOut',
-        title: 'Zoom Out',
-        category: 'View',
+        title: t('Zoom Out'),
+        category: t('View'),
         keybinding: 'mod+minus',
         run: () => {
           if (useTerminalStore.getState().zoomFocused('out')) return;
@@ -244,8 +246,8 @@ function useRegisterCoreCommands(): void {
       },
       {
         id: 'view.zoomReset',
-        title: 'Reset Zoom',
-        category: 'View',
+        title: t('Reset Zoom'),
+        category: t('View'),
         keybinding: 'mod+0',
         run: () => {
           if (useTerminalStore.getState().zoomFocused('reset')) return;
@@ -296,9 +298,12 @@ function focusableIn(dialog: HTMLElement): HTMLElement[] {
 }
 
 export function Workbench(): React.JSX.Element {
+  const workbenchRef = useRef<HTMLDivElement>(null);
   useRegisterCoreCommands();
   const overlay = useAppStore((s) => s.overlay);
   const setOverlay = useAppStore((s) => s.setOverlay);
+  const settingsOpen = useAppStore((s) => s.settingsOpen);
+  const closeSettings = useAppStore((s) => s.closeSettings);
   const toasts = useAppStore((s) => s.toasts);
   const dismissToast = useAppStore((s) => s.dismissToast);
   const sessionNotices = useAppStore((s) => s.sessionNotices);
@@ -306,6 +311,7 @@ export function Workbench(): React.JSX.Element {
   const dismissSessionNotice = useAppStore((s) => s.dismissSessionNotice);
   const pushToast = useAppStore((s) => s.pushToast);
   const appInfo = useAppStore((s) => s.appInfo);
+  const sideBarVisible = useAppStore((s) => s.layout.sideBarVisible);
   const railView = useAppStore((s) => s.railView);
   const remotesOpen = useAppStore((s) => s.remotesOpen);
   const backTarget = useAppStore((s) => s.navigationBack.at(-1) ?? null);
@@ -313,23 +319,35 @@ export function Workbench(): React.JSX.Element {
   const tasks = useTaskStore((s) => s.tasks);
   const backLabel = navigationLabel(backTarget, tasks);
   const forwardLabel = navigationLabel(forwardTarget, tasks);
-  const destination = remotesOpen
-    ? { label: 'Remote Explorer', icon: 'server', title: 'Selected remote host overview' }
-    : railView === 'missions'
-      ? { label: 'Missions', icon: 'compass', title: 'Mission overview' }
-      : railView === 'work'
-        ? { label: 'Work', icon: 'check', title: 'Task board' }
-        : railView === 'projects'
-          ? { label: 'Projects', icon: 'folder', title: 'Project browser' }
-          : railView === 'inbox'
-            ? { label: 'For you', icon: 'inbox', title: 'Work needing your attention' }
-            : railView === 'memory'
-              ? { label: 'Memory', icon: 'brain', title: 'Agent and project memory' }
-              : railView === 'skills'
-                ? { label: 'Skills', icon: 'puzzle', title: 'Skills usage and installations' }
-                : { label: 'Sessions', icon: 'sessions', title: 'Session workspace' };
+  const destination = settingsOpen
+    ? { label: t('Settings'), icon: 'sliders', title: t('Application settings') }
+    : remotesOpen
+      ? { label: t('Remote Explorer'), icon: 'server', title: t('Selected remote host overview') }
+      : railView === 'missions'
+        ? { label: t('Missions'), icon: 'compass', title: t('Mission overview') }
+        : railView === 'work'
+          ? { label: t('Work'), icon: 'kanban', title: t('Task board') }
+          : railView === 'projects'
+            ? { label: t('Projects'), icon: 'folder', title: t('Project browser') }
+            : railView === 'inbox'
+              ? { label: t('For you'), icon: 'inbox', title: t('Work needing your attention') }
+              : railView === 'memory'
+                ? { label: t('Memory'), icon: 'brain', title: t('Agent and project memory') }
+                : railView === 'skills'
+                  ? {
+                      label: t('Skills'),
+                      icon: 'puzzle',
+                      title: t('Skills usage and installations'),
+                    }
+                  : { label: t('Sessions'), icon: 'sessions', title: t('Session workspace') };
+
+  useLayoutEffect(() => {
+    const root = workbenchRef.current;
+    return root ? observeLocalizedChrome(root) : undefined;
+  }, []);
   const openDestination =
-    remotesOpen || railView === 'missions' || railView === 'sessions' || railView === 'files'
+    !settingsOpen &&
+    (remotesOpen || railView === 'missions' || railView === 'sessions' || railView === 'files')
       ? (): void => {
           if (remotesOpen) {
             useAppStore.getState().setRemoteSubview('overview');
@@ -347,7 +365,8 @@ export function Workbench(): React.JSX.Element {
 
   useEffect(() => {
     const remember = (event: FocusEvent): void => {
-      if (useAppStore.getState().overlay !== 'none') return;
+      const state = useAppStore.getState();
+      if (state.overlay !== 'none') return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (!target) return;
       overlayFocusReturnRef.current = target;
@@ -390,12 +409,16 @@ export function Workbench(): React.JSX.Element {
           setOverlay('none');
           return;
         }
+        if (useAppStore.getState().settingsOpen) {
+          closeSettings();
+          return;
+        }
       }
       handleGlobalKeydown(e);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [setOverlay]);
+  }, [closeSettings, setOverlay]);
 
   useEffect(() => {
     if (!runInitsOnce()) return;
@@ -416,27 +439,43 @@ export function Workbench(): React.JSX.Element {
   }, [pushToast]);
 
   return (
-    <div className="workbench" data-testid="workbench">
+    <div
+      ref={workbenchRef}
+      className={`workbench ${settingsOpen ? 'settings-open' : ''}`}
+      data-testid="workbench"
+    >
       <header
         className={`titlebar ${platform() === 'darwin' ? '' : 'not-mac'}`}
         inert={overlay !== 'none'}
       >
-        <span className="tb-brand-lockup" aria-label="Charter agent operations">
+        <span className="tb-brand-lockup" aria-label={t('Charter agent operations')}>
           <span className="tb-brand-mark" aria-hidden="true">
             <Ic name="flag" size={13} />
           </span>
           <span className="tb-title">
             <b>Charter</b>
-            <small>Agent operations</small>
+            <small>{t('Agent operations')}</small>
           </span>
         </span>
-        <span className="tb-nav" aria-label="Page history">
+        <button
+          type="button"
+          className="tb-sidebar-toggle"
+          data-testid="sidebar-toggle"
+          hidden={settingsOpen}
+          aria-label={t(sideBarVisible ? 'Hide navigation sidebar' : 'Show navigation sidebar')}
+          aria-pressed={!sideBarVisible}
+          title={`${t(sideBarVisible ? 'Hide navigation sidebar' : 'Show navigation sidebar')} (⌘B)`}
+          onClick={() => useAppStore.getState().toggleSidebar()}
+        >
+          <Ic name="sidebar" size={15} />
+        </button>
+        <span className="tb-nav" aria-label={t('Page history')}>
           <button
             className="tb-nav-button back"
             data-testid="navigation-back"
-            disabled={!backTarget}
+            disabled={settingsOpen || !backTarget}
             aria-label={`Back to ${backLabel}`}
-            title={backTarget ? `Back to ${backLabel} (⌘[)` : 'No previous page'}
+            title={backTarget ? `${t('Back to')} ${backLabel} (⌘[)` : t('No previous page')}
             onClick={() => useAppStore.getState().navigateBack()}
           >
             <Ic name="chevron" size={12} />
@@ -444,9 +483,9 @@ export function Workbench(): React.JSX.Element {
           <button
             className="tb-nav-button forward"
             data-testid="navigation-forward"
-            disabled={!forwardTarget}
+            disabled={settingsOpen || !forwardTarget}
             aria-label={`Forward to ${forwardLabel}`}
-            title={forwardTarget ? `Forward to ${forwardLabel} (⌘])` : 'No next page'}
+            title={forwardTarget ? `${t('Forward to')} ${forwardLabel} (⌘])` : t('No next page')}
             onClick={() => useAppStore.getState().navigateForward()}
           >
             <Ic name="chevron" size={12} />
@@ -475,21 +514,25 @@ export function Workbench(): React.JSX.Element {
         <button
           className="tb-chip tb-quick-console"
           data-testid="quick-console-chip"
-          title="Toggle the persistent quick console"
+          title={t('Toggle the persistent quick console')}
           onClick={() => executeCommand('terminal.quickConsole')}
         >
-          <Ic name="terminal" size={12} /> ⌥Space Quick Console
+          <Ic name="terminal" size={12} /> ⌥Space {t('Quick Console')}
         </button>
         <button
           className="tb-chip"
           data-testid="palette-chip"
           onClick={() => useAppStore.getState().setPaletteOpen(true)}
         >
-          ⌘⇧P Commands
+          ⌘⇧P {t('Commands')}
         </button>
       </header>
 
-      <div className="wb-main" inert={overlay !== 'none'}>
+      <div
+        className={`wb-main ${sideBarVisible ? '' : 'rail-collapsed'}`}
+        data-sidebar-visible={sideBarVisible}
+        inert={overlay !== 'none' || settingsOpen}
+      >
         {remotesOpen ? <RemoteRail /> : <SessionRail />}
         {railView === 'work' ? (
           <WorkView />
@@ -504,7 +547,14 @@ export function Workbench(): React.JSX.Element {
         ) : null}
       </div>
 
-      <footer className="statusbar" aria-label="Status bar" inert={overlay !== 'none'}>
+      {settingsOpen ? <SettingsView /> : null}
+
+      <footer
+        className="statusbar"
+        aria-label={t('Status bar')}
+        inert={overlay !== 'none' || settingsOpen}
+        hidden={settingsOpen}
+      >
         {statusBarRegistry.left.map((C, i) => (
           <C key={`l${i}`} />
         ))}
@@ -561,12 +611,15 @@ export function Workbench(): React.JSX.Element {
           >
             <div className="modal-header">
               <span style={{ textTransform: 'capitalize' }}>{overlay}</span>
-              <button className="modal-close" aria-label="Close" onClick={() => setOverlay('none')}>
+              <button
+                className="modal-close"
+                aria-label={t('Close')}
+                onClick={() => setOverlay('none')}
+              >
                 ✕
               </button>
             </div>
             <div className="modal-body">
-              {overlay === 'settings' ? <SettingsView /> : null}
               {overlay === 'diagnostics' ? <DiagnosticsView /> : null}
               {overlay === 'about' && appInfo ? (
                 <div style={{ padding: 20, lineHeight: 1.9 }}>
@@ -574,11 +627,11 @@ export function Workbench(): React.JSX.Element {
                   <div className="text-muted" style={{ fontSize: 12 }}>
                     Electron {appInfo.electron} · Node {appInfo.node} · Chrome {appInfo.chrome}
                     <br />
-                    Agent engine {appInfo.piSdkVersion ?? 'n/a'} · Commit {appInfo.commit ?? 'n/a'}{' '}
-                    · {appInfo.updateChannel}
+                    {t('Agent engine')} {appInfo.piSdkVersion ?? 'n/a'} · {t('Commit')}{' '}
+                    {appInfo.commit ?? 'n/a'} · {appInfo.updateChannel}
                   </div>
                   <div className="text-muted" style={{ fontSize: 12 }}>
-                    MIT License · Local-first: your code and tasks stay on this machine.
+                    {t('MIT License · Local-first: your code and tasks stay on this machine.')}
                   </div>
                 </div>
               ) : null}
@@ -591,7 +644,7 @@ export function Workbench(): React.JSX.Element {
         <C key={i} />
       ))}
 
-      <div className="session-notices" aria-live="polite" aria-label="Session updates">
+      <div className="session-notices" aria-live="polite" aria-label={t('Session updates')}>
         {sessionNotices
           .filter((notice) => notice.taskId !== taskRoomTaskId)
           .map((notice) => (
@@ -635,7 +688,7 @@ export function Workbench(): React.JSX.Element {
               </button>
               <button
                 className="session-notice-close"
-                aria-label="Dismiss Session notification"
+                aria-label={t('Dismiss Session notification')}
                 onClick={() => dismissSessionNotice(notice.id)}
               >
                 <Ic name="x" size={12} />
@@ -655,10 +708,10 @@ export function Workbench(): React.JSX.Element {
 
       <div className={`toasts ${taskRoomTaskId ? 'with-task-room' : ''}`} aria-live="polite">
         <UpdateNotice />
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.kind}`}>
-            <span style={{ flex: 1 }}>{t.message}</span>
-            <button aria-label="Dismiss" onClick={() => dismissToast(t.id)}>
+        {toasts.map((toast) => (
+          <div key={toast.id} className={`toast ${toast.kind}`}>
+            <span style={{ flex: 1 }}>{toast.message}</span>
+            <button aria-label={t('Dismiss')} onClick={() => dismissToast(toast.id)}>
               ✕
             </button>
           </div>

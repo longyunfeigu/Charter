@@ -125,7 +125,8 @@ export async function launchApp(
   options: {
     userDataDir?: string;
     env?: Record<string, string | undefined>;
-    /** Dual-form shell: 'dismiss' (default) lands tests in the IDE surface; 'keep' stays on Home. */
+    /** ADR-0054: the shell always boots on Home — kept for call-site
+     * compatibility; both values behave identically now. */
     home?: 'dismiss' | 'keep';
     /** Record a video of the run (demo/evidence captures). */
     recordVideo?: { dir: string; size?: { width: number; height: number } };
@@ -164,22 +165,9 @@ export async function launchApp(
     BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 1440, height: 900 });
   });
 
-  if (options.home !== 'keep') {
-    if (options.env?.PI_IDE_OPEN_WORKSPACE) {
-      // Opening a workspace auto-switches to the IDE surface (PIVOT-006).
-      await page
-        .getByTestId('home-view')
-        .waitFor({ state: 'hidden', timeout: 15000 })
-        .catch(() => undefined);
-    } else {
-      // ADR-0008 entry consolidation: the sidebar "Editor" row is the way in.
-      const enter = page.getByTestId('home-open-ide');
-      await enter.waitFor({ state: 'visible', timeout: 4000 }).catch(() => undefined);
-      if (await enter.isVisible().catch(() => false)) {
-        await enter.click().catch(() => undefined);
-      }
-    }
-  }
+  // ADR-0054: the shell always boots on Home (opening a workspace no longer
+  // auto-switches surfaces, and the global Editor entry is retired). Specs
+  // navigate to the surface they need explicitly.
   return { app, page, userDataDir };
 }
 
@@ -234,9 +222,11 @@ export async function launchPackagedApp(
   if (!context) throw new Error(`Packaged app exposed no browser context.\n${output}`);
   const page = context.pages()[0] ?? (await context.waitForEvent('page'));
   await page.waitForLoadState('domcontentloaded');
-  const enter = page.getByTestId('home-open-ide');
-  await enter.waitFor({ state: 'visible', timeout: 4000 }).catch(() => undefined);
-  if (await enter.isVisible().catch(() => false)) await enter.click();
+  // ADR-0054: the shell boots on Home; there is no Editor entry to dismiss.
+  await page
+    .getByTestId('home-view')
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .catch(() => undefined);
   return {
     browser,
     page,

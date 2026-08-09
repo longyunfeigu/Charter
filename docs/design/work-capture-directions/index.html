@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>新建工作项 · 四个交互方向 — mock 总览</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { overflow: auto; background: var(--bg-app); }
+  .idx-wrap { max-width: 1060px; margin: 0 auto; padding: 44px 28px 90px; }
+  .idx-eyebrow { color: var(--fg-muted); font: 700 10px var(--font-ui); letter-spacing: 0.16em; }
+  .idx-wrap h1 { margin: 10px 0 6px; font: 600 30px/1.25 var(--font-display); letter-spacing: -0.015em; }
+  .idx-lede { max-width: 700px; margin: 0 0 8px; color: var(--fg-muted); font: 13px/1.75 var(--font-ui); }
+  .idx-lede b { color: var(--fg); }
+  .idx-note { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 5px 10px; border-radius: 8px; background: var(--warning-bg); color: var(--warning); font: 600 10.5px var(--font-ui); }
+  .idx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 28px; }
+  @media (max-width: 900px) { .idx-grid { grid-template-columns: 1fr; } }
+  .dir-card {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg-card);
+    box-shadow: var(--shadow-card);
+    color: inherit;
+    text-decoration: none;
+    transition: transform 140ms, box-shadow 140ms, border-color 140ms;
+  }
+  .dir-card:hover { border-color: var(--border-strong); box-shadow: 0 14px 44px rgba(30,26,18,.14); transform: translateY(-2px); }
+  .dir-thumb { position: relative; height: 148px; border-bottom: 1px solid var(--border-soft); background: var(--bg-editor); overflow: hidden; }
+  .dir-body { display: grid; gap: 7px; padding: 15px 17px 16px; }
+  .dir-head { display: flex; align-items: center; gap: 9px; }
+  .dir-badge {
+    width: 26px; height: 26px; display: grid; place-items: center;
+    border-radius: 8px; background: var(--accent); color: var(--accent-fg);
+    font: 750 12px var(--font-ui);
+  }
+  .dir-badge.ai { background: var(--ai); }
+  .dir-head h2 { margin: 0; font: 650 15px var(--font-ui); letter-spacing: -0.01em; }
+  .dir-head .rec { margin-left: auto; padding: 3px 8px; border-radius: 7px; background: var(--ai-bg); color: var(--ai); font: 700 9px var(--font-ui); }
+  .dir-essence { margin: 0; color: var(--fg); font: 550 11.5px/1.65 var(--font-ui); }
+  .dir-trade { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 3px; padding-top: 9px; border-top: 1px solid var(--border-soft); }
+  .dir-trade div { font: 10px/1.6 var(--font-ui); color: var(--fg-muted); }
+  .dir-trade b { display: block; font: 700 8.5px var(--font-ui); letter-spacing: .1em; margin-bottom: 2px; }
+  .dir-trade .up b { color: var(--success); }
+  .dir-trade .down b { color: var(--warning); }
+  .idx-foot { margin-top: 30px; padding: 15px 18px; border: 1px dashed var(--border-strong); border-radius: 14px; color: var(--fg-muted); font: 11.5px/1.8 var(--font-ui); }
+  .idx-foot b { color: var(--fg); }
+
+  /* schematic thumbnails (pure CSS, no screenshots) */
+  .th { position: absolute; }
+  .th-bar { border-radius: 6px; background: var(--bg-chip); }
+  .th-card { border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); box-shadow: 0 2px 8px rgba(30,26,18,.06); }
+  .th-chip { height: 9px; border-radius: 4px; }
+  .th-overlay { position: absolute; inset: 0; background: rgba(32,30,26,.16); }
+  .th-line { height: 6px; border-radius: 3px; background: var(--bg-chip); }
+</style>
+</head>
+<body>
+<div class="idx-wrap">
+  <span class="idx-eyebrow">WORK · NEW WORK ITEM · 交互方向评审</span>
+  <h1>新建工作项：四个本质不同的方向</h1>
+  <p class="idx-lede">现状是 15 个字段平铺在一个滚动 modal 里，其中 14 个是可选的，但视觉上全都在逼你填；原生日期控件、新建/编辑共用一张表单。
+    四个 mock 分别回答同一个问题：<b>“捕获一个想法的最小动作应该是什么？”</b>每个页面右上角都有「▶ 播放演示」，也可以直接上手点。</p>
+  <span class="idx-note">全部为模拟数据 · 方向 A 的 “AI 解析” 是前端定时器伪造，用于评审交互，不代表真实延迟</span>
+
+  <div class="idx-grid">
+    <a class="dir-card" href="a-capture-ai.html">
+      <div class="dir-thumb">
+        <div class="th th-card" style="left:12%;right:12%;top:22px;height:58px">
+          <div class="th th-line" style="left:12px;right:30%;top:12px"></div>
+          <div class="th th-line" style="left:12px;right:45%;top:26px;opacity:.55"></div>
+          <div class="th" style="left:12px;top:41px;color:var(--ai);font:650 8px var(--font-ui)">✦ Charter structures it for you</div>
+        </div>
+        <div class="th th-card" style="left:30%;right:30%;top:96px;height:40px">
+          <div class="th th-line" style="left:10px;right:20%;top:8px"></div>
+          <div class="th th-chip chip-pop" style="left:10px;top:22px;width:34px;background:var(--danger-bg)"></div>
+          <div class="th th-chip chip-pop" style="left:50px;top:22px;width:44px;background:var(--warning-bg)"></div>
+          <div class="th th-chip chip-pop" style="left:100px;top:22px;width:40px;background:var(--ai-bg)"></div>
+        </div>
+      </div>
+      <div class="dir-body">
+        <div class="dir-head"><span class="dir-badge ai">A</span><h2>速记 + AI 结构化</h2><span class="rec">推荐 · 本质解</span></div>
+        <p class="dir-essence">唯一入口是一个输入框。倒进一句话或一段 Slack 原话，卡片零等待落板，AI 在后台把标题、优先级、截止、来源、验收标准解析成 chips，人只纠错、不填空。原文永久留底。</p>
+        <div class="dir-trade">
+          <div class="up"><b>为什么强</b>捕获成本≈0；唯一用上了产品自身 agent 能力的方向；“猜测”显式标黄，可信</div>
+          <div class="down"><b>代价</b>需要一次小模型调用（可先纯本地规则起步）；解析错误需要好的纠错动线</div>
+        </div>
+      </div>
+    </a>
+
+    <a class="dir-card" href="b-progressive-modal.html">
+      <div class="dir-thumb">
+        <div class="th-overlay"></div>
+        <div class="th th-card" style="left:18%;right:18%;top:24px;height:100px">
+          <div class="th th-line" style="left:14px;right:25%;top:16px;height:9px"></div>
+          <div class="th th-line" style="left:14px;right:40%;top:34px;opacity:.5"></div>
+          <div class="th th-chip" style="left:14px;top:66px;width:52px;background:var(--bg-chip)"></div>
+          <div class="th th-chip" style="left:72px;top:66px;width:44px;border:1px dashed var(--border-strong)"></div>
+          <div class="th th-chip" style="left:122px;top:66px;width:36px;border:1px dashed var(--border-strong)"></div>
+          <div class="th th-chip" style="left:164px;top:66px;width:44px;border:1px dashed var(--border-strong)"></div>
+        </div>
+      </div>
+      <div class="dir-body">
+        <div class="dir-head"><span class="dir-badge">B</span><h2>渐进披露 Modal</h2></div>
+        <p class="dir-essence">Modal 只留「标题 + 补充说明」两个输入，其余全部收成底部一排 chips：要什么点什么，弹小面板设置；背景/验收标准藏在 More。复杂度从推送式变成拉取式。</p>
+        <div class="dir-trade">
+          <div class="up"><b>为什么强</b>纯前端一天量级；零新增延迟/成本；键盘全可达；立刻不再“low”</div>
+          <div class="down"><b>代价</b>本质仍是人肉填表；只是把表单叠好了，没有减少信息劳动</div>
+        </div>
+      </div>
+    </a>
+
+    <a class="dir-card" href="c-inline-add.html">
+      <div class="dir-thumb">
+        <div class="th th-bar" style="left:10%;top:18px;width:22%;height:10px"></div>
+        <div class="th th-bar" style="left:40%;top:18px;width:22%;height:10px;opacity:.6"></div>
+        <div class="th th-bar" style="left:70%;top:18px;width:20%;height:10px;opacity:.4"></div>
+        <div class="th th-card" style="left:10%;top:40px;width:24%;height:34px;border-color:var(--border-strong);box-shadow:0 0 0 3px rgba(27,26,22,.07)">
+          <div class="th th-line" style="left:8px;right:8px;top:9px;opacity:.5"></div>
+          <div class="th" style="left:8px;top:20px;font:600 7px var(--font-ui);color:var(--fg-faint)">!high · #label · @aug 20</div>
+        </div>
+        <div class="th th-card" style="left:10%;top:84px;width:24%;height:30px">
+          <div class="th th-line" style="left:8px;right:12px;top:8px"></div>
+          <div class="th th-chip" style="left:8px;top:19px;width:26px;background:var(--danger-bg)"></div>
+        </div>
+        <div class="th th-card" style="right:6%;top:30px;width:30%;height:96px">
+          <div class="th th-line" style="left:10px;right:20px;top:12px;height:8px"></div>
+          <div class="th th-line" style="left:10px;width:36%;top:32px;opacity:.5"></div>
+          <div class="th th-line" style="left:10px;width:50%;top:46px;opacity:.5"></div>
+          <div class="th th-line" style="left:10px;width:42%;top:60px;opacity:.5"></div>
+        </div>
+      </div>
+      <div class="dir-body">
+        <div class="dir-head"><span class="dir-badge">C</span><h2>行内速添 + 侧栏详情</h2></div>
+        <p class="dir-essence">彻底干掉 modal。按 N，列顶出现一张“正在成形的卡片”，回车连续入板；!high、#label、@日期 边打边解析。详情/编辑全部在侧栏，顺手消灭了新建/编辑共用表单的问题。</p>
+        <div class="dir-trade">
+          <div class="up"><b>为什么强</b>捕获动作最快（一次按键）；不打断看板语境；速记语法零成本零延迟</div>
+          <div class="down"><b>代价</b>速记语法要学；来源/背景这类字段离入口更远，靠事后补</div>
+        </div>
+      </div>
+    </a>
+
+    <a class="dir-card" href="d-document-page.html">
+      <div class="dir-thumb">
+        <div class="th th-card" style="left:16%;right:16%;top:14px;bottom:-30px">
+          <div class="th th-line" style="left:18px;width:45%;top:18px;height:12px"></div>
+          <div class="th th-line" style="left:18px;width:22%;top:44px;opacity:.45"></div>
+          <div class="th th-line" style="left:45%;width:18%;top:44px;opacity:.7"></div>
+          <div class="th th-line" style="left:18px;width:22%;top:58px;opacity:.45"></div>
+          <div class="th th-line" style="left:45%;width:24%;top:58px;opacity:.7"></div>
+          <div class="th th-line" style="left:18px;width:22%;top:72px;opacity:.45"></div>
+          <div class="th th-line" style="left:18px;right:20%;top:98px;opacity:.55"></div>
+          <div class="th th-line" style="left:18px;right:35%;top:112px;opacity:.55"></div>
+        </div>
+      </div>
+      <div class="dir-body">
+        <div class="dir-head"><span class="dir-badge">D</span><h2>新建即详情页</h2></div>
+        <p class="dir-essence">没有“表单”这个中间态：点 New 直接进入这条工作项自己的页面，标题像文档标题，属性是行内一列，验收标准是真清单。写到哪保存到哪，回看板时卡片已经在了。</p>
+        <div class="dir-trade">
+          <div class="up"><b>为什么强</b>新建、查看、编辑三态合一；重工作项（要写很多背景）体验最好</div>
+          <div class="down"><b>代价</b>捕获要离开看板全屏切换；对“只想快速记一笔”的场景太重</div>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <div class="idx-foot">
+    <b>怎么看：</b>四个方向可以混搭——A 是本质解（AI 替人填空），C 是它最顺的容器（行内入口 + 侧栏纠错），B 是最便宜的止血（先把表单叠好），D 适合做卡片点开后的最终形态。
+    建议评审顺序 <b>A → C → B → D</b>；每页都能真实打字、点 chips、开弹层，右上角「▶ 播放演示」约 20 秒走完关键流程。
+    无论选哪个，两件事都会顺手做掉：换掉原生日期控件、把编辑模式从新建表单里剥离。
+  </div>
+</div>
+</body>
+</html>

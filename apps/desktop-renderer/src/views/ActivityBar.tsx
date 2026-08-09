@@ -59,7 +59,7 @@ export function ActivityBar({
         title="Work — tasks, owners, deadlines and agent executions"
         onClick={() => onSelect('work')}
       >
-        <Ic name="check" size={17} />
+        <Ic name="kanban" size={17} />
         <span className="sr-activity-label">Work</span>
         {workAttention > 0 ? <span className="sr-mini-badge">{workAttention}</span> : null}
       </button>
@@ -108,37 +108,7 @@ export function ActivityBar({
         <Ic name="remote-terminal" size={17} />
         <span className="sr-activity-label">Remotes</span>
       </button>
-      <button
-        className={`sr-activity-item ${active === 'memory' ? 'active' : ''}`}
-        data-testid="rail-view-memory"
-        aria-label="Memory"
-        title="Memory — project rules & agent memories"
-        onClick={() => onSelect('memory')}
-      >
-        <Ic name="brain" size={16} />
-        <span className="sr-activity-label">Memory</span>
-      </button>
-      <button
-        className={`sr-activity-item ${active === 'skills' ? 'active' : ''}`}
-        data-testid="rail-view-skills"
-        aria-label="Skills"
-        title="Skills — usage and Agent installations"
-        onClick={() => onSelect('skills')}
-      >
-        <Ic name="puzzle" size={17} />
-        <span className="sr-activity-label">Skills</span>
-      </button>
       <span className="sr-activity-spacer" />
-      <button
-        className="sr-activity-item"
-        data-testid="home-open-ide"
-        aria-label="Editor"
-        title="Editor"
-        onClick={() => app.setSurface('workspace')}
-      >
-        <Ic name="layout" size={16} />
-        <span className="sr-activity-label">Editor</span>
-      </button>
       <button
         className="sr-activity-item"
         data-testid="home-settings"

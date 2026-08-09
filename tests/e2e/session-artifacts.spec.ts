@@ -216,11 +216,14 @@ test.describe('Session artifact platform', () => {
       await expect(htmlFrame.getByRole('heading', { name: 'Revenue pulse' })).toBeVisible({
         timeout: 10_000,
       });
-      await page.getByTestId('artifact-html-security').locator('summary').click();
-      await page.getByRole('button', { name: 'Enable interactions' }).click();
       await expect(
         page.getByRole('button', { name: 'Interactive HTML preview settings' }),
       ).toBeVisible();
+      await htmlFrame.getByRole('button', { name: 'Refresh forecast' }).click();
+      await expect.poll(() => htmlFrame.locator('body').getAttribute('data-refreshed')).toBe('yes');
+      await page.getByTestId('artifact-html-security').locator('summary').click();
+      await expect(page.getByRole('button', { name: 'Disable interactions' })).toBeVisible();
+      await page.getByTestId('artifact-html-security').locator('summary').click();
       const pickElement = page.getByTestId('artifact-pick-element');
       await expect(pickElement).toBeEnabled({ timeout: 10_000 });
       await pickElement.click();

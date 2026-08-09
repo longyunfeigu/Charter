@@ -5,7 +5,7 @@ import { useActivityStore } from '../store/activityStore.js';
 import { needsAttention } from './labels.js';
 import { useExternalStore } from '../store/externalStore.js';
 import { HomeView } from './HomeView.js';
-import { TaskRoomView } from './TaskRoomView.js';
+import { SessionRoomPool } from './SessionRoomPool.js';
 import { SessionTerminalView } from './SessionTerminalView.js';
 import { ProjectToolView } from './ProjectToolView.js';
 import { ArchaeologyView } from './ArchaeologyView.js';
@@ -42,7 +42,9 @@ export function HomeShell(): React.JSX.Element {
   const setLens = useAppStore((s) => s.setLens);
   const newProjectOpen = useAppStore((s) => s.newProjectOpen);
   const setNewProjectOpen = useAppStore((s) => s.setNewProjectOpen);
-  const taskStore = useTaskStore();
+  // tasks only — a full-store subscription here would re-render the entire
+  // shell (rail + room) on every streaming token.
+  const tasks = useTaskStore((s) => s.tasks);
   const taskByTerminal = useExternalStore((s) => s.taskByTerminal);
   const selectedTerminal = useTerminalStore((s) =>
     sessionTerminalId ? s.items.find((item) => item.id === sessionTerminalId) : undefined,
@@ -50,23 +52,23 @@ export function HomeShell(): React.JSX.Element {
   const hydrate = useActivityStore((s) => s.hydrate);
 
   useEffect(() => {
+    const taskStore = useTaskStore.getState();
     taskStore.init();
     useActivityStore.getState().init();
     // ADR-0017: external session toasts/badges/glow work from any surface.
     useExternalStore.getState().init();
     void taskStore.refreshTasks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Heartbeat hydration: live/attention tasks get their activity backfilled so
   // the sidebar ticker and mission-control cards are truthful after reloads.
   useEffect(() => {
-    for (const t of taskStore.tasks) {
+    for (const t of tasks) {
       if (RUNNING_TASK_STATES.has(t.state) || needsAttention(t)) {
         void hydrate(t.id);
       }
     }
-  }, [taskStore.tasks, hydrate]);
+  }, [tasks, hydrate]);
 
   // A freshly launched Claude/Codex PTY is selectable immediately. When the
   // host detects the agent and creates its accounting task, migrate the active
@@ -79,17 +81,24 @@ export function HomeShell(): React.JSX.Element {
     if (selectedTerminal?.launch === 'shell') return;
     const detectedTaskId =
       taskByTerminal[sessionTerminalId] ??
-      taskStore.tasks
+      tasks
         .filter((task) => task.external?.terminalId === sessionTerminalId)
         .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]?.id;
-    if (!detectedTaskId || !taskStore.tasks.some((task) => task.id === detectedTaskId)) return;
-    void taskStore.openTask(detectedTaskId);
+    if (!detectedTaskId || !tasks.some((task) => task.id === detectedTaskId)) return;
+    void useTaskStore.getState().openTask(detectedTaskId);
     useAppStore.getState().openTaskRoom(detectedTaskId);
-  }, [sessionTerminalId, selectedTerminal?.launch, taskByTerminal, taskStore]);
+  }, [sessionTerminalId, selectedTerminal?.launch, taskByTerminal, tasks]);
+
+  // ADR-0055: rooms live in a kept-alive pool that stays mounted across
+  // surface switches; the pool only OWNS the pane when the route says a room
+  // is the visible surface.
+  const roomSurfaceVisible =
+    !remotesOpen && !sessionTerminalId && !missionCenter && taskRoomTaskId !== null;
 
   return (
     <div className="hm-root" data-testid="home-shell">
       <div className="hm-content">
+        <SessionRoomPool activeTaskId={roomSurfaceVisible ? taskRoomTaskId : null} />
         {remotesOpen ? (
           <div className="rm-workspace">
             <div className="rm-workspace-main">
@@ -105,9 +114,7 @@ export function HomeShell(): React.JSX.Element {
           <SessionTerminalView key={sessionTerminalId} terminalId={sessionTerminalId} />
         ) : missionCenter ? (
           <MissionCenterView />
-        ) : taskRoomTaskId ? (
-          <TaskRoomView key={taskRoomTaskId} />
-        ) : projectCenter ? (
+        ) : taskRoomTaskId ? null : projectCenter ? (
           <ProjectCenterView key={projectCenter.path} />
         ) : archaeology ? (
           <ArchaeologyView />

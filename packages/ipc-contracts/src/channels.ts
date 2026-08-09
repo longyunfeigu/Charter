@@ -383,6 +383,15 @@ export const CHANNELS = {
     z.object({ id: z.string().min(1) }).strict(),
     z.object({ removed: z.boolean() }).strict(),
   ),
+  /** Native multi-select file dialog for Work item attachments. `paths` is
+   * null when the user dismisses the dialog. The renderer only ever receives
+   * the chosen paths; reading the files stays behind the Tool Gateway. */
+  'workItem.attachment.pick': ch(
+    'workItem.attachment.pick',
+    1,
+    z.object({}).strict(),
+    z.object({ paths: z.array(z.string().min(1).max(4096)).max(20).nullable() }).strict(),
+  ),
   'workItem.evidence.add': ch(
     'workItem.evidence.add',
     1,

@@ -69,27 +69,27 @@ test.describe('Project Center', () => {
       await page.getByTestId('rail-view-projects').click();
       await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
 
-      // Browsing A does not silently rebind the Files/editor/composer context.
+      // ADR-0054: opening A's center makes A the working context — the same
+      // principle as entering a session (ADR-0046).
       await page.getByTestId(`home-recent-${projectA}`).click();
       await expect(page.getByTestId('project-center')).toBeVisible({ timeout: 15_000 });
       await expect(page.getByTestId('project-center-overview')).toBeVisible();
       await expect(page.locator('.pc-identity')).toContainText(projectA.split('/').pop()!);
-      await expect(page.getByTestId(`home-recent-${projectB}`).locator('..')).toHaveClass(
+      await expect(page.getByTestId(`home-recent-${projectA}`).locator('..')).toHaveClass(
         /current/,
+        { timeout: 15_000 },
       );
       await expect(page.getByTestId(`home-recent-${projectA}`).locator('..')).toHaveClass(
         /selected/,
       );
 
-      // Files are inspected read-only while B remains current.
+      // The Files tab hosts the real editor: click a file, get an editable tab.
       await page.getByTestId('project-center-tab-files').click();
       await expect(page.getByTestId('project-center-files')).toBeVisible();
+      await expect(page.getByTestId('project-center-editor')).toBeVisible();
       await page.getByTestId('project-file-src').click();
       await page.getByTestId('project-file-src/index.ts').click();
-      await expect(page.locator('.pc-file-preview pre')).toContainText('export function main');
-      await expect(page.getByTestId(`home-recent-${projectB}`).locator('..')).toHaveClass(
-        /current/,
-      );
+      await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
 
       // Changes and Setup are direct observations, not inferred dashboard numbers.
       await page.getByTestId('project-center-tab-changes').click();
@@ -98,12 +98,7 @@ test.describe('Project Center', () => {
       await expect(page.getByTestId('project-setup-agentsMd')).toContainText('Detected');
       await expect(page.getByTestId('project-setup-claudeMd')).toContainText('Not found');
 
-      // Explicit action changes the working context but leaves the Project Center stable.
-      await page.getByTestId('project-set-current').click();
-      await expect(page.getByTestId(`home-recent-${projectA}`).locator('..')).toHaveClass(
-        /current/,
-        { timeout: 15_000 },
-      );
+      // Being the working context leaves the Project Center page stable.
       await expect(page.getByTestId('project-center')).toBeVisible();
       await expect(page.locator('.pc-badge.current')).toHaveText('Current');
       await page.getByTestId('project-center-tab-overview').click();

@@ -22,6 +22,7 @@ import {
   saveAttentionDismissals,
   type AttentionDismissals,
 } from './attentionDismissals.js';
+import { clearScroll } from '../views/scrollMemory.js';
 
 /**
  * Append a streaming delta, keeping only the last STREAM_BUFFER_CAP characters
@@ -51,6 +52,14 @@ interface TaskStore {
   tasks: TaskDto[];
   activeTaskId: string | null;
   timeline: TimelineEventDto[];
+  /**
+   * Per-task timeline projections (ADR-0055): a bounded MRU cache so
+   * re-opening a recently visited Session paints instantly from memory and
+   * kept-alive rooms read their own task's data, never the active one's.
+   * Invariant: for the active task, `timelines[activeTaskId] === timeline`
+   * (same array reference).
+   */
+  timelines: Record<string, TimelineEventDto[]>;
   streaming: StreamingMessage | null;
   streamingThinking: StreamingThinking | null;
   models: ModelDescriptorDto[];
@@ -182,6 +191,77 @@ interface TaskStore {
   }): Promise<boolean>;
 }
 
+/**
+ * MRU bound for cached per-task timelines. Sized like ORCA's hot working set:
+ * large enough for the ordinary switch-around, small enough that memory stays
+ * a few MB even with heavy transcripts. The active task is never evicted.
+ */
+const TIMELINE_CACHE_LIMIT = 8;
+
+/** Write one task's timeline into the cache, touch recency, enforce the cap. */
+function withTimeline(
+  timelines: Record<string, TimelineEventDto[]>,
+  taskId: string,
+  timeline: TimelineEventDto[],
+  activeTaskId: string | null,
+): Record<string, TimelineEventDto[]> {
+  const next: Record<string, TimelineEventDto[]> = {};
+  for (const [key, value] of Object.entries(timelines)) {
+    if (key !== taskId) next[key] = value;
+  }
+  next[taskId] = timeline; // insertion order doubles as recency (last = newest)
+  const keys = Object.keys(next);
+  let overflow = keys.length - TIMELINE_CACHE_LIMIT;
+  for (const key of keys) {
+    if (overflow <= 0) break;
+    if (key === taskId || key === activeTaskId) continue;
+    delete next[key];
+    overflow -= 1;
+  }
+  return next;
+}
+
+/**
+ * Merge a fresh server projection into a cached timeline, preserving the OLD
+ * object reference for every event whose id+sequence match. Persisted events
+ * are immutable, so identity can stand in for content — memoized rows then
+ * skip re-rendering entirely, and an unchanged timeline keeps its array
+ * reference (a no-op revalidation causes zero re-renders).
+ */
+function reconcileTimeline(
+  cached: TimelineEventDto[] | undefined,
+  fresh: TimelineEventDto[],
+): TimelineEventDto[] {
+  if (!cached || cached.length === 0) return fresh;
+  const byId = new Map(cached.map((event) => [event.id, event]));
+  let identical = cached.length === fresh.length;
+  const merged = fresh.map((event, index) => {
+    const previous = byId.get(event.id);
+    const keep = previous !== undefined && previous.sequence === event.sequence ? previous : event;
+    if (identical && keep !== cached[index]) identical = false;
+    return keep;
+  });
+  // An event broadcast can land between the DB read and this reconcile; the
+  // snapshot then lacks the newest live rows. Keep every cached event newer
+  // than the snapshot tail (and live sequence-0 rows whose terminal event has
+  // not arrived) so a revalidation never makes a just-appended message blink
+  // out of the visible timeline.
+  const freshIds = new Set(fresh.map((event) => event.id));
+  const freshCallIds = new Set(fresh.map(timelineCallId).filter(Boolean));
+  const maxFreshSequence = fresh.reduce((max, event) => Math.max(max, event.sequence), 0);
+  const newerTail = cached.filter((event) => {
+    if (freshIds.has(event.id)) return false;
+    if (event.sequence > maxFreshSequence) return true;
+    if (event.sequence === 0) {
+      const callId = timelineCallId(event);
+      return callId !== '' && !freshCallIds.has(callId);
+    }
+    return false;
+  });
+  if (newerTail.length === 0) return identical ? cached : merged;
+  return [...merged, ...newerTail];
+}
+
 /** callId of a tool-lifecycle timeline event, or '' for everything else. */
 function timelineCallId(event: TimelineEventDto): string {
   if (event.type !== 'tool.call' && event.type !== 'agent.toolProposed') return '';
@@ -203,6 +283,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: [],
   activeTaskId: null,
   timeline: [],
+  timelines: {},
   streaming: null,
   streamingThinking: null,
   models: [],
@@ -228,8 +309,13 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       if (event.type === 'agent.message') {
         useAppStore.getState().signalSessionReply(taskId, `agent-message:${event.id}`);
       }
-      if (taskId !== get().activeTaskId) return;
-      const timeline = get().timeline;
+      // ADR-0055: events apply to the active task AND to any cached timeline,
+      // so a kept-alive room stays current while hidden. Uncached tasks keep
+      // today's behavior (dropped; a later open fetches the ledger).
+      const state = get();
+      const isActive = taskId === state.activeTaskId;
+      const timeline = isActive ? state.timeline : state.timelines[taskId];
+      if (timeline === undefined) return;
       // Ephemeral events have sequence 0; persisted ones are monotonic.
       if (event.sequence > 0 && timeline.some((e) => e.id === event.id)) return;
       // Tool lifecycle: one timeline entry per callId. Live states
@@ -242,18 +328,34 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       const next = [...base, event].sort((a, b) =>
         a.sequence === 0 || b.sequence === 0 ? 0 : a.sequence - b.sequence,
       );
-      // Completed agent message replaces the streaming bubble.
-      const patch: Partial<TaskStore> = { timeline: next };
-      if (event.type === 'agent.message') {
-        patch.streaming = null;
-        patch.streamingThinking = null;
+      const patch: Partial<TaskStore> = {
+        timelines: withTimeline(state.timelines, taskId, next, state.activeTaskId),
+      };
+      if (isActive) {
+        patch.timeline = next;
+        // Completed agent message replaces the streaming bubble.
+        if (event.type === 'agent.message') {
+          patch.streaming = null;
+          patch.streamingThinking = null;
+        }
+        // The persisted thinking block replaces its live stream.
+        if (event.type === 'agent.thinking') patch.streamingThinking = null;
       }
-      // The persisted thinking block replaces its live stream.
-      if (event.type === 'agent.thinking') patch.streamingThinking = null;
       set(patch as never);
     });
+    /**
+     * A stream delta may only exist for a task that is actually running.
+     * Main-process coalescing flushes before every settlement broadcast, but
+     * a crash or an unforeseen bypass path could still deliver one late —
+     * accepting it would resurrect a ghost "streaming" bubble on a settled
+     * conversation (text that never reaches the persisted timeline).
+     */
+    const taskIsRunning = (taskId: string): boolean => {
+      const task = get().tasks.find((candidate) => candidate.id === taskId);
+      return task !== undefined && RUNNING_TASK_STATES.has(task.state);
+    };
     onEvent('task.streamThinking', ({ taskId, runId, messageId, delta }) => {
-      if (taskId !== get().activeTaskId) return;
+      if (taskId !== get().activeTaskId || !taskIsRunning(taskId)) return;
       const current = get().streamingThinking;
       set({
         streamingThinking:
@@ -263,7 +365,7 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       });
     });
     onEvent('task.stream', ({ taskId, runId, messageId, delta }) => {
-      if (taskId !== get().activeTaskId) return;
+      if (taskId !== get().activeTaskId || !taskIsRunning(taskId)) return;
       const current = get().streaming;
       set({
         streaming:
@@ -296,8 +398,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       }
     });
     onEvent('task.deleted', ({ taskId }) => {
+      clearScroll(taskId);
       const tasks = get().tasks.filter((task) => task.id !== taskId);
-      const patch: Partial<TaskStore> = { tasks };
+      const timelines = { ...get().timelines };
+      delete timelines[taskId];
+      const patch: Partial<TaskStore> = { tasks, timelines };
       if (get().activeTaskId === taskId) {
         patch.activeTaskId = null;
         patch.timeline = [];
@@ -341,37 +446,61 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
   },
 
   async openTask(taskId) {
+    // ADR-0055 stale-while-revalidate: a cached timeline paints immediately
+    // (no "Loading…" flash, no blank frame); the ledger is re-read in the
+    // background and reconciled preserving event identity, so an unchanged
+    // history causes zero re-renders.
+    const cached = get().timelines[taskId];
     set({
       activeTaskId: taskId,
-      timeline: [],
+      timeline: cached ?? [],
+      timelines: withTimeline(get().timelines, taskId, cached ?? [], taskId),
       streaming: null,
       streamingThinking: null,
-      loadingTimeline: true,
+      loadingTimeline: cached === undefined,
       changeSet: null,
       loadingChangeSet: false,
       reviewOpen: false,
     });
+    if (cached !== undefined) void get().refreshChangeSet();
     const res = await rpcResult('task.get', { taskId, eventsAfter: 0 });
     if (res.ok) {
       const tasks = get().tasks;
       const nextTasks = tasks.some((task) => task.id === taskId)
         ? tasks.map((task) => (task.id === taskId ? res.data.task : task))
         : [res.data.task, ...tasks];
+      const fresh = reconcileTimeline(get().timelines[taskId], res.data.timeline);
       // The user may have selected a different Session while this request was
-      // in flight. Keep the task catalog fresh, but never project stale
-      // timeline data into the newly selected right pane.
+      // in flight. The per-task cache write is safe either way; only the
+      // active singleton must never receive another task's data.
       if (get().activeTaskId !== taskId) {
-        set({ tasks: nextTasks });
+        set({
+          tasks: nextTasks,
+          timelines: withTimeline(get().timelines, taskId, fresh, get().activeTaskId),
+        });
         return;
       }
-      set({ tasks: nextTasks, timeline: res.data.timeline, loadingTimeline: false });
+      set({
+        tasks: nextTasks,
+        timeline: fresh,
+        timelines: withTimeline(get().timelines, taskId, fresh, taskId),
+        loadingTimeline: false,
+      });
       // The tool rail's file count must come from the durable change set, not
       // only this task's activity events. Mission commanders can own files
       // produced by bound worker Sessions whose write events live on those
       // child ledgers, so hydrate the aggregate as soon as the room opens.
-      void get().refreshChangeSet();
-    } else if (get().activeTaskId === taskId) {
-      set({ loadingTimeline: false });
+      if (cached === undefined) void get().refreshChangeSet();
+    } else {
+      // Failed fetch: the empty placeholder this open planted must not
+      // masquerade as a cached ledger on the next visit (events that arrived
+      // meanwhile are real — keep those).
+      if (cached === undefined && get().timelines[taskId]?.length === 0) {
+        const timelines = { ...get().timelines };
+        delete timelines[taskId];
+        set({ timelines });
+      }
+      if (get().activeTaskId === taskId) set({ loadingTimeline: false });
     }
   },
 
@@ -408,8 +537,21 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     }
     if (useAppStore.getState().taskRoomTaskId === taskId) app.closeTaskRoom();
     app.forgetTaskNavigation(taskId);
-    if (get().activeTaskId === taskId) {
-      set({ activeTaskId: null, timeline: [], streaming: null, streamingThinking: null });
+    {
+      // An archived Session leaves the switching set — drop its cached ledger.
+      const timelines = { ...get().timelines };
+      delete timelines[taskId];
+      if (get().activeTaskId === taskId) {
+        set({
+          activeTaskId: null,
+          timeline: [],
+          timelines,
+          streaming: null,
+          streamingThinking: null,
+        });
+      } else {
+        set({ timelines });
+      }
     }
     await get().refreshTasks();
     app.pushToast('info', 'Session archived.');
@@ -427,7 +569,9 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     if (app.taskRoomTaskId === taskId) app.closeTaskRoom();
     app.forgetTaskNavigation(taskId);
     const tasks = get().tasks.filter((task) => task.id !== taskId);
-    const patch: Partial<TaskStore> = { tasks };
+    const timelines = { ...get().timelines };
+    delete timelines[taskId];
+    const patch: Partial<TaskStore> = { tasks, timelines };
     if (get().activeTaskId === taskId) {
       patch.activeTaskId = null;
       patch.timeline = [];
@@ -711,9 +855,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     // user leaves and reopens the Session.
     const detail = await rpcResult('task.get', { taskId, eventsAfter: 0 });
     if (detail.ok && get().activeTaskId === taskId) {
+      const fresh = reconcileTimeline(get().timelines[taskId], detail.data.timeline);
       set({
         tasks: get().tasks.map((task) => (task.id === taskId ? detail.data.task : task)),
-        timeline: detail.data.timeline,
+        timeline: fresh,
+        timelines: withTimeline(get().timelines, taskId, fresh, taskId),
       });
     }
     return true;

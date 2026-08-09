@@ -493,7 +493,7 @@ export function BranchPicker(): React.JSX.Element | null {
               data-testid={`branch-${branch.name}`}
               onClick={() => void checkout(branch.name)}
             >
-              <span>
+              <span data-i18n-ignore>
                 {branch.current ? '● ' : ''}
                 {branch.name}
               </span>

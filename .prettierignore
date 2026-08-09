@@ -11,4 +11,6 @@ playwright-report
 docs/*.docx
 # Discussion mockups/prototypes are design artifacts, not product code.
 docs/design
+docs/mockups
 *.md
+tests/perf/ui/results/

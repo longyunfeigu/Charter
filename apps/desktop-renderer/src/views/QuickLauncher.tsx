@@ -26,7 +26,6 @@ interface Entry {
 export function QuickLauncher(): React.JSX.Element | null {
   const open = useAppStore((s) => s.launcherOpen);
   const setOpen = useAppStore((s) => s.setLauncherOpen);
-  const surface = useAppStore((s) => s.surface);
   const workspace = useWorkspaceStore((s) => s.workspace);
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
@@ -108,35 +107,34 @@ export function QuickLauncher(): React.JSX.Element | null {
           app.focusComposer();
         },
       },
-      surface === 'home'
-        ? {
-            id: 'action-open-ide',
-            group: 'Actions',
-            icon: 'layout',
-            label: 'Open IDE workspace',
-            run: () => useAppStore.getState().setSurface('workspace'),
-          }
-        : {
-            id: 'action-go-home',
-            group: 'Actions',
-            icon: 'flag',
-            label: 'Go Home (task launcher)',
-            run: () => useAppStore.getState().openSessionHome(),
-          },
+      {
+        id: 'action-open-project-files',
+        group: 'Actions',
+        icon: 'layout',
+        label: 'Open project files (editor)',
+        run: () => void useAppStore.getState().openProjectFiles(),
+      },
+      {
+        id: 'action-go-home',
+        group: 'Actions',
+        icon: 'flag',
+        label: 'Go Home (task launcher)',
+        run: () => useAppStore.getState().openSessionHome(),
+      },
       {
         id: 'action-settings',
         group: 'Actions',
         icon: 'sliders',
         label: 'Open Settings',
-        // Settings is an overlay — opening it must not yank you to the Editor.
-        run: () => useAppStore.getState().setOverlay('settings'),
+        // Settings is a routed workspace — opening it must not yank you to the Editor.
+        run: () => useAppStore.getState().openSettings(),
       },
       {
         id: 'action-memory',
         group: 'Actions',
         icon: 'brain',
         label: 'Open Memory (project rules & agent memories)',
-        run: () => useAppStore.getState().setRailView('memory'),
+        run: () => useAppStore.getState().openSettings('memory'),
       },
     ];
     list.push(...actions.filter((a) => matches(a.label)));
@@ -183,7 +181,7 @@ export function QuickLauncher(): React.JSX.Element | null {
           icon: 'brain',
           label: hit.label.length > 72 ? `${hit.label.slice(0, 72)}…` : hit.label,
           sub: hit.sub,
-          run: () => useAppStore.getState().setRailView('memory'),
+          run: () => useAppStore.getState().openSettings('memory'),
         });
       }
     }
@@ -198,14 +196,13 @@ export function QuickLauncher(): React.JSX.Element | null {
         ...(r.kind ? { badge: r.kind } : {}),
         run: () => {
           if (workspace?.path !== r.path) {
-            if (surface === 'home') useAppStore.getState().setHomePick(true);
             void useWorkspaceStore.getState().openPath(r.path);
           }
         },
       });
     }
     return list;
-  }, [query, tasks, files, recent, memoryHits, surface, workspace]);
+  }, [query, tasks, files, recent, memoryHits, workspace]);
 
   useEffect(() => {
     setIndex((i) => Math.min(i, Math.max(0, entries.length - 1)));

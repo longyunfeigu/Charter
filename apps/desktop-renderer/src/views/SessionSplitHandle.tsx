@@ -30,6 +30,11 @@ export function SessionSplitHandle({
   const [atLimit, setAtLimit] = useState(false);
   const chipTimer = useRef(0);
   const limitTimer = useRef(0);
+  // Writing --session-split on the container invalidates style for the whole
+  // room subtree — cap it at one write per frame, with the drag geometry read
+  // once at pointerdown instead of per move.
+  const dragRect = useRef<DOMRect | null>(null);
+  const moveRaf = useRef(0);
 
   const effective = manual ?? (expanded ? EXPANDED_PCT : DEFAULT_PCT);
 
@@ -41,6 +46,7 @@ export function SessionSplitHandle({
     () => () => {
       window.clearTimeout(chipTimer.current);
       window.clearTimeout(limitTimer.current);
+      if (moveRaf.current) cancelAnimationFrame(moveRaf.current);
     },
     [],
   );
@@ -106,20 +112,26 @@ export function SessionSplitHandle({
         e.currentTarget.setPointerCapture(e.pointerId);
         livePct.current = effective;
         moved.current = false;
+        dragRect.current = containerRef.current?.getBoundingClientRect() ?? null;
         containerRef.current?.style.setProperty('--session-split', `${effective}%`);
         app().setSessionSplitDragging(true);
         showChip(effective, false);
       }}
       onPointerMove={(e) => {
         if (livePct.current === null) return;
-        const container = containerRef.current;
-        if (!container) return;
-        const rect = container.getBoundingClientRect();
+        const rect = dragRect.current;
+        if (!rect || rect.width <= 0) return;
         const pct = clampPct(((e.clientX - rect.left) / rect.width) * 100);
         livePct.current = pct;
         moved.current = true;
-        container.style.setProperty('--session-split', `${pct}%`);
-        showChip(pct, false);
+        if (moveRaf.current) return;
+        moveRaf.current = requestAnimationFrame(() => {
+          moveRaf.current = 0;
+          const target = livePct.current;
+          if (target === null) return;
+          containerRef.current?.style.setProperty('--session-split', `${target}%`);
+          showChip(target, false);
+        });
       }}
       onPointerUp={(e) => {
         e.currentTarget.releasePointerCapture(e.pointerId);

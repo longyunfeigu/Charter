@@ -18,6 +18,7 @@ import {
   type SessionHistoryItem,
 } from './session-history.js';
 import { agentDisplayName } from '../store/agentCatalogStore.js';
+import { formatDate as formatLocalizedDate, t } from '../i18n.js';
 
 /**
  * Session Archive is the user-facing form of ADR-0038 archaeology. It merges
@@ -63,13 +64,13 @@ function itemPath(item: SessionHistoryItem): string {
 }
 
 function formatDate(value: string | null): string {
-  if (!value) return 'Not recorded';
+  if (!value) return t('Not recorded');
   const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return 'Not recorded';
-  return new Intl.DateTimeFormat(undefined, {
+  if (!Number.isFinite(date.getTime())) return t('Not recorded');
+  return formatLocalizedDate(date, {
     dateStyle: 'medium',
     timeStyle: 'short',
-  }).format(date);
+  });
 }
 
 async function openTask(task: TaskDto): Promise<void> {
@@ -294,10 +295,8 @@ export function ArchaeologyView(): React.JSX.Element {
 
   const addProject = async (cwd: string): Promise<void> => {
     const app = useAppStore.getState();
-    app.setHomePick(true);
     const result = await rpcResult('workspace.open', { path: cwd });
     if (!result.ok) {
-      app.setHomePick(false);
       app.pushToast('error', result.error.userMessage);
       return;
     }

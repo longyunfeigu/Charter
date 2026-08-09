@@ -20,10 +20,12 @@ export function registerPivotHome(): void {
       run: () => useAppStore.getState().openSessionHome(),
     },
     {
-      id: 'surface.workspace',
-      title: 'Open IDE Workspace',
+      // ADR-0054: the editor lives in its owning contexts; this command lands
+      // in the current project's Files tab (or the Projects rail without one).
+      id: 'project.files',
+      title: 'Open Project Files',
       category: 'View',
-      run: () => useAppStore.getState().setSurface('workspace'),
+      run: () => void useAppStore.getState().openProjectFiles(),
     },
     {
       id: 'launcher.open',

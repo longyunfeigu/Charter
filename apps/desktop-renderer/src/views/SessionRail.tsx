@@ -58,6 +58,7 @@ import { TERMINAL_MISSION_STATES } from './mission/mission-view-model.js';
 import { agentDisplayName } from '../store/agentCatalogStore.js';
 import { runningSessionTargets, type RunningSessionTarget } from './session-running-targets.js';
 import { visibleProjectSessionTasks } from './mission-session-visibility.js';
+import { formatDate, formatRelativeTime, getLocale, t } from '../i18n.js';
 
 export { isHistoryEntry, type SessionEntry } from './rail-groups.js';
 
@@ -297,13 +298,14 @@ function missionAssignmentDepth(
 export function timeAgo(value: string, now: number): string {
   const elapsed = Math.max(0, now - Date.parse(value));
   const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 1) return 'now';
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1) return t('now');
+  if (minutes < 60)
+    return getLocale() === 'zh-CN' ? formatRelativeTime(-minutes, 'minute') : `${minutes}m`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
+  if (hours < 24) return getLocale() === 'zh-CN' ? formatRelativeTime(-hours, 'hour') : `${hours}h`;
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(value).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  if (days < 7) return getLocale() === 'zh-CN' ? formatRelativeTime(-days, 'day') : `${days}d`;
+  return formatDate(value, { month: 'short', day: 'numeric' });
 }
 
 function statusBadge(task: TaskDto): { label: string; tone: string } | null {
@@ -892,8 +894,33 @@ export function SessionRail(): React.JSX.Element {
   }, [app, recent, view, workspaceStore.workspace?.path]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(timer);
+    // The minute tick re-buckets history groups and re-renders every rail row.
+    // A hidden window doesn't need that work; on return, one immediate tick
+    // catches the clock up before the interval resumes.
+    let timer: number | undefined;
+    const start = (): void => {
+      if (timer === undefined) timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    };
+    const stop = (): void => {
+      if (timer !== undefined) {
+        window.clearInterval(timer);
+        timer = undefined;
+      }
+    };
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') {
+        setNow(Date.now());
+        start();
+      } else {
+        stop();
+      }
+    };
+    onVisibility();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   useEffect(() => {
@@ -1459,7 +1486,6 @@ export function SessionRail(): React.JSX.Element {
 
   const startSession = async (projectPath: string): Promise<void> => {
     if (workspaceStore.workspace?.path !== projectPath) {
-      app.setHomePick(true);
       await workspaceStore.openPath(projectPath);
       if (useWorkspaceStore.getState().workspace?.path !== projectPath) return;
     }
@@ -1737,7 +1763,15 @@ export function SessionRail(): React.JSX.Element {
                     data-testid={`rail-group-${group.history ? 'history' : group.name}`}
                     aria-expanded={!isCollapsed}
                     title={group.path ?? group.name}
-                    onClick={() => toggleGroup(group.key)}
+                    onClick={() => {
+                      toggleGroup(group.key);
+                      // Touching a project group makes it the working context
+                      // (ADR-0046/0054): the Files tree follows without any
+                      // navigation, so "点了项目 → 文件页就是它" holds.
+                      if (group.path && !group.remote && !group.history) {
+                        void useWorkspaceStore.getState().followProject(group.path);
+                      }
+                    }}
                   >
                     <Ic
                       name="chevron"
@@ -1802,7 +1836,7 @@ export function SessionRail(): React.JSX.Element {
                                   size={12}
                                   className={`sr-group-chevron ${periodCollapsed ? 'closed' : ''}`}
                                 />
-                                <strong>{period.label}</strong>
+                                <strong>{t(period.label)}</strong>
                                 <span>{period.entries.length}</span>
                               </button>
                               {periodCollapsed ? null : (
@@ -1816,18 +1850,18 @@ export function SessionRail(): React.JSX.Element {
                                       aria-expanded={periodFullyExpanded}
                                       aria-label={
                                         periodFullyExpanded
-                                          ? `Show only five sessions in ${period.label}`
-                                          : `Show more sessions in ${period.label}`
+                                          ? t(`Show only five sessions in ${t(period.label)}`)
+                                          : t(`Show more sessions in ${t(period.label)}`)
                                       }
                                       onClick={() =>
                                         toggleHistoryPeriodMore(period.key, period.entries.length)
                                       }
                                     >
-                                      <span>{periodFullyExpanded ? 'Show less' : 'More'}</span>
+                                      <span>{t(periodFullyExpanded ? 'Show less' : 'More')}</span>
                                       <small>
                                         {periodFullyExpanded
-                                          ? `${period.entries.length} shown`
-                                          : `${periodHiddenCount} more`}
+                                          ? t(`${period.entries.length} shown`)
+                                          : t(`${periodHiddenCount} more`)}
                                       </small>
                                       <Ic name="chevron" size={11} />
                                     </button>
@@ -1846,14 +1880,16 @@ export function SessionRail(): React.JSX.Element {
                         aria-expanded={isExpanded}
                         aria-label={
                           isExpanded
-                            ? `Show compact sessions in ${group.name}`
-                            : `Show ${hiddenCount} more sessions in ${group.name}`
+                            ? t(`Show compact sessions in ${group.name}`)
+                            : t(`Show ${hiddenCount} more sessions in ${group.name}`)
                         }
                         onClick={() => toggleGroupExpanded(group.key)}
                       >
-                        <span>{isExpanded ? 'Show less' : 'More'}</span>
+                        <span>{t(isExpanded ? 'Show less' : 'More')}</span>
                         <small>
-                          {isExpanded ? `${group.entries.length} shown` : `${hiddenCount} more`}
+                          {isExpanded
+                            ? t(`${group.entries.length} shown`)
+                            : t(`${hiddenCount} more`)}
                         </small>
                         <Ic name="chevron" size={11} />
                       </button>
@@ -1934,6 +1970,10 @@ export function SessionRail(): React.JSX.Element {
       return;
     }
     setRecent((items) => items.filter((item) => item.path !== path));
+    // A removed project must not linger in the detail pane on the right.
+    if (useAppStore.getState().projectCenter?.path === path) {
+      useAppStore.getState().closeProjectCenter();
+    }
     await useTaskStore.getState().refreshTasks();
     useAppStore
       .getState()
@@ -2106,7 +2146,6 @@ export function SessionRail(): React.JSX.Element {
                         data-testid={`project-set-current-${project.path}`}
                         onClick={() => {
                           setProjectMenuPath(null);
-                          app.setHomePick(true);
                           void workspaceStore.openPath(project.path);
                         }}
                       >

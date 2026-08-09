@@ -12,11 +12,11 @@ import {
   CodeContextRefsSchema,
   toolPaths,
 } from '@pi-ide/ipc-contracts';
-import { useTaskStore } from '../store/taskStore.js';
+import { useTaskStore, RUNNING_TASK_STATES } from '../store/taskStore.js';
 import { useAppStore } from '../store/appStore.js';
-import { useEditorStore } from '../store/editorStore.js';
+import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { peekModeForTool } from './peek.js';
-import { restoreScroll, saveScroll } from './scrollMemory.js';
+import { AT_BOTTOM, peekScroll, restoreScroll, saveScroll } from './scrollMemory.js';
 import { Ic } from './home-icons.js';
 import {
   PermissionCard,
@@ -33,9 +33,10 @@ import { SentCodeContext } from './CodeContextAttachments.js';
 import { SentFileRefs, type SentFileRefPayload } from './FileContextAttachments.js';
 import { SentArtifactFeedback } from './ArtifactFeedbackAttachments.js';
 import {
+  AUTO_GROW_TOP_PX,
   computeWindow,
   growWindow,
-  initialWindow,
+  openingWindow,
   STREAM_MARKDOWN_LIMIT,
   TIMELINE_CHUNK,
 } from './timeline-window.js';
@@ -273,7 +274,10 @@ function PrDraftEntry(props: { taskId: string; draft: PrDraftDto }): React.JSX.E
   );
 }
 
-/** Open a timeline evidence path: peek by default (ADR-0014), Editor on ⌘/alt. */
+/** Open a timeline evidence path: peek by default (ADR-0014); ⌘/alt opens the
+ * peek's Edit mode — the real shared document model, still inside the Session
+ * (ADR-0054). Worktree/foreign-project files stay on the read-through modes
+ * because the workspace document model cannot own their buffers. */
 function openTimelinePath(
   path: string,
   toolName: string,
@@ -284,9 +288,9 @@ function openTimelinePath(
   if (!taskId) return;
   const task = useTaskStore.getState().tasks.find((t) => t.id === taskId);
   const explicit = e?.metaKey === true || e?.altKey === true || e?.ctrlKey === true;
-  if (explicit && !task?.worktree) {
-    app.setSurface('workspace');
-    void useEditorStore.getState().openFile(path);
+  const focused = useWorkspaceStore.getState().workspace?.path;
+  if (explicit && !task?.worktree && task?.projectPath === focused) {
+    app.openPeek(taskId, path, 'edit');
     return;
   }
   app.openPeek(taskId, path, peekModeForTool(toolName));
@@ -1195,21 +1199,92 @@ function ActivityGroup({ children }: { children: React.ReactNode }): React.JSX.E
   );
 }
 
+/**
+ * One memoized row per timeline event. Old events keep their object identity
+ * across appends (the store replaces the array, not its members), so a tool
+ * transition re-renders exactly the replaced row instead of the whole window.
+ * `task` intentionally narrows to the three scalars eventNode reads.
+ */
+const EventRow = React.memo(
+  function EventRow(props: {
+    event: TimelineEventDto;
+    context: TimelineContext;
+    task: TaskDto;
+    runStartMs: number;
+    copy: RoomCopy;
+  }): React.JSX.Element | null {
+    return eventNode(props.event, props.context, props.task, props.runStartMs, props.copy);
+  },
+  (prev, next) =>
+    prev.event === next.event &&
+    prev.context === next.context &&
+    prev.runStartMs === next.runStartMs &&
+    prev.copy === next.copy &&
+    prev.task.id === next.task.id &&
+    prev.task.state === next.task.state &&
+    prev.task.changedFiles === next.task.changedFiles,
+);
+
+const NO_EVENTS: TimelineEventDto[] = [];
+
 export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
-  const store = useTaskStore();
+  // Narrow subscriptions: the timeline must not re-render for catalog, model
+  // or review-state churn — only for its own data and the live tail.
+  // ADR-0055: data comes from the per-task cache (this room may be a hidden
+  // kept-alive instance), and every active-only field is gated through the
+  // selector so a hidden room re-renders for NOTHING the active session does —
+  // no tokens, no loading flips, no other task's events.
+  const isActive = useTaskStore((s) => s.activeTaskId === task.id);
+  const timeline = useTaskStore((s) => s.timelines[task.id] ?? NO_EVENTS);
+  const loadingTimeline = useTaskStore((s) =>
+    s.activeTaskId === task.id ? s.loadingTimeline : false,
+  );
+  const streaming = useTaskStore((s) => (s.activeTaskId === task.id ? s.streaming : null));
+  const streamingThinking = useTaskStore((s) =>
+    s.activeTaskId === task.id ? s.streamingThinking : null,
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToBottom = useRef(true);
   const showingDecision = useRef(false);
-  const context = useTimelineContext(task.state, task.verification.length);
+  const scrollRaf = useRef(0);
+  const followRaf = useRef(0);
+  const growPending = useRef(false);
+  const olderCountRef = useRef(0);
+  // Auto-grow direction gate: -Infinity means "no observation yet", so the
+  // first scroll event after mount/restore (often a programmatic bottom-pin
+  // that lands near the clipped top on short overflows) can never register as
+  // the user scrolling upward (adversarially confirmed misfire).
+  const lastScrollTop = useRef(-Infinity);
+  const context = useTimelineContext(task.state, task.verification.length, timeline);
   const copy = roomCopyFor(`${task.title}\n${task.goalMd}`);
 
   // M11-04: bound the rendered node count. Only the tail is built; older events
   // are revealed in chunks. Reset when the room changes so a huge window from
-  // one task never carries into another.
-  const [visibleCount, setVisibleCount] = useState(initialWindow);
+  // one task never carries into another. ADR-0055: the opening window is small
+  // (progressive first paint) unless a mid-transcript reading position needs
+  // the full window to restore into.
+  const [visibleCount, setVisibleCount] = useState(() =>
+    openingWindow(peekScroll(task.id), AT_BOTTOM),
+  );
   useEffect(() => {
-    setVisibleCount(initialWindow());
+    setVisibleCount(openingWindow(peekScroll(task.id), AT_BOTTOM));
   }, [task.id]);
+
+  // Unmount cancels an in-flight measurement frame. The final wheel of an
+  // inertial scroll can be dropped by design: by cleanup time the node is
+  // detached and measures 0/0/0 — saving that would overwrite the real
+  // position with a false "pinned to bottom". One frame of drift is the
+  // accepted cost (saveScroll itself also refuses detached elements).
+  useEffect(
+    () => () => {
+      if (followRaf.current) cancelAnimationFrame(followRaf.current);
+      if (scrollRaf.current) cancelAnimationFrame(scrollRaf.current);
+      scrollRaf.current = 0;
+      followRaf.current = 0;
+      lastScrollTop.current = -Infinity;
+    },
+    [task.id],
+  );
 
   // "Load earlier" prepends nodes, which would jump the viewport; capture the
   // pre-grow scroll geometry and restore the reading anchor after layout.
@@ -1217,7 +1292,7 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
   const loadEarlier = (): void => {
     const el = scrollRef.current;
     if (el) growAnchor.current = { height: el.scrollHeight, top: el.scrollTop };
-    setVisibleCount((n) => growWindow(n, store.timeline.length));
+    setVisibleCount((n) => growWindow(n, timeline.length));
   };
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -1225,22 +1300,29 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
     if (el && anchor) {
       el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
       growAnchor.current = null;
+      growPending.current = false;
     }
   });
 
   // PIVOT-036: restore the per-task reading position once the timeline loads —
   // the same memory the Editor agent panel uses, so ⌘E round-trips keep it.
+  // Also re-runs when a kept-alive room is revealed again (isActive edge):
+  // display:none preserves the DOM but the scroll offset is re-asserted from
+  // memory so the reading position survives engines that reset it.
   useEffect(() => {
-    if (store.loadingTimeline) return;
+    if (!isActive || loadingTimeline) return;
     const el = scrollRef.current;
     if (el) pinnedToBottom.current = restoreScroll(task.id, el);
     showingDecision.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.loadingTimeline, task.id]);
+  }, [isActive, loadingTimeline, task.id]);
 
   // Pending decisions take precedence over the generic live tail. Otherwise
   // the run-details footer can push the risk label behind the Session header.
+  // Decision cards only appear with task-state or timeline changes — streaming
+  // growth never introduces one, so this no longer runs per token.
   useEffect(() => {
+    if (!isActive) return; // hidden rooms have no boxes to measure
     const el = scrollRef.current;
     if (!el) return;
     const decision = el.querySelector<HTMLElement>(
@@ -1266,23 +1348,33 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
       pinnedToBottom.current = true;
     }
     if (pinnedToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [
-    task.state,
-    store.timeline.length,
-    store.streaming?.text.length,
-    store.streamingThinking?.text.length,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive, task.state, timeline]);
+
+  // Live tail follow: coalesce the per-token scrollTop writes to one per frame.
+  useEffect(() => {
+    if (!pinnedToBottom.current || showingDecision.current) return;
+    if (followRaf.current) return;
+    followRaf.current = requestAnimationFrame(() => {
+      followRaf.current = 0;
+      const el = scrollRef.current;
+      if (el && pinnedToBottom.current && !showingDecision.current) {
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+  }, [streaming?.text.length, streamingThinking?.text.length]);
 
   // Tool evidence stays available inline. Derived per timeline change, not per
   // render: streaming deltas re-render this component many times a second and
   // must not rebuild every event node (the streaming tail itself renders below,
-  // outside this memo).
+  // outside this memo). Rows are additionally memoized — an append touches the
+  // group wrappers, not the settled rows' subtrees.
   const { grouped, olderCount } = useMemo(() => {
-    const total = store.timeline.length;
-    const runStartMs = total > 0 ? Date.parse(store.timeline[0]!.at) : Date.now();
+    const total = timeline.length;
+    const runStartMs = total > 0 ? Date.parse(timeline[0]!.at) : 0;
     // Only the tail is turned into React nodes — this is the expensive part.
     const { startIndex, olderCount } = computeWindow(total, visibleCount);
-    const windowed = startIndex > 0 ? store.timeline.slice(startIndex) : store.timeline;
+    const windowed = startIndex > 0 ? timeline.slice(startIndex) : timeline;
     const grouped: React.JSX.Element[] = [];
     let logGroup: React.JSX.Element[] = [];
     let logGroupKey = '';
@@ -1293,8 +1385,19 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
       }
     };
     for (const event of windowed) {
-      const node = eventNode(event, context, task, runStartMs, copy);
-      if (node === null) continue; // silent events never break a worklog
+      // eventNode decides visibility; render rows through the memo boundary.
+      const probe = eventNode(event, context, task, runStartMs, copy);
+      if (probe === null) continue; // silent events never break a worklog
+      const node = (
+        <EventRow
+          key={`${event.id}-${event.sequence}`}
+          event={event}
+          context={context}
+          task={task}
+          runStartMs={runStartMs}
+          copy={copy}
+        />
+      );
       if (isLogRow(event)) {
         if (logGroup.length === 0) logGroupKey = event.id;
         logGroup.push(node);
@@ -1308,21 +1411,46 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
       grouped,
       olderCount,
     };
-  }, [store.timeline, context, task, copy, visibleCount]);
+  }, [timeline, context, task, copy, visibleCount]);
+  olderCountRef.current = olderCount;
 
   return (
     <div
       ref={scrollRef}
       className="rt-scroll"
       data-testid="timeline"
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        pinnedToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-        saveScroll(task.id, el);
+      data-live={RUNNING_TASK_STATES.has(task.state) ? 'true' : 'false'}
+      onScroll={() => {
+        // One rAF per frame: read scrollHeight/scrollTop/clientHeight once,
+        // derive the pin verdict and the saved position from the same reads.
+        if (scrollRaf.current) return;
+        scrollRaf.current = requestAnimationFrame(() => {
+          scrollRaf.current = 0;
+          const el = scrollRef.current;
+          if (!el) return;
+          const previousTop = lastScrollTop.current;
+          lastScrollTop.current = el.scrollTop;
+          const pinned = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+          pinnedToBottom.current = pinned;
+          saveScroll(task.id, el, pinned);
+          // Progressive history: nearing the clipped top streams the next
+          // chunk in automatically (the button remains as the explicit path).
+          // Only an actual upward movement counts — programmatic bottom-pin
+          // and restore writes land here too and must never grow the window.
+          if (
+            el.scrollTop < AUTO_GROW_TOP_PX &&
+            el.scrollTop < previousTop &&
+            olderCountRef.current > 0 &&
+            !growPending.current
+          ) {
+            growPending.current = true;
+            loadEarlier();
+          }
+        });
       }}
     >
       <div className="rt-col">
-        {store.loadingTimeline ? (
+        {loadingTimeline ? (
           <div className="rt-note">Loading timeline…</div>
         ) : (
           <>
@@ -1337,26 +1465,26 @@ export function RoomTimeline({ task }: { task: TaskDto }): React.JSX.Element {
               </button>
             ) : null}
             {grouped}
-            {store.streamingThinking ? (
+            {streamingThinking ? (
               <ThinkingBlock
                 live
-                text={store.streamingThinking.text}
+                text={streamingThinking.text}
                 durationMs={null}
-                startedAt={store.streamingThinking.startedAt}
+                startedAt={streamingThinking.startedAt}
                 copy={copy}
               />
             ) : null}
-            {store.streaming ? (
+            {streaming ? (
               <Bubble who="agent" copy={copy} testid="tl-streaming" live>
-                {store.streaming.text.length > STREAM_MARKDOWN_LIMIT ? (
+                {streaming.text.length > STREAM_MARKDOWN_LIMIT ? (
                   // Freeze guard (§16.5): don't re-parse a huge markdown string
                   // every token — show the plain tail live; the completed
                   // message settles into full markdown.
                   <pre className="rt-stream-raw" data-testid="tl-streaming-raw">
-                    {store.streaming.text.slice(-STREAM_MARKDOWN_LIMIT)}
+                    {streaming.text.slice(-STREAM_MARKDOWN_LIMIT)}
                   </pre>
                 ) : (
-                  <Markdown text={store.streaming.text} />
+                  <Markdown text={streaming.text} live />
                 )}
               </Bubble>
             ) : null}

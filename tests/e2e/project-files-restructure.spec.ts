@@ -26,28 +26,21 @@ test.describe('Project Files — one canonical tree in the rail', () => {
         document.documentElement.dataset.skin = 'archive';
         document.documentElement.dataset.theme = 'light';
       });
+      // ADR-0054: the shell boots on Home. The canonical way into the plain
+      // editor is the rail's one Files tree (ADR-0029).
+      await page.getByTestId('rail-tab-files').click();
+      await expect(page.getByTestId('explorer')).toBeVisible();
+      await expect(page.getByRole('tree', { name: 'Files' })).toHaveCount(1);
+      await page.getByTestId('tree-item-src').click();
+      await page.getByTestId('tree-item-src/index.ts').click();
       await expect(page.getByTestId('project-tool-view')).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId('rail-tab-files')).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
 
       // The Editor surface offers no Files tool — the tree is not duplicated.
       await expect(page.getByTestId('project-tool-files')).toHaveCount(0);
       await expect(page.getByTestId('project-tool-context')).toHaveAttribute('aria-hidden', 'true');
       await expect(page.locator('.project-tool-body')).toHaveClass(/context-collapsed/);
-
-      // Selecting a project opens its stable Center without entering the
-      // editor. Files can be inspected there, then opened explicitly.
-      await page.getByTestId('rail-view-projects').click();
-      await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
-      await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
-      await page.locator('[data-testid^="home-recent-"]').first().click();
-      await expect(page.getByTestId('project-center')).toBeVisible();
-      await page.getByTestId('project-center-tab-files').click();
-      await page.getByTestId('project-file-src').click();
-      await page.getByTestId('project-file-src/index.ts').click();
-      await page.getByRole('button', { name: 'Open in editor' }).click();
-      await expect(page.getByTestId('rail-tab-files')).toHaveAttribute('aria-selected', 'true');
-      await expect(page.getByTestId('explorer')).toBeVisible();
-      await expect(page.getByRole('tree', { name: 'Files' })).toHaveCount(1);
-      await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
 
       // The tree carries the management surface (merged from the old Files
       // tool): the pane's New File action creates through the normal fs path.
@@ -73,6 +66,19 @@ test.describe('Project Files — one canonical tree in the rail', () => {
       await expect(page.getByTestId('monaco-pane-1')).toBeVisible();
       await page.getByTestId('project-editor-split').click();
       await expect(page.getByTestId('monaco-pane-1')).toHaveCount(0);
+
+      // A project's Center hosts the real editor in its Files tab (ADR-0054):
+      // clicking a file opens it as an editable tab in place.
+      await page.getByTestId('rail-view-projects').click();
+      await expect(page.getByTestId('rail-projects-panel')).toBeVisible();
+      await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
+      await page.locator('[data-testid^="home-recent-"]').first().click();
+      await expect(page.getByTestId('project-center')).toBeVisible();
+      await page.getByTestId('project-center-tab-files').click();
+      await expect(page.getByTestId('project-center-editor')).toBeVisible();
+      await page.getByTestId('project-file-src').click();
+      await page.getByTestId('project-file-src/index.ts').click();
+      await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
 
       const desktopOverflow = await page.evaluate(
         () => document.documentElement.scrollWidth - window.innerWidth,

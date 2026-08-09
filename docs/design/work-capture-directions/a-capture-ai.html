@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>方向 A · 速记 + AI 结构化 — Work capture mock</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  /* Capture palette */
+  .cap-overlay {
+    position: fixed;
+    inset: 40px 0 0 0;
+    z-index: 300;
+    display: grid;
+    place-items: start center;
+    padding-top: 12vh;
+    background: var(--bg-overlay);
+    animation: fade-in 150ms ease-out;
+  }
+  .cap-palette {
+    width: min(640px, calc(100vw - 48px));
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg-card);
+    box-shadow: var(--shadow-menu);
+    animation: pal-in 200ms cubic-bezier(0.2, 0.9, 0.3, 1.1);
+  }
+  @keyframes pal-in { from { opacity: 0; transform: translateY(-10px) scale(0.985); } to { opacity: 1; transform: none; } }
+  .cap-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 13px 16px 0;
+  }
+  .cap-palette textarea {
+    width: 100%;
+    min-height: 46px;
+    max-height: 40vh;
+    padding: 10px 16px 6px;
+    border: 0;
+    background: transparent;
+    color: var(--fg);
+    font: 500 14px/1.55 var(--font-ui);
+    resize: none;
+    outline: none;
+  }
+  .cap-palette textarea::placeholder { color: var(--fg-faint); font-weight: 400; }
+  .cap-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 16px 11px;
+    border-top: 1px solid var(--border-soft);
+    background: var(--bg-panel);
+  }
+  .cap-samples { display: flex; align-items: center; gap: 5px; color: var(--fg-faint); font-size: 9.5px; }
+  .cap-samples button {
+    padding: 4px 8px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--fg-muted);
+    font: 550 9.5px var(--font-ui);
+  }
+  .cap-samples button:hover { background: var(--bg-hover); color: var(--fg); }
+  .cap-keys { display: flex; align-items: center; gap: 9px; color: var(--fg-faint); font-size: 9px; white-space: nowrap; }
+
+  /* Structuring card states */
+  .work-card.is-structuring { border-color: color-mix(in srgb, var(--ai) 35%, var(--border)); }
+  .struct-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+    padding: 2px 7px;
+    border-radius: 7px;
+    background: var(--ai-bg);
+    color: var(--ai);
+    font: 650 8px var(--font-ui);
+    transition: opacity 300ms;
+  }
+  .title-swap { animation: title-swap 380ms ease; }
+  @keyframes title-swap { 0% { opacity: 0.2; filter: blur(2px); } 100% { opacity: 1; filter: none; } }
+  .ai-review-btn {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    margin-top: 9px;
+    padding: 5px 0;
+    border: 1px dashed color-mix(in srgb, var(--ai) 40%, var(--border));
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ai);
+    font: 650 8.5px var(--font-ui);
+  }
+  .ai-review-btn:hover { background: var(--ai-bg); }
+
+  /* Review drawer */
+  .ai-original {
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .ai-original blockquote {
+    margin: 8px 0 0;
+    padding: 10px 12px;
+    border-left: 3px solid var(--border-strong);
+    border-radius: 0 10px 10px 0;
+    background: var(--bg-panel);
+    color: var(--fg-muted);
+    font: 11px/1.6 var(--font-ui);
+    white-space: pre-wrap;
+  }
+  .ai-row {
+    display: grid;
+    grid-template-columns: 118px 1fr;
+    gap: 10px;
+    align-items: start;
+    padding: 8px 0;
+  }
+  .ai-row > .prop-label { padding-top: 5px; }
+  .ai-row textarea, .ai-row input[type='text'] {
+    width: 100%;
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-input);
+    color: var(--fg);
+    font: 11px/1.5 var(--font-ui);
+    outline: none;
+    resize: vertical;
+  }
+  .ai-row textarea:focus, .ai-row input:focus { border-color: var(--border-strong); }
+  .ai-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .field-chip {
+    min-height: 27px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 9px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--fg);
+    font: 600 10.5px var(--font-ui);
+  }
+  .field-chip:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+  .field-chip .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .guess-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: var(--warning-bg);
+    color: var(--warning);
+    font: 650 8px var(--font-ui);
+  }
+  .is-guess { border-style: dashed; border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); }
+  .drawer-title-input {
+    width: 100%;
+    margin-top: 4px;
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
+    color: var(--fg);
+    font: 600 17px/1.3 var(--font-display);
+    outline: none;
+  }
+  .src-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+</style>
+</head>
+<body>
+<div class="cap-overlay hidden" id="capOverlay">
+  <div class="cap-palette">
+    <div class="cap-head">
+      <span class="work-eyebrow">CAPTURE OUTCOME</span>
+      <span class="ai-tag" id="aiTag">✦ Charter structures it for you</span>
+    </div>
+    <textarea id="capInput" rows="1"
+      placeholder="Type or paste anything — a thought, a Slack ask, a meeting note. No fields to fill."></textarea>
+    <div class="cap-foot">
+      <div class="cap-samples">Try:
+        <button type="button" data-sample="slack">paste a Slack ask</button>
+        <button type="button" data-sample="line">a one-liner</button>
+      </div>
+      <div class="cap-keys"><span><kbd>↩</kbd> capture</span><span><kbd>⇧↩</kbd> new line</span><span><kbd>esc</kbd> close</span></div>
+    </div>
+  </div>
+</div>
+
+<script src="shared.js"></script>
+<script>
+const M = CM;
+const { columns, bump, newBtn, demoBtn } = M.mountShell({
+  current: 'a',
+  title: '方向 A · 速记 + AI 结构化 — 人只倒原话，AI 负责填空',
+  demo: true,
+});
+
+const SAMPLES = {
+  slack: 'Maya Chen in #launch: the pricing page still shows the old seat pricing. Legal needs the new tiers live before the Aug 20 webinar, and finance wants sign-off on the final copy. Can your side own this?',
+  line: 'Reply to the enterprise security questionnaire by Friday',
+};
+const PROFILES = {
+  slack: {
+    title: 'New pricing tiers live on the pricing page',
+    outcome: 'Pricing page shows the new tiers, approved by legal and signed off by finance, before the Aug 20 webinar.',
+    type: 'Product', priority: 'high', due: 'Aug 20 · 09:00', dueTone: 'soon',
+    source: { person: 'Maya Chen', channel: 'Slack #launch', url: '' },
+    acceptance: ['New tiers are live and correct on the pricing page', 'Legal approved the tier copy', 'Finance sign-off is recorded'],
+    guesses: ['priority'],
+  },
+  line: {
+    title: 'Enterprise security questionnaire answered',
+    outcome: 'The completed questionnaire is sent back to the requester.',
+    type: 'General', priority: 'medium', due: 'Fri Aug 14', dueTone: 'soon',
+    source: { person: '', channel: '', url: '' },
+    acceptance: ['Completed questionnaire sent back to the requester'],
+    guesses: ['priority', 'due'],
+  },
+};
+function genericParse(text) {
+  const first = text.split('\n')[0].trim();
+  const p = {
+    title: first.length > 80 ? first.slice(0, 77) + '…' : first,
+    outcome: '', type: 'General', priority: 'none', due: '', dueTone: '',
+    source: { person: '', channel: '', url: '' }, acceptance: [], guesses: [],
+  };
+  if (/urgent|asap|immediately/i.test(text)) p.priority = 'urgent';
+  else if (/important|before|deadline|needs/i.test(text)) { p.priority = 'medium'; p.guesses.push('priority'); }
+  const m = text.match(/aug\w*\s?(\d{1,2})/i);
+  if (m) { p.due = `Aug ${m[1]}`; p.dueTone = 'soon'; }
+  else if (/tomorrow/i.test(text)) p.due = 'Tomorrow · 09:00';
+  else if (/friday/i.test(text)) { p.due = 'Fri Aug 14'; p.guesses.push('due'); }
+  return p;
+}
+
+/* ── Palette ───────────────────────────────────────────────────────── */
+const overlay = document.getElementById('capOverlay');
+const capInput = document.getElementById('capInput');
+let sampleKey = null;
+
+function openPalette() {
+  overlay.classList.remove('hidden');
+  capInput.value = '';
+  sampleKey = null;
+  autoGrow();
+  setTimeout(() => capInput.focus(), 40);
+}
+function closePalette() { overlay.classList.add('hidden'); }
+function autoGrow() {
+  capInput.style.height = 'auto';
+  capInput.style.height = Math.min(capInput.scrollHeight, window.innerHeight * 0.4) + 'px';
+}
+capInput.addEventListener('input', () => { autoGrow(); });
+capInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitCapture(); }
+  if (e.key === 'Escape') closePalette();
+});
+overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closePalette(); });
+document.querySelectorAll('[data-sample]').forEach((b) => {
+  b.onclick = () => {
+    sampleKey = b.dataset.sample;
+    capInput.value = SAMPLES[sampleKey];
+    autoGrow();
+    capInput.focus();
+  };
+});
+newBtn.onclick = openPalette;
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') { e.preventDefault(); openPalette(); }
+});
+
+/* ── Capture → structure ───────────────────────────────────────────── */
+function submitCapture() {
+  const text = capInput.value.trim();
+  if (!text) return;
+  const profile =
+    sampleKey && SAMPLES[sampleKey] === text ? PROFILES[sampleKey] : genericParse(text);
+  closePalette();
+  void structureFlow(text, profile);
+}
+
+async function structureFlow(raw, p) {
+  const ref = M.nextRef();
+  const card = M.el(`<article class="work-card is-structuring landing" tabindex="0">
+    <div class="work-card-top"><span class="work-card-reference">${ref} <span class="ai-mark">✦</span></span></div>
+    <h3>${raw.split('\n')[0].slice(0, 90)}</h3>
+    <div class="ai-shimmer"></div>
+    <span class="struct-pill">${M.ic('sparkle', 10)} Structuring…</span>
+  </article>`);
+  columns.inbox.prepend(card);
+  bump('inbox', 1);
+
+  await M.sleep(1100);
+  const h3 = card.querySelector('h3');
+  if (p.title && p.title !== h3.textContent) {
+    h3.textContent = p.title;
+    h3.classList.add('title-swap');
+  }
+  card.querySelector('.ai-shimmer').remove();
+
+  const meta = M.el('<div class="work-card-meta"></div>');
+  card.insertBefore(meta, card.querySelector('.struct-pill'));
+  const chips = [];
+  chips.push(`<span class="work-type-pill" style="--work-type-color:${M.typeColor(p.type)}"><i></i>${p.type}</span>`);
+  if (p.priority !== 'none') chips.push(`<span class="work-meta-pill priority-${p.priority}">${M.priorityDef(p.priority).label}</span>`);
+  if (p.due) chips.push(`<span class="work-meta-pill ${p.dueTone ? 'due-' + p.dueTone : ''}">${M.ic('calendar', 9)}${p.due}</span>`);
+  if (p.source && p.source.person) chips.push(`<span class="work-meta-pill">${M.ic('user', 8)}${p.source.person}</span>`);
+  if (p.acceptance.length) chips.push(`<span class="work-meta-stat">${M.ic('check', 9)}0/${p.acceptance.length}</span>`);
+  for (const html of chips) {
+    const chip = M.el(html);
+    chip.classList.add('chip-pop');
+    meta.appendChild(chip);
+    await M.sleep(190);
+  }
+  const pill = card.querySelector('.struct-pill');
+  pill.style.opacity = '0';
+  await M.sleep(300);
+  pill.remove();
+  card.classList.remove('is-structuring');
+
+  const review = M.el(`<button type="button" class="ai-review-btn">${M.ic('sparkle', 10)} Review structuring</button>`);
+  card.appendChild(review);
+  const open = () => openReview(card, raw, p, review);
+  review.onclick = (e) => { e.stopPropagation(); open(); };
+  card.onclick = open;
+  M.flash(card);
+  return card;
+}
+
+/* ── Review drawer ─────────────────────────────────────────────────── */
+let drawerEls = null;
+function closeReview() {
+  if (drawerEls) { drawerEls.scrim.remove(); drawerEls.drawer.remove(); drawerEls = null; }
+}
+function openReview(card, raw, p, reviewBtn) {
+  closeReview();
+  const scrim = M.el('<div class="drawer-scrim"></div>');
+  const guess = (k) => (p.guesses.includes(k) ? 'is-guess' : '');
+  const guessTag = (k) =>
+    p.guesses.includes(k) ? `<span class="guess-tag">${M.ic('sparkle', 8)} guess — click to fix</span>` : '';
+  const drawer = M.el(`<aside class="drawer">
+    <header class="drawer-head">
+      <div style="min-width:0;flex:1">
+        <span class="work-eyebrow" style="color:var(--ai)">✦ STRUCTURED CAPTURE — REVIEW &amp; FIX</span>
+        <input class="drawer-title-input" id="rvTitle" value="">
+      </div>
+      <button type="button" class="icon-btn" id="rvClose">${M.ic('x', 14)}</button>
+    </header>
+    <div class="drawer-scroll">
+      <section class="ai-original">
+        <span class="section-label">ORIGINAL CAPTURE — KEPT VERBATIM</span>
+        <blockquote></blockquote>
+      </section>
+      <div class="ai-row"><span class="prop-label">${M.ic('file', 12)} Outcome</span>
+        <textarea id="rvOutcome" rows="2" placeholder="What should be true when this is done?"></textarea></div>
+      <div class="ai-row"><span class="prop-label">${M.ic('layout', 12)} Type</span>
+        <div class="ai-inline"><button type="button" class="field-chip" id="rvType"></button></div></div>
+      <div class="ai-row"><span class="prop-label">${M.ic('flag', 12)} Priority</span>
+        <div class="ai-inline"><button type="button" class="field-chip ${guess('priority')}" id="rvPriority"></button>${guessTag('priority')}</div></div>
+      <div class="ai-row"><span class="prop-label">${M.ic('calendar', 12)} Due</span>
+        <div class="ai-inline"><button type="button" class="field-chip ${guess('due')}" id="rvDue"></button>${guessTag('due')}</div></div>
+      <div class="ai-row"><span class="prop-label">${M.ic('user', 12)} Source</span>
+        <div class="src-pair">
+          <input type="text" id="rvPerson" placeholder="Person">
+          <input type="text" id="rvChannel" placeholder="Channel">
+        </div></div>
+      <div class="ai-row"><span class="prop-label">${M.ic('check', 12)} Acceptance</span>
+        <div id="rvAcc"></div></div>
+    </div>
+    <footer class="drawer-foot">
+      <button type="button" class="btn danger-ghost" id="rvDiscard">Discard structuring</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn primary" id="rvOk">${M.ic('check', 12)} Looks right</button>
+    </footer>
+  </aside>`);
+  document.body.append(scrim, drawer);
+  drawerEls = { scrim, drawer };
+  scrim.onclick = closeReview;
+
+  drawer.querySelector('blockquote').textContent = raw;
+  const title = drawer.querySelector('#rvTitle');
+  title.value = p.title;
+  title.oninput = () => { card.querySelector('h3').textContent = title.value; };
+  drawer.querySelector('#rvOutcome').value = p.outcome || '';
+  drawer.querySelector('#rvPerson').value = p.source?.person || '';
+  drawer.querySelector('#rvChannel').value = p.source?.channel || '';
+
+  const typeBtn = drawer.querySelector('#rvType');
+  const setType = (t) => { typeBtn.innerHTML = `<span class="dot" style="background:${M.typeColor(t)}"></span>${t} ${M.ic('chev', 10)}`; };
+  setType(p.type);
+  typeBtn.onclick = () => M.popType(typeBtn, p.type, (t) => { p.type = t; setType(t); });
+
+  const priBtn = drawer.querySelector('#rvPriority');
+  const setPri = (id) => {
+    const d = M.priorityDef(id);
+    priBtn.innerHTML = `<span style="color:${d.color}">${M.ic('flag', 11)}</span>${d.label} ${M.ic('chev', 10)}`;
+  };
+  setPri(p.priority);
+  priBtn.onclick = () => M.popPriority(priBtn, p.priority, (id) => {
+    p.priority = id; setPri(id);
+    priBtn.classList.remove('is-guess');
+    priBtn.parentElement.querySelector('.guess-tag')?.remove();
+  });
+
+  const dueBtn = drawer.querySelector('#rvDue');
+  const setDue = (d) => { dueBtn.innerHTML = `${M.ic('calendar', 11)}${d || 'No due date'} ${M.ic('chev', 10)}`; };
+  setDue(p.due);
+  dueBtn.onclick = () => M.popDue(dueBtn, (d) => {
+    p.due = d; setDue(d);
+    dueBtn.classList.remove('is-guess');
+    dueBtn.parentElement.querySelector('.guess-tag')?.remove();
+  });
+
+  const acc = drawer.querySelector('#rvAcc');
+  const renderAcc = () => {
+    acc.innerHTML = '';
+    p.acceptance.forEach((line, i) => {
+      const row = M.el(`<label class="check-line"><input type="checkbox">
+        <span class="cl-text" contenteditable>${line}</span></label>`);
+      row.querySelector('.cl-text').oninput = (e) => { p.acceptance[i] = e.target.textContent; };
+      acc.appendChild(row);
+    });
+    const add = M.el(`<button type="button" class="check-add">${M.ic('plus', 10)} Add criterion</button>`);
+    add.onclick = () => { p.acceptance.push('New criterion'); renderAcc(); };
+    acc.appendChild(add);
+  };
+  renderAcc();
+
+  drawer.querySelector('#rvClose').onclick = closeReview;
+  drawer.querySelector('#rvOk').onclick = () => {
+    closeReview();
+    reviewBtn?.remove();
+    card.onclick = null;
+    M.toast('Reviewed — the ✦ mark stays so you always know AI touched it');
+  };
+  drawer.querySelector('#rvDiscard').onclick = () => {
+    closeReview();
+    card.querySelector('h3').textContent = raw.split('\n')[0].slice(0, 90);
+    card.querySelector('.work-card-meta')?.remove();
+    reviewBtn?.remove();
+    M.toast('Kept as a raw note — nothing invented, nothing lost');
+  };
+}
+
+/* ── Scripted demo ─────────────────────────────────────────────────── */
+M.bindDemo(demoBtn, async () => {
+  M.caption('<b>1/5</b> · 唯一入口：一个输入框（⌘N 随处可呼出）');
+  openPalette();
+  await M.sleep(1400);
+  M.caption('<b>2/5</b> · 把 Slack 里的原话直接倒进来——不填任何字段');
+  sampleKey = 'slack';
+  await M.pasteInto(capInput, SAMPLES.slack);
+  autoGrow();
+  await M.sleep(1200);
+  M.caption('<b>3/5</b> · 回车。卡片立刻落板（0 等待），AI 在后台结构化');
+  const cardPromise = structureFlow(SAMPLES.slack, PROFILES.slack);
+  closePalette();
+  const card = await cardPromise;
+  M.caption('<b>4/5</b> · 标题、优先级、截止、来源、验收标准——全部是 AI 填的');
+  await M.sleep(2200);
+  M.caption('<b>5/5</b> · 人只做一件事：纠错。黄色虚线 = AI 拿不准的猜测');
+  card.querySelector('.ai-review-btn').click();
+  await M.sleep(3400);
+  document.getElementById('rvOk')?.click();
+  await M.sleep(600);
+  M.toast('从粘贴到入板约 6 秒 · 手填字段：0 个', 4200);
+  M.captionHide();
+});
+</script>
+</body>
+</html>

@@ -3,7 +3,6 @@ import type { DirEntryDto } from '@pi-ide/ipc-contracts';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useEditorStore } from '../store/editorStore.js';
 import { useAppStore } from '../store/appStore.js';
-import { useTaskStore } from '../store/taskStore.js';
 import { useGitStatusStore, MARK_COLOR } from '../store/gitStatusStore.js';
 import { rpcResult } from '../bridge.js';
 import { useGlowPaths } from './useGlow.js';
@@ -114,26 +113,18 @@ export const ProjectTree = forwardRef<ProjectTreeHandle, { onQuickAdd?: (rel: st
     const last = Math.min(rows.length, Math.ceil((scrollTop + viewportH) / ROW_HEIGHT) + 10);
     const visible = rows.slice(first, last);
 
-    // PIVOT-027r (ADR-0014): while a room of THIS project is open, a plain
-    // click peeks beside the conversation; ⌘/alt-click keeps the Editor jump.
-    const openFromTree = (path: string, e?: React.MouseEvent | React.KeyboardEvent): void => {
-      const explicit = e ? e.metaKey || e.altKey || e.ctrlKey : false;
-      const app = useAppStore.getState();
-      if (!explicit && app.taskRoomTaskId) {
-        const task = useTaskStore.getState().tasks.find((t) => t.id === app.taskRoomTaskId);
-        if (task && task.projectPath === workspace.path) {
-          app.openPeek(task.id, path, 'file');
-          return;
-        }
-      }
+    // ADR-0054: clicking a file always opens it full screen in the plain
+    // editor — the file is the destination, and an open conversation stays one
+    // Back away. In-room peeks remain reachable from timeline evidence paths.
+    const openFromTree = (path: string): void => {
       void openFile(path);
-      app.setProjectTool('editor');
+      useAppStore.getState().setProjectTool('editor');
     };
 
-    const activateRow = (row: Row, e?: React.MouseEvent | React.KeyboardEvent): void => {
+    const activateRow = (row: Row): void => {
       setSelection(row.path);
       if (row.kind === 'dir' || row.kind === 'symlink') toggleExpand(row.path);
-      else openFromTree(row.path, e);
+      else openFromTree(row.path);
     };
 
     const submitEditing = async (value: string) => {
@@ -263,11 +254,11 @@ export const ProjectTree = forwardRef<ProjectTreeHandle, { onQuickAdd?: (rel: st
                     title={row.path}
                     draggable
                     onDragStart={(e) => setDragRef(e, relPayload)}
-                    onClick={(e) => activateRow(row, e)}
+                    onClick={() => activateRow(row)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        activateRow(row, e);
+                        activateRow(row);
                       }
                     }}
                     onContextMenu={(e) => {

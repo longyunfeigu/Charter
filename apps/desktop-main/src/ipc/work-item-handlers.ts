@@ -1,3 +1,4 @@
+import { dialog } from 'electron';
 import type { Logger } from '@pi-ide/foundation';
 import type { WorkItemService } from '../services/work-item-service.js';
 import { registerHandlers } from './router.js';
@@ -24,6 +25,13 @@ export function registerWorkItemHandlers(service: WorkItemService, logger: Logge
       }),
       'workItem.execution.link': async (input) => ({ execution: service.linkExecution(input) }),
       'workItem.execution.unlink': async ({ id }) => ({ removed: service.unlinkExecution(id) }),
+      'workItem.attachment.pick': async () => {
+        const result = await dialog.showOpenDialog({
+          title: 'Attach files to this work item',
+          properties: ['openFile', 'multiSelections'],
+        });
+        return { paths: result.canceled ? null : result.filePaths.slice(0, 20) };
+      },
       'workItem.evidence.add': async (input) => ({ evidence: service.addEvidence(input) }),
       'workItem.evidence.remove': async ({ id }) => ({ removed: service.removeEvidence(id) }),
       'workItem.type.create': async (input) => ({ type: service.createType(input) }),

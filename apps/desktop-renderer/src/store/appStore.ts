@@ -21,7 +21,7 @@ import {
   type SessionNoticeTone,
 } from './sessionAttention.js';
 
-export type OverlayKind = 'none' | 'settings' | 'diagnostics' | 'about';
+export type OverlayKind = 'none' | 'diagnostics' | 'about';
 /** Contextual tools owned by the active Session. These replace the old
  * app-level workspace shell. */
 export type SessionTool = 'summary' | 'diff' | 'file' | 'preview' | 'terminal' | 'review';
@@ -67,7 +67,6 @@ export type RailGroup = 'workbench' | 'work' | 'missions' | 'projects' | 'memory
 export interface NavigationSnapshot {
   railView: RailView;
   savedSurfaces: Record<RailGroup, MainSurface>;
-  surface: 'home' | 'workspace';
   taskRoomTaskId: string | null;
   missionCenter: {
     missionId: string | null;
@@ -181,7 +180,9 @@ export type SettingsSection =
   | 'editor'
   | 'terminal'
   | 'agent'
+  | 'memory'
   | 'skills'
+  | 'skill-sources'
   | 'models'
   | 'permissions'
   | 'privacy'
@@ -239,6 +240,9 @@ interface AppStore {
   /** ⌘K quick launcher (PIVOT-018): projects, tasks, files, actions. */
   launcherOpen: boolean;
   overlay: OverlayKind;
+  /** Settings is a routed, full-page workspace. Opening it keeps the current
+   * product surface mounted so Back/Escape can restore it in place. */
+  settingsOpen: boolean;
   settingsSection: SettingsSection;
   toasts: Toast[];
   /** Short-lived run-completion edges that animate the matching Session row. */
@@ -249,8 +253,6 @@ interface AppStore {
   sessionNotices: SessionNotice[];
   /** A notification click asks the rail to reveal this exact Session. */
   sessionReveal: { taskId: string; seq: number } | null;
-  /** Compatibility surface flag; the runtime now always renders the unified Session shell. */
-  surface: 'home' | 'workspace';
   /** The managed task selected as the active user-facing Session. */
   taskRoomTaskId: string | null;
   /** Global Mission Center selection. A null id renders the portfolio overview. */
@@ -268,8 +270,6 @@ interface AppStore {
   sessionTerminalId: string | null;
   /** A Session row opens one PTY; the global manager is an explicit destination. */
   sessionTerminalScope: 'single' | 'all';
-  /** True while the Home project menu is opening a workspace — suppresses the auto-switch. */
-  homePick: boolean;
   /** File refs queued for the next Home charter (e.g. "attach annotated image"). */
   pendingRefs: string[];
   /** Durable Work context queued for the next Session composer submission. */
@@ -303,8 +303,9 @@ interface AppStore {
   sessionSplit: Record<string, number>;
   sessionSplitDragging: boolean;
   projectTool: ProjectTool | null;
-  /** Project selection is browsing state, deliberately independent from the
-   * active workspace/working context. */
+  /** The selected project's center page. Opening a center also makes that
+   * project the working context (ADR-0054, via followProject) so the rail's
+   * Files tree and the embedded editor follow what you are looking at. */
   projectCenter: { path: string; tab: ProjectCenterTab } | null;
   openProjectCenter(path: string, tab?: ProjectCenterTab): void;
   setProjectCenterTab(tab: ProjectCenterTab): void;
@@ -359,7 +360,10 @@ interface AppStore {
   composerFocusSeq: number;
 
   init(): Promise<void>;
-  setSurface(surface: 'home' | 'workspace'): void;
+  /** "Take me to the editor" fallback (⌘K, palette): the current project's
+   * Files tab, or the Projects rail when nothing is open — never a blank
+   * editor. The editor itself lives in its owning contexts (ADR-0054). */
+  openProjectFiles(): Promise<void>;
   /** Navigate to the Sessions composer as one atomic history transition. */
   openSessionHome(): void;
   openTaskRoom(taskId: string): void;
@@ -375,7 +379,6 @@ interface AppStore {
   openAllTerminals(terminalId: string): void;
   openRemoteTerminalSession(terminalId: string, hostId: string): void;
   closeTaskRoom(): void;
-  setHomePick(inProgress: boolean): void;
   setLens(lens: { taskId: string; path: string } | null): void;
   openPeek(taskId: string, path: string, mode?: PeekState['mode']): void;
   closePeek(): void;
@@ -398,6 +401,7 @@ interface AppStore {
   setLauncherOpen(open: boolean): void;
   setOverlay(overlay: OverlayKind): void;
   openSettings(section?: SettingsSection): void;
+  closeSettings(): void;
   updateSettings(scope: 'global' | 'workspace', patch: Record<string, unknown>): Promise<void>;
   refreshSettings(): Promise<void>;
   checkForUpdates(): Promise<void>;
@@ -461,6 +465,8 @@ interface OverlayFocusOrigin {
 
 let overlayFocusOrigin: OverlayFocusOrigin | null = null;
 let overlayFocusRevision = 0;
+let settingsFocusOrigin: OverlayFocusOrigin | null = null;
+let settingsFocusRevision = 0;
 
 function rememberOverlayFocus(): void {
   if (typeof document === 'undefined') return;
@@ -480,6 +486,34 @@ function restoreOverlayFocus(): void {
   const revision = ++overlayFocusRevision;
   window.requestAnimationFrame(() => {
     if (!origin || revision !== overlayFocusRevision) return;
+    const fallback = origin.fallbackTestId
+      ? Array.from(document.querySelectorAll<HTMLElement>('[data-testid]')).find(
+          (candidate) => candidate.dataset.testid === origin.fallbackTestId,
+        )
+      : null;
+    const target = origin.element.isConnected ? origin.element : fallback;
+    target?.focus();
+  });
+}
+
+function rememberSettingsFocus(): void {
+  if (typeof document === 'undefined') return;
+  const element = document.activeElement;
+  if (!(element instanceof HTMLElement) || element === document.body) return;
+  settingsFocusRevision += 1;
+  settingsFocusOrigin = {
+    element,
+    fallbackTestId: element.dataset.overlayFocusReturn ?? null,
+  };
+}
+
+function restoreSettingsFocus(): void {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  const origin = settingsFocusOrigin;
+  settingsFocusOrigin = null;
+  const revision = ++settingsFocusRevision;
+  window.requestAnimationFrame(() => {
+    if (!origin || revision !== settingsFocusRevision) return;
     const fallback = origin.fallbackTestId
       ? Array.from(document.querySelectorAll<HTMLElement>('[data-testid]')).find(
           (candidate) => candidate.dataset.testid === origin.fallbackTestId,
@@ -555,7 +589,6 @@ export const useAppStore = create<AppStore>((set, get) => {
     return {
       railView: state.railView,
       savedSurfaces: { ...state.savedSurfaces },
-      surface: state.surface,
       taskRoomTaskId: state.taskRoomTaskId,
       missionCenter: state.missionCenter ? { ...state.missionCenter } : null,
       sessionRoomView: state.sessionRoomView,
@@ -676,7 +709,6 @@ export const useAppStore = create<AppStore>((set, get) => {
           remotesOpen: false,
           projectTool: null,
           projectBottomTab: null,
-          surface: 'home',
         });
     }
   };
@@ -692,19 +724,18 @@ export const useAppStore = create<AppStore>((set, get) => {
     paletteOpen: false,
     launcherOpen: false,
     overlay: 'none',
+    settingsOpen: false,
     settingsSection: 'general',
     toasts: [],
     sessionCompletionSignals: [],
     sessionReplySignals: [],
     sessionNotices: [],
     sessionReveal: null,
-    surface: 'home',
     taskRoomTaskId: null,
     missionCenter: null,
     sessionRoomView: 'conversation',
     sessionTerminalId: null,
     sessionTerminalScope: 'single',
-    homePick: false,
     pendingRefs: [],
     workHandoff: null,
     newProjectOpen: false,
@@ -786,7 +817,6 @@ export const useAppStore = create<AppStore>((set, get) => {
           remotesOpen: false,
           projectTool: null,
           projectBottomTab: null,
-          surface: 'home',
           ...crossRailPatch('sessions'),
         });
       });
@@ -809,7 +839,6 @@ export const useAppStore = create<AppStore>((set, get) => {
           remotesOpen: false,
           projectTool: null,
           projectBottomTab: null,
-          surface: 'home',
           ...crossRailPatch('projects'),
         });
       });
@@ -835,7 +864,6 @@ export const useAppStore = create<AppStore>((set, get) => {
           archaeology: null,
           projectTool: null,
           projectBottomTab: null,
-          surface: 'home',
           ...crossRailPatch('sessions'),
         }),
       );
@@ -856,7 +884,6 @@ export const useAppStore = create<AppStore>((set, get) => {
           projectCenter: null,
           projectTool: null,
           projectBottomTab: null,
-          surface: 'home',
         }),
       );
     },
@@ -868,7 +895,6 @@ export const useAppStore = create<AppStore>((set, get) => {
           sessionTerminalId: null,
           taskRoomTaskId: null,
           missionCenter: null,
-          surface: 'home',
         });
       });
     },
@@ -893,33 +919,12 @@ export const useAppStore = create<AppStore>((set, get) => {
       });
     },
 
-    setSurface(surface) {
-      // The compatibility "workspace" value now opens a contextual tool state
-      // inside the one Session shell. With an active Session it expands that
-      // Session's tool canvas; otherwise it opens the current project's Files
-      // tool beside the persistent global rail.
-      if (surface === 'workspace' && get().taskRoomTaskId) {
-        set({
-          surface: 'home',
-          sessionToolsOpen: true,
-          sessionToolExpanded: true,
-          projectTool: null,
-          remotesOpen: false,
-        });
-        return;
-      }
-      navigate(() => {
-        set({
-          surface,
-          // Surface navigation leaves Remotes — it sits above projectTool/home in
-          // mainSurfaceOf, so a stale flag would swallow the switch.
-          remotesOpen: false,
-          ...(get().remotesOpen ? { sessionTerminalId: null } : {}),
-          projectTool: surface === 'workspace' ? (get().projectTool ?? 'editor') : null,
-          ...(surface === 'workspace' ? { projectCenter: null, missionCenter: null } : {}),
-          ...(surface === 'workspace' ? crossRailPatch('files') : {}),
-        });
-      });
+    async openProjectFiles() {
+      // Deferred import — workspaceStore imports this module (see followTaskProject).
+      const { useWorkspaceStore } = await import('./workspaceStore.js');
+      const workspace = useWorkspaceStore.getState().workspace;
+      if (workspace) get().openProjectCenter(workspace.path, 'files');
+      else get().setRailView('projects');
     },
 
     openSessionHome() {
@@ -932,7 +937,6 @@ export const useAppStore = create<AppStore>((set, get) => {
           sessionRoomView: 'conversation',
           sessionTerminalId: null,
           sessionTerminalScope: 'single',
-          surface: 'home',
           peek: null,
           previewRailTaskId: null,
           sessionTool: 'summary',
@@ -1044,7 +1048,6 @@ export const useAppStore = create<AppStore>((set, get) => {
         set({
           projectTool,
           projectCenter: projectTool ? null : get().projectCenter,
-          surface: projectTool ? 'workspace' : 'home',
           ...(projectTool
             ? {
                 taskRoomTaskId: null,
@@ -1095,7 +1098,6 @@ export const useAppStore = create<AppStore>((set, get) => {
           missionCenter: null,
           sessionRoomView: 'conversation',
           sessionTerminalId: null,
-          surface: 'home',
           sessionTool: 'summary',
           sessionToolsOpen: false,
           sessionToolExpanded: false,
@@ -1123,7 +1125,6 @@ export const useAppStore = create<AppStore>((set, get) => {
           taskRoomTaskId: null,
           sessionTerminalId: null,
           sessionRoomView: 'conversation',
-          surface: 'home',
           peek: null,
           previewRailTaskId: null,
           sessionTool: 'summary',
@@ -1181,7 +1182,6 @@ export const useAppStore = create<AppStore>((set, get) => {
           taskRoomTaskId: null,
           missionCenter: null,
           sessionRoomView: 'conversation',
-          surface: 'home',
           peek: null,
           previewRailTaskId: null,
           sessionTool: 'terminal',
@@ -1205,7 +1205,6 @@ export const useAppStore = create<AppStore>((set, get) => {
           taskRoomTaskId: null,
           missionCenter: null,
           sessionRoomView: 'conversation',
-          surface: 'home',
           peek: null,
           previewRailTaskId: null,
           sessionTool: 'terminal',
@@ -1229,7 +1228,6 @@ export const useAppStore = create<AppStore>((set, get) => {
           taskRoomTaskId: null,
           missionCenter: null,
           sessionRoomView: 'conversation',
-          surface: 'home',
           peek: null,
           previewRailTaskId: null,
           sessionTool: 'terminal',
@@ -1262,10 +1260,6 @@ export const useAppStore = create<AppStore>((set, get) => {
         projectTool: null,
         projectBottomTab: null,
       });
-    },
-
-    setHomePick(inProgress) {
-      set({ homePick: inProgress });
     },
 
     addPendingRefs(refs) {
@@ -1324,9 +1318,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     },
 
     toggleSidebar() {
-      if (!get().taskRoomTaskId) {
-        get().setProjectTool(get().projectTool === 'editor' ? null : 'editor');
-      }
+      get().setLayout({ sideBarVisible: !get().layout.sideBarVisible });
     },
     toggleAgentPanel() {
       if (get().taskRoomTaskId) {
@@ -1371,7 +1363,6 @@ export const useAppStore = create<AppStore>((set, get) => {
         return;
       }
       set({
-        surface: 'home',
         sessionTool: tab === 'terminal' ? 'terminal' : tab === 'tests' ? 'review' : 'summary',
         sessionToolsOpen: true,
         sessionToolExpanded: tab === 'terminal',
@@ -1390,8 +1381,13 @@ export const useAppStore = create<AppStore>((set, get) => {
       if (previous !== 'none' && overlay === 'none') restoreOverlayFocus();
     },
     openSettings(settingsSection = 'general') {
-      if (get().overlay === 'none') rememberOverlayFocus();
-      set({ overlay: 'settings', settingsSection });
+      if (!get().settingsOpen) rememberSettingsFocus();
+      set({ settingsOpen: true, settingsSection });
+    },
+    closeSettings() {
+      if (!get().settingsOpen) return;
+      set({ settingsOpen: false });
+      restoreSettingsFocus();
     },
 
     async updateSettings(scope, patch) {

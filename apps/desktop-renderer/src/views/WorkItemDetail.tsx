@@ -12,17 +12,17 @@ import { useOrchestrationStore } from '../store/orchestrationStore.js';
 import { useTaskStore } from '../store/taskStore.js';
 import { useWorkItemStore } from '../store/workItemStore.js';
 import { Ic } from './home-icons.js';
-import { WorkItemForm } from './WorkItemForm.js';
+import { formatDate, t } from '../i18n.js';
 
 function humanDate(iso: string | null): string {
-  if (!iso) return 'No deadline';
+  if (!iso) return t('No deadline');
   const value = new Date(iso);
-  return new Intl.DateTimeFormat(undefined, {
+  return formatDate(value, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(value);
+  });
 }
 
 function dueClass(iso: string | null): string {
@@ -289,11 +289,11 @@ export function WorkItemDetail(props: {
   detail: WorkItemDetailDto;
   type: WorkItemTypeDto | null;
   onClose(): void;
+  onEdit(): void;
 }): React.JSX.Element {
-  const { detail, type, onClose } = props;
+  const { detail, type, onClose, onEdit } = props;
   const item = detail.item;
   const snapshot = useWorkItemStore((state) => state.snapshot);
-  const [editing, setEditing] = useState(false);
   const [linking, setLinking] = useState(false);
   const [remindAt, setRemindAt] = useState('');
   const [reminderMessage, setReminderMessage] = useState('');
@@ -367,7 +367,7 @@ export function WorkItemDetail(props: {
             <strong data-testid="work-detail-title">{item.title}</strong>
           </div>
           <div className="work-drawer-head-actions">
-            <button data-testid="work-edit" title="Edit task" onClick={() => setEditing(true)}>
+            <button data-testid="work-edit" title="Edit task" onClick={onEdit}>
               <Ic name="pencil" size={14} />
             </button>
             <button data-testid="work-detail-close" aria-label="Close task" onClick={onClose}>
@@ -770,9 +770,6 @@ export function WorkItemDetail(props: {
           </section>
         </div>
       </aside>
-      {editing ? (
-        <WorkItemForm item={item} types={snapshot.types} onClose={() => setEditing(false)} />
-      ) : null}
       {linking ? <ExecutionPicker detail={detail} onClose={() => setLinking(false)} /> : null}
     </>
   );

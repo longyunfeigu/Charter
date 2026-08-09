@@ -128,6 +128,11 @@
   margin: 0;
   padding: 6px 10px 8px;
   overflow-x: auto;
+  /* Long tool outputs and generated files arrive as 500-line fences; capping
+     the box keeps their token spans out of every scroll frame's paint. The
+     full text stays reachable by scrolling inside the block (and via copy). */
+  max-height: 400px;
+  overflow-y: auto;
   font-size: 11.5px;
   line-height: 1.5;
   background: transparent;

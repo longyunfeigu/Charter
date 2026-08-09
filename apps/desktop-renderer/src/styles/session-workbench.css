@@ -185,8 +185,8 @@ html.sr-resizing * {
 }
 .sr-sessions-head {
   gap: 0;
-  padding-top: 12px;
-  padding-bottom: 10px;
+  padding-top: 6px;
+  padding-bottom: 6px;
 }
 .sr-session-tabs-line {
   position: relative;

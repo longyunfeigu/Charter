@@ -54,8 +54,6 @@ export function NewProjectDialog(props: { onClose: () => void }): React.JSX.Elem
     if (!ready) return;
     setBusy(true);
     setError(null);
-    // Stay on Home when the new workspace opens (same as picking a recent).
-    app.setHomePick(true);
     const res = await rpcResult('workspace.createProject', {
       mode,
       dir: dir.trim(),
@@ -64,7 +62,6 @@ export function NewProjectDialog(props: { onClose: () => void }): React.JSX.Elem
     });
     setBusy(false);
     if (!res.ok) {
-      app.setHomePick(false);
       setError(res.error.userMessage);
       return;
     }

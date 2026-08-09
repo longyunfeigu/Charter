@@ -10,6 +10,7 @@ import { mainSurfaceOf, railGroupOf, useAppStore } from './appStore.js';
 
 function reset(): void {
   useAppStore.setState({
+    layout: { ...useAppStore.getState().layout, sideBarVisible: true },
     railView: 'sessions',
     savedSurfaces: {
       workbench: { kind: 'home' },
@@ -33,12 +34,44 @@ function reset(): void {
     projectTool: null,
     projectCenter: null,
     projectBottomTab: null,
-    surface: 'home',
     peek: null,
+    settingsOpen: false,
+    settingsSection: 'general',
   });
 }
 
 beforeEach(reset);
+
+describe('navigation sidebar layout', () => {
+  it('collapses and restores the rail without changing its other layout settings', () => {
+    const before = useAppStore.getState().layout;
+
+    useAppStore.getState().toggleSidebar();
+    expect(useAppStore.getState().layout).toEqual({ ...before, sideBarVisible: false });
+
+    useAppStore.getState().toggleSidebar();
+    expect(useAppStore.getState().layout).toEqual(before);
+  });
+});
+
+describe('routed Settings workspace', () => {
+  it('opens a section without replacing the active product surface and closes in place', () => {
+    useAppStore.getState().openTaskRoom('settings-origin');
+
+    useAppStore.getState().openSettings('memory');
+    expect(useAppStore.getState().settingsOpen).toBe(true);
+    expect(useAppStore.getState().settingsSection).toBe('memory');
+    expect(useAppStore.getState().taskRoomTaskId).toBe('settings-origin');
+
+    useAppStore.getState().openSettings('skills');
+    expect(useAppStore.getState().settingsSection).toBe('skills');
+    expect(useAppStore.getState().taskRoomTaskId).toBe('settings-origin');
+
+    useAppStore.getState().closeSettings();
+    expect(useAppStore.getState().settingsOpen).toBe(false);
+    expect(useAppStore.getState().taskRoomTaskId).toBe('settings-origin');
+  });
+});
 
 describe('railGroupOf / mainSurfaceOf', () => {
   it('groups only conversation-feeding views; primary workspaces stand alone', () => {

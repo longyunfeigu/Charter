@@ -1043,6 +1043,11 @@ function makeTerm(settings: Settings['terminal'] | undefined): { term: Terminal;
     lineHeight: settings?.lineHeight ?? DEFAULT_TERMINAL_LINE_HEIGHT,
     minimumContrastRatio: resolveTerminalMinimumContrastRatio(appearance.theme, appDark),
     scrollback: settings?.scrollback ?? 5000,
+    // Charter's default cells (15px × 1.2) are taller than the xterm baseline,
+    // so one wheel notch moves visibly less content. Compensate the per-notch
+    // row distance and give Alt+wheel a real fast-scroll gear.
+    scrollSensitivity: 1.15,
+    fastScrollSensitivity: 5,
     cursorBlink: true,
     allowProposedApi: true,
     theme: appearance.theme,
@@ -1843,12 +1848,30 @@ function TerminalBlockRail({ item }: { item: TermInstance }): React.JSX.Element 
   useBlocksVersion((s) => s.versions[item.id] ?? 0);
   const [, setTick] = useState(0);
   useEffect(() => {
-    const scroll = item.term.onScroll(() => setTick((t) => t + 1));
+    // Rail dots are positioned by buffer fraction (marker.line / baseY-derived
+    // total) — the viewport offset never moves them. xterm fires onScroll for
+    // BOTH user scrolling and content growth, so tick only when the scrollback
+    // base actually advanced, coalesced to one update per frame: wheeling
+    // through a long Claude Code session must not re-render a hundreds-of-dots
+    // rail per scrolled line (measured as the main terminal-scroll jank).
+    let lastBaseY = -1;
+    let raf = 0;
+    const scroll = item.term.onScroll(() => {
+      const baseY = item.term.buffer.active.baseY;
+      if (baseY === lastBaseY) return;
+      lastBaseY = baseY;
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        setTick((t) => t + 1);
+      });
+    });
     const interval = setInterval(() => {
       if (item.blocks.runningBlock()) setTick((t) => t + 1);
     }, 1000);
     return () => {
       scroll.dispose();
+      if (raf) cancelAnimationFrame(raf);
       clearInterval(interval);
     };
   }, [item]);

@@ -40,6 +40,7 @@ import { SettingsService } from './services/settings-service.js';
 import { StateService } from './services/state-service.js';
 import { WindowStateKeeper } from './services/window-state.js';
 import { installApplicationMenu } from './menu.js';
+import { mainT } from './i18n.js';
 import { broadcast } from './broadcast.js';
 import { WorkspaceHost } from './services/workspace-host.js';
 import { registerWorkspaceHandlers } from './ipc/workspace-handlers.js';
@@ -371,11 +372,17 @@ function createMainWindow(bootstrap: Bootstrap): BrowserWindow {
     if (blockers.length > 0) {
       const choice = dialog.showMessageBoxSync(win, {
         type: 'warning',
-        buttons: ['Cancel', 'Quit Anyway'],
+        buttons: [
+          mainT(bootstrap.settings?.effective.general.locale, 'Cancel'),
+          mainT(bootstrap.settings?.effective.general.locale, 'Quit Anyway'),
+        ],
         defaultId: 0,
         cancelId: 0,
-        title: 'Work in progress',
-        message: 'Some work is still in progress:',
+        title: mainT(bootstrap.settings?.effective.general.locale, 'Work in progress'),
+        message: mainT(
+          bootstrap.settings?.effective.general.locale,
+          'Some work is still in progress:',
+        ),
         detail: blockers.map((b) => `• ${b}`).join('\n'),
       });
       if (choice === 0) {
@@ -600,6 +607,13 @@ app.setName('Charter');
 process.env.CHARTER_APP_VERSION = app.getVersion();
 
 const gotLock = app.requestSingleInstanceLock();
+// Every live terminal holds one WebGL context. Blink's default active-context
+// budget (~16) silently evicts the oldest beyond that, and an evicted xterm
+// falls back to the slow DOM renderer until its bounded retry — with dozens of
+// Sessions that read as "terminal scrolling got janky over time". Must be set
+// before app ready (ADR-0055 follow-up; same lesson ORCA ships).
+app.commandLine.appendSwitch('max-active-webgl-contexts', '128');
+
 if (!gotLock) {
   app.quit();
 } else {
@@ -699,6 +713,7 @@ if (!gotLock) {
           windowBackground(s.effective.general.skin, nativeTheme.shouldUseDarkColors),
         );
         broadcast('settings.changed', { issues: s.issues, overrideKeys: s.overrideKeys });
+        installApplicationMenu({ isDev, locale: s.effective.general.locale });
         updateServiceRef?.syncSettings(s.effective.updates);
       });
     }
@@ -718,13 +733,27 @@ if (!gotLock) {
     installGlobalSecurityHandlers(DEV_SERVER_URL, logger);
     installCsp();
     if (!isDev) registerAppProtocol(join(app.getAppPath(), 'apps/desktop-renderer/dist'));
-    installApplicationMenu({ isDev });
+    installApplicationMenu({ isDev, locale: settings?.effective.general.locale ?? 'en' });
     registerCoreHandlers(boot);
     if (state && settings) {
+      // Reminders must stay visible without Notification Center authorization —
+      // unsigned/dev builds never complete macOS notification registration
+      // (ADR-0053 follow-up). The Dock badge counts due-and-unhandled
+      // reminders and the icon bounces when one fires in the background;
+      // neither needs any system permission.
+      const refreshWorkBadge = (): void => {
+        app.setBadgeCount(workItemServiceRef?.firedReminderCount() ?? 0);
+      };
       workItemServiceRef = new WorkItemService(state.db, logger.child('work-items'), {
-        changed: (itemId, reason) => broadcast('workItem.changed', { itemId, reason }),
+        changed: (itemId, reason) => {
+          broadcast('workItem.changed', { itemId, reason });
+          if (reason.startsWith('reminder')) refreshWorkBadge();
+        },
         reminderDue: ({ item, reminder }) => {
           broadcast('workItem.reminderDue', { item, reminder });
+          if (!process.env.PI_IDE_E2E && BrowserWindow.getFocusedWindow() === null) {
+            app.dock?.bounce('critical');
+          }
           const win = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null;
           const focusItem = (): void => {
             if (win) {
@@ -751,6 +780,7 @@ if (!gotLock) {
       });
       registerWorkItemHandlers(workItemServiceRef, logger.child('work-item-ipc'));
       workItemServiceRef.start();
+      refreshWorkBadge();
     }
     let m4: M4Services | null = null;
     if (workspaceHost && state && settings) {

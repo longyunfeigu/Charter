@@ -32,6 +32,8 @@ import {
   type DiffLine,
 } from './accessible-diff.js';
 
+const NO_CANVAS_EVENTS: never[] = [];
+
 export interface SessionVerification {
   label: string;
   state: string;
@@ -380,8 +382,16 @@ function SessionDiffReview(props: {
   fileStats: Record<string, SessionFileStat>;
   verifications: SessionVerification[];
 }): React.JSX.Element {
-  const store = useTaskStore();
-  const app = useAppStore();
+  // ADR-0055: changeSet is the ACTIVE task's projection — a hidden kept-alive
+  // room pins to constants so the visible session's churn never re-renders it.
+  const storeChangeSet = useTaskStore((s) =>
+    s.activeTaskId === props.task.id ? s.changeSet : null,
+  );
+  const loadingChangeSet = useTaskStore((s) =>
+    s.activeTaskId === props.task.id ? s.loadingChangeSet : false,
+  );
+  const store = useTaskStore.getState(); // stable actions
+  const app = useAppStore.getState(); // stable actions
   const peek = useAppStore((state) => state.peek);
   const diffBodyRef = useRef<HTMLDivElement>(null);
   const diffCardRef = useRef<HTMLElement>(null);
@@ -409,7 +419,7 @@ function SessionDiffReview(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.task.id]);
 
-  const changeSet = store.changeSet?.taskId === props.task.id ? store.changeSet : null;
+  const changeSet = storeChangeSet?.taskId === props.task.id ? storeChangeSet : null;
   const changeFiles = changeSet?.files ?? [];
   // The detailed ChangeSet is the same source rendered by the rows below. Its
   // count must win over the watcher-derived fallback or the heading can say
@@ -615,7 +625,7 @@ function SessionDiffReview(props: {
         </div>
       </section>
 
-      {store.loadingChangeSet && !selected ? (
+      {loadingChangeSet && !selected ? (
         <div className="session-diff-loading">Computing the review diff…</div>
       ) : selected ? (
         <section
@@ -811,7 +821,7 @@ function SessionDiffVerification(props: {
   task: TaskDto;
   verifications: SessionVerification[];
 }): React.JSX.Element {
-  const store = useTaskStore();
+  const store = useTaskStore.getState(); // actions only
   const configured = props.task.verification.length > 0;
   const passed = props.verifications.filter(isCurrentVerificationPass).length;
   const allPassed = props.verifications.length > 0 && passed === props.verifications.length;
@@ -960,7 +970,12 @@ function SessionReviewSummary(props: {
   verifications: SessionVerification[];
   onOpenDiff: (path: string) => void;
 }): React.JSX.Element {
-  const store = useTaskStore();
+  // ADR-0055: active-gated singleton reads (see SessionDiffReview above).
+  const storeChangeSet = useTaskStore((s) =>
+    s.activeTaskId === props.task.id ? s.changeSet : null,
+  );
+  const timeline = useTaskStore((s) => s.timelines[props.task.id] ?? NO_CANVAS_EVENTS);
+  const store = useTaskStore.getState(); // stable actions
   const copy = roomCopyFor(`${props.task.title}\n${props.task.goalMd}`);
 
   useEffect(() => {
@@ -971,9 +986,9 @@ function SessionReviewSummary(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.task.id]);
 
-  const changeSet = store.changeSet?.taskId === props.task.id ? store.changeSet : null;
+  const changeSet = storeChangeSet?.taskId === props.task.id ? storeChangeSet : null;
 
-  const report = useMemo(() => latestFinalReport(store.timeline), [store.timeline]);
+  const report = useMemo(() => latestFinalReport(timeline), [timeline]);
   const executionFailed = reportExecutionFailed(report);
 
   const agentSummary = typeof report?.agentSummary === 'string' ? report.agentSummary : null;
@@ -1098,7 +1113,7 @@ function VerificationSection(props: {
   verifications: SessionVerification[];
   task: TaskDto;
 }): React.JSX.Element {
-  const store = useTaskStore();
+  const store = useTaskStore.getState(); // actions only
   const configured = props.task.verification.length > 0;
   return (
     <section className="session-evidence-section" data-testid="session-verification">
@@ -1169,9 +1184,10 @@ export function SessionActionDock({
   task: TaskDto;
   files: string[];
   verifications: SessionVerification[];
-}): React.JSX.Element {
-  const store = useTaskStore();
-  const app = useAppStore();
+}): React.JSX.Element | null {
+  const timeline = useTaskStore((s) => s.timelines[task.id] ?? NO_CANVAS_EVENTS);
+  const store = useTaskStore.getState(); // stable actions
+  const app = useAppStore.getState(); // stable actions
   const resumingExternalTaskId = useExternalStore((state) => state.resumingTaskId);
   const externalSessionStatus = useExternalStore((state) => state.sessions[task.id]?.status);
   const externalAgent = useExternalStore((state) =>
@@ -1184,7 +1200,7 @@ export function SessionActionDock({
   );
   const running = RUNNING_TASK_STATES.has(task.state);
   const answered = isAnswered(task);
-  const report = useMemo(() => latestFinalReport(store.timeline), [store.timeline]);
+  const report = useMemo(() => latestFinalReport(timeline), [timeline]);
   const executionFailed = reportExecutionFailed(report);
   const failedChecks = verifications.filter(
     (verification) => !isCurrentVerificationPass(verification),
@@ -1412,21 +1428,20 @@ export function SessionActionDock({
   }
 
   if (running) {
+    // A live external session needs no status bar: the terminal on screen IS
+    // the live status, and the dock offers no action for it — dropping it
+    // gives that height back to the session. Managed runs keep the dock for
+    // its Stop control.
+    if (task.external) return null;
     return (
       <footer className="session-action-dock compact" data-testid="session-action-dock">
         <span className="session-action-live">
-          <i /> {task.external ? 'Session live' : 'Agent working'}
+          <i /> Agent working
         </span>
-        <span className="session-action-note">
-          {task.external
-            ? `Open the ${task.external.cli} terminal to see whether it is working or waiting.`
-            : 'You can steer it from the composer.'}
-        </span>
-        {!task.external ? (
-          <button className="btn danger" data-testid="agent-stop" onClick={() => void store.stop()}>
-            Stop
-          </button>
-        ) : null}
+        <span className="session-action-note">You can steer it from the composer.</span>
+        <button className="btn danger" data-testid="agent-stop" onClick={() => void store.stop()}>
+          Stop
+        </button>
       </footer>
     );
   }

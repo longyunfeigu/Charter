@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>Work 图标候选对比</title>
+<style>
+  :root {
+    --bg: #f7f6f3;
+    --rail-bg: #fbfaf8;
+    --line: #e6e3dc;
+    --muted: #6b6f6b;
+    --fg: #2c2f2c;
+    --mint: #e3f0e7;
+    --mint-line: #bcd9c6;
+    --green: #1f6a43;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 40px 48px 64px;
+    background: var(--bg);
+    font: 14px/1.6 -apple-system, "PingFang SC", sans-serif;
+    color: var(--fg);
+  }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p.note { color: var(--muted); margin: 0 0 28px; max-width: 720px; }
+  .row { display: flex; gap: 28px; flex-wrap: wrap; }
+  .card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px 18px 14px;
+    width: 168px;
+    text-align: center;
+  }
+  .card.reco { border: 2px solid var(--green); }
+  .card h3 { font-size: 13px; margin: 0 0 2px; }
+  .card .sub { font-size: 11px; color: var(--muted); min-height: 34px; margin-bottom: 12px; }
+  .tag {
+    display: inline-block; font-size: 10px; font-weight: 700; color: #fff;
+    background: var(--green); border-radius: 99px; padding: 2px 8px; margin-bottom: 8px;
+  }
+  .tag.gray { background: #9a9e9a; }
+  /* rail replica */
+  .rail {
+    width: 96px; margin: 0 auto;
+    background: var(--rail-bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 8px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .item {
+    width: 74px; height: 52px;
+    display: grid; grid-template-rows: 20px 12px; place-items: center; align-content: center; gap: 3px;
+    border-radius: 9px; border: 1px solid transparent;
+    color: #4b4f4b; position: relative;
+  }
+  .item .lbl { font-size: 10px; font-weight: 600; letter-spacing: .01em; }
+  .item.active { background: var(--mint); border-color: var(--mint-line); color: var(--green); }
+  .item.focus { outline: 2px solid #e05252; outline-offset: 1px; }
+  .badge {
+    position: absolute; top: 2px; right: 6px; min-width: 15px; height: 15px;
+    border-radius: 99px; background: var(--green); color: #fff;
+    font: 700 9px ui-monospace, monospace; display: grid; place-items: center; padding: 0 3px;
+    border: 2px solid var(--rail-bg);
+  }
+  svg { flex: none; }
+  .zoom { margin-top: 12px; display: flex; align-items: center; justify-content: center; gap: 14px; color: var(--muted); }
+  .divider { margin: 40px 0 16px; font-size: 15px; font-weight: 700; }
+</style>
+</head>
+<body>
+<h1>Work 图标候选（导航栏实景对比）</h1>
+<p class="note">Work 视图本体是一个看板：Inbox / Planned / Active / Waiting / Review / Done 列 + 可拖拽的任务卡。红框处为候选图标在真实导航栏里的效果，下方为放大稿。</p>
+
+<div class="row" id="cards"></div>
+
+<script>
+const ICONS = {
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  sessions: '<rect x="3" y="7" width="15" height="14" rx="2"/><path d="M7 7V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><path d="M7 12h7"/><path d="M7 16h4"/>',
+  compass: '<circle cx="12" cy="12" r="9"/><path d="m15.4 8.6-2.1 4.7-4.7 2.1 2.1-4.7Z"/>',
+  inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  remote: '<rect x="3" y="3" width="18" height="14" rx="2"/><path d="m7 8 3 2.5L7 13"/><path d="M13 13h4"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+  // 候选
+  squareKanban: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 7v7"/><path d="M12 7v4"/><path d="M16 7v9"/>',
+  kanban: '<path d="M6 5v11"/><path d="M12 5v6"/><path d="M18 5v14"/>',
+  clipboardList: '<rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+  listTodo: '<rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>',
+  briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+};
+
+function svg(name, size, sw) {
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${sw || 1.7}" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
+}
+
+function rail(candidate) {
+  return `<div class="rail">
+    <div class="item active">${svg('sessions', 17)}<span class="lbl">Sessions</span></div>
+    <div class="item focus">${svg(candidate, 17)}<span class="lbl">Work</span></div>
+    <div class="item">${svg('compass', 17)}<span class="lbl">Missions</span><span class="badge">1</span></div>
+    <div class="item">${svg('inbox', 16)}<span class="lbl">For you</span></div>
+    <div class="item">${svg('folder', 16)}<span class="lbl">Projects</span></div>
+    <div class="item">${svg('remote', 17)}<span class="lbl">Remotes</span></div>
+  </div>`;
+}
+
+const CANDIDATES = [
+  { key: 'check', title: '现状：对勾', sub: '像"已完成"，不像一个工作区', tag: '现状', gray: true },
+  { key: 'squareKanban', title: '① 看板（带边框）', sub: '和 Work 视图的列式看板一一对应；GitHub Projects / Linear 同款语义', tag: '推荐' },
+  { key: 'kanban', title: '② 看板（裸列）', sub: '同样是看板语义，更轻；但小尺寸下可能被误读成柱状图' },
+  { key: 'clipboardList', title: '③ 任务清单板', sub: '"任务列表"语义；但表达不出看板的列结构' },
+  { key: 'listTodo', title: '④ 待办清单', sub: '"todo"语义直白；但又带对勾元素，和现状问题同源' },
+  { key: 'briefcase', title: '⑤ 公文包', sub: '字面意义的 "Work"；但更像"招聘/职位"，不指向任务看板' },
+];
+
+document.getElementById('cards').innerHTML = CANDIDATES.map(c => `
+  <div class="card ${c.tag === '推荐' ? 'reco' : ''}">
+    ${c.tag ? `<span class="tag ${c.gray ? 'gray' : ''}">${c.tag}</span>` : '<span class="tag" style="visibility:hidden">.</span>'}
+    <h3>${c.title}</h3>
+    <div class="sub">${c.sub}</div>
+    ${rail(c.key)}
+    <div class="zoom">${svg(c.key, 17)} ${svg(c.key, 28)} ${svg(c.key, 44)}</div>
+  </div>`).join('');
+</script>
+</body>
+</html>

@@ -68,6 +68,29 @@
   flex: 1;
   -webkit-app-region: drag;
 }
+.tb-sidebar-toggle {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--chrome-paper-muted);
+  cursor: pointer;
+}
+.tb-sidebar-toggle:hover,
+.tb-sidebar-toggle[aria-pressed='true'] {
+  border-color: var(--chrome-line);
+  background: color-mix(in srgb, var(--chrome-paper) 8%, transparent);
+  color: var(--chrome-paper);
+}
+.tb-sidebar-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+}
 .tb-nav {
   display: inline-flex;
   align-items: center;
@@ -161,6 +184,18 @@
   display: flex;
   min-height: 0;
   background: var(--chrome-ink);
+}
+.workbench.settings-open > .wb-main {
+  display: none;
+}
+.workbench.settings-open > .statusbar {
+  display: none;
+}
+.wb-main.rail-collapsed > .sr-rail {
+  display: none;
+}
+.wb-main.rail-collapsed > .session-home-host {
+  border-top-left-radius: 0;
 }
 
 .activitybar {

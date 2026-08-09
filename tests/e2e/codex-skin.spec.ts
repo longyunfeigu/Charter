@@ -14,7 +14,7 @@ test.describe('Codex application skin', () => {
       await page.setViewportSize({ width: 1440, height: 900 });
       await expect(page.getByTestId('workbench')).toBeVisible();
       await page.getByTestId('home-settings').click();
-      await expect(page.getByTestId('overlay-settings')).toBeVisible();
+      await expect(page.getByTestId('settings-page')).toBeVisible();
 
       const skinOptions = page
         .getByRole('radiogroup', { name: 'Application skin' })
@@ -52,7 +52,7 @@ test.describe('Codex application skin', () => {
       await page.screenshot({ path: '/tmp/charter-codex-skin-picker.png' });
 
       await page.keyboard.press('Escape');
-      await expect(page.getByTestId('overlay-settings')).not.toBeVisible();
+      await expect(page.getByTestId('settings-page')).not.toBeVisible();
       await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-view')).toBeVisible();
       await expect(page.locator('.titlebar')).toHaveCSS('background-color', 'rgb(250, 250, 250)');

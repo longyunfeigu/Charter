@@ -802,10 +802,11 @@ function CharterView(props: {
 
 // ───────────────────────── shell ─────────────────────────
 
-export function MemoryView(): React.JSX.Element {
+export function MemoryView(props: { embedded?: boolean } = {}): React.JSX.Element {
   const store = useMemoryStore();
   const currentPath = useWorkspaceStore((s) => s.workspace?.path ?? null);
   const agent = useMemoryViewStore((state) => state.agent);
+  const setAgent = useMemoryViewStore((state) => state.setAgent);
   useEffect(() => {
     store.init();
     void store.refresh();
@@ -838,18 +839,43 @@ export function MemoryView(): React.JSX.Element {
     <main className="mv-main" data-testid="memory-view">
       <div className="mv-main-inner">
         <header className="mv-page-head">
-          <div>
+          <div className="mv-page-copy">
             <span>{page.eyebrow}</span>
             <h1>{page.title}</h1>
             <p>{page.description}</p>
           </div>
-          <button
-            className="mv-btn quiet"
-            data-testid="memory-refresh"
-            onClick={() => store.refresh()}
-          >
-            <Ic name="refresh" size={13} /> Refresh
-          </button>
+          <div className="mv-page-actions">
+            {props.embedded ? (
+              <nav className="mv-agent-tabs" aria-label="Memory agent">
+                {(
+                  [
+                    ['claude', '✳', 'Claude'],
+                    ['codex', '▣', 'Codex'],
+                    ['charter', '◆', 'Charter'],
+                  ] as const
+                ).map(([id, mark, label]) => (
+                  <button
+                    type="button"
+                    key={id}
+                    className={agent === id ? 'on' : ''}
+                    data-testid={`memory-nav-${id}`}
+                    aria-current={agent === id ? 'page' : undefined}
+                    onClick={() => setAgent(id)}
+                  >
+                    <span aria-hidden="true">{mark}</span>
+                    {label}
+                  </button>
+                ))}
+              </nav>
+            ) : null}
+            <button
+              className="mv-btn quiet"
+              data-testid="memory-refresh"
+              onClick={() => store.refresh()}
+            >
+              <Ic name="refresh" size={13} /> Refresh
+            </button>
+          </div>
         </header>
         {!tree ? (
           <div className="mv-loading">

@@ -673,6 +673,15 @@ div.pc-session-copy {
   border-right: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-sidebar) 72%, var(--bg-card));
 }
+/* ADR-0054: the current project's Files tab hosts the real editor. */
+.pc-file-editor-host {
+  background: var(--bg-editor);
+}
+.pc-file-editor-host > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
 .pc-file-browser > header {
   justify-content: space-between;
 }

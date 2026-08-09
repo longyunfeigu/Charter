@@ -88,10 +88,11 @@ test.describe('terminal re-mount regressions', () => {
         timeout: 10000,
       });
 
-      // Home ⇄ Editor round-trip: the active terminal survives the surface flip.
+      // Home ⇄ terminal-surface round-trip: the active terminal survives the
+      // surface flip (Ctrl+` re-opens the terminal surface; ADR-0054 removed
+      // the global Editor entry).
       await page.getByTestId('surface-home').click();
       await expect(page.getByTestId('home-shell')).toBeVisible({ timeout: 10000 });
-      await page.getByTestId('home-open-ide').click();
       await page.keyboard.press('Control+`');
       await expect(page.getByTestId('terminal-panel')).toBeVisible({ timeout: 10000 });
       await expect(page.getByTestId('terminal-host')).toContainText('marker-terminal-B', {

@@ -6,6 +6,7 @@ describe('settings resolution (SET-002 / WS-014)', () => {
     const { effective, issues } = resolveSettings(undefined, undefined);
     expect(issues).toHaveLength(0);
     expect(effective.general.theme).toBe('system');
+    expect(effective.general.locale).toBe('en');
     expect(effective.general.skin).toBe('studio');
     expect(effective.editor.fontSize).toBeGreaterThan(0);
     expect(effective.editor.autoSave).toBe('off');
@@ -97,5 +98,14 @@ describe('settings resolution (SET-002 / WS-014)', () => {
     const { effective, issues } = resolveSettings({ general: { skin: 'generic-blue' } }, undefined);
     expect(effective.general.skin).toBe('studio');
     expect(issues.some((issue) => issue.includes('general.skin'))).toBe(true);
+  });
+
+  it('accepts only the two supported display languages', () => {
+    expect(
+      resolveSettings({ general: { locale: 'zh-CN' } }, undefined).effective.general.locale,
+    ).toBe('zh-CN');
+    const invalid = resolveSettings({ general: { locale: 'system' } }, undefined);
+    expect(invalid.effective.general.locale).toBe('en');
+    expect(invalid.issues.some((issue) => issue.includes('general.locale'))).toBe(true);
   });
 });

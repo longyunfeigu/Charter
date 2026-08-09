@@ -72,7 +72,7 @@
   --activitybar-width: 78px;
   --rail-width: 312px;
   --rail-compact-width: 78px;
-  --session-header-height: 72px;
+  --session-header-height: 44px;
   --control-height-sm: 28px;
   --control-height-md: 34px;
   --row-height: 32px;
@@ -723,7 +723,12 @@ body {
 
 /* Fine crossed fibres make Atelier read as a material skin across otherwise
  * opaque Electron surfaces. The alpha is deliberately tiny so Monaco, xterm
- * and dense session output keep their contrast and cell clarity. */
+ * and dense session output keep their contrast and cell clarity.
+ * Plain alpha compositing on purpose: a blend mode (and dark's former
+ * invert() pass) forces the compositor to re-blend the entire window on every
+ * frame of every scroll. At these alphas the multiply result differed from
+ * simple alpha by under 1/255 per channel — invisible; the full-screen
+ * per-frame cost was not. */
 html[data-skin='atelier'] body::after {
   content: '';
   position: fixed;
@@ -733,12 +738,12 @@ html[data-skin='atelier'] body::after {
   background-image:
     repeating-linear-gradient(2deg, rgba(120, 100, 60, 0.016) 0 2px, transparent 2px 5px),
     repeating-linear-gradient(92deg, rgba(120, 100, 60, 0.012) 0 3px, transparent 3px 7px);
-  mix-blend-mode: multiply;
 }
 html[data-skin='atelier'][data-theme='dark'] body::after {
-  opacity: 0.45;
-  filter: invert(1);
-  mix-blend-mode: screen;
+  /* Light fibres on dark ground — previously produced by invert()+screen. */
+  background-image:
+    repeating-linear-gradient(2deg, rgba(215, 205, 180, 0.014) 0 2px, transparent 2px 5px),
+    repeating-linear-gradient(92deg, rgba(215, 205, 180, 0.01) 0 3px, transparent 3px 7px);
 }
 
 /* Icon geometry is part of the skin, not a component-by-component accident. */
@@ -809,16 +814,16 @@ textarea {
   outline-offset: -1px;
 }
 
-/* Presence glow (PIVOT-016): the agent is writing here right now. */
+/* Presence glow (PIVOT-016): the agent is writing here right now.
+   Outer glow only — the inset ring doubled the per-frame paint work of a
+   property that can never leave the main thread. */
 @keyframes glowPulse {
   0%,
   100% {
     box-shadow: 0 0 0 0 rgba(64, 200, 120, 0);
   }
   50% {
-    box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--success) 45%, transparent),
-      0 0 12px color-mix(in srgb, var(--success) 30%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--success) 34%, transparent);
   }
 }
 .glow-pulse {

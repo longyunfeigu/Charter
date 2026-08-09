@@ -161,22 +161,24 @@ test('Missions and a large Skills catalog stay responsive across repeated naviga
 
     // Prime only the catalog data. The view itself is unmounted again, so the
     // timed click still pays the real React/DOM mount cost.
-    await page.getByTestId('rail-view-skills').click();
+    await page.getByTestId('home-settings').click();
+    await page.getByTestId('settings-section-skills').click();
     await expect(page.getByTestId('skills-main-page')).toBeVisible();
     await expect(page.locator('.skills-table-frame tbody tr')).toHaveCount(12);
     await expect(page.getByTestId('skills-show-more')).toContainText(/\d+ remaining/);
     await page.getByTestId('skills-show-more').click();
     await expect(page.locator('.skills-table-frame tbody tr')).toHaveCount(36);
-    await page.getByTestId('rail-view-sessions').click();
+    await page.getByTestId('settings-back').click();
 
     const skillSamples: number[] = [];
     const missionSamples: number[] = [];
     for (let index = 0; index < 4; index += 1) {
+      await measureNavigationToPaint(page, 'home-settings', 'settings-page');
       skillSamples.push(
-        await measureNavigationToPaint(page, 'rail-view-skills', 'skills-main-page'),
+        await measureNavigationToPaint(page, 'settings-section-skills', 'skills-main-page'),
       );
       await expect(page.locator('.skills-table-frame tbody tr')).toHaveCount(12);
-      await page.getByTestId('rail-view-sessions').click();
+      await page.getByTestId('settings-back').click();
       missionSamples.push(
         await measureNavigationToPaint(page, 'rail-view-missions', 'mission-center'),
       );
@@ -201,7 +203,8 @@ test('Missions and a large Skills catalog stay responsive across repeated naviga
     ).toBeLessThan(120);
 
     await page.setViewportSize({ width: 900, height: 720 });
-    await page.getByTestId('rail-view-skills').click();
+    await page.getByTestId('home-settings').click();
+    await page.getByTestId('settings-section-skills').click();
     await expect(page.getByTestId('skills-main-page')).toBeVisible();
     await expect(page.locator('.skills-table-frame tbody tr')).toHaveCount(12);
     await expect(page.getByTestId('skills-show-more')).toBeVisible();

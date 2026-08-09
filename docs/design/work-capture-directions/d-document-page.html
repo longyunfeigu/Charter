@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>方向 D · 新建即详情页 — Work capture mock</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .doc-view {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-editor);
+    animation: doc-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  @keyframes doc-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .doc-topbar {
+    min-height: 46px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 22px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+    background: var(--bg-titlebar);
+  }
+  .doc-crumb { color: var(--fg-muted); font: 550 10.5px var(--font-ui); }
+  .doc-crumb b { color: var(--fg); font-weight: 650; }
+  .doc-save { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; color: var(--fg-faint); font-size: 9px; }
+  .doc-save i { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+  .doc-save.saving i { background: var(--warning); }
+  .doc-scroll { min-height: 0; flex: 1; overflow: auto; }
+  .doc-page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 40px 32px 120px;
+  }
+  .doc-eyebrow { display: flex; align-items: center; gap: 8px; color: var(--fg-faint); font: 700 8.5px var(--font-ui); letter-spacing: 0.13em; }
+  .doc-title {
+    margin: 10px 0 4px;
+    color: var(--fg);
+    font: 600 30px/1.2 var(--font-display);
+    letter-spacing: -0.015em;
+  }
+  .doc-props { display: grid; margin: 14px 0 4px; }
+  .doc-props .prop-row { min-height: 32px; grid-template-columns: 140px 1fr; }
+  .doc-rule { height: 1px; margin: 18px 0 6px; border: 0; background: var(--border-soft); }
+  .doc-page section { margin-top: 20px; }
+  .doc-page section h2 {
+    margin: 0 0 7px;
+    color: var(--fg-faint);
+    font: 750 8.5px var(--font-ui);
+    letter-spacing: 0.12em;
+  }
+  .doc-body-text {
+    min-height: 22px;
+    color: var(--fg);
+    font: 12.5px/1.7 var(--font-ui);
+  }
+  .doc-page .check-line { font-size: 12px; }
+  .doc-hint {
+    margin-top: 34px;
+    padding: 11px 14px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 12px;
+    color: var(--fg-muted);
+    font: 10.5px/1.6 var(--font-ui);
+  }
+  .board-dimmed { opacity: 0.35; transition: opacity 240ms; pointer-events: none; }
+</style>
+</head>
+<body>
+<script src="shared.js"></script>
+<script>
+const M = CM;
+const { shell, columns, bump, newBtn, demoBtn } = M.mountShell({
+  current: 'd',
+  title: '方向 D · 新建即详情页 — 没有表单这个中间态，新建=直接进入它自己的页面',
+  demo: true,
+});
+shell.style.position = 'relative';
+
+let draft = null;
+let docEl = null;
+
+function newDraft() {
+  draft = {
+    ref: M.nextRef(), title: '', type: 'General', priority: 'none',
+    due: '', start: '', reminder: '', labels: [],
+    source: { person: '', channel: '', url: '' },
+    outcome: '', background: '', acceptance: [], deliverables: [],
+  };
+}
+
+function openDoc() {
+  newDraft();
+  docEl = M.el(`<section class="doc-view">
+    <div class="doc-topbar">
+      <button type="button" class="btn ghost" id="docBack">${M.ic('arrowLeft', 13)} Board</button>
+      <span class="doc-crumb">Work / <b>New item</b></span>
+      <span class="doc-save" id="docSave"><i></i> Draft · nothing typed yet</span>
+      <button type="button" class="btn danger-ghost" id="docDiscard">Discard</button>
+    </div>
+    <div class="doc-scroll"><div class="doc-page">
+      <div class="doc-eyebrow"><span>${draft.ref}</span><span>·</span><span>DRAFT — BECOMES A CARD THE MOMENT IT HAS A TITLE</span></div>
+      <h1 class="doc-title" contenteditable data-ph="Untitled outcome" id="docTitle"></h1>
+      <div class="doc-props" id="docProps"></div>
+      <hr class="doc-rule">
+      <section><h2>OUTCOME / REQUEST</h2>
+        <div class="doc-body-text" contenteditable data-ph="What should be true when this is done?" id="docOutcome"></div></section>
+      <section><h2>BACKGROUND AND CONTEXT</h2>
+        <div class="doc-body-text" contenteditable data-ph="Why now, relevant history, constraints, links, decisions already made" id="docBg"></div></section>
+      <section><h2>ACCEPTANCE CRITERIA</h2><div id="docAcc"></div></section>
+      <section><h2>EXPECTED DELIVERABLES</h2><div id="docDel"></div></section>
+      <div class="doc-hint">写到哪算哪 — 这一页就是工作项本身，不存在“先填完表单才能保存”。回到看板时，有标题就落卡，空白草稿自动丢弃。（评审注：此段中文仅为 mock 注释）</div>
+    </div></div>
+  </section>`);
+  shell.appendChild(docEl);
+  shell.querySelector('.work-board').classList.add('board-dimmed');
+  shell.querySelector('.work-toolbar').classList.add('board-dimmed');
+
+  const save = docEl.querySelector('#docSave');
+  let saveTimer = null;
+  const touched = () => {
+    save.classList.add('saving');
+    save.innerHTML = '<i></i> Draft · saving…';
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      save.classList.remove('saving');
+      save.innerHTML = '<i></i> Draft · saved just now';
+    }, 500);
+  };
+
+  const title = docEl.querySelector('#docTitle');
+  title.oninput = () => { draft.title = title.textContent.trim(); touched(); };
+  setTimeout(() => title.focus(), 60);
+
+  const props = docEl.querySelector('#docProps');
+  const renderProps = () => {
+    props.innerHTML = '';
+    const prop = (icon, label, valueHtml, empty, onClick) => {
+      const row = M.el(`<div class="prop-row">
+        <span class="prop-label">${M.ic(icon, 12)} ${label}</span>
+        <button type="button" class="prop-value ${valueHtml ? '' : 'empty'}">${valueHtml || empty}</button>
+      </div>`);
+      if (onClick) row.querySelector('.prop-value').onclick = (e) => onClick(e.currentTarget);
+      props.appendChild(row);
+    };
+    prop('circle', 'Status', `<span class="dot" style="background:#64748b"></span>Inbox`, '', null);
+    prop('layout', 'Type', `<span class="dot" style="background:${M.typeColor(draft.type)}"></span>${draft.type}`, '', (a) =>
+      M.popType(a, draft.type, (t) => { draft.type = t; renderProps(); touched(); }));
+    const pd = M.priorityDef(draft.priority);
+    prop('flag', 'Priority', draft.priority !== 'none' ? `<span style="color:${pd.color}">${M.ic('flag', 11)}</span>${pd.label}` : '', 'Empty', (a) =>
+      M.popPriority(a, draft.priority, (p) => { draft.priority = p; renderProps(); touched(); }));
+    prop('calendar', 'Due', draft.due ? `${M.ic('calendar', 11)}${draft.due}` : '', 'Empty', (a) =>
+      M.popDue(a, (d) => { draft.due = d; renderProps(); touched(); }));
+    prop('clock', 'Start', draft.start ? `${M.ic('clock', 11)}${draft.start}` : '', 'Empty', (a) =>
+      M.popDue(a, (d) => { draft.start = d; renderProps(); touched(); }, 'START'));
+    prop('bell', 'First reminder', draft.reminder ? `${M.ic('bell', 11)}${draft.reminder}` : '', 'Empty', (a) =>
+      M.popDue(a, (d) => { draft.reminder = d; renderProps(); touched(); }, 'FIRST REMINDER'));
+    prop('tag', 'Labels', draft.labels.length ? draft.labels.map((l) => `${M.ic('tag', 9)}${l}`).join(' ') : '', 'Empty', (a) =>
+      M.popLabels(a, draft.labels, (l) => { draft.labels = l; renderProps(); touched(); }));
+    prop('user', 'Source', [draft.source.person, draft.source.channel].filter(Boolean).join(' · ') || '', 'Who asked, where?', (a) =>
+      M.popSource(a, draft.source, () => { renderProps(); touched(); }));
+  };
+  renderProps();
+
+  docEl.querySelector('#docOutcome').oninput = (e) => { draft.outcome = e.target.textContent; touched(); };
+  docEl.querySelector('#docBg').oninput = (e) => { draft.background = e.target.textContent; touched(); };
+
+  const checkSection = (mount, list, addLabel) => {
+    const render = () => {
+      mount.innerHTML = '';
+      list.forEach((line, i) => {
+        const row = M.el(`<label class="check-line"><input type="checkbox"><span class="cl-text" contenteditable>${line}</span></label>`);
+        row.querySelector('.cl-text').oninput = (e) => { list[i] = e.target.textContent; touched(); };
+        mount.appendChild(row);
+      });
+      const add = M.el(`<button type="button" class="check-add">${M.ic('plus', 10)} ${addLabel}</button>`);
+      add.onclick = () => {
+        list.push('');
+        render();
+        const all = mount.querySelectorAll('.cl-text');
+        all[all.length - 1].focus();
+      };
+      mount.appendChild(add);
+    };
+    render();
+  };
+  checkSection(docEl.querySelector('#docAcc'), draft.acceptance, 'Add criterion');
+  checkSection(docEl.querySelector('#docDel'), draft.deliverables, 'Add deliverable');
+
+  docEl.querySelector('#docBack').onclick = () => closeDoc(true);
+  docEl.querySelector('#docDiscard').onclick = () => closeDoc(false);
+}
+
+function closeDoc(commit) {
+  const hadTitle = commit && draft.title;
+  if (hadTitle) {
+    const card = M.cardEl({
+      ref: draft.ref, title: draft.title, type: draft.type,
+      priority: draft.priority, due: draft.due, dueTone: draft.due ? 'soon' : '',
+      labels: draft.labels, source: draft.source.person,
+      stat: draft.acceptance.filter(Boolean).length ? `0/${draft.acceptance.filter(Boolean).length}` : null,
+      cls: 'landing', ai: false,
+    });
+    columns.inbox.prepend(card);
+    bump('inbox', 1);
+    M.flash(card);
+  }
+  docEl.remove();
+  docEl = null;
+  shell.querySelector('.work-board').classList.remove('board-dimmed');
+  shell.querySelector('.work-toolbar').classList.remove('board-dimmed');
+  if (hadTitle) M.toast(`${draft.ref} on the board — the page stays as its permanent home`);
+  else if (commit) M.toast('Empty draft discarded — nothing to keep');
+  else M.toast('Draft discarded');
+}
+
+newBtn.onclick = openDoc;
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n' && !docEl) { e.preventDefault(); openDoc(); }
+});
+
+/* ── Scripted demo ─────────────────────────────────────────────────── */
+M.bindDemo(demoBtn, async () => {
+  M.caption('<b>1/5</b> · 点 New：不弹表单，直接进入这条工作项自己的页面');
+  openDoc();
+  await M.sleep(1600);
+  M.caption('<b>2/5</b> · 像写文档一样写标题 —— 有标题它就已经存在了');
+  await M.typeCE(document.getElementById('docTitle'), 'Renew the SOC 2 evidence pack', 34);
+  await M.sleep(800);
+  M.caption('<b>3/5</b> · 属性是行内的一列，点谁改谁，改完不打断书写');
+  const vals = docEl.querySelectorAll('.prop-value');
+  vals[2].click(); // Priority
+  await M.sleep(1000);
+  document.querySelectorAll('.pop-item')[4].click(); // High
+  await M.sleep(700);
+  docEl.querySelectorAll('.prop-value')[3].click(); // Due
+  await M.sleep(1000);
+  document.querySelectorAll('.pop-item')[3].click(); // Aug 20
+  await M.sleep(800);
+  M.caption('<b>4/5</b> · 验收标准是页面里的清单，不是一行一个的 textarea');
+  const accAdd = docEl.querySelector('#docAcc .check-add');
+  accAdd.click();
+  await M.typeCE(docEl.querySelector('#docAcc .cl-text'), 'Auditor confirms the evidence pack is complete', 40);
+  docEl.querySelector('#docAcc .check-add').click();
+  const lines = docEl.querySelectorAll('#docAcc .cl-text');
+  await M.typeCE(lines[lines.length - 1], 'New policies signed by all owners', 40);
+  await M.sleep(900);
+  M.caption('<b>5/5</b> · 回看板 —— 卡片已经在了，这一页永远是它的“家”');
+  document.getElementById('docBack').click();
+  await M.sleep(1200);
+  M.toast('新建没有“提交”动作 · 写到哪保存到哪', 4200);
+  M.captionHide();
+});
+</script>
+</body>
+</html>

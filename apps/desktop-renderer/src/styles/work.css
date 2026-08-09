@@ -129,7 +129,6 @@
   background: var(--accent);
   color: var(--accent-fg);
 }
-.work-form-modal .btn,
 .work-link-modal .btn,
 .work-config-modal .btn,
 .work-drawer .btn {
@@ -144,7 +143,6 @@
   color: var(--fg);
   font: 650 11px var(--font-ui);
 }
-.work-form-modal .btn.primary,
 .work-config-modal .btn.primary,
 .work-reminder-popup .btn.primary {
   border-color: var(--accent);
@@ -499,8 +497,7 @@
 }
 .work-drawer-header button,
 .work-link-modal header button,
-.work-config-modal header button,
-.work-form-modal header button {
+.work-config-modal header button {
   width: 29px;
   height: 29px;
   display: grid;
@@ -864,11 +861,10 @@
   font-size: 9px;
 }
 
-/* Creation/configuration dialogs */
+/* Configuration dialogs */
 .work-modal-backdrop {
   z-index: 80;
 }
-.work-form-modal,
 .work-link-modal,
 .work-config-modal {
   width: min(760px, calc(100vw - 40px));
@@ -882,7 +878,6 @@
   box-shadow: var(--shadow-menu);
   color: var(--fg);
 }
-.work-form-modal > header,
 .work-link-modal > header,
 .work-config-modal > header {
   flex: none;
@@ -893,44 +888,22 @@
   padding: 16px 18px;
   border-bottom: 1px solid var(--border);
 }
-.work-form-modal h2,
 .work-link-modal h2,
 .work-config-modal h2 {
   margin: 3px 0 0;
   font: 600 18px var(--font-display);
 }
-.work-form-grid {
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  overflow: auto;
-  padding: 16px 18px 24px;
-}
-.work-form-grid > label,
 .work-link-options > label,
 .work-config-modal > label {
   display: grid;
   align-content: start;
   gap: 5px;
 }
-.work-form-grid label > span,
 .work-link-options label > span,
 .work-config-modal label > span {
   color: var(--fg-muted);
   font-size: 9px;
 }
-.work-form-grid label em {
-  color: var(--danger);
-  font: 7px var(--font-ui);
-}
-.work-form-grid label small {
-  color: var(--fg-faint);
-  font-size: 8px;
-}
-.work-form-grid input,
-.work-form-grid select,
-.work-form-grid textarea,
 .work-link-options input,
 .work-link-options select,
 .work-config-modal > label input,
@@ -947,8 +920,6 @@
   color: var(--fg);
   font: 10px/1.4 var(--font-ui);
 }
-.work-form-grid input,
-.work-form-grid select,
 .work-link-options input,
 .work-link-options select,
 .work-config-modal > label input,
@@ -958,37 +929,10 @@
 .work-config-field-add select {
   height: 32px;
 }
-.work-form-grid textarea,
 .work-config-modal textarea {
   padding: 8px;
   resize: vertical;
 }
-.work-form-span {
-  grid-column: 1 / -1;
-}
-.work-form-check {
-  grid-template-columns: auto 1fr !important;
-  align-items: center;
-}
-.work-form-check input {
-  width: auto;
-  height: auto;
-}
-.work-form-section {
-  display: grid;
-  gap: 2px;
-  margin-top: 4px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-soft);
-}
-.work-form-section strong {
-  font: 600 13px var(--font-display);
-}
-.work-form-section span {
-  color: var(--fg-muted);
-  font-size: 8.5px;
-}
-.work-form-modal > footer,
 .work-config-modal > footer {
   flex: none;
   display: flex;
@@ -1122,22 +1066,92 @@
   height: auto;
 }
 
-/* Global reminder popup */
+/* Global reminder alarm (user-picked ★A+B direction): cards swing in at the
+ * top-right like they were hung on a nail, the bell keeps rocking, and the
+ * card "heartbeats" every 10s (lift + amber halo) until the reminder is
+ * handled. Handling stops all motion: View routes to the item, Snooze and the
+ * ✗ are durable mutations, and ✗ (cancel) also drops the Dock badge. */
 .work-reminder-popup {
   position: fixed;
+  /* Below both the view header and the detail drawer's header — an alarm may
+   * cover content, but never the controls that close/act on other surfaces. */
+  top: calc(var(--titlebar-height) + 78px);
   right: 18px;
-  bottom: calc(var(--statusbar-height) + 16px);
   z-index: 130;
-  width: min(420px, calc(100vw - 36px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  width: min(430px, calc(100vw - 36px));
+  pointer-events: none;
+}
+.work-reminder-popup .work-reminder-card {
+  pointer-events: auto;
+}
+.work-reminder-card {
+  position: relative;
   display: grid;
   grid-template-columns: 38px 1fr;
   gap: 11px;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--warning) 48%, var(--border));
+  width: 100%;
+  padding: 13px 14px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 52%, var(--border));
   border-radius: var(--radius-card);
   background: var(--bg-card);
-  box-shadow: var(--shadow-menu);
+  box-shadow:
+    0 0 0 0 color-mix(in srgb, var(--warning) 35%, transparent),
+    var(--shadow-menu);
   color: var(--fg);
+  transform-origin: 50% -30px;
+  animation:
+    work-alarm-swing 1.1s cubic-bezier(0.2, 0.9, 0.3, 1) both,
+    work-alarm-heartbeat 10s ease-in-out 1.6s infinite;
+}
+@keyframes work-alarm-swing {
+  0% {
+    opacity: 0;
+    transform: translateY(-40px) rotate(8deg);
+  }
+  18% {
+    opacity: 1;
+    transform: translateY(0) rotate(7deg);
+  }
+  38% {
+    transform: rotate(-5.5deg);
+  }
+  58% {
+    transform: rotate(3.5deg);
+  }
+  76% {
+    transform: rotate(-2deg);
+  }
+  90% {
+    transform: rotate(1deg);
+  }
+  100% {
+    transform: rotate(0);
+  }
+}
+@keyframes work-alarm-heartbeat {
+  0%,
+  7%,
+  100% {
+    transform: none;
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--warning) 35%, transparent),
+      var(--shadow-menu);
+  }
+  1.6% {
+    transform: translateY(-5px) scale(1.015);
+  }
+  3.2% {
+    transform: translateY(0) scale(1);
+  }
+  4.5% {
+    box-shadow:
+      0 0 0 14px color-mix(in srgb, var(--warning) 0%, transparent),
+      var(--shadow-menu);
+  }
 }
 .work-reminder-icon {
   width: 36px;
@@ -1148,7 +1162,37 @@
   background: var(--warning-bg);
   color: var(--warning);
 }
+.work-reminder-icon svg {
+  transform-origin: 50% 15%;
+  animation: work-alarm-bell 1.8s ease-in-out infinite;
+}
+@keyframes work-alarm-bell {
+  0%,
+  55%,
+  100% {
+    transform: rotate(0);
+  }
+  62% {
+    transform: rotate(9deg);
+  }
+  72% {
+    transform: rotate(-8deg);
+  }
+  82% {
+    transform: rotate(5deg);
+  }
+  90% {
+    transform: rotate(-2.5deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .work-reminder-card,
+  .work-reminder-icon svg {
+    animation: none;
+  }
+}
 .work-reminder-copy {
+  min-width: 0;
   display: grid;
   gap: 3px;
 }
@@ -1158,7 +1202,7 @@
   letter-spacing: 0.12em;
 }
 .work-reminder-copy > strong {
-  font: 600 14px var(--font-display);
+  font: 600 14px/1.35 var(--font-display);
 }
 .work-reminder-copy p {
   margin: 1px 0 7px;
@@ -1172,6 +1216,10 @@
   background: var(--bg-card);
   color: var(--fg);
   font-size: 8px;
+}
+.work-reminder-actions button:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
 }
 .work-reminder-actions button:last-child {
   width: 27px;
@@ -1256,12 +1304,6 @@
   .work-detail-overview {
     grid-template-columns: 1fr 1fr;
   }
-  .work-form-grid {
-    grid-template-columns: 1fr;
-  }
-  .work-form-span {
-    grid-column: auto;
-  }
   .work-reminder-create,
   .work-evidence-create {
     grid-template-columns: 1fr;
@@ -1271,4 +1313,666 @@
   .work-toolbar > select {
     max-width: 128px;
   }
+}
+
+/* ── Work item document page (ADR-0053) ──────────────────────────────────
+ * Creating or editing a work item is a page, not a form. The page owns the
+ * whole Work surface; the skin owns material, type and geometry as usual. */
+.work-page {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-editor);
+  outline: 0;
+  animation: work-page-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes work-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.work-page-topbar {
+  min-height: 46px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 22px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  background: var(--bg-titlebar);
+}
+.work-page-back {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--fg-muted);
+  font: 650 10.5px var(--font-ui);
+}
+.work-page-back:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.work-page-back svg {
+  transform: rotate(90deg);
+}
+.work-page-crumb {
+  color: var(--fg-muted);
+  font: 550 10.5px var(--font-ui);
+}
+.work-page-crumb b {
+  color: var(--fg);
+  font-weight: 650;
+}
+.work-page-state {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg-faint);
+  font-size: 9px;
+}
+.work-page-state i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.work-page-state.busy i {
+  background: var(--warning);
+}
+.work-page-discard {
+  border: 0;
+  background: transparent;
+  color: var(--danger);
+  font: 600 10px var(--font-ui);
+}
+.work-page-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+.work-page-doc {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 36px 32px 110px;
+}
+.work-page-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg-faint);
+  font: 700 8.5px var(--font-ui);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+.work-page-eyebrow > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--work-type-color, var(--fg-faint));
+}
+.work-page-eyebrow .sep {
+  color: var(--border-strong);
+}
+.work-page-title {
+  width: 100%;
+  margin: 10px 0 2px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: 600 27px/1.25 var(--font-display);
+  letter-spacing: -0.015em;
+  resize: none;
+  outline: none;
+}
+.work-page-title::placeholder {
+  color: var(--fg-faint);
+}
+.work-page-props {
+  display: grid;
+  margin: 12px 0 2px;
+}
+.work-page-prop {
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: 148px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+.work-page-prop-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg-muted);
+  font: 550 10.5px var(--font-ui);
+}
+.work-page-value {
+  justify-self: start;
+  max-width: 100%;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--fg);
+  font: 600 11px var(--font-ui);
+  text-align: left;
+}
+.work-page-value > svg:last-child {
+  color: var(--fg-faint);
+}
+button.work-page-value:hover {
+  background: var(--bg-hover);
+}
+.work-page-value.empty {
+  color: var(--fg-faint);
+  font-weight: 500;
+}
+.work-page-value.static {
+  cursor: default;
+}
+.work-page-priority.priority-urgent,
+.work-page-priority.priority-high {
+  color: var(--danger);
+}
+.work-page-priority.priority-medium {
+  color: var(--warning);
+}
+.work-page-priority.priority-low {
+  color: var(--info);
+}
+.work-page-value-input {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.work-page-value-input input {
+  width: 100%;
+  max-width: 380px;
+  min-height: 26px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--fg);
+  font: 600 11px var(--font-ui);
+  outline: none;
+}
+.work-page-value-input input::placeholder {
+  color: var(--fg-faint);
+  font-weight: 500;
+}
+.work-page-value-input input:hover {
+  background: var(--bg-hover);
+}
+.work-page-value-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 600 11px var(--font-ui);
+}
+.work-page-value-check input {
+  accent-color: var(--accent);
+}
+.work-page-required {
+  color: var(--danger);
+  font: 500 8px var(--font-ui);
+}
+.work-page-rule {
+  height: 1px;
+  margin: 16px 0 4px;
+  border: 0;
+  background: var(--border-soft);
+}
+.work-page-section {
+  margin-top: 18px;
+}
+.work-page-section h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin: 0 0 6px;
+  color: var(--fg-faint);
+  font: 750 8.5px var(--font-ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.work-page-text {
+  width: 100%;
+  min-height: 24px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: 12px/1.65 var(--font-ui);
+  resize: none;
+  outline: none;
+}
+.work-page-text::placeholder {
+  color: var(--fg-faint);
+}
+.work-page-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.work-page-check input[type='checkbox'] {
+  flex: none;
+  accent-color: var(--success);
+}
+.work-page-check-text {
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  font: 11.5px var(--font-ui);
+  outline: none;
+}
+.work-page-check.checked .work-page-check-text {
+  color: var(--fg-faint);
+  text-decoration: line-through;
+}
+.work-page-addline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-faint);
+  font: 550 10px var(--font-ui);
+}
+.work-page-addline:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.work-page-hint {
+  margin: 30px 0 0;
+  padding: 10px 13px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-card);
+  color: var(--fg-muted);
+  font: 10px/1.6 var(--font-ui);
+}
+
+/* Anchored pickers replace every native dropdown/datetime control here. */
+.work-pop {
+  position: fixed;
+  z-index: 120;
+  min-width: 208px;
+  max-width: 320px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-menu);
+}
+.work-pop-head {
+  padding: 6px 8px 4px;
+  color: var(--fg-faint);
+  font: 750 8px var(--font-ui);
+  letter-spacing: 0.11em;
+}
+.work-pop-item {
+  width: 100%;
+  min-height: 29px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--fg);
+  font: 550 10.5px var(--font-ui);
+  text-align: left;
+}
+.work-pop-item:hover {
+  background: var(--bg-hover);
+}
+.work-pop-item.selected {
+  background: var(--bg-selected);
+}
+.work-pop-item.danger {
+  color: var(--danger);
+}
+.work-pop-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+}
+.work-pop-flag {
+  display: inline-flex;
+  color: var(--fg-faint);
+}
+.work-pop-flag.priority-urgent,
+.work-pop-flag.priority-high {
+  color: var(--danger);
+}
+.work-pop-flag.priority-medium {
+  color: var(--warning);
+}
+.work-pop-flag.priority-low {
+  color: var(--info);
+}
+.work-pop-input {
+  width: 100%;
+  height: 29px;
+  margin-top: 4px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: var(--bg-input);
+  color: var(--fg);
+  font: 10.5px var(--font-ui);
+  outline: none;
+}
+.work-pop-input:focus {
+  border-color: var(--border-strong);
+}
+.work-pop-error {
+  padding: 5px 8px 3px;
+  color: var(--danger);
+  font-size: 9px;
+}
+
+@media (max-width: 900px) {
+  .work-page-doc {
+    padding: 26px 18px 90px;
+  }
+  .work-page-prop {
+    grid-template-columns: 120px 1fr;
+  }
+}
+
+/* Typing never grows a box: the caret is the focus indicator on this page.
+ * Buttons and chips keep the global keyboard focus ring for accessibility. */
+.work-page input:focus-visible,
+.work-page textarea:focus-visible,
+.work-pop input:focus-visible {
+  outline: none;
+}
+
+/* Property chips under the title — pull-based complexity in one line. */
+.work-page-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 2px;
+}
+.work-page-chip {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: var(--bg-card);
+  color: var(--fg);
+  font: 600 10.5px var(--font-ui);
+  white-space: nowrap;
+}
+button.work-page-chip:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+.work-page-chip.ghost {
+  border-style: dashed;
+  background: transparent;
+  color: var(--fg-muted);
+  font-weight: 500;
+}
+.work-page-chip.static {
+  background: var(--bg-panel);
+}
+.work-page-chip.label {
+  background: var(--bg-chip);
+}
+.work-page-chip.label:hover svg:last-child {
+  color: var(--danger);
+}
+.work-page-chip.input {
+  border-style: dashed;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-faint);
+}
+.work-page-chip.input:focus-within {
+  border-color: transparent;
+}
+.work-page-chip.input input {
+  width: auto;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: 600 10.5px var(--font-ui);
+  outline: none;
+}
+.work-page-chip.input input::placeholder {
+  color: var(--fg-faint);
+  font-weight: 500;
+}
+
+/* Calendar picker */
+.work-cal-quick {
+  display: flex;
+  gap: 4px;
+  padding: 2px 3px 6px;
+}
+.work-cal-quick button {
+  flex: 1;
+  padding: 5px 6px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--fg-muted);
+  font: 550 9px var(--font-ui);
+  white-space: nowrap;
+}
+.work-cal-quick button:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.work-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 3px;
+}
+.work-cal-head strong {
+  font: 650 10.5px var(--font-ui);
+}
+.work-cal-head button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-muted);
+}
+.work-cal-head button:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.work-cal-head button:first-child svg {
+  transform: rotate(90deg);
+}
+.work-cal-head button:last-child svg {
+  transform: rotate(-90deg);
+}
+.work-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  padding: 0 3px 4px;
+}
+.work-cal-dow {
+  display: grid;
+  place-items: center;
+  height: 20px;
+  color: var(--fg-faint);
+  font: 650 8px var(--font-ui);
+}
+.work-cal-day {
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  font: 550 10px var(--font-ui);
+}
+.work-cal-day:hover {
+  background: var(--bg-hover);
+}
+.work-cal-day.today {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.work-cal-day.selected {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.work-cal-times {
+  display: flex;
+  gap: 4px;
+  padding: 2px 3px 4px;
+}
+.work-cal-times button {
+  flex: 1;
+  padding: 5px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  font: 600 9.5px var(--font-mono);
+}
+.work-cal-times button:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.work-cal-times button.selected {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* Attachments & links */
+.work-page-att {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: var(--radius-chip);
+  background: var(--bg-panel);
+}
+.work-page-att-kind {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+}
+.work-page-att-open {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 1px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+}
+.work-page-att-open strong {
+  overflow: hidden;
+  font: 600 10.5px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-page-att-open small {
+  overflow: hidden;
+  color: var(--fg-faint);
+  font-size: 8.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-page-att-open:hover strong {
+  text-decoration: underline;
+}
+.work-page-att-remove {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-faint);
+}
+.work-page-att-remove:hover {
+  background: var(--bg-hover);
+  color: var(--danger);
+}
+.work-page-att-add {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+}
+.work-page-att-add input {
+  min-width: 0;
+  flex: 1;
+  min-height: 27px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--fg);
+  font: 550 10.5px var(--font-ui);
+  outline: none;
+}
+.work-page-att-add input:hover {
+  background: var(--bg-hover);
+}
+.work-page-att-add input::placeholder {
+  color: var(--fg-faint);
+}
+.work-page-att-add .work-page-addline[disabled] {
+  opacity: 0.45;
+  cursor: default;
 }

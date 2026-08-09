@@ -95,17 +95,13 @@ test('skills: manager (toggle/audit) + "/" picker + /skill: task through the moc
     await page.getByTestId('task-room-back').click();
 
     // ---- Skills main page: grouped catalog + per-Agent management ----
-    await page.getByTestId('rail-view-skills').click();
+    await page.getByTestId('home-settings').click();
+    await page.getByTestId('settings-section-skills').click();
     await expect(page.getByTestId('skills-main-page')).toBeVisible();
     await expect(page.getByTestId('skills-run')).toHaveCount(0);
     await expect(page.locator('.skills-stats')).toHaveCount(0);
-    await expect(page.getByTestId('skills-rail-panel')).toContainText('Observed use');
-    await expect(page.getByTestId('skills-rail-panel')).not.toContainText('not tracked');
-    await expect(
-      page
-        .getByTestId('skills-rail-panel')
-        .locator('.skills-rail-coverage > div', { hasText: 'Codex' }),
-    ).toContainText('transcript-derived');
+    await expect(page.locator('.skills-status-tabs')).toContainText('Observed');
+    await expect(page.locator('.skills-agent-tabs')).toContainText('Codex');
     await expect(page.locator('thead')).toContainText('45-day observation window');
     await expect(page.getByText('Future adapters', { exact: true })).toHaveCount(0);
     await expect(page.getByText('Sources & trust', { exact: true })).toHaveCount(0);
@@ -114,13 +110,13 @@ test('skills: manager (toggle/audit) + "/" picker + /skill: task through the moc
     await expect(row).toContainText('Fill and extract fields');
     await expect(row.locator('.skills-usage-rollup .pi b')).toHaveText('1');
     await expect(row).not.toContainText('no observed use');
-    await expect(page.getByTestId('skills-rail-active').locator('b')).toHaveText('1');
+    await expect(page.getByTestId('skills-status-active')).toContainText('1');
     const explicitRow = page.locator('tbody tr', { hasText: 'deploy-staging' });
     await expect(explicitRow).toContainText('explicit');
     await expect(explicitRow).toContainText('no observed use');
     // The unused explicit Skill plus Charter's two managed control Skills are
     // all honest review candidates in this isolated catalog.
-    await expect(page.getByTestId('skills-rail-review').locator('b')).toHaveText('3');
+    await expect(page.getByTestId('skills-status-review')).toContainText('3');
     await expect(row.locator('.skills-usage-rollup .codex')).toHaveAttribute(
       'title',
       'Codex observed usage',
@@ -129,7 +125,7 @@ test('skills: manager (toggle/audit) + "/" picker + /skill: task through the moc
     // The inventory remains usable at a narrower desktop viewport: controls
     // wrap while the table keeps its horizontal scroll surface.
     await page.setViewportSize({ width: 900, height: 720 });
-    await expect(page.locator('.sr-panel')).toHaveCSS('opacity', '0');
+    await expect(page.locator('.st-nav')).toBeVisible();
     await expect(page.getByTestId('skills-rescan')).toBeVisible();
     await expect(page.getByTestId('skills-rescan')).toBeInViewport();
     await expect(page.getByLabel('Search Skills')).toBeInViewport();
@@ -149,7 +145,7 @@ test('skills: manager (toggle/audit) + "/" picker + /skill: task through the moc
 
     // …and the skill vanishes from the "/" picker immediately.
     await page.getByRole('dialog', { name: 'Manage pdf-fill' }).getByLabel('Close').click();
-    await page.getByTestId('rail-view-sessions').click();
+    await page.getByTestId('settings-back').click();
     await intent.fill('');
     await intent.press('/');
     await expect(picker).toBeVisible();
@@ -217,7 +213,7 @@ test('skills: discovers and live-syncs a trusted external Agent Skills source', 
     rmSync(alphaDir, { recursive: true, force: true });
     await expect(alphaRow).toHaveCount(0);
 
-    await page.getByTestId('rail-view-sessions').click();
+    await page.getByTestId('settings-back').click();
     const intent = page.getByTestId('home-intent');
     await intent.click();
     await intent.press('/');
@@ -297,7 +293,8 @@ test('skills: groups same-name Agent copies and scopes disable/delete safely', a
     },
   });
   try {
-    await page.getByTestId('rail-view-skills').click();
+    await page.getByTestId('home-settings').click();
+    await page.getByTestId('settings-section-skills').click();
     const row = page.locator('tbody tr', { hasText: 'design-review' });
     await expect(row).toBeVisible();
     await expect(row).toContainText('Charter');

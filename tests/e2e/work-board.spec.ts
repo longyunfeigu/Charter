@@ -15,20 +15,60 @@ interface WorkExample {
   acceptance?: string;
   deliverables?: string;
   custom?: Record<string, string | boolean>;
+  /** Pick day 15 of next month through the calendar grid — no native control. */
+  dueViaCalendar?: boolean;
+  /** Queue a link attachment on the page; becomes evidence after creation. */
+  attachment?: string;
 }
 
+async function fillChecklist(
+  page: Page,
+  addTestId: string,
+  linePrefix: string,
+  lines: string,
+): Promise<void> {
+  for (const [index, line] of lines.split('\n').entries()) {
+    await page.getByTestId(addTestId).click();
+    await page.getByTestId(`${linePrefix}-${index}`).fill(line);
+  }
+}
+
+// The document page (ADR-0053) has no submit action: leaving the page with a
+// title commits the item, and the board's detail panel opens on the new card.
 async function createWork(page: Page, example: WorkExample): Promise<void> {
   await page.getByTestId('work-new-item').click();
-  await expect(page.getByTestId('work-item-form')).toBeVisible();
+  await expect(page.getByTestId('work-item-page')).toBeVisible();
   await page.getByTestId('work-title').fill(example.title);
-  await page.getByTestId('work-type').selectOption(example.typeId);
+  await page.getByTestId('work-type').click();
+  await page.getByTestId(`work-type-option-${example.typeId}`).click();
   await page.getByTestId('work-description').fill(example.description);
   if (example.sourcePerson) await page.getByTestId('work-source-person').fill(example.sourcePerson);
   if (example.sourceChannel)
     await page.getByTestId('work-source-channel').fill(example.sourceChannel);
-  if (example.priority) await page.getByTestId('work-priority').selectOption(example.priority);
-  if (example.acceptance) await page.getByTestId('work-acceptance').fill(example.acceptance);
-  if (example.deliverables) await page.getByTestId('work-deliverables').fill(example.deliverables);
+  if (example.priority) {
+    await page.getByTestId('work-priority').click();
+    await page.getByTestId(`work-priority-${example.priority}`).click();
+  }
+  if (example.dueViaCalendar) {
+    await page.getByTestId('work-due-at').click();
+    await page.getByTestId('work-cal-next').click();
+    await page.getByTestId('work-cal-day-15').click();
+    await expect(page.getByTestId('work-due-at')).toContainText('15');
+  }
+  if (example.attachment) {
+    await page.getByTestId('work-attachment-input').fill(example.attachment);
+    await page.getByTestId('work-attachment-add').click();
+    await expect(page.getByTestId('work-attachments')).toContainText(example.attachment);
+  }
+  if (example.acceptance)
+    await fillChecklist(page, 'work-acceptance-add', 'work-acceptance-line', example.acceptance);
+  if (example.deliverables)
+    await fillChecklist(
+      page,
+      'work-deliverables-add',
+      'work-deliverable-line',
+      example.deliverables,
+    );
   for (const [key, value] of Object.entries(example.custom ?? {})) {
     const field = page.getByTestId(`work-custom-${key}`);
     if (typeof value === 'boolean') {
@@ -37,8 +77,8 @@ async function createWork(page: Page, example: WorkExample): Promise<void> {
       await field.fill(value);
     }
   }
-  await page.getByTestId('work-form-submit').click();
-  await expect(page.getByTestId('work-item-form')).toBeHidden();
+  await page.getByTestId('work-page-back').click();
+  await expect(page.getByTestId('work-item-page')).toBeHidden();
   await expect(page.getByTestId('work-detail-title')).toHaveText(example.title);
 }
 
@@ -65,10 +105,15 @@ test.describe('Role-neutral Work board', () => {
       await expect(page.getByTestId('work-rail-panel')).toHaveCount(0);
       await expect(page.getByTestId('home-sidebar')).toHaveCSS('width', '78px');
 
+      // The capture page never asks for assignee or column, and leaving it
+      // without a title discards the empty draft instead of creating junk.
       await page.getByTestId('work-new-item').click();
+      await expect(page.getByTestId('work-item-page')).toBeVisible();
       await expect(page.getByTestId('work-assignee')).toHaveCount(0);
       await expect(page.getByTestId('work-column')).toHaveCount(0);
-      await page.getByTestId('work-form-close').click();
+      await page.getByTestId('work-page-back').click();
+      await expect(page.getByTestId('work-item-page')).toBeHidden();
+      await expect(page.locator('.work-card')).toHaveCount(0);
 
       await createWork(page, {
         title: 'Validate onboarding problem before Q4 planning',
@@ -84,9 +129,13 @@ test.describe('Role-neutral Work board', () => {
           target_users: 'First-time workspace administrators',
           success_metric: 'Increase setup completion from 54% to 70%',
         },
+        dueViaCalendar: true,
+        attachment: 'https://example.com/research/onboarding-brief',
       });
       await expect(page.getByTestId('work-detail-stage')).toHaveValue('work-col-inbox');
       await expect(page.getByTestId('work-detail-source')).toContainText('Monday product review');
+      // The attachment queued on the capture page became durable evidence.
+      await expect(page.getByTestId('work-evidence')).toContainText('onboarding-brief');
       await expect(page.locator('.work-custom-values')).toContainText(
         'New workspace admins abandon setup',
       );
@@ -242,19 +291,24 @@ test.describe('Role-neutral Work board', () => {
         .getByTestId('work-description')
         .fill('Confirm claims, partner attribution, and the exact scheduled payload.');
       await page.getByTestId('work-source-person').fill('Partner success lead');
-      await page.getByTestId('work-priority').selectOption('urgent');
+      await page.getByTestId('work-priority').click();
+      await page.getByTestId('work-priority-urgent').click();
       const pastLocal = await page.evaluate(() => {
         const date = new Date(Date.now() - 60_000);
         return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
           .toISOString()
           .slice(0, 16);
       });
-      await page.getByTestId('work-reminder-at').fill(pastLocal);
-      await page.getByTestId('work-form-submit').click();
+      // Reminders use the typed date picker; explicit datetimes may be past-due
+      // on purpose so the reminder fires immediately after creation.
+      await page.getByTestId('work-reminder-at').click();
+      await page.getByTestId('work-date-input').fill(pastLocal);
+      await page.getByTestId('work-date-input').press('Enter');
+      await page.getByTestId('work-page-back').click();
 
       // A due event can arrive while creation is still settling. Synchronize
       // with the durable detail selection before asserting that snooze keeps it.
-      await expect(page.getByTestId('work-item-form')).toBeHidden();
+      await expect(page.getByTestId('work-item-page')).toBeHidden();
       await expect(page.getByTestId('work-detail-title')).toHaveText(
         'Approve Monday partner announcement',
       );
@@ -262,9 +316,24 @@ test.describe('Role-neutral Work board', () => {
       await expect(page.getByTestId('work-reminder-popup')).toContainText(
         'Approve Monday partner announcement',
       );
+      // ★A+B alarm motion contract: swing-in entrance plus a heartbeat loop
+      // that keeps nagging until the reminder is handled.
+      const animations = await page
+        .locator('.work-reminder-card')
+        .evaluate((card) => getComputedStyle(card).animationName);
+      expect(animations).toContain('work-alarm-swing');
+      expect(animations).toContain('work-alarm-heartbeat');
+      // Authorization-free attention: a due reminder puts a count on the Dock
+      // badge and only handling it (snooze/dismiss) clears it.
+      await expect
+        .poll(async () => app.evaluate(({ app: electronApp }) => electronApp.getBadgeCount()))
+        .toBe(1);
       await page.getByTestId('work-reminder-snooze-10').click();
       await expect(page.getByTestId('work-reminder-popup')).toBeHidden();
       await expect(page.getByTestId('work-reminders')).toContainText('Snoozed');
+      await expect
+        .poll(async () => app.evaluate(({ app: electronApp }) => electronApp.getBadgeCount()))
+        .toBe(0);
 
       // A second immediately due reminder proves View routes from any surface.
       await page.getByTestId('work-detail-reminder-at').fill(pastLocal);

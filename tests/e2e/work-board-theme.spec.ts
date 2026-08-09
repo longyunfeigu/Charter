@@ -19,8 +19,9 @@ test.describe('Work board theme integration', () => {
 
       await page.getByTestId('work-new-item').click();
       await page.getByTestId('work-title').fill('Theme integration proof');
-      await page.getByTestId('work-priority').selectOption('medium');
-      await page.getByTestId('work-form-submit').click();
+      await page.getByTestId('work-priority').click();
+      await page.getByTestId('work-priority-medium').click();
+      await page.getByTestId('work-page-back').click();
       await expect(page.getByTestId('work-detail-title')).toHaveText('Theme integration proof');
       await page.getByTestId('work-detail-close').click();
       await expect(page.locator('.work-card')).toHaveCount(1);

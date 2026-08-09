@@ -8,7 +8,8 @@ import { useWorkspaceStore } from '../store/workspaceStore.js';
  * Open a workspace-relative file reference (PIVOT-015/015r). While a Task Room
  * of the focused project is open (and nothing renders above it), a plain
  * activation peeks in place — the conversation is the anchor (ADR-0014).
- * ⌘/alt-click, any other surface, or launcher context goes to the Editor.
+ * ⌘/alt-click, any other surface, or launcher context goes to the project's
+ * Files tab (ADR-0054); there is no detached global editor surface.
  */
 export function openWorkspaceFile(
   path: string,
@@ -16,7 +17,7 @@ export function openWorkspaceFile(
 ): void {
   const app = useAppStore.getState();
   const explicit = e?.metaKey === true || e?.altKey === true || e?.ctrlKey === true;
-  if (!explicit && app.surface === 'home' && app.taskRoomTaskId) {
+  if (!explicit && app.taskRoomTaskId) {
     const tasks = useTaskStore.getState();
     const task = tasks.tasks.find((t) => t.id === app.taskRoomTaskId);
     const focused = useWorkspaceStore.getState().workspace?.path;
@@ -28,7 +29,12 @@ export function openWorkspaceFile(
       return;
     }
   }
-  app.setSurface('workspace');
+  const workspace = useWorkspaceStore.getState().workspace;
+  if (!workspace) {
+    app.pushToast('info', 'Open a project to view this file.');
+    return;
+  }
+  app.openProjectCenter(workspace.path, 'files');
   void useEditorStore.getState().openFile(path);
 }
 

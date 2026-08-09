@@ -152,11 +152,11 @@
   letter-spacing: 0.1em;
   content: 'AGENT KNOWLEDGE / PROJECT RULES';
 }
-.mv-page-head > div {
+.mv-page-copy {
   min-width: 0;
   flex: 1;
 }
-.mv-page-head > div > span {
+.mv-page-copy > span {
   display: block;
   margin-bottom: 9px;
   color: var(--accent);
@@ -178,6 +178,45 @@
   color: var(--fg-muted);
   font-size: 12.5px;
   line-height: 1.55;
+}
+.mv-page-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 9px;
+}
+.mv-agent-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-editor) 72%, transparent);
+}
+.mv-agent-tabs button {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: 10.5px var(--font-ui);
+  cursor: pointer;
+}
+.mv-agent-tabs button:hover {
+  color: var(--fg);
+}
+.mv-agent-tabs button.on {
+  background: var(--bg-card);
+  color: var(--fg);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--fg) 12%, transparent);
+  font-weight: 650;
 }
 .mv-loading {
   min-height: 220px;

@@ -30,32 +30,30 @@ beforeEach(() => {
   rpcResult.mockReset();
   useWorkspaceStore.setState({ workspace: workspace('/u/alpha') });
   useTaskStore.setState({ tasks: [] });
-  useAppStore.setState({ homePick: false, toasts: [], taskRoomTaskId: null });
+  useAppStore.setState({ toasts: [], taskRoomTaskId: null });
 });
 
 describe('workspaceStore.followProject (ADR-0046)', () => {
-  it('moves the workspace to the given project with the surface pinned', async () => {
+  it('moves the workspace to the given project', async () => {
     rpcResult.mockResolvedValue({ ok: true, data: {} });
     await useWorkspaceStore.getState().followProject('/u/beta');
+    // ADR-0054: workspace changes never navigate, so no surface pin is needed
+    // — the open room simply stays on screen.
     expect(rpcResult).toHaveBeenCalledWith('workspace.open', { path: '/u/beta' });
-    // The pin keeps the open room on screen; workspace.changed releases it.
-    expect(useAppStore.getState().homePick).toBe(true);
   });
 
   it('is a no-op for the current project and for sessions without one', async () => {
     await useWorkspaceStore.getState().followProject('/u/alpha');
     await useWorkspaceStore.getState().followProject(null);
     expect(rpcResult).not.toHaveBeenCalled();
-    expect(useAppStore.getState().homePick).toBe(false);
   });
 
-  it('releases the surface pin and surfaces the error when the open fails', async () => {
+  it('surfaces the error when the open fails', async () => {
     rpcResult.mockResolvedValue({
       ok: false,
       error: { userMessage: 'Project folder is gone' },
     });
     await useWorkspaceStore.getState().followProject('/u/beta');
-    expect(useAppStore.getState().homePick).toBe(false);
     expect(useAppStore.getState().toasts.map((t) => t.message)).toContain('Project folder is gone');
   });
 });

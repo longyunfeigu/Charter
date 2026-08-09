@@ -112,8 +112,9 @@ export const useWorkItemStore = create<WorkItemStore>((set, get) => ({
         alert,
         ...get().reminderAlerts.filter((item) => item.reminder.id !== alert.reminder.id),
       ];
+      // The alarm card (WorkReminderHost) is the one in-app surface for a due
+      // reminder — no duplicate toast; it only added bottom-right noise.
       set({ reminderAlerts: alerts.slice(0, 5) });
-      useAppStore.getState().pushToast('warning', `Reminder: ${alert.item.title}`);
       void get().refresh();
     });
     onEvent('app.focusWorkItem', ({ itemId }) => {

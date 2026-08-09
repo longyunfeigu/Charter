@@ -255,6 +255,23 @@ function MonacoPane({
   const richActive = Boolean(active && meta?.editable && isMdRich({ mdRich }, active));
   const mdToggleShown = Boolean(active && meta?.editable && active.toLowerCase().endsWith('.md'));
 
+  /* Lexical init costs ~450ms of main-thread time on a mid-size document, so
+   * unmounting the rich editor on every tab switch froze each return to the
+   * .md tab. Keep the most recent rich instance mounted and hide it instead —
+   * the same persistence the Monaco pane already gets. The cache drops when
+   * the document closes or the file leaves rich mode. */
+  const [mountedRichPath, setMountedRichPath] = useState<string | null>(null);
+  useEffect(() => {
+    if (richActive && active) setMountedRichPath(active);
+  }, [richActive, active]);
+  useEffect(() => {
+    if (!mountedRichPath) return;
+    if (!docs[mountedRichPath] || !isMdRich({ mdRich }, mountedRichPath)) {
+      setMountedRichPath(null);
+    }
+  }, [mountedRichPath, docs, mdRich]);
+  const richVisible = Boolean(richActive && active && active === mountedRichPath);
+
   useLayoutEffect(() => {
     codeSelectionRef.current = codeSelection;
     floatMinTopRef.current = mdToggleShown ? 46 : 6;
@@ -323,18 +340,27 @@ function MonacoPane({
           </button>
         </div>
       ) : null}
-      {richActive && active ? (
-        <RichEditorBoundary key={`b-${active}`}>
-          <React.Suspense
-            fallback={
-              <div className="empty-state" style={{ position: 'absolute', inset: 0, zIndex: 3 }}>
-                <div className="text-muted">Loading rich editor…</div>
-              </div>
-            }
-          >
-            <MarkdownEditor key={active} path={active} />
-          </React.Suspense>
-        </RichEditorBoundary>
+      {mountedRichPath ? (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 3,
+            display: richVisible ? undefined : 'none',
+          }}
+        >
+          <RichEditorBoundary key={`b-${mountedRichPath}`}>
+            <React.Suspense
+              fallback={
+                <div className="empty-state" style={{ position: 'absolute', inset: 0, zIndex: 3 }}>
+                  <div className="text-muted">Loading rich editor…</div>
+                </div>
+              }
+            >
+              <MarkdownEditor key={mountedRichPath} path={mountedRichPath} />
+            </React.Suspense>
+          </RichEditorBoundary>
+        </div>
       ) : null}
       {/* PIVOT-020: images get a preview + annotation instead of a dead end. */}
       {active && meta && !meta.editable && meta.binary && IMAGE_EXTENSIONS.test(active) ? (

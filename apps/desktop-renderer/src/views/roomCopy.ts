@@ -85,6 +85,7 @@ const ZH: RoomCopy = {
   discardWorktree: '丢弃工作树…',
 };
 
-export function roomCopyFor(text: string): RoomCopy {
-  return /[\u3400-\u9fff]/u.test(text) ? ZH : EN;
+export function roomCopyFor(_text: string): RoomCopy {
+  return getLocale() === 'zh-CN' ? ZH : EN;
 }
+import { getLocale } from '../i18n.js';

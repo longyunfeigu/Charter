@@ -67,7 +67,7 @@ test.describe('Session rail and conversation role polish', () => {
       await expect(page.locator('.sr-session-heading')).toHaveCount(0);
       const sessionsHead = await page.locator('.sr-sessions-head').boundingBox();
       expect(sessionsHead).not.toBeNull();
-      expect(sessionsHead!.height).toBeLessThanOrEqual(56);
+      expect(sessionsHead!.height).toBeLessThanOrEqual(44);
       await expect(page.getByTestId('rail-view-sessions')).toHaveClass(/active/);
       await expect(page.locator('.sr-rail')).toHaveCSS('width', '312px');
       await expect(page.locator('.sr-activity')).toHaveCSS('width', '78px');
@@ -346,19 +346,18 @@ test.describe('Session rail and conversation role polish', () => {
 
       await page.getByTestId(`home-recent-${projectA}`).click();
       await expect(page.getByTestId('project-center')).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByTestId(`home-recent-${projectB}`).locator('..')).toHaveClass(
-        /current/,
-      );
-      await page.getByTestId('project-set-current').click();
+      // ADR-0054: opening a project's center makes it the working context.
       await expect(page.getByTestId(`home-recent-${projectA}`).locator('..')).toHaveClass(
         /current/,
+        { timeout: 15_000 },
       );
       await page.getByTestId('project-center-tab-files').click();
+      // ADR-0054: the current project's Files tab hosts the real editor —
+      // clicking a file opens it as an editable tab in place.
+      await expect(page.getByTestId('project-center-editor')).toBeVisible();
       await page.getByTestId('project-file-src').click();
       await page.getByTestId('project-file-src/index.ts').click();
-      await page.getByRole('button', { name: 'Open in editor' }).click();
-      await expect(page.getByTestId('project-tool-view')).toBeVisible();
-      await expect(page.getByTestId('explorer')).toBeVisible();
+      await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
       await expect(page.getByTestId('home-project-tree')).toHaveCount(0);
       await page.screenshot({
         path: join(tmpdir(), 'charter-project-files-canonical.png'),

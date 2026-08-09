@@ -236,7 +236,7 @@ macOS keys are shown; use `Ctrl` in place of `Command` on Windows and Linux wher
 | Action | Shortcut | Action | Shortcut |
 | --- | --- | --- | --- |
 | Search everything | `Command+K` | New Session | `Command+N` |
-| Open Editor | `Command+E` | Quick Console | `Option+Space` |
+| Session file tool | `Command+E` | Quick Console | `Option+Space` |
 | Command Palette | `Command+Shift+P` | Quick Open | `Command+P` |
 | Open project | `Command+O` | Workspace search | `Command+Shift+F` |
 | Toggle Agent panel | `Command+L` | Toggle bottom panel | `Command+J` |

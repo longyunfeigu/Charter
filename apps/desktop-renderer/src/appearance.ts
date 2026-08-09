@@ -1,4 +1,5 @@
 import { DEFAULT_EDITOR_FONT_FAMILY, type Settings } from '@pi-ide/ipc-contracts';
+import { setLocale } from './i18n.js';
 
 export type AppearanceSkin = Settings['general']['skin'];
 export type EffectiveTheme = 'light' | 'dark';
@@ -55,6 +56,7 @@ export function resolveEffectiveTheme(settings: Settings | null): EffectiveTheme
 /** Apply appearance before publishing settings to React, avoiding a one-frame mixed skin. */
 export function applyAppearance(settings: Settings | null): void {
   const root = document.documentElement;
+  setLocale(settings?.general.locale);
   root.dataset.skin = settings?.general.skin ?? 'studio';
   root.dataset.theme = resolveEffectiveTheme(settings);
   root.style.setProperty('--font-editor', editorFontFamily(settings?.editor.fontFamily));

@@ -917,7 +917,6 @@ export function HomeView(): React.JSX.Element {
                     data-testid={`home-menu-recent-${r.path}`}
                     onClick={() => {
                       setProjectMenuOpen(false);
-                      app.setHomePick(true);
                       void workspaceStore.openPath(r.path);
                     }}
                   >
@@ -933,7 +932,6 @@ export function HomeView(): React.JSX.Element {
                   className="hm-row"
                   onClick={() => {
                     setProjectMenuOpen(false);
-                    app.setHomePick(true);
                     void workspaceStore.openViaDialog();
                   }}
                 >

@@ -22,6 +22,7 @@ import { Ic } from './home-icons.js';
 import '../styles/artifact.css';
 
 const EMPTY_ANCHOR: ArtifactAnchorDto = { type: 'whole' };
+const DEFAULT_HTML_MODE = 'interactive' as const;
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -866,7 +867,7 @@ export function SessionArtifactView({
   const [opened, setOpened] = useState<ArtifactOpenResultDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [htmlMode, setHtmlMode] = useState<'safe' | 'interactive'>('safe');
+  const [htmlMode, setHtmlMode] = useState<'safe' | 'interactive'>(DEFAULT_HTML_MODE);
   const [anchor, setAnchor] = useState<ArtifactAnchorDto>(EMPTY_ANCHOR);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [submission, setSubmission] = useState<SubmissionState>(IDLE_SUBMISSION);
@@ -1040,7 +1041,7 @@ export function SessionArtifactView({
               onClick={() => {
                 setSelectedPath(artifact.path);
                 setSelectedHash(null);
-                setHtmlMode('safe');
+                setHtmlMode(DEFAULT_HTML_MODE);
               }}
             >
               <span className={`artifact-kind kind-${artifact.kind}`}>

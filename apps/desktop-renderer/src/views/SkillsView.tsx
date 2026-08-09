@@ -455,17 +455,30 @@ export function SkillsView(): React.JSX.Element {
 
         <div className="skills-controls">
           <div className="skills-status-tabs" role="group" aria-label="Skill status">
-            <button className={status === 'all' ? 'on' : ''} onClick={() => setStatus('all')}>
+            <button
+              className={status === 'all' ? 'on' : ''}
+              data-testid="skills-status-all"
+              onClick={() => setStatus('all')}
+            >
               All {counts.all}
             </button>
-            <button className={status === 'active' ? 'on' : ''} onClick={() => setStatus('active')}>
+            <button
+              className={status === 'active' ? 'on' : ''}
+              data-testid="skills-status-active"
+              onClick={() => setStatus('active')}
+            >
               Observed {usageLoaded ? counts.active : '—'}
             </button>
-            <button className={status === 'review' ? 'on' : ''} onClick={() => setStatus('review')}>
+            <button
+              className={status === 'review' ? 'on' : ''}
+              data-testid="skills-status-review"
+              onClick={() => setStatus('review')}
+            >
               Review {usageLoaded ? counts.review : '—'}
             </button>
             <button
               className={status === 'disabled' ? 'on' : ''}
+              data-testid="skills-status-disabled"
               onClick={() => setStatus('disabled')}
             >
               Disabled {counts.disabled}

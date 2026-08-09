@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>方向 B · 渐进披露 — Work capture mock</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .pm-wrap { padding-top: 13vh; }
+  .pm-modal {
+    width: min(580px, calc(100vw - 48px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--bg-card);
+    box-shadow: var(--shadow-menu);
+    animation: pm-in 200ms cubic-bezier(0.2, 0.9, 0.3, 1.1);
+  }
+  @keyframes pm-in { from { opacity: 0; transform: translateY(-10px) scale(0.985); } to { opacity: 1; transform: none; } }
+  .pm-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 13px 16px 0;
+  }
+  .pm-body { padding: 4px 16px 0; }
+  .pm-title {
+    width: 100%;
+    padding: 8px 0 2px;
+    border: 0;
+    background: transparent;
+    color: var(--fg);
+    font: 600 16.5px/1.35 var(--font-ui);
+    letter-spacing: -0.01em;
+    outline: none;
+  }
+  .pm-title::placeholder { color: var(--fg-faint); font-weight: 500; }
+  .pm-desc {
+    width: 100%;
+    min-height: 40px;
+    max-height: 30vh;
+    padding: 2px 0 8px;
+    border: 0;
+    background: transparent;
+    color: var(--fg);
+    font: 400 11.5px/1.6 var(--font-ui);
+    resize: none;
+    outline: none;
+  }
+  .pm-desc::placeholder { color: var(--fg-faint); }
+  .pm-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 16px 13px;
+  }
+  .pm-chip {
+    min-height: 27px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 9px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--fg);
+    font: 600 10px var(--font-ui);
+    transition: border-color 120ms, background 120ms;
+  }
+  .pm-chip:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+  .pm-chip.ghost { border-style: dashed; color: var(--fg-muted); font-weight: 500; }
+  .pm-chip .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .pm-chip kbd { margin-left: 2px; }
+  .pm-more-panel {
+    display: grid;
+    gap: 12px;
+    padding: 13px 16px;
+    border-top: 1px solid var(--border-soft);
+    background: var(--bg-panel);
+  }
+  .pm-more-panel label { display: grid; gap: 4px; color: var(--fg-muted); font-size: 9px; }
+  .pm-more-panel textarea {
+    min-height: 52px;
+    padding: 8px 9px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-input);
+    color: var(--fg);
+    font: 11px/1.55 var(--font-ui);
+    resize: vertical;
+    outline: none;
+  }
+  .pm-more-panel textarea:focus { border-color: var(--border-strong); }
+  .pm-more-row { display: flex; gap: 6px; }
+  .pm-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 16px;
+    border-top: 1px solid var(--border-soft);
+    background: var(--bg-panel);
+  }
+  .pm-createmore {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--fg-muted);
+    font: 550 10px var(--font-ui);
+  }
+  .pm-createmore input { accent-color: var(--accent); }
+  .pm-foot .spacer { flex: 1; }
+</style>
+</head>
+<body>
+<div class="modal-backdrop pm-wrap hidden" id="pmBackdrop">
+  <form class="pm-modal" id="pmModal">
+    <div class="pm-head">
+      <span class="work-eyebrow">NEW WORK ITEM</span>
+      <button type="button" class="icon-btn" id="pmClose"></button>
+    </div>
+    <div class="pm-body">
+      <input class="pm-title" id="pmTitle" placeholder="Describe the outcome, not just the activity" maxlength="500">
+      <textarea class="pm-desc" id="pmDesc" rows="2"
+        placeholder="Add context — what should be true when this is done? (optional)"></textarea>
+    </div>
+    <div class="pm-chips" id="pmChips"></div>
+    <div class="pm-more-panel hidden" id="pmMore">
+      <label>Background and context
+        <textarea placeholder="Why now, relevant history, constraints, links, decisions already made"></textarea></label>
+      <label>Acceptance criteria — one per line
+        <textarea placeholder="Decision is documented with cited evidence&#10;Stakeholders can review the final output"></textarea></label>
+      <div class="pm-more-row" id="pmMoreDates"></div>
+    </div>
+    <footer class="pm-foot">
+      <label class="pm-createmore"><input type="checkbox" id="pmCreateMore"> Create more</label>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="pmCancel">Cancel</button>
+      <button type="submit" class="btn primary" id="pmSubmit" disabled>Create <kbd style="border-color:rgba(255,255,255,.3);background:transparent;color:rgba(255,255,255,.75)">⌘↩</kbd></button>
+    </footer>
+  </form>
+</div>
+
+<script src="shared.js"></script>
+<script>
+const M = CM;
+const { columns, bump, newBtn, demoBtn } = M.mountShell({
+  current: 'b',
+  title: '方向 B · 渐进披露 — 两个输入 + 一排按需展开的 chips',
+  demo: true,
+});
+
+const backdrop = document.getElementById('pmBackdrop');
+const modal = document.getElementById('pmModal');
+const titleI = document.getElementById('pmTitle');
+const descI = document.getElementById('pmDesc');
+const chipsRow = document.getElementById('pmChips');
+const moreP = document.getElementById('pmMore');
+const submitB = document.getElementById('pmSubmit');
+document.getElementById('pmClose').innerHTML = M.ic('x', 14);
+
+let state;
+function resetState(keepType) {
+  state = {
+    type: keepType || 'General', priority: 'none', due: '', labels: [],
+    source: { person: '', channel: '', url: '' },
+    start: '', reminder: '',
+  };
+}
+resetState();
+
+/* Chip row — value-bearing chips are solid, unset ones are dashed ghosts. */
+const CHIPDEFS = [
+  { k: 'type', icon: null, hint: 'T' },
+  { k: 'priority', icon: 'flag', hint: 'P', empty: 'Priority' },
+  { k: 'due', icon: 'calendar', hint: 'D', empty: 'Due' },
+  { k: 'labels', icon: 'tag', hint: 'L', empty: 'Labels' },
+  { k: 'source', icon: 'user', hint: 'S', empty: 'Source' },
+  { k: 'more', icon: 'dots', hint: null, empty: 'More' },
+];
+function renderChips() {
+  chipsRow.innerHTML = '';
+  CHIPDEFS.forEach((def) => {
+    let html = '';
+    let ghost = true;
+    if (def.k === 'type') {
+      html = `<span class="dot" style="background:${M.typeColor(state.type)}"></span>${state.type}`;
+      ghost = false;
+    } else if (def.k === 'priority' && state.priority !== 'none') {
+      const d = M.priorityDef(state.priority);
+      html = `<span style="color:${d.color}">${M.ic('flag', 11)}</span>${d.label}`;
+      ghost = false;
+    } else if (def.k === 'due' && state.due) {
+      html = `${M.ic('calendar', 11)}${state.due}`;
+      ghost = false;
+    } else if (def.k === 'labels' && state.labels.length) {
+      html = `${M.ic('tag', 10)}${state.labels.join(' · ')}`;
+      ghost = false;
+    } else if (def.k === 'source' && (state.source.person || state.source.channel)) {
+      html = `${M.ic('user', 10)}${[state.source.person, state.source.channel].filter(Boolean).join(' · ')}`;
+      ghost = false;
+    } else if (def.k === 'more') {
+      html = `${M.ic('dots', 12)}${moreP.classList.contains('hidden') ? 'More' : 'Less'}`;
+      ghost = moreP.classList.contains('hidden');
+    } else {
+      html = `${M.ic(def.icon, 11)}${def.empty}`;
+    }
+    const chip = M.el(`<button type="button" class="pm-chip ${ghost ? 'ghost' : ''}" data-k="${def.k}">${html}${
+      def.hint && ghost ? `<kbd>${def.hint}</kbd>` : ''
+    }</button>`);
+    chip.onclick = () => openChip(def.k, chip);
+    chipsRow.appendChild(chip);
+  });
+}
+function openChip(k, anchor) {
+  if (k === 'type') M.popType(anchor, state.type, (t) => { state.type = t; renderChips(); });
+  else if (k === 'priority') M.popPriority(anchor, state.priority, (p) => { state.priority = p; renderChips(); });
+  else if (k === 'due') M.popDue(anchor, (d) => { state.due = d; renderChips(); });
+  else if (k === 'labels') M.popLabels(anchor, state.labels, (l) => { state.labels = l; renderChips(); });
+  else if (k === 'source') M.popSource(anchor, state.source, (s) => { state.source = s; renderChips(); });
+  else if (k === 'more') { moreP.classList.toggle('hidden'); renderChips(); }
+}
+
+/* Start / first reminder as quick chips inside More — no native pickers. */
+const moreDates = document.getElementById('pmMoreDates');
+function renderMoreDates() {
+  moreDates.innerHTML = '';
+  [['start', 'clock', 'Start'], ['reminder', 'bell', 'First reminder']].forEach(([key, icon, label]) => {
+    const set = state[key];
+    const chip = M.el(`<button type="button" class="pm-chip ${set ? '' : 'ghost'}">${M.ic(icon, 11)}${set || label}</button>`);
+    chip.onclick = () => M.popDue(chip, (d) => { state[key] = d; renderMoreDates(); }, label.toUpperCase());
+    moreDates.appendChild(chip);
+  });
+}
+
+function openModal() {
+  backdrop.classList.remove('hidden');
+  renderChips();
+  renderMoreDates();
+  setTimeout(() => titleI.focus(), 40);
+}
+function closeModal() {
+  backdrop.classList.add('hidden');
+  titleI.value = '';
+  descI.value = '';
+  moreP.classList.add('hidden');
+  moreP.querySelectorAll('textarea').forEach((t) => (t.value = ''));
+  resetState(state.type);
+  syncSubmit();
+}
+function syncSubmit() { submitB.disabled = !titleI.value.trim(); }
+titleI.addEventListener('input', syncSubmit);
+
+function createItem() {
+  if (!titleI.value.trim()) return;
+  const card = M.cardEl({
+    title: titleI.value.trim(), type: state.type,
+    priority: state.priority, due: state.due, dueTone: state.due ? 'soon' : '',
+    labels: state.labels, source: state.source.person, cls: 'landing',
+  });
+  columns.inbox.prepend(card);
+  bump('inbox', 1);
+  M.flash(card);
+  const more = document.getElementById('pmCreateMore').checked;
+  if (more) {
+    const ref = card.querySelector('.work-card-reference').textContent.trim();
+    M.toast(`${ref} created — keep going`);
+    titleI.value = ''; descI.value = '';
+    resetState(state.type);
+    renderChips(); renderMoreDates();
+    titleI.focus();
+    syncSubmit();
+  } else {
+    closeModal();
+  }
+}
+modal.addEventListener('submit', (e) => { e.preventDefault(); createItem(); });
+modal.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); createItem(); }
+  if (e.key === 'Escape') closeModal();
+});
+document.getElementById('pmCancel').onclick = closeModal;
+document.getElementById('pmClose').onclick = closeModal;
+backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) closeModal(); });
+newBtn.onclick = openModal;
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') { e.preventDefault(); openModal(); }
+});
+
+/* ── Scripted demo ─────────────────────────────────────────────────── */
+M.bindDemo(demoBtn, async () => {
+  M.caption('<b>1/5</b> · 新建：只有标题 + 补充说明两个输入，其余全部收进 chips');
+  openModal();
+  await M.sleep(1500);
+  M.caption('<b>2/5</b> · 先写结果，不被 12 个字段打断');
+  await M.typeInto(titleI, 'Answer the enterprise security questionnaire');
+  syncSubmit();
+  await M.sleep(700);
+  M.caption('<b>3/5</b> · 复杂度是拉取式的：要什么，点什么');
+  const chip = (k) => chipsRow.querySelector(`[data-k="${k}"]`);
+  chip('priority').click();
+  await M.sleep(950);
+  document.querySelectorAll('.pop-item')[4].click(); // High
+  await M.sleep(750);
+  chip('due').click();
+  await M.sleep(950);
+  document.querySelectorAll('.pop-item')[2].click(); // Fri Aug 14
+  await M.sleep(750);
+  chip('labels').click();
+  await M.sleep(800);
+  document.querySelectorAll('.pop-suggest button')[2].click(); // customer
+  await M.sleep(600);
+  M.closePop();
+  M.caption('<b>4/5</b> · 背景、验收标准这些“以后再补”的字段藏在 More 里');
+  chip('more').click();
+  await M.sleep(1600);
+  chip('more').click();
+  M.caption('<b>5/5</b> · ⌘↩ 创建，卡片落板');
+  await M.sleep(900);
+  createItem();
+  await M.sleep(700);
+  M.toast('12 个字段 → 2 个输入 + 按需 chips · 全程键盘可达', 4200);
+  M.captionHide();
+});
+</script>
+</body>
+</html>

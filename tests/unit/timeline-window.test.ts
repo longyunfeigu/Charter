@@ -3,6 +3,8 @@ import {
   computeWindow,
   growWindow,
   initialWindow,
+  openingWindow,
+  PROGRESSIVE_WINDOW,
   STREAM_BUFFER_CAP,
   STREAM_MARKDOWN_LIMIT,
   TIMELINE_CHUNK,
@@ -76,6 +78,23 @@ describe('RoomTimeline windowing (M11-04)', () => {
     g.__PI_IDE_TIMELINE_WINDOW = 'nope';
     expect(initialWindow()).toBe(TIMELINE_WINDOW);
     delete g.__PI_IDE_TIMELINE_WINDOW;
+  });
+
+  it('openingWindow (ADR-0055): progressive by default, full for a mid-transcript memory', () => {
+    const AT_BOTTOM = -1;
+    // No memory / pinned to bottom → progressive first paint.
+    expect(openingWindow(undefined, AT_BOTTOM)).toBe(PROGRESSIVE_WINDOW);
+    expect(openingWindow(AT_BOTTOM, AT_BOTTOM)).toBe(PROGRESSIVE_WINDOW);
+    // A real reading position needs the full window to restore into.
+    expect(openingWindow(1234, AT_BOTTOM)).toBe(TIMELINE_WINDOW);
+    // The E2E override always wins.
+    const g = globalThis as { __PI_IDE_TIMELINE_WINDOW?: unknown };
+    g.__PI_IDE_TIMELINE_WINDOW = 2;
+    expect(openingWindow(undefined, AT_BOTTOM)).toBe(2);
+    expect(openingWindow(1234, AT_BOTTOM)).toBe(2);
+    delete g.__PI_IDE_TIMELINE_WINDOW;
+    // Progressive stays comfortably below the full window.
+    expect(PROGRESSIVE_WINDOW).toBeLessThan(TIMELINE_WINDOW);
   });
 });
 

@@ -113,8 +113,7 @@ test('auto-detects Agent CLIs, keeps official marks, and launches Kimi', async (
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(page).toHaveTitle('Charter');
     await expect(page.locator('vite-error-overlay')).toHaveCount(0);
-    await expect(page.getByTestId('project-tool-view')).toBeVisible();
-    await page.getByTestId('project-tool-back').click();
+    // ADR-0054: the shell boots on Home even with a restored workspace.
     await expect(page.getByTestId('home-view')).toBeVisible();
     await page.getByTestId('home-agent').click();
     for (const agent of ['claude', 'codex', 'kimi']) {

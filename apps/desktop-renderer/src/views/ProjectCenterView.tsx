@@ -14,6 +14,7 @@ import { agentDisplayName } from '../store/agentCatalogStore.js';
 import { useOrchestrationStore } from '../store/orchestrationStore.js';
 import { RUNNING_TASK_STATES, useTaskStore } from '../store/taskStore.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
+import { EditorArea } from '../workbench/EditorArea.js';
 import { useTerminalStore } from './TerminalPanel.js';
 import { canResumeExternal, isHistoryTask, needsAttention, presentedMeta } from './labels.js';
 import { Ic, ProviderMark, type ProviderMarkKind } from './home-icons.js';
@@ -24,6 +25,7 @@ import {
   type SessionHistoryItem,
 } from './session-history.js';
 import { visibleProjectSessionTasks } from './mission-session-visibility.js';
+import { formatDate, formatRelativeTime, t } from '../i18n.js';
 
 type ProjectInspection = ChannelResponse<'project.inspect'>;
 type ProjectFile = ChannelResponse<'project.readFile'>;
@@ -40,19 +42,17 @@ const TABS: Array<{ id: ProjectCenterTab; label: string }> = [
 const MANUAL_REFRESH_FEEDBACK_MS = 500;
 
 function relativeTime(value: string | null, now = Date.now()): string {
-  if (!value) return 'No activity yet';
+  if (!value) return t('No activity yet');
   const delta = Math.max(0, now - Date.parse(value));
-  if (!Number.isFinite(delta)) return 'Unknown';
+  if (!Number.isFinite(delta)) return t('Unknown');
   const minutes = Math.floor(delta / 60_000);
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return formatRelativeTime(0, 'minute');
+  if (minutes < 60) return formatRelativeTime(-minutes, 'minute');
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return formatRelativeTime(-hours, 'hour');
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
-    new Date(value),
-  );
+  if (days < 30) return formatRelativeTime(-days, 'day');
+  return formatDate(value, { month: 'short', day: 'numeric' });
 }
 
 function providerForTask(task: TaskDto): ProviderMarkKind {
@@ -453,6 +453,10 @@ function FileTree(props: {
 
 function FilesTab(props: {
   projectPath: string;
+  /** The project is the working context — the shared document model may own
+   * its buffers, so the tab embeds the real editor (ADR-0054). Browsed
+   * projects keep the safe read-only preview. */
+  current: boolean;
   onOpenEditor(file?: string): void;
 }): React.JSX.Element {
   const [dirs, setDirs] = useState<Record<string, DirEntryDto[] | undefined>>({});
@@ -461,6 +465,9 @@ function FilesTab(props: {
   const [preview, setPreview] = useState<ProjectFile | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [showIgnored, setShowIgnored] = useState(false);
+  const activeEditorPath = useEditorStore(
+    (state) => state.groups[state.activeGroup]?.active ?? null,
+  );
 
   const loadDir = useCallback(
     async (dir: string): Promise<void> => {
@@ -494,6 +501,11 @@ function FilesTab(props: {
 
   const select = async (file: string): Promise<void> => {
     setSelected(file);
+    if (props.current) {
+      // Click = view and edit: the file opens as a real editor tab.
+      await useEditorStore.getState().openFile(file);
+      return;
+    }
     setLoadingPreview(true);
     const result = await rpcResult('project.readFile', { path: props.projectPath, file });
     setLoadingPreview(false);
@@ -523,45 +535,54 @@ function FilesTab(props: {
             dir=""
             dirs={dirs}
             expanded={expanded}
-            selected={selected}
+            selected={props.current ? activeEditorPath : selected}
             onToggle={toggle}
             onSelect={(file) => void select(file)}
           />
         </div>
       </aside>
-      <section className="pc-file-preview">
-        {selected ? (
-          <>
-            <header>
-              <div>
-                <strong>{selected.split('/').at(-1)}</strong>
-                <span>{selected}</span>
-              </div>
-              <button className="pc-button" onClick={() => props.onOpenEditor(selected)}>
-                Open in editor
-              </button>
-            </header>
-            {loadingPreview ? (
-              <div className="pc-preview-message">Loading preview…</div>
-            ) : preview?.binary ? (
-              <div className="pc-preview-message">
-                Binary file · {preview.size.toLocaleString()} bytes
-              </div>
-            ) : (
-              <pre>
-                <code>{preview?.content ?? ''}</code>
-                {preview?.truncated ? '\n\n— Preview truncated at 256 KiB —' : ''}
-              </pre>
-            )}
-          </>
-        ) : (
-          <EmptyState
-            icon="file"
-            title="Select a file"
-            detail="Browse safely without changing the current working project."
-          />
-        )}
-      </section>
+      {props.current ? (
+        <section
+          className="pc-file-preview pc-file-editor-host"
+          data-testid="project-center-editor"
+        >
+          <EditorArea />
+        </section>
+      ) : (
+        <section className="pc-file-preview">
+          {selected ? (
+            <>
+              <header>
+                <div>
+                  <strong>{selected.split('/').at(-1)}</strong>
+                  <span>{selected}</span>
+                </div>
+                <button className="pc-button" onClick={() => props.onOpenEditor(selected)}>
+                  Set as current & edit
+                </button>
+              </header>
+              {loadingPreview ? (
+                <div className="pc-preview-message">Loading preview…</div>
+              ) : preview?.binary ? (
+                <div className="pc-preview-message">
+                  Binary file · {preview.size.toLocaleString()} bytes
+                </div>
+              ) : (
+                <pre>
+                  <code>{preview?.content ?? ''}</code>
+                  {preview?.truncated ? '\n\n— Preview truncated at 256 KiB —' : ''}
+                </pre>
+              )}
+            </>
+          ) : (
+            <EmptyState
+              icon="file"
+              title="Select a file"
+              detail="Browse safely without changing the current working project."
+            />
+          )}
+        </section>
+      )}
     </div>
   );
 }
@@ -820,9 +841,18 @@ export function ProjectCenterView(): React.JSX.Element {
     void useArchaeologyStore.getState().scan();
   }, [refresh]);
 
+  // ADR-0054: opening a project's center makes it the working context — the
+  // same principle as entering a session (ADR-0046). The rail's Files tree,
+  // the embedded editor and the composer binding follow the project you are
+  // looking at, without a separate "Set as current" step.
+  const inspectedExists = inspection?.exists === true;
+  useEffect(() => {
+    if (!projectPath || !inspectedExists) return;
+    void useWorkspaceStore.getState().followProject(projectPath);
+  }, [projectPath, inspectedExists]);
+
   const activate = async (): Promise<boolean> => {
     if (useWorkspaceStore.getState().workspace?.path === projectPath) return true;
-    useAppStore.getState().setHomePick(true);
     await useWorkspaceStore.getState().openPath(projectPath);
     return useWorkspaceStore.getState().workspace?.path === projectPath;
   };
@@ -852,7 +882,9 @@ export function ProjectCenterView(): React.JSX.Element {
   const openEditor = async (file?: string): Promise<void> => {
     if (!(await activate())) return;
     if (file) await useEditorStore.getState().openFile(file);
-    useAppStore.getState().setProjectTool('editor');
+    // The editor lives in this center's Files tab (ADR-0054), not a
+    // detached surface — activation re-renders the tab as the real editor.
+    setTab('files');
   };
 
   const openChanges = async (): Promise<void> => {
@@ -1010,7 +1042,11 @@ export function ProjectCenterView(): React.JSX.Element {
               onBrowseAll={() => useAppStore.getState().openArchaeology(null)}
             />
           ) : center.tab === 'files' ? (
-            <FilesTab projectPath={projectPath} onOpenEditor={(file) => void openEditor(file)} />
+            <FilesTab
+              projectPath={projectPath}
+              current={current}
+              onOpenEditor={(file) => void openEditor(file)}
+            />
           ) : center.tab === 'changes' ? (
             <ChangesTab inspection={inspection} onOpenChanges={() => void openChanges()} />
           ) : (

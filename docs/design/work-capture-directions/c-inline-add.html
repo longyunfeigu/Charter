@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>方向 C · 行内速添 — Work capture mock</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  /* Inline composer, shaped like the card it becomes */
+  .qa-composer {
+    padding: 9px 10px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-card);
+    background: var(--bg-card);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 7%, transparent), var(--shadow-card);
+    animation: card-land 200ms ease-out;
+  }
+  .qa-composer textarea {
+    width: 100%;
+    min-height: 21px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--fg);
+    font: 600 12.5px/1.4 var(--font-ui);
+    letter-spacing: -0.01em;
+    resize: none;
+    outline: none;
+  }
+  .qa-composer textarea::placeholder { color: var(--fg-faint); font-weight: 450; }
+  .qa-parsed { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+  .qa-hints {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px solid var(--border-soft);
+    color: var(--fg-faint);
+    font-size: 8.5px;
+    white-space: nowrap;
+  }
+  .qa-hints .legend { margin-left: auto; color: var(--fg-faint); }
+  .qa-hints .legend b { color: var(--fg-muted); font-weight: 650; }
+  .qa-ghost-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-card);
+    background: transparent;
+    color: var(--fg-faint);
+    font: 550 10.5px var(--font-ui);
+    width: 100%;
+  }
+  .qa-ghost-row:hover { background: color-mix(in srgb, var(--bg-card) 60%, transparent); color: var(--fg-muted); }
+  .qa-ghost-row kbd { margin-left: auto; }
+
+  /* Detail drawer = the one and only edit surface */
+  .cd-props { display: grid; padding: 2px 0 12px; border-bottom: 1px solid var(--border-soft); }
+  .cd-section { padding: 15px 0; border-bottom: 1px solid var(--border-soft); }
+  .cd-section h4 { margin: 0 0 6px; color: var(--fg-faint); font: 750 8px var(--font-ui); letter-spacing: 0.12em; }
+  .cd-text {
+    min-height: 20px;
+    color: var(--fg);
+    font: 11px/1.65 var(--font-ui);
+  }
+  .cd-autosave { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-faint); font-size: 9px; }
+  .cd-autosave i { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+  .drawer-title-ce {
+    margin-top: 4px;
+    color: var(--fg);
+    font: 600 17px/1.3 var(--font-display);
+    outline: none;
+  }
+</style>
+</head>
+<body>
+<script src="shared.js"></script>
+<script>
+const M = CM;
+const { board, columns, bump, newBtn, demoBtn } = M.mountShell({
+  current: 'c',
+  title: '方向 C · 行内速添 — 看板不离场，回车连续入卡，详情在侧栏',
+  demo: true,
+});
+
+/* Ghost row invites capture right where the work lives. */
+const ghost = M.el(`<button type="button" class="qa-ghost-row">${M.ic('plus', 12)} New item — type it right here <kbd>N</kbd></button>`);
+columns.inbox.prepend(ghost);
+ghost.onclick = () => openComposer('inbox');
+
+/* ── Token parsing: !priority · #label · @date ─────────────────────── */
+function parseTokens(text) {
+  const out = { title: text, priority: null, labels: [], due: null };
+  out.title = out.title.replace(/!(urgent|high|medium|low)\b/gi, (m, p) => { out.priority = p.toLowerCase(); return ''; });
+  out.title = out.title.replace(/#([\w-]+)/g, (m, l) => { out.labels.push(l); return ''; });
+  out.title = out.title.replace(/@((?:aug|sep|oct)\s?\d{1,2}|tomorrow|today|friday|next week)/gi, (m, d) => {
+    const t = d.toLowerCase();
+    out.due = t === 'tomorrow' ? 'Tomorrow · 09:00' : t === 'today' ? 'Today · 18:00'
+      : t === 'friday' ? 'Fri Aug 14' : t === 'next week' ? 'Mon Aug 17'
+      : d.replace(/^(\w)/, (c) => c.toUpperCase());
+    return '';
+  });
+  out.title = out.title.replace(/\s{2,}/g, ' ').trim();
+  return out;
+}
+
+let composer = null;
+function closeComposer() {
+  if (composer) { composer.remove(); composer = null; ghost.classList.remove('hidden'); }
+}
+function openComposer(colId) {
+  closeComposer();
+  if (colId === 'inbox') ghost.classList.add('hidden');
+  composer = M.el(`<div class="qa-composer">
+    <textarea rows="1" placeholder="Outcome title — details come later"></textarea>
+    <div class="qa-parsed hidden"></div>
+    <div class="qa-hints"><span><kbd>↩</kbd> add</span><span><kbd>⌘↩</kbd> add &amp; open</span><span><kbd>esc</kbd> done</span>
+      <span class="legend"><b>!high</b> · <b>#label</b> · <b>@aug 20</b></span></div>
+  </div>`);
+  const ta = composer.querySelector('textarea');
+  const preview = composer.querySelector('.qa-parsed');
+  ta.addEventListener('input', () => {
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + 'px';
+    const p = parseTokens(ta.value);
+    preview.innerHTML = '';
+    if (p.priority) preview.appendChild(M.el(`<span class="work-meta-pill priority-${p.priority} chip-pop">${M.priorityDef(p.priority).label}</span>`));
+    if (p.due) preview.appendChild(M.el(`<span class="work-meta-pill chip-pop">${M.ic('calendar', 9)}${p.due}</span>`));
+    p.labels.forEach((l) => preview.appendChild(M.el(`<span class="work-meta-pill chip-pop">${M.ic('tag', 8)}${l}</span>`)));
+    preview.classList.toggle('hidden', !preview.children.length);
+  });
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const p = parseTokens(ta.value);
+      if (!p.title) return;
+      const item = addItem(colId, p);
+      ta.value = '';
+      ta.dispatchEvent(new Event('input'));
+      if (e.metaKey || e.ctrlKey) { closeComposer(); openDetail(item); }
+    }
+    if (e.key === 'Escape') closeComposer();
+  });
+  columns[colId].prepend(composer);
+  ta.focus();
+}
+board.querySelectorAll('.work-column-add').forEach((b) => { b.onclick = () => openComposer(b.dataset.add); });
+newBtn.onclick = () => openComposer('inbox');
+document.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !composer
+      && !/input|textarea/i.test(document.activeElement.tagName)
+      && !document.activeElement.isContentEditable) {
+    e.preventDefault();
+    openComposer('inbox');
+  }
+});
+
+function addItem(colId, p) {
+  const item = {
+    ref: M.nextRef(), title: p.title, type: 'General', status: colId,
+    priority: p.priority || 'none', due: p.due || '', labels: p.labels,
+    source: { person: '', channel: '', url: '' },
+    start: '', reminder: '', outcome: '', background: '',
+    acceptance: [], deliverables: [],
+  };
+  item.card = renderCard(item, colId);
+  bump(colId, 1);
+  return item;
+}
+function renderCard(item, colId) {
+  const card = M.cardEl({
+    ref: item.ref, title: item.title, type: item.type,
+    priority: item.priority, due: item.due, dueTone: item.due ? 'soon' : '',
+    labels: item.labels, cls: 'landing',
+  });
+  card.onclick = () => openDetail(item);
+  const anchor = composer && composer.parentElement === columns[colId] ? composer.nextSibling : columns[colId].firstChild;
+  columns[colId].insertBefore(card, anchor);
+  return card;
+}
+function refreshCard(item) {
+  const fresh = M.cardEl({
+    ref: item.ref, title: item.title, type: item.type,
+    priority: item.priority, due: item.due, dueTone: item.due ? 'soon' : '',
+    labels: item.labels,
+    stat: item.acceptance.length ? `0/${item.acceptance.length}` : null,
+  });
+  fresh.onclick = () => openDetail(item);
+  item.card.replaceWith(fresh);
+  item.card = fresh;
+}
+
+/* ── Detail drawer (replaces the edit modal entirely) ──────────────── */
+let drawerEls = null;
+function closeDetail() {
+  if (drawerEls) { drawerEls.scrim.remove(); drawerEls.drawer.remove(); drawerEls = null; }
+}
+function openDetail(item) {
+  closeDetail();
+  const scrim = M.el('<div class="drawer-scrim"></div>');
+  const drawer = M.el(`<aside class="drawer">
+    <header class="drawer-head">
+      <div style="min-width:0;flex:1">
+        <span class="work-eyebrow">${item.ref} · CAPTURED JUST NOW</span>
+        <div class="drawer-title-ce" contenteditable data-ph="Untitled outcome"></div>
+      </div>
+      <button type="button" class="icon-btn" id="cdClose">${M.ic('x', 14)}</button>
+    </header>
+    <div class="drawer-scroll">
+      <div class="cd-props" id="cdProps"></div>
+      <div class="cd-section"><h4>OUTCOME / REQUEST</h4>
+        <div class="cd-text" contenteditable data-ph="What should be true when this is done?" id="cdOutcome"></div></div>
+      <div class="cd-section"><h4>BACKGROUND AND CONTEXT</h4>
+        <div class="cd-text" contenteditable data-ph="Why now, constraints, links, decisions already made" id="cdBg"></div></div>
+      <div class="cd-section"><h4>ACCEPTANCE CRITERIA</h4><div id="cdAcc"></div></div>
+      <div class="cd-section" style="border-bottom:0"><h4>EXPECTED DELIVERABLES</h4><div id="cdDel"></div></div>
+    </div>
+    <footer class="drawer-foot">
+      <span class="cd-autosave"><i></i> All changes saved locally — this panel is the edit surface, there is no edit form</span>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="cdDone">Done</button>
+    </footer>
+  </aside>`);
+  document.body.append(scrim, drawer);
+  drawerEls = { scrim, drawer };
+  scrim.onclick = closeDetail;
+  drawer.querySelector('#cdClose').onclick = closeDetail;
+  drawer.querySelector('#cdDone').onclick = closeDetail;
+
+  const titleCE = drawer.querySelector('.drawer-title-ce');
+  titleCE.textContent = item.title;
+  titleCE.oninput = () => { item.title = titleCE.textContent.trim(); refreshCard(item); };
+
+  const props = drawer.querySelector('#cdProps');
+  const prop = (icon, label, valueHtml, empty, onClick) => {
+    const row = M.el(`<div class="prop-row">
+      <span class="prop-label">${M.ic(icon, 12)} ${label}</span>
+      <button type="button" class="prop-value ${valueHtml ? '' : 'empty'}">${valueHtml || empty}</button>
+    </div>`);
+    const btn = row.querySelector('.prop-value');
+    if (onClick) btn.onclick = () => onClick(btn);
+    props.appendChild(row);
+    return row;
+  };
+  const renderProps = () => {
+    props.innerHTML = '';
+    const col = M.COLUMNS.find((c) => c.id === item.status);
+    prop('circle', 'Status', `<span class="dot" style="background:${col.color}"></span>${col.name}`, '', (a) =>
+      M.popover(a, (pop) => {
+        pop.appendChild(M.el('<div class="pop-head">STATUS</div>'));
+        M.COLUMNS.forEach((c) => {
+          const b = M.el(`<button type="button" class="pop-item ${c.id === item.status ? 'selected' : ''}"><span class="dot" style="background:${c.color}"></span>${c.name}</button>`);
+          b.onclick = () => {
+            M.closePop();
+            columns[c.id].prepend(item.card);
+            bump(item.status, -1); bump(c.id, 1);
+            item.status = c.id;
+            renderProps();
+          };
+          pop.appendChild(b);
+        });
+      }));
+    prop('layout', 'Type', `<span class="dot" style="background:${M.typeColor(item.type)}"></span>${item.type}`, '', (a) =>
+      M.popType(a, item.type, (t) => { item.type = t; renderProps(); refreshCard(item); }));
+    const pd = M.priorityDef(item.priority);
+    prop('flag', 'Priority', item.priority !== 'none' ? `<span style="color:${pd.color}">${M.ic('flag', 11)}</span>${pd.label}` : '', 'Set priority', (a) =>
+      M.popPriority(a, item.priority, (p) => { item.priority = p; renderProps(); refreshCard(item); }));
+    prop('calendar', 'Due', item.due ? `${M.ic('calendar', 11)}${item.due}` : '', 'Set due date', (a) =>
+      M.popDue(a, (d) => { item.due = d; renderProps(); refreshCard(item); }));
+    prop('clock', 'Start', item.start ? `${M.ic('clock', 11)}${item.start}` : '', 'Set start', (a) =>
+      M.popDue(a, (d) => { item.start = d; renderProps(); }, 'START'));
+    prop('bell', 'First reminder', item.reminder ? `${M.ic('bell', 11)}${item.reminder}` : '', 'Remind me', (a) =>
+      M.popDue(a, (d) => { item.reminder = d; renderProps(); }, 'FIRST REMINDER'));
+    prop('tag', 'Labels', item.labels.length ? item.labels.map((l) => `${M.ic('tag', 9)}${l}`).join(' ') : '', 'Add labels', (a) =>
+      M.popLabels(a, item.labels, (l) => { item.labels = l; renderProps(); refreshCard(item); }));
+    prop('user', 'Source', [item.source.person, item.source.channel].filter(Boolean).join(' · ') || '', 'Who asked, where?', (a) =>
+      M.popSource(a, item.source, () => renderProps()));
+  };
+  renderProps();
+
+  drawer.querySelector('#cdOutcome').textContent = item.outcome;
+  drawer.querySelector('#cdOutcome').oninput = (e) => { item.outcome = e.target.textContent; };
+  drawer.querySelector('#cdBg').textContent = item.background;
+  drawer.querySelector('#cdBg').oninput = (e) => { item.background = e.target.textContent; };
+
+  const checkSection = (mount, list, addLabel) => {
+    const render = () => {
+      mount.innerHTML = '';
+      list.forEach((line, i) => {
+        const row = M.el(`<label class="check-line"><input type="checkbox"><span class="cl-text" contenteditable>${line}</span></label>`);
+        row.querySelector('.cl-text').oninput = (e) => { list[i] = e.target.textContent; };
+        row.querySelector('input').onchange = (e) => row.classList.toggle('checked', e.target.checked);
+        mount.appendChild(row);
+      });
+      const add = M.el(`<button type="button" class="check-add">${M.ic('plus', 10)} ${addLabel}</button>`);
+      add.onclick = () => {
+        list.push('');
+        render();
+        const last = mount.querySelectorAll('.cl-text');
+        last[last.length - 1].focus();
+        refreshCard(item);
+      };
+      mount.appendChild(add);
+    };
+    render();
+  };
+  checkSection(drawer.querySelector('#cdAcc'), item.acceptance, 'Add criterion');
+  checkSection(drawer.querySelector('#cdDel'), item.deliverables, 'Add deliverable');
+}
+
+/* ── Scripted demo ─────────────────────────────────────────────────── */
+M.bindDemo(demoBtn, async () => {
+  M.caption('<b>1/5</b> · 看板不离场：按 N，列顶直接出一张“正在成形的卡片”');
+  openComposer('inbox');
+  await M.sleep(1300);
+  M.caption('<b>2/5</b> · 速记语法：!high、#label、@日期 —— 边打字边变成 chips');
+  const ta = composer.querySelector('textarea');
+  await M.typeInto(ta, 'Follow up with Maya on pricing copy !high @aug 20 #launch', 32);
+  await M.sleep(1300);
+  M.caption('<b>3/5</b> · 回车即入板，输入框不关，连续捕获');
+  ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await M.sleep(700);
+  await M.typeInto(ta, 'Book the offsite venue call', 40);
+  await M.sleep(400);
+  ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await M.sleep(700);
+  M.caption('<b>4/5</b> · 需要详情时才 ⌘↩ —— 打开侧栏，这里就是唯一的编辑面');
+  await M.typeInto(ta, 'Draft the SOC 2 renewal plan', 40);
+  ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, metaKey: true }));
+  await M.sleep(1500);
+  M.caption('<b>5/5</b> · 属性都是行内可点的 —— 没有原生日期控件，没有编辑表单');
+  const rows = document.querySelectorAll('.prop-value');
+  rows[3].click(); // Due
+  await M.sleep(1100);
+  document.querySelectorAll('.pop-item')[3].click(); // Aug 20
+  await M.sleep(1300);
+  document.getElementById('cdDone').click();
+  M.toast('3 张卡 · 约 12 秒 · 详情按需展开', 4200);
+  M.captionHide();
+});
+</script>
+</body>
+</html>

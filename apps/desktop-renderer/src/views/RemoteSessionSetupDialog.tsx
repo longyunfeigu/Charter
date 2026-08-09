@@ -321,15 +321,12 @@ export function RemoteSessionSetupDialog(props: {
 
   const chooseLocalProject = async (): Promise<void> => {
     setError(null);
-    useAppStore.getState().setHomePick(true);
     const result = await rpcResult('workspace.pickAndOpen', {});
     if (!result.ok) {
-      useAppStore.getState().setHomePick(false);
       setError(result.error.userMessage);
       return;
     }
     if (result.data.workspace) setLocalProjectPath(result.data.workspace.path);
-    else useAppStore.getState().setHomePick(false);
   };
 
   const installWorker = async (): Promise<void> => {

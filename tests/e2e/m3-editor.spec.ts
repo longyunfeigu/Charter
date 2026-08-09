@@ -35,10 +35,18 @@ test.describe('M3 workspace and editor', () => {
     await page.waitForTimeout(800); // allow tabs/layout persistence to flush
     await first.app.close();
 
-    // Restart into the same workspace and user data.
+    // Restart into the same workspace and user data. ADR-0054: the shell
+    // boots on Home — open the project's Files tab (which hosts the real
+    // editor) without touching any file, so visibility proves restoration.
     const second = await launchApp({
       userDataDir: first.userDataDir,
       env: { PI_IDE_OPEN_WORKSPACE: fixture },
+    });
+    await second.page.getByTestId('rail-view-projects').click();
+    await second.page.locator('[data-testid^="home-recent-"]').first().click();
+    await second.page.getByTestId('project-center-tab-files').click();
+    await expect(second.page.getByTestId('project-center-editor')).toBeVisible({
+      timeout: 15000,
     });
     await expect(second.page.getByTestId('tab-src/index.ts').first()).toBeVisible({
       timeout: 15000,

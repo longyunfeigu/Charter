@@ -78,23 +78,26 @@ test.describe('Signal Desk product visual structure', () => {
         document.documentElement.dataset.theme = 'light';
       });
 
-      await page.getByTestId('rail-view-skills').click();
+      await expect(page.getByTestId('rail-view-skills')).toHaveCount(0);
+      await expect(page.getByTestId('rail-view-memory')).toHaveCount(0);
+      await page.getByTestId('home-settings').click();
+      await page.getByTestId('settings-section-skills').click();
       await expect(page.getByTestId('skills-main-page')).toBeVisible();
       await expect(page.locator('.skills-page-head')).toContainText('Skills');
       await page.screenshot({ path: '/tmp/charter-signal-desk-skills-wide.png' });
 
-      await page.getByTestId('rail-view-memory').click();
-      await expect(page.getByTestId('memory-rail-panel')).toBeVisible();
+      await page.getByTestId('settings-section-memory').click();
+      await expect(page.getByTestId('memory-rail-panel')).toHaveCount(0);
       await expect(page.getByTestId('memory-view')).toBeVisible();
-      await expect(page.getByTestId('surface-home')).toContainText('Memory');
+      await expect(page.getByTestId('surface-home')).toContainText('Settings');
       await expect(page.getByTestId('surface-home')).toHaveAttribute('aria-current', 'page');
-      await expect(page.getByTestId('rail-view-memory')).toHaveClass(/active/);
       await expect(page.getByTestId('overlay-memory')).toHaveCount(0);
       await expect(page.locator('.modal-backdrop')).toHaveCount(0);
       await page.screenshot({ path: '/tmp/charter-signal-desk-memory-wide.png' });
 
-      // Every primary destination replaces the complete contextual workspace;
-      // nothing from the previous page remains layered into the titlebar or main area.
+      // Back restores the underlying route; opening Settings from Remote keeps
+      // that route mounted and returns to it in place.
+      await page.getByTestId('settings-back').click();
       await page.getByTestId('rail-view-remotes').click();
       await expect(page.getByTestId('remote-explorer-rail')).toBeVisible();
       await expect(page.getByTestId('surface-home')).toContainText('Remote Explorer');
@@ -102,11 +105,13 @@ test.describe('Signal Desk product visual structure', () => {
       await expect(page.locator('.tb-history-origin')).toHaveCount(0);
       await expect(page.getByTestId('workspace-chip')).toHaveCount(0);
 
-      await page.getByTestId('rail-view-memory').click();
-      await expect(page.getByTestId('memory-rail-panel')).toBeVisible();
+      await page.getByTestId('home-settings').click();
+      await page.getByTestId('settings-section-memory').click();
       await expect(page.getByTestId('memory-view')).toBeVisible();
-      await expect(page.getByTestId('remote-explorer-rail')).toHaveCount(0);
+      await expect(page.getByTestId('remote-explorer-rail')).toBeHidden();
 
+      await page.getByTestId('settings-back').click();
+      await expect(page.getByTestId('remote-explorer-rail')).toBeVisible();
       await page.getByTestId('rail-view-sessions').click();
       await expect(page.getByTestId('home-view')).toBeVisible();
       await page.setViewportSize({ width: 960, height: 720 });

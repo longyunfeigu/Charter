@@ -11,10 +11,8 @@ test.describe('Unified Session shell pivot (ADR-0004, PIVOT-001..010)', () => {
       home: 'keep',
     });
     try {
-      // Opening a known project restores its last project-tool context. The
-      // back affordance returns to the single Session launcher in this shell.
-      await expect(page.getByTestId('project-tool-view')).toBeVisible();
-      await page.getByTestId('project-tool-back').click();
+      // ADR-0054: restoring a workspace never yanks the shell anywhere — Home
+      // is the entry even with a project open.
       // PIVOT-001/008: Home first, Charter branding, no directory read yet.
       await expect(page.getByTestId('home-view')).toBeVisible();
       await expect(page.getByTestId('home-intent')).toBeVisible();
@@ -23,19 +21,22 @@ test.describe('Unified Session shell pivot (ADR-0004, PIVOT-001..010)', () => {
       await expect(page.getByTestId('home-view')).not.toContainText('Pi IDE');
 
       // Project files are a content state in the same persistent shell: there
-      // is no second Activity Bar, Sidebar, or Agent Panel.
+      // is no second Activity Bar, Sidebar, or Agent Panel. The current
+      // project's Files tab hosts the real editor directly (ADR-0054).
       await page.getByTestId('rail-view-projects').click();
       await page.getByTestId(`home-recent-${realpathSync(fixture)}`).click();
       await expect(page.getByTestId('project-center')).toBeVisible();
       await page.getByTestId('project-center-tab-files').click();
+      await expect(page.getByTestId('project-center-editor')).toBeVisible();
       await page.getByTestId('project-file-src').click();
       await page.getByTestId('project-file-src/index.ts').click();
-      await page.getByRole('button', { name: 'Open in editor' }).click();
+      await expect(page.getByTestId('tab-src/index.ts')).toBeVisible();
       await expect(page.getByTestId('home-view')).toHaveCount(0);
-      await expect(page.getByTestId('project-tool-view')).toBeVisible();
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
       await expect(page.getByTestId('agent-panel')).toHaveCount(0);
-      await page.getByTestId('project-tool-back').click();
+      // Returning to the Sessions group restores the launcher in the same
+      // shell (ADR-0042 saved surfaces) — no second application frame.
+      await page.getByTestId('rail-view-sessions').click();
       await expect(page.getByTestId('home-view')).toBeVisible();
     } finally {
       await app.close();
@@ -105,7 +106,7 @@ test.describe('Unified Session shell pivot (ADR-0004, PIVOT-001..010)', () => {
     try {
       page.on('dialog', (dialog) => void dialog.accept());
       await page.getByTestId('home-settings').click();
-      await expect(page.getByTestId('overlay-settings')).toBeVisible();
+      await expect(page.getByTestId('settings-page')).toBeVisible();
       await page.getByText('Models', { exact: true }).click();
 
       await expect(page.getByTestId('providers-empty')).toBeVisible();

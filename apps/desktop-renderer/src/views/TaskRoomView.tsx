@@ -73,17 +73,55 @@ function sessionAgentLabel(task: {
  * Approvals, observation, the live focus board and the final decision live
  * here; the Editor is an optional deep-dive, never a required passage.
  */
-export function TaskRoomView(): React.JSX.Element {
-  const store = useTaskStore();
-  const app = useAppStore();
-  const editor = useEditorStore();
+const NO_ROOM_EVENTS: never[] = [];
+/** Frozen orchestration view for hidden kept-alive rooms (ADR-0055). */
+const EMPTY_ORCHESTRATION_SNAPSHOT = Object.freeze({
+  enabled: false,
+  fleetPausedTaskIds: [],
+  workers: [],
+}) as { enabled: boolean; fleetPausedTaskIds: string[]; workers: never[] };
+
+/**
+ * Memoized on purpose (ADR-0055): props are two primitives, so pool/shell
+ * re-renders (task-catalog updates, navigation) stop at this boundary and a
+ * hidden kept-alive room's subtree stays untouched.
+ */
+export const TaskRoomView = React.memo(function TaskRoomView({
+  taskId,
+  active = true,
+}: {
+  /** ADR-0055: each pooled room owns its task id — never the global route. */
+  taskId: string;
+  /** False while this room is a hidden kept-alive instance (detached DOM). */
+  active?: boolean;
+}): React.JSX.Element {
+  // Precise subscriptions (PERF): the room shell must re-render for its own
+  // data — never per streaming token (RoomTimeline owns the live tail) and
+  // never for file-watcher batches (nothing here reads the tree). Active-only
+  // fields (changeSet, the active singleton, the global orchestration
+  // snapshot) pin to constants for hidden rooms, and the task subscription
+  // selects THIS room's task object — the catalog array being replaced for
+  // another task's transition returns the same reference, so a hidden room
+  // re-renders for nothing the active session does (ADR-0055; the adversarial
+  // pass measured ~5 stray re-renders per run through the old s.tasks
+  // subscription).
+  const task = useTaskStore((s) => s.tasks.find((t) => t.id === taskId) ?? null);
+  const activeTaskId = useTaskStore((s) => s.activeTaskId);
+  const storeChangeSet = useTaskStore((s) => (s.activeTaskId === taskId ? s.changeSet : null));
+  const timeline = useTaskStore((s) => s.timelines[taskId] ?? NO_ROOM_EVENTS);
+  const store = useTaskStore.getState(); // stable actions (init/openReplay/…)
+  const app = useAppStore.getState(); // stable actions; fields subscribed below
+  const sessionToolsOpen = useAppStore((s) => s.sessionToolsOpen);
+  const sessionToolExpanded = useAppStore((s) => s.sessionToolExpanded);
+  const sessionTool = useAppStore((s) => s.sessionTool);
+  const sessionSplitDragging = useAppStore((s) => s.sessionSplitDragging);
+  const navigationBack = useAppStore((s) => s.navigationBack);
   const workspace = useWorkspaceStore((s) => s.workspace);
-  const workspaceStore = useWorkspaceStore();
-  const taskId = useAppStore((s) => s.taskRoomTaskId);
   const sessionRoomView = useAppStore((s) => s.sessionRoomView);
-  const task = store.tasks.find((t) => t.id === taskId) ?? null;
   const activity = useActivityStore((s) => (taskId ? s.perTask[taskId] : undefined));
-  const orchestration = useOrchestrationStore((state) => state.snapshot);
+  const orchestration = useOrchestrationStore((state) =>
+    active ? state.snapshot : EMPTY_ORCHESTRATION_SNAPSHOT,
+  );
   const mission = useOrchestrationStore((state) =>
     taskId ? (state.missions[taskId] ?? null) : null,
   );
@@ -108,7 +146,7 @@ export function TaskRoomView(): React.JSX.Element {
   const canvasBodyRef = useRef<HTMLDivElement>(null);
   // ADR-0024: the whole Session room is one drop target for context feeding.
   const [roomDrop, setRoomDrop] = useState(false);
-  const backTarget = app.navigationBack.at(-1) ?? null;
+  const backTarget = navigationBack.at(-1) ?? null;
   const backLabel = backTarget ? navigationSnapshotLabel(backTarget) : 'Sessions';
   const goBack = (): void => (backTarget ? app.navigateBack() : app.closeTaskRoom());
 
@@ -145,23 +183,27 @@ export function TaskRoomView(): React.JSX.Element {
   }, [taskId]);
 
   useEffect(() => {
+    // Global view state belongs to the visible room only (ADR-0055).
+    if (!active) return;
     if (sessionRoomView === 'fleet' && !legacyFleetAvailable) {
-      app.setSessionRoomView('conversation');
+      useAppStore.getState().setSessionRoomView('conversation');
     }
-  }, [app, legacyFleetAvailable, sessionRoomView]);
+  }, [active, legacyFleetAvailable, sessionRoomView]);
 
   // Some external-session entry points (terminal bar / promoted panel) route
   // directly to a room. Keep the task store aligned with the room URL/state so
   // decision actions can never target an empty or previously active task.
+  // Only the VISIBLE room may claim the active singleton — a hidden kept-alive
+  // instance re-claiming it would tear the streams away from the user's room.
   useEffect(() => {
-    if (!taskId || useTaskStore.getState().activeTaskId === taskId) return;
+    if (!active || useTaskStore.getState().activeTaskId === taskId) return;
     void useTaskStore.getState().openTask(taskId);
-  }, [taskId]);
+  }, [active, taskId]);
 
   const verifications = useVerificationEvidence(
     task?.id ?? null,
     task?.updatedAt ?? null,
-    store.timeline,
+    timeline,
   ).slice(-8);
   // Keep every TaskRoom hook mounted while an archived worktree Session drops
   // out of the task list. Returning before these hooks made the successful
@@ -170,7 +212,7 @@ export function TaskRoomView(): React.JSX.Element {
   const running = task ? RUNNING_TASK_STATES.has(task.state) : false;
   const answered = task ? isAnswered(task) : false;
   const actionDockVisible =
-    app.sessionToolsOpen ||
+    sessionToolsOpen ||
     answered ||
     task?.state === 'REVIEW_READY' ||
     task?.state === 'FAILED' ||
@@ -181,9 +223,7 @@ export function TaskRoomView(): React.JSX.Element {
   // ADR-0017: an external session's rail is fed by watcher accounting, not by
   // agent tool events (there are none). Same rows, same peek behavior.
   const projectedChangeSet =
-    task && store.activeTaskId === task.id && store.changeSet?.taskId === task.id
-      ? store.changeSet
-      : null;
+    task && activeTaskId === task.id && storeChangeSet?.taskId === task.id ? storeChangeSet : null;
   const projectedChangeFiles = projectedChangeSet?.files.map((file) => file.path) ?? [];
   const activityFiles = activity?.filesTouched ?? [];
   const files = sessionFilePaths({
@@ -200,13 +240,13 @@ export function TaskRoomView(): React.JSX.Element {
     for (const file of externalFiles) {
       stats[file.path] = { additions: file.additions, deletions: file.deletions };
     }
-    if (task && store.activeTaskId === task.id) {
-      for (const file of store.changeSet?.files ?? []) {
+    if (task && activeTaskId === task.id) {
+      for (const file of storeChangeSet?.files ?? []) {
         stats[file.path] = { additions: file.additions, deletions: file.deletions };
       }
     }
     return stats;
-  }, [externalFiles, store.activeTaskId, store.changeSet, task]);
+  }, [externalFiles, activeTaskId, storeChangeSet, task]);
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -241,7 +281,7 @@ export function TaskRoomView(): React.JSX.Element {
   // Editing is the expanded File tool state. The Session and conversation stay
   // mounted; there is no separate Full workspace surface.
   const openFileInEditor = (path: string): void => {
-    void editor.openFile(path);
+    void useEditorStore.getState().openFile(path);
     app.openPeek(task.id, path, 'edit');
     app.setSessionToolExpanded(true);
   };
@@ -315,7 +355,7 @@ export function TaskRoomView(): React.JSX.Element {
             <div className="session-identity-meta">
               <span className="tr-proj" data-testid="task-room-project" title={task.projectPath}>
                 <Ic name="folder" size={11} />
-                {task.projectName}
+                <span data-i18n-ignore>{task.projectName}</span>
               </span>
               {task.worktree ? (
                 <WorktreeChip task={task} />
@@ -349,12 +389,10 @@ export function TaskRoomView(): React.JSX.Element {
               <PreviewBadge task={task} />
               <button
                 type="button"
-                className={`session-tools-button ${
-                  app.sessionToolsOpen ? 'back-to-conversation' : ''
-                }`}
-                data-testid={app.sessionToolsOpen ? 'session-tools-back' : 'session-tools-open'}
+                className={`session-tools-button ${sessionToolsOpen ? 'back-to-conversation' : ''}`}
+                data-testid={sessionToolsOpen ? 'session-tools-back' : 'session-tools-open'}
                 onClick={() => {
-                  if (app.sessionToolsOpen) {
+                  if (sessionToolsOpen) {
                     app.setSessionToolsOpen(false);
                   } else if (task.state === 'REVIEW_READY' && files.length > 0) {
                     app.setSessionTool('review');
@@ -364,11 +402,11 @@ export function TaskRoomView(): React.JSX.Element {
                 }}
               >
                 <Ic
-                  name={app.sessionToolsOpen ? 'chevron' : 'layout'}
+                  name={sessionToolsOpen ? 'chevron' : 'layout'}
                   size={12}
-                  className={app.sessionToolsOpen ? 'session-tools-back-icon' : undefined}
+                  className={sessionToolsOpen ? 'session-tools-back-icon' : undefined}
                 />
-                <span>{app.sessionToolsOpen ? 'Conversation' : 'Tools'}</span>
+                <span>{sessionToolsOpen ? 'Conversation' : 'Tools'}</span>
               </button>
               <div className="session-more" ref={moreRef}>
                 <button
@@ -488,14 +526,12 @@ export function TaskRoomView(): React.JSX.Element {
         <div
           ref={canvasBodyRef}
           className={`tr-body session-canvas-body ${
-            app.sessionToolsOpen ? 'tools-open' : 'tools-closed'
-          } ${app.sessionToolExpanded ? 'tool-expanded' : ''} ${
-            app.sessionTool === 'preview' && app.sessionToolExpanded ? 'preview-focused' : ''
+            sessionToolsOpen ? 'tools-open' : 'tools-closed'
+          } ${sessionToolExpanded ? 'tool-expanded' : ''} ${
+            sessionTool === 'preview' && sessionToolExpanded ? 'preview-focused' : ''
           } ${
-            app.sessionSplit[task.id] !== undefined || app.sessionSplitDragging
-              ? 'split-manual'
-              : ''
-          } ${app.sessionSplitDragging ? 'splitting' : ''}`}
+            manualSplit !== undefined || sessionSplitDragging ? 'split-manual' : ''
+          } ${sessionSplitDragging ? 'splitting' : ''}`}
         >
           <div className="tr-main">
             {mission ? <MissionStatusStrip snapshot={mission} /> : null}
@@ -547,7 +583,7 @@ export function TaskRoomView(): React.JSX.Element {
       <SessionRenameDialog task={task} open={renameOpen} onClose={() => setRenameOpen(false)} />
     </div>
   );
-}
+});
 
 function actionLine(kind: string, label: string): string {
   void kind;
@@ -565,10 +601,12 @@ function ActivityStrip({
   taskId: string;
   taskText: string;
 }): React.JSX.Element {
-  const store = useTaskStore();
+  // Booleans, not the stream objects: the strip's label only depends on
+  // whether a stream exists, so per-token text growth must not re-render it.
+  const streamingActive = useTaskStore((s) => s.streaming !== null);
   const copy = roomCopyFor(taskText);
   const activity = useActivityStore((s) => s.perTask[taskId]);
-  const streamingThinking = useTaskStore((s) => s.streamingThinking);
+  const streamingThinking = useTaskStore((s) => s.streamingThinking !== null);
   const current = activity?.current ?? null;
   // The 1s elapsed tick only needs to run while an action is actually live;
   // idle rooms render without a timer.
@@ -586,7 +624,7 @@ function ActivityStrip({
 
   const label = streamingThinking
     ? `${copy.thinking}…`
-    : store.streaming
+    : streamingActive
       ? copy.locale === 'zh'
         ? '正在回复…'
         : 'Writing a reply…'
@@ -617,7 +655,7 @@ function WorktreeChip({
 }: {
   task: { id: string; worktree: { branch: string; path: string; missing?: boolean } | null };
 }): React.JSX.Element | null {
-  const app = useAppStore();
+  const app = useAppStore.getState(); // actions only
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -716,8 +754,11 @@ function RoomComposer({
   };
   running: boolean;
 }): React.JSX.Element {
-  const store = useTaskStore();
-  const app = useAppStore();
+  // Fields: models only. Everything else is stable actions — subscribing to
+  // the whole store re-rendered the composer on every streaming token.
+  const store = useTaskStore.getState();
+  const models = useTaskStore((s) => s.models);
+  const app = useAppStore.getState();
   const workspacePath = useWorkspaceStore((s) => s.workspace?.path);
   // PIVOT-036: the draft is per-task, session-scoped and shared with the
   // Editor agent panel — it survives ⌘E round-trips.
@@ -740,7 +781,7 @@ function RoomComposer({
 
   // A follow-up is a NEW task: its own mode / model / effort, seeded from the
   // finished task but freely editable (state reseeds per task via key=).
-  const configuredModels = useMemo(() => store.models.filter((m) => m.configured), [store.models]);
+  const configuredModels = useMemo(() => models.filter((m) => m.configured), [models]);
   const [mode, setMode] = useState(task.mode);
   const [modelKey, setModelKey] = useState(`${task.model.providerId}::${task.model.modelId}`);
   const [thinking, setThinking] = useState<ThinkingLevelId>(task.model.thinkingLevel ?? 'medium');

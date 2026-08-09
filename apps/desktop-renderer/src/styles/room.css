@@ -4,6 +4,31 @@
    the left; the agent speaks in serif prose; contiguous tool evidence sinks
    into a recessed mono worklog; the composer stays a Home-family card. */
 
+/* Kept-alive Session rooms (ADR-0055): each visited room lives in its own
+   surface element; the pool re-parents the active surface into this host and
+   detaches the rest from the document — hidden rooms cost no layout and are
+   invisible to global queries. */
+.room-pool {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.room-pool.room-pool-idle {
+  display: none;
+}
+.room-pool-surface {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.room-pool-surface > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 .tr-root {
   flex: 1;
   min-height: 0;
@@ -308,6 +333,10 @@
   height: 7px;
   border-radius: 50%;
   background: var(--info);
+}
+/* Pulse only while the Session is actually running: a settled room full of
+   historical milestones must not invalidate style every animation frame. */
+.rt-scroll[data-live='true'] .rt-ms-dot {
   animation: rt-pulse 1.6s ease-in-out infinite;
 }
 .rt-milestone.warn .rt-ms-dot {
@@ -342,6 +371,9 @@
   align-items: flex-start;
   width: fit-content;
   max-width: 100%;
+  /* Nothing inside a bubble may paint or lay out beyond its border box, so
+     style/layout invalidations elsewhere never re-enter these subtrees. */
+  contain: content;
   margin: 4px 0 18px;
   font-family: var(--font-ui);
   font-size: 14px;
@@ -475,14 +507,14 @@
 .rt-worklog .rt-tool {
   animation: rt-login 0.5s ease;
 }
+/* Opacity only: interpolating background is a paint-per-frame property, and
+   "Load earlier" starts hundreds of these entrances in the same frame. */
 @keyframes rt-login {
   from {
     opacity: 0;
-    background: color-mix(in srgb, var(--info) 10%, transparent);
   }
   to {
     opacity: 1;
-    background: transparent;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -8,8 +8,9 @@ import type {
 import { useWorkItemStore, workAttentionCount } from '../store/workItemStore.js';
 import { Ic } from './home-icons.js';
 import { WorkItemDetail } from './WorkItemDetail.js';
-import { WorkItemForm } from './WorkItemForm.js';
+import { WorkItemPage, workReference } from './WorkItemPage.js';
 import '../styles/work.css';
+import { formatDate, t } from '../i18n.js';
 
 function columnIcon(category: WorkItemStatusCategory): string {
   switch (category) {
@@ -30,11 +31,6 @@ function columnIcon(category: WorkItemStatusCategory): string {
   }
 }
 
-function workReference(id: string): string {
-  const compact = id.replace(/^work[_-]?/i, '').replace(/[^a-z0-9]/gi, '');
-  return `WORK-${compact.slice(-5).toUpperCase() || 'LOCAL'}`;
-}
-
 function priorityLabel(priority: WorkItemDto['priority']): string {
   return priority.charAt(0).toUpperCase() + priority.slice(1);
 }
@@ -44,12 +40,10 @@ function duePresentation(dueAt: string | null): { label: string; tone: string } 
   const date = new Date(dueAt);
   const distance = date.getTime() - Date.now();
   const day = 24 * 60 * 60_000;
-  const formatted = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
-    date,
-  );
-  if (distance < 0) return { label: `Overdue · ${formatted}`, tone: 'overdue' };
-  if (distance < day) return { label: `Due today · ${formatted}`, tone: 'soon' };
-  return { label: `Due ${formatted}`, tone: '' };
+  const formatted = formatDate(date, { month: 'short', day: 'numeric' });
+  if (distance < 0) return { label: `${t('Overdue')} · ${formatted}`, tone: 'overdue' };
+  if (distance < day) return { label: `${t('Due today')} · ${formatted}`, tone: 'soon' };
+  return { label: `${t('Due')} ${formatted}`, tone: '' };
 }
 
 function isAttention(
@@ -429,7 +423,9 @@ export function WorkView(): React.JSX.Element {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [attentionOnly, setAttentionOnly] = useState(false);
-  const [formOpen, setFormOpen] = useState(false);
+  const [pageState, setPageState] = useState<
+    null | { mode: 'create' } | { mode: 'edit'; id: string }
+  >(null);
   const [typeCreatorOpen, setTypeCreatorOpen] = useState(false);
   const [stageCreatorOpen, setStageCreatorOpen] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -476,6 +472,17 @@ export function WorkView(): React.JSX.Element {
     const category = snapshot.columns.find((column) => column.id === item.columnId)?.category;
     return category !== 'completed' && category !== 'cancelled';
   }).length;
+
+  const pageItem =
+    pageState?.mode === 'edit'
+      ? (snapshot.items.find((candidate) => candidate.id === pageState.id) ??
+        (detail?.item.id === pageState.id ? detail.item : null))
+      : null;
+  useEffect(() => {
+    // The edited item can disappear underneath the page (archived elsewhere);
+    // never fall through to create mode with someone else's half-typed state.
+    if (pageState?.mode === 'edit' && !pageItem) setPageState(null);
+  }, [pageState, pageItem]);
 
   const move = (id: string, columnId: string, beforeId: string | null): void => {
     const item = snapshot.items.find((candidate) => candidate.id === id);
@@ -536,7 +543,7 @@ export function WorkView(): React.JSX.Element {
           <button
             className="btn primary"
             data-testid="work-new-item"
-            onClick={() => setFormOpen(true)}
+            onClick={() => setPageState({ mode: 'create' })}
           >
             <Ic name="plus" size={14} /> <span>New work</span>
           </button>
@@ -626,7 +633,7 @@ export function WorkView(): React.JSX.Element {
                   data-testid={`work-add-${column.id}`}
                   aria-label={`Add work; new items start in Inbox`}
                   title="New work item (starts in Inbox)"
-                  onClick={() => setFormOpen(true)}
+                  onClick={() => setPageState({ mode: 'create' })}
                 >
                   <Ic name="plus" size={14} />
                 </button>
@@ -667,10 +674,11 @@ export function WorkView(): React.JSX.Element {
           detail={detail}
           type={snapshot.types.find((type) => type.id === detail.item.typeId) ?? null}
           onClose={() => void useWorkItemStore.getState().select(null)}
+          onEdit={() => setPageState({ mode: 'edit', id: detail.item.id })}
         />
       ) : null}
-      {formOpen ? (
-        <WorkItemForm item={null} types={snapshot.types} onClose={() => setFormOpen(false)} />
+      {pageState && (pageState.mode === 'create' || pageItem) ? (
+        <WorkItemPage item={pageItem} types={snapshot.types} onClose={() => setPageState(null)} />
       ) : null}
       {typeCreatorOpen ? <TypeCreator onClose={() => setTypeCreatorOpen(false)} /> : null}
       {stageCreatorOpen ? <StageCreator onClose={() => setStageCreatorOpen(false)} /> : null}

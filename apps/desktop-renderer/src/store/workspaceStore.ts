@@ -50,15 +50,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
           previous?.id !== workspace.id,
         ),
       });
-      if (workspace) {
-        void get().loadDir('');
-        // Dual-form shell (PIVOT-006): opening a workspace lands in the IDE
-        // surface — unless the Home project menu initiated the open, in which
-        // case the user is mid-charter and stays on Home.
-        const app = useAppStore.getState();
-        if (app.homePick) app.setHomePick(false);
-        else app.setSurface('workspace');
-      }
+      // Opening a workspace never navigates by itself (ADR-0054) — the caller
+      // that initiated the open decides where to land, if anywhere.
+      if (workspace) void get().loadDir('');
     });
     onEvent('fs.batch', ({ changes }) => {
       const { dirs } = get();
@@ -88,8 +82,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         ),
       });
       // A workspace was already open before the renderer booted (restore or
-      // env auto-open) — land in the IDE surface (PIVOT-006).
-      useAppStore.getState().setSurface('workspace');
+      // env auto-open) — hydrate silently; the shell boots on Home (ADR-0054).
       void get().loadDir('');
       const { useEditorStore } = await import('./editorStore.js');
       void useEditorStore.getState().restoreTabs();
@@ -113,14 +106,11 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   async followProject(path) {
     // ADR-0046: the session the user enters defines the working context — the
     // workspace (and with it the rail's Files tree, editor and composer
-    // binding) moves to that session's project. homePick pins the current
-    // surface: following context must never yank the user into the IDE
-    // surface the way an explicit project open does (PIVOT-006).
+    // binding) moves to that session's project. Workspace changes never
+    // navigate on their own (ADR-0054), so the open surface stays put.
     if (!path || get().workspace?.path === path) return;
-    useAppStore.getState().setHomePick(true);
     const result = await rpcResult('workspace.open', { path });
     if (!result.ok) {
-      useAppStore.getState().setHomePick(false);
       useAppStore.getState().pushToast('error', result.error.userMessage);
     }
   },

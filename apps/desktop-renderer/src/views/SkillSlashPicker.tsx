@@ -135,7 +135,7 @@ export function useSkillSlash(options: {
             onMouseDown={(e) => e.preventDefault() /* keep textarea focus until click */}
             onClick={() => {
               setOpen(false);
-              useAppStore.getState().setRailView('skills');
+              useAppStore.getState().openSettings('skills');
             }}
           >
             {skills.filter((s) => s.enabled).length} enabled · ≈

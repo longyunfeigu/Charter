@@ -23,7 +23,7 @@ test.describe('Atelier application skin', () => {
     try {
       await expect(page.getByTestId('home-view')).toBeVisible();
       await page.getByTestId('home-settings').click();
-      await expect(page.getByTestId('overlay-settings')).toBeVisible();
+      await expect(page.getByTestId('settings-page')).toBeVisible();
 
       const brightness = page
         .locator('.st-row')
@@ -63,7 +63,7 @@ test.describe('Atelier application skin', () => {
 
       await page.screenshot({ path: join(SHOTS, 'settings-light.png') });
       await page.keyboard.press('Escape');
-      await expect(page.getByTestId('overlay-settings')).toHaveCount(0);
+      await expect(page.getByTestId('settings-page')).toHaveCount(0);
       await expect(page.getByTestId('home-view')).toBeVisible();
       await page.screenshot({ path: join(SHOTS, 'home-light-1440.png') });
 

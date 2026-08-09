@@ -1,11 +1,14 @@
 import { Menu, type MenuItemConstructorOptions } from 'electron';
+import type { AppLocale } from '@pi-ide/ipc-contracts';
 import { broadcast } from './broadcast.js';
+import { mainT } from './i18n.js';
 
 const send = (action: string) => () => broadcast('app.menuAction', { action });
 
 /** APP-007: full application menu; every entry maps to a renderer command. */
-export function installApplicationMenu(opts: { isDev: boolean }): void {
+export function installApplicationMenu(opts: { isDev: boolean; locale: AppLocale }): void {
   const isMac = process.platform === 'darwin';
+  const t = (message: string): string => mainT(opts.locale, message);
 
   const template: MenuItemConstructorOptions[] = [
     ...(isMac
@@ -13,114 +16,118 @@ export function installApplicationMenu(opts: { isDev: boolean }): void {
           {
             label: 'Charter',
             submenu: [
-              { label: 'About Charter', click: send('app.about') },
+              { label: t('About Charter'), click: send('app.about') },
               { type: 'separator' },
-              { label: 'Settings…', accelerator: 'Cmd+,', click: send('app.openSettings') },
+              { label: t('Settings…'), accelerator: 'Cmd+,', click: send('app.openSettings') },
               { type: 'separator' },
-              { role: 'services' },
+              { label: t('Services'), role: 'services' },
               { type: 'separator' },
-              { label: 'Hide Charter', role: 'hide' },
-              { role: 'hideOthers' },
-              { role: 'unhide' },
+              { label: t('Hide Charter'), role: 'hide' },
+              { label: t('Hide Others'), role: 'hideOthers' },
+              { label: t('Show All'), role: 'unhide' },
               { type: 'separator' },
-              { label: 'Quit Charter', role: 'quit' },
+              { label: t('Quit Charter'), role: 'quit' },
             ] as MenuItemConstructorOptions[],
           },
         ]
       : []),
     {
-      label: 'File',
+      label: t('File'),
       submenu: [
-        { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: send('workspace.openFolder') },
-        { label: 'Close Workspace', click: send('workspace.close') },
-        { type: 'separator' },
-        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: send('editor.save') },
         {
-          label: 'Save All',
+          label: t('Open Folder…'),
+          accelerator: 'CmdOrCtrl+O',
+          click: send('workspace.openFolder'),
+        },
+        { label: t('Close Workspace'), click: send('workspace.close') },
+        { type: 'separator' },
+        { label: t('Save'), accelerator: 'CmdOrCtrl+S', click: send('editor.save') },
+        {
+          label: t('Save All'),
           accelerator: isMac ? 'Cmd+Alt+S' : 'Ctrl+K S',
           click: send('editor.saveAll'),
         },
         ...(!isMac
           ? ([
               { type: 'separator' },
-              { label: 'Settings…', accelerator: 'Ctrl+,', click: send('app.openSettings') },
+              { label: t('Settings…'), accelerator: 'Ctrl+,', click: send('app.openSettings') },
               { type: 'separator' },
-              { role: 'quit' },
+              { label: t('Quit'), role: 'quit' },
             ] as MenuItemConstructorOptions[])
           : []),
       ],
     },
     {
-      label: 'Edit',
+      label: t('Edit'),
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        { label: t('Undo'), role: 'undo' },
+        { label: t('Redo'), role: 'redo' },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
+        { label: t('Cut'), role: 'cut' },
+        { label: t('Copy'), role: 'copy' },
+        { label: t('Paste'), role: 'paste' },
+        { label: t('Select All'), role: 'selectAll' },
         { type: 'separator' },
-        { label: 'Find in File', accelerator: 'CmdOrCtrl+F', click: send('editor.find') },
+        { label: t('Find in File'), accelerator: 'CmdOrCtrl+F', click: send('editor.find') },
         {
-          label: 'Search in Workspace',
+          label: t('Search in Workspace'),
           accelerator: 'CmdOrCtrl+Shift+F',
           click: send('search.global'),
         },
       ],
     },
     {
-      label: 'View',
+      label: t('View'),
       submenu: [
         {
-          label: 'Command Palette…',
+          label: t('Command Palette…'),
           accelerator: 'CmdOrCtrl+Shift+P',
           click: send('palette.open'),
         },
-        { label: 'Quick Open…', accelerator: 'CmdOrCtrl+P', click: send('quickopen.open') },
+        { label: t('Quick Open…'), accelerator: 'CmdOrCtrl+P', click: send('quickopen.open') },
         { type: 'separator' },
         {
-          label: 'Zoom In',
+          label: t('Zoom In'),
           accelerator: 'CmdOrCtrl+Plus',
           click: send('view.zoomIn'),
         },
         {
-          label: 'Zoom Out',
+          label: t('Zoom Out'),
           accelerator: 'CmdOrCtrl+-',
           click: send('view.zoomOut'),
         },
         {
-          label: 'Reset Zoom',
+          label: t('Reset Zoom'),
           accelerator: 'CmdOrCtrl+0',
           click: send('view.zoomReset'),
         },
         { type: 'separator' },
-        { label: 'Explorer', accelerator: 'CmdOrCtrl+Shift+E', click: send('view.explorer') },
-        { label: 'Search', click: send('view.search') },
-        { label: 'Source Control', accelerator: 'Ctrl+Shift+G', click: send('view.scm') },
-        { label: 'Tasks', click: send('view.tasks') },
+        { label: t('Explorer'), accelerator: 'CmdOrCtrl+Shift+E', click: send('view.explorer') },
+        { label: t('Search'), click: send('view.search') },
+        { label: t('Source Control'), accelerator: 'Ctrl+Shift+G', click: send('view.scm') },
+        { label: t('Tasks'), click: send('view.tasks') },
         { type: 'separator' },
         {
-          label: 'Toggle Sidebar',
+          label: t('Toggle Sidebar'),
           accelerator: 'CmdOrCtrl+B',
           click: send('layout.toggleSidebar'),
         },
         {
-          label: 'Toggle Agent Panel',
+          label: t('Toggle Agent Panel'),
           accelerator: 'CmdOrCtrl+L',
           click: send('layout.toggleAgentPanel'),
         },
         {
-          label: 'Toggle Bottom Panel',
+          label: t('Toggle Bottom Panel'),
           accelerator: 'CmdOrCtrl+J',
           click: send('layout.toggleBottomPanel'),
         },
         { type: 'separator' },
-        { label: 'Theme: Light', click: send('theme.light') },
-        { label: 'Theme: Dark', click: send('theme.dark') },
-        { label: 'Theme: System', click: send('theme.system') },
+        { label: t('Theme: Light'), click: send('theme.light') },
+        { label: t('Theme: Dark'), click: send('theme.dark') },
+        { label: t('Theme: System'), click: send('theme.system') },
         {
-          label: 'Skin',
+          label: t('Skin'),
           submenu: [
             { label: 'Studio', click: send('skin.studio') },
             { label: 'Terminal', click: send('skin.terminal') },
@@ -136,38 +143,40 @@ export function installApplicationMenu(opts: { isDev: boolean }): void {
       ],
     },
     {
-      label: 'Terminal',
+      label: t('Terminal'),
       submenu: [
-        { label: 'New Terminal', accelerator: 'Ctrl+`', click: send('terminal.new') },
-        { label: 'Kill Active Terminal', click: send('terminal.kill') },
+        { label: t('New Terminal'), accelerator: 'Ctrl+`', click: send('terminal.new') },
+        { label: t('Kill Active Terminal'), click: send('terminal.kill') },
       ],
     },
     {
-      label: 'Agent',
+      label: t('Agent'),
       submenu: [
-        { label: 'New Task…', accelerator: 'CmdOrCtrl+N', click: send('task.new') },
+        { label: t('New Task…'), accelerator: 'CmdOrCtrl+N', click: send('task.new') },
         {
-          label: 'Stop Agent',
+          label: t('Stop Agent'),
           accelerator: isMac ? 'Cmd+Escape' : 'Ctrl+Escape',
           click: send('task.stop'),
         },
       ],
     },
     {
-      label: 'Window',
+      label: t('Window'),
       submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
-        ...(isMac ? [{ role: 'front' } as MenuItemConstructorOptions] : []),
+        { label: t('Minimize'), role: 'minimize' },
+        { label: t('Zoom'), role: 'zoom' },
+        ...(isMac
+          ? [{ label: t('Bring All to Front'), role: 'front' } as MenuItemConstructorOptions]
+          : []),
       ],
     },
     {
-      label: 'Help',
+      label: t('Help'),
       submenu: [
-        { label: 'Check for Updates…', click: send('app.openUpdates') },
+        { label: t('Check for Updates…'), click: send('app.openUpdates') },
         { type: 'separator' },
-        { label: 'About Charter', click: send('app.about') },
-        { label: 'Diagnostics', click: send('app.openDiagnostics') },
+        { label: t('About Charter'), click: send('app.about') },
+        { label: t('Diagnostics'), click: send('app.openDiagnostics') },
       ],
     },
   ];

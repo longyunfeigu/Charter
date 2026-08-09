@@ -127,7 +127,7 @@
   font-weight: 650;
 }
 .skills-status-tabs {
-  display: none;
+  display: inline-flex;
 }
 .skills-search {
   width: min(250px, 26vw);

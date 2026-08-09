@@ -496,6 +496,16 @@ export class WorkItemService {
     return this.requireReminder(id);
   }
 
+  /** Due-and-unhandled reminders — drives the Dock badge. A reminder leaves
+   * this count only when the user snoozes or dismisses it, so the badge nags
+   * exactly as long as something is actually waiting. */
+  firedReminderCount(): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS value FROM work_item_reminders WHERE state = 'fired'")
+      .get() as { value: number };
+    return row.value;
+  }
+
   cancelReminder(id: string): WorkReminderDto {
     const current = this.requireReminder(id);
     const at = this.now().toISOString();

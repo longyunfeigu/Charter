@@ -79,7 +79,7 @@ test.describe('README product images', () => {
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
-      await page.getByTestId('project-tool-back').click();
+      // ADR-0054: the shell boots on Home — no editor surface to leave first.
       await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
 
       await page.getByTestId('home-agent').click();
@@ -163,7 +163,8 @@ test.describe('README product images', () => {
       await page.screenshot({ path: join(OUT, 'completion-attention.png') });
 
       await completionNotice.getByLabel('Dismiss Session notification').click();
-      await page.getByTestId('rail-view-memory').click();
+      await page.getByTestId('home-settings').click();
+      await page.getByTestId('settings-section-memory').click();
       await expect(page.getByTestId('memory-view')).toBeVisible();
       await page.getByTestId('memory-nav-charter').click();
       await page
@@ -214,7 +215,7 @@ test.describe('README product images', () => {
     try {
       await page.setViewportSize({ width: 1440, height: 900 });
       await expect(page.getByTestId('home-sidebar')).toBeVisible();
-      await page.getByTestId('project-tool-back').click();
+      // ADR-0054: the shell boots on Home — no editor surface to leave first.
       await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
       await page.getByTestId('home-mode-full').click();
       await page.getByTestId('home-advanced-toggle').click();

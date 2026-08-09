@@ -15,8 +15,7 @@ export function SkillSourcesSettingsSection(): React.JSX.Element {
   useEffect(() => init(), [init]);
 
   const openSkills = (): void => {
-    useAppStore.getState().setOverlay('none');
-    useAppStore.getState().setRailView('skills');
+    useAppStore.getState().openSettings('skills');
   };
 
   return (
@@ -26,7 +25,7 @@ export function SkillSourcesSettingsSection(): React.JSX.Element {
           <span className="st-row-label">
             Skills workspace
             <span className="st-row-hint">
-              Usage, cross-Agent copies and per-Agent cleanup now live on the main page
+              Usage, cross-Agent copies and per-Agent cleanup live in Settings → Skills
             </span>
           </span>
           <span className="st-row-control">
