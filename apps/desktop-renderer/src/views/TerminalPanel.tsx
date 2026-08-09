@@ -51,12 +51,14 @@ import {
   syncTerminalRenderer,
   syncTerminalUnicode,
 } from './terminal-renderer.js';
+import { attachTuiWheelFidelity } from './terminal-tui-wheel.js';
 import {
   ORCA_DARK_TERMINAL_THEME,
   ORCA_LIGHT_TERMINAL_THEME,
   resolveTerminalFontWeights,
   resolveTerminalMinimumContrastRatio,
   terminalThemesEqual,
+  withTerminalScrollbarColors,
 } from './terminal-visuals.js';
 import { nextTerminalFontSize, type TerminalZoomDirection } from './terminal-zoom.js';
 import {
@@ -808,8 +810,9 @@ export function applyTerminalAppearance(
     item.term.options.scrollback = settings.scrollback;
   }
   // Avoid resetting xterm's live OSC palette on unrelated settings updates.
-  if (!terminalThemesEqual(item.term.options.theme, appearance.theme)) {
-    item.term.options.theme = appearance.theme;
+  const themeWithScrollbar = withTerminalScrollbarColors(appearance.theme);
+  if (!terminalThemesEqual(item.term.options.theme, themeWithScrollbar)) {
+    item.term.options.theme = themeWithScrollbar;
   }
 
   const element = item.term.element;
@@ -1050,12 +1053,13 @@ function makeTerm(settings: Settings['terminal'] | undefined): { term: Terminal;
     fastScrollSensitivity: 5,
     cursorBlink: true,
     allowProposedApi: true,
-    theme: appearance.theme,
+    theme: withTerminalScrollbarColors(appearance.theme),
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
   installTerminalUnicode(term);
   term.loadAddon(new WebLinksAddon(activateWebUri));
+  attachTuiWheelFidelity(term);
   return { term, fit };
 }
 

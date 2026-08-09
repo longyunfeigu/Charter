@@ -80,6 +80,28 @@ export function resolveTerminalMinimumContrastRatio(theme: ITheme, appDark: bool
     : DARK_TERMINAL_MIN_CONTRAST;
 }
 
+/**
+ * xterm's default scrollbar slider is the foreground at 20% opacity — on our
+ * light surfaces that reads as "no scrollbar at all" (user-reported). Derive
+ * explicit slider colors from each theme's own ink so every skin keeps a
+ * visible, hover-responsive slider without per-skin tuning.
+ */
+export function withTerminalScrollbarColors(theme: ITheme): ITheme {
+  if (theme.scrollbarSliderBackground) return theme;
+  const ink =
+    theme.foreground && /^#[\da-f]{6}$/i.test(theme.foreground)
+      ? theme.foreground
+      : isLightBackground(theme.background, false)
+        ? '#2e3434'
+        : '#ffffff';
+  return {
+    ...theme,
+    scrollbarSliderBackground: `${ink}52`,
+    scrollbarSliderHoverBackground: `${ink}73`,
+    scrollbarSliderActiveBackground: `${ink}8c`,
+  };
+}
+
 export function terminalThemesEqual(a: ITheme | undefined, b: ITheme): boolean {
   if (!a) return false;
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
