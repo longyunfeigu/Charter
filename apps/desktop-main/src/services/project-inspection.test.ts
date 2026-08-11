@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -71,6 +72,26 @@ describe('Project Center inspection', () => {
     await expect(inspectRegisteredProject(state, project)).resolves.toMatchObject({
       trustState: 'trusted',
     });
+  });
+
+  it('lists local branches without opening or switching the selected project', async () => {
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: project });
+    execFileSync('git', ['config', 'user.email', 'project@example.com'], { cwd: project });
+    execFileSync('git', ['config', 'user.name', 'Project Test'], { cwd: project });
+    execFileSync('git', ['add', '.'], { cwd: project });
+    execFileSync('git', ['commit', '-qm', 'initial'], { cwd: project });
+    execFileSync('git', ['branch', 'release/next'], { cwd: project });
+
+    const inspected = await inspectRegisteredProject(state, project);
+
+    expect(inspected.git.branch).toBe('main');
+    expect(inspected.git.branches).toEqual([
+      { name: 'main', current: true },
+      { name: 'release/next', current: false },
+    ]);
+    expect(
+      execFileSync('git', ['branch', '--show-current'], { cwd: project }).toString().trim(),
+    ).toBe('main');
   });
 
   it('returns a stable unavailable shape after the folder is deleted', async () => {

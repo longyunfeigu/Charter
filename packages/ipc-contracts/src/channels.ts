@@ -99,6 +99,11 @@ import {
   WorkItemUpdateInputSchema,
   WorkReminderDtoSchema,
 } from './work-items.js';
+import {
+  GithubAuthStatusDtoSchema,
+  GithubIssueImportResultSchema,
+  GithubIssueResolveResultSchema,
+} from './github.js';
 
 const SettingsStateSchema = z.object({
   effective: SettingsSchema,
@@ -439,6 +444,54 @@ export const CHANNELS = {
       .strict(),
     z.object({ column: WorkBoardColumnDtoSchema }).strict(),
   ),
+  // ---- GitHub issue import (ADR-0056): read-only, explicit user action ----
+  'github.issue.resolve': ch(
+    'github.issue.resolve',
+    1,
+    z.object({ url: z.string().trim().min(1).max(4000) }).strict(),
+    GithubIssueResolveResultSchema,
+  ),
+  'github.issue.import': ch(
+    'github.issue.import',
+    1,
+    z
+      .object({
+        url: z.string().trim().min(1).max(4000),
+        /** undefined = use automatic mapping; null = intentionally choose later. */
+        projectPath: z.string().min(1).max(4000).nullable().optional(),
+      })
+      .strict(),
+    GithubIssueImportResultSchema,
+  ),
+  /** ADR-0057: the one approval-gated external write. Fired only by the user's
+   * explicit click after an exact-payload preview; never callable by agents. */
+  'github.issue.postComment': ch(
+    'github.issue.postComment',
+    1,
+    z
+      .object({ workItemId: z.string().min(1), body: z.string().trim().min(1).max(60_000) })
+      .strict(),
+    z.object({ url: z.string() }).strict(),
+  ),
+  'github.auth.status': ch(
+    'github.auth.status',
+    1,
+    z.object({}).strict(),
+    GithubAuthStatusDtoSchema,
+  ),
+  /** Verifies the token against GitHub before storing; rejects invalid tokens. */
+  'github.auth.setToken': ch(
+    'github.auth.setToken',
+    1,
+    z.object({ token: z.string().trim().min(1).max(4000) }).strict(),
+    z.object({ login: z.string() }).strict(),
+  ),
+  'github.auth.clearToken': ch(
+    'github.auth.clearToken',
+    1,
+    z.object({}).strict(),
+    z.object({ cleared: z.boolean() }).strict(),
+  ),
   'app.openExternal': ch(
     'app.openExternal',
     1,
@@ -512,6 +565,8 @@ export const CHANNELS = {
         gitAvailable: z.boolean(),
         isRepo: z.boolean(),
         branch: z.string().nullable(),
+        /** Local branches available as a read-only launch-context choice. */
+        branches: z.array(z.object({ name: z.string(), current: z.boolean() })),
         upstream: z.string().nullable(),
         ahead: z.number().int(),
         behind: z.number().int(),
@@ -1295,6 +1350,18 @@ export const CHANNELS = {
     1,
     z.object({ missionId: z.string().min(1) }).strict(),
     z.object({ deleted: z.literal(true) }),
+  ),
+  /** Remove one settled parent Session together with every Session owned by
+   * its Mission tree. The Mission ledger moves to recoverable trash; project
+   * files are never part of this operation. */
+  'mission.deleteSessionTree': ch(
+    'mission.deleteSessionTree',
+    1,
+    z.object({ missionId: z.string().min(1) }).strict(),
+    z.object({
+      mission: MissionSnapshotSchema,
+      removedSessions: z.number().int().positive(),
+    }),
   ),
   'mission.pauseAssignment': ch(
     'mission.pauseAssignment',

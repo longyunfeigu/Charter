@@ -892,6 +892,23 @@ export class WorkItemService {
           }
         : { ...execution, status: 'missing' };
     }
+    if (execution.targetKind === 'terminal') {
+      const row = this.db
+        .prepare(
+          `SELECT title, state, archived FROM tasks
+           WHERE external_json IS NOT NULL
+             AND json_extract(external_json, '$.terminalId') = ?
+           ORDER BY updated_at DESC LIMIT 1`,
+        )
+        .get(execution.targetId) as { title: string; state: string; archived: number } | undefined;
+      return row
+        ? {
+            ...execution,
+            displayLabel: execution.displayLabel || row.title,
+            status: row.archived === 1 ? 'archived' : row.state,
+          }
+        : { ...execution, status: 'missing' };
+    }
     return execution;
   }
 

@@ -40,6 +40,7 @@ import {
   type SessionEntry,
 } from './rail-groups.js';
 import { ActivityBar } from './ActivityBar.js';
+import { ForYouRail } from './ForYouRail.js';
 import { MissionRailPanel } from './mission/MissionRailPanel.js';
 import { SessionRenameDialog } from './SessionRenameDialog.js';
 import { visibleAttentionTasks } from '../store/attentionDismissals.js';
@@ -401,8 +402,11 @@ function SessionTaskRow({
       : statusBadge(task);
   const resumable = canResumeExternal(task) && !live;
   const endable = task.external !== null && live;
-  const deletable = canArchiveTask(task) && !endable;
-  const hasActions = endable || resumable || deletable;
+  const missionTreeDeletable = Boolean(
+    mission && mission.parentKey === null && missionStatus && !missionStatus.live,
+  );
+  const deletable = !mission && canArchiveTask(task) && !endable;
+  const hasActions = endable || resumable || deletable || missionTreeDeletable;
   const [renameOpen, setRenameOpen] = useState(false);
   const [endingExternal, setEndingExternal] = useState(false);
   const externalLifecycle =
@@ -454,7 +458,7 @@ function SessionTaskRow({
 
   return (
     <div
-      className={`sr-row-wrap ${showDetail ? 'has-detail' : ''} ${hasActions ? 'has-actions' : ''} ${worker || depth > 0 ? 'sr-orch-worker' : ''}`}
+      className={`sr-row-wrap ${showDetail ? 'has-detail' : ''} ${hasActions ? 'has-actions' : ''} ${missionTreeDeletable ? 'has-tree-delete' : ''} ${worker || depth > 0 ? 'sr-orch-worker' : ''}`}
       style={{ '--sr-depth': Math.max(depth, worker ? 1 : 0) } as React.CSSProperties}
     >
       <button
@@ -525,7 +529,7 @@ function SessionTaskRow({
         </span>
       </button>
       {hasActions ? (
-        <div className="sr-actions">
+        <div className={`sr-actions ${missionTreeDeletable ? 'tree-delete' : ''}`}>
           {endable ? (
             <ArmedIconButton
               icon={endingExternal ? 'refresh' : 'circleStop'}
@@ -567,6 +571,18 @@ function SessionTaskRow({
               onConfirm={() => void useTaskStore.getState().deleteTask(task.id)}
             />
           ) : null}
+          {missionTreeDeletable ? (
+            <ArmedIconButton
+              icon="trash"
+              className="sr-delete"
+              testid={`mission-session-tree-delete-${mission!.missionId}`}
+              title="Delete parent and child sessions"
+              armedTitle="Click again to delete the entire session tree"
+              onConfirm={() =>
+                void useOrchestrationStore.getState().deleteSessionTree(mission!.missionId)
+              }
+            />
+          ) : null}
         </div>
       ) : null}
       <SessionRenameDialog task={task} open={renameOpen} onClose={() => setRenameOpen(false)} />
@@ -606,6 +622,9 @@ function TerminalSessionRow({
   const showDetail = showProject || Boolean(mission);
   const missionSettled = missionRuntimeStatus !== null && missionRuntimeStatus !== 'active';
   const missionStatus = mission ? missionSessionStatus(mission) : null;
+  const missionTreeDeletable = Boolean(
+    mission && mission.parentKey === null && missionStatus && !missionStatus.live,
+  );
   const visiblyWorking = missionAwareWorking(working, missionRuntimeStatus);
   const missionStatusLabel =
     missionStatus?.label === 'Active' && visiblyWorking ? 'Working' : missionStatus?.label;
@@ -629,7 +648,7 @@ function TerminalSessionRow({
     : `${providerLabel(provider)} · ${sessionName} · ${item.contextLabel} — ${terminalState}`;
   return (
     <div
-      className={`sr-row-wrap ${showDetail ? 'has-detail' : ''} ${worker || depth > 0 ? 'sr-orch-worker' : ''}`}
+      className={`sr-row-wrap ${showDetail ? 'has-detail' : ''} ${missionTreeDeletable ? 'has-actions has-tree-delete' : ''} ${worker || depth > 0 ? 'sr-orch-worker' : ''}`}
       style={{ '--sr-depth': Math.max(depth, worker ? 1 : 0) } as React.CSSProperties}
     >
       <button
@@ -700,6 +719,20 @@ function TerminalSessionRow({
           ) : null}
         </span>
       </button>
+      {missionTreeDeletable ? (
+        <div className="sr-actions tree-delete">
+          <ArmedIconButton
+            icon="trash"
+            className="sr-delete"
+            testid={`mission-session-tree-delete-${mission!.missionId}`}
+            title="Delete parent and child sessions"
+            armedTitle="Click again to delete the entire session tree"
+            onConfirm={() =>
+              void useOrchestrationStore.getState().deleteSessionTree(mission!.missionId)
+            }
+          />
+        </div>
+      ) : null}
       {hoverTooltip.tooltip}
     </div>
   );
@@ -732,10 +765,11 @@ function MissionRuntimeRow({
   const detail =
     entry.mission.taskState === 'BLOCKED' ? transport : `${entry.mission.taskTitle} · ${transport}`;
   const description = `${entry.mission.agentName} · ${entry.mission.taskTitle} · ${transport}`;
+  const missionTreeDeletable = entry.mission.parentKey === null && !status.live;
 
   return (
     <div
-      className="sr-row-wrap sr-orch-worker sr-mission-runtime"
+      className={`sr-row-wrap sr-orch-worker sr-mission-runtime ${missionTreeDeletable ? 'has-actions has-tree-delete' : ''}`}
       style={{ '--sr-depth': Math.max(1, entry.mission.depth) } as React.CSSProperties}
     >
       <button
@@ -770,6 +804,20 @@ function MissionRuntimeRow({
           </span>
         </span>
       </button>
+      {missionTreeDeletable ? (
+        <div className="sr-actions tree-delete">
+          <ArmedIconButton
+            icon="trash"
+            className="sr-delete"
+            testid={`mission-session-tree-delete-${entry.mission.missionId}`}
+            title="Delete parent and child sessions"
+            armedTitle="Click again to delete the entire session tree"
+            onConfirm={() =>
+              void useOrchestrationStore.getState().deleteSessionTree(entry.mission.missionId)
+            }
+          />
+        </div>
+      ) : null}
       {hoverTooltip.tooltip}
     </div>
   );
@@ -1907,42 +1955,10 @@ export function SessionRail(): React.JSX.Element {
     </>
   );
 
+  // ADR-0056/0057: the For-you rail is the external-work-inbox queue (mock
+  // replica). Sessions needing a decision feed its Attention bucket.
   const inboxPanel = (
-    <>
-      <header className="sr-head sr-head-plain">
-        <div className="sr-heading-row">
-          <strong>Needs attention</strong>
-          <div className="sr-inbox-heading-actions">
-            <small>{inbox.length} waiting</small>
-            {inbox.length > 0 ? (
-              <button
-                className="sr-inbox-clear"
-                data-testid="rail-inbox-clear"
-                title="Clear current reminders without deleting sessions"
-                onClick={clearAttention}
-              >
-                Clear all
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </header>
-      <div className="sr-scroll" data-testid="rail-inbox-panel">
-        <div className="sr-inbox-intro">
-          <strong>Move work forward</strong>
-          <span>Questions, plans, permissions and reviews waiting for you appear here.</span>
-        </div>
-        {inbox.length === 0 ? (
-          <div className="sr-empty">Nothing needs you right now.</div>
-        ) : (
-          <div className="sr-inbox-list">
-            {inbox.map((task) => (
-              <SessionTaskRow key={task.id} task={task} now={now} />
-            ))}
-          </div>
-        )}
-      </div>
-    </>
+    <ForYouRail attentionTasks={inbox} now={now} onClearAttention={clearAttention} />
   );
 
   const filteredRecent = recent

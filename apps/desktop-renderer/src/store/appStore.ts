@@ -46,6 +46,7 @@ export type RailView =
 export type MainSurface =
   | { kind: 'home' }
   | { kind: 'work' }
+  | { kind: 'inbox' }
   | { kind: 'room'; taskId: string }
   | { kind: 'mission'; missionId: string | null }
   | { kind: 'terminal'; terminalId: string }
@@ -54,11 +55,12 @@ export type MainSurface =
   | { kind: 'archaeology'; scope: string | null }
   | { kind: 'remotes' };
 
-/** ADR-0042 — every primary destination owns its main surface. Sessions,
- * Inbox and Files deliberately share one workbench because those panels feed
- * the same open conversation; Missions, Projects, Memory and Skills are independent
- * pages and must never leave another destination's main content on screen. */
-export type RailGroup = 'workbench' | 'work' | 'missions' | 'projects' | 'memory' | 'skills';
+/** ADR-0042 — every primary destination owns its main surface. Sessions and
+ * Files share one workbench because Files feeds the open conversation. Inbox,
+ * Work, Missions, Projects, Memory, and Skills are independent pages and must
+ * never leave another destination's main content on screen. */
+export type RailGroup =
+  'workbench' | 'work' | 'inbox' | 'missions' | 'projects' | 'memory' | 'skills';
 
 /** A browser-like navigation entry. Unlike MainSurface this deliberately keeps
  * the contextual state around the surface, so Back restores the page the user
@@ -106,6 +108,8 @@ export function navigationSnapshotLabel(snapshot: NavigationSnapshot | null): st
       return surface.missionId ? 'Mission' : 'All Missions';
     case 'work':
       return 'Work';
+    case 'inbox':
+      return 'Inbox';
     case 'terminal':
       return snapshot.remotesOpen ? 'Remote terminal' : 'Terminal';
     case 'archaeology':
@@ -142,6 +146,7 @@ export function navigationSnapshotLabel(snapshot: NavigationSnapshot | null): st
 
 export function railGroupOf(view: RailView): RailGroup {
   if (view === 'work') return 'work';
+  if (view === 'inbox') return 'inbox';
   if (view === 'missions') return 'missions';
   if (view === 'projects') return 'projects';
   if (view === 'memory') return 'memory';
@@ -164,6 +169,7 @@ export function mainSurfaceOf(
   },
 ): MainSurface {
   if (s.railView === 'work') return { kind: 'work' };
+  if (s.railView === 'inbox') return { kind: 'inbox' };
   if (s.sessionTerminalId) return { kind: 'terminal', terminalId: s.sessionTerminalId };
   if (s.missionCenter) return { kind: 'mission', missionId: s.missionCenter.missionId };
   if (s.taskRoomTaskId) return { kind: 'room', taskId: s.taskRoomTaskId };
@@ -186,6 +192,7 @@ export type SettingsSection =
   | 'models'
   | 'permissions'
   | 'privacy'
+  | 'github'
   | 'updates'
   | 'about';
 
@@ -278,6 +285,8 @@ interface AppStore {
     title: string;
     prompt: string;
     acceptance: string[];
+    /** Mapped dispatch target (ADR-0056): the composer follows this project. */
+    projectPath?: string;
   } | null;
   /** New project dialog (empty/clone) — global so the sidebar entry works from any surface. */
   newProjectOpen: boolean;
@@ -656,10 +665,8 @@ export const useAppStore = create<AppStore>((set, get) => {
   };
 
   /** ADR-0042 — explicit surface openers keep the contextual rail in step when
-   * moving between nav groups.  Workbench's Sessions/Inbox/Files views are
-   * deliberately sticky, except when leaving Mission: Mission owns its entire
-   * surface, so keeping its rail beside an opened Session produces a
-   * split-brain navigation state. */
+   * moving between nav groups. Sessions/Files are deliberately sticky; Inbox
+   * and Mission each own their full main surface. */
   const crossRailPatch = (target: RailView): Partial<AppStore> => {
     const prev = get().railView;
     if (prev === target) return {};
@@ -683,6 +690,18 @@ export const useAppStore = create<AppStore>((set, get) => {
         return;
       case 'work':
         get().setRailView('work');
+        return;
+      case 'inbox':
+        set({
+          taskRoomTaskId: null,
+          missionCenter: null,
+          sessionTerminalId: null,
+          projectCenter: null,
+          archaeology: null,
+          remotesOpen: false,
+          projectTool: null,
+          projectBottomTab: null,
+        });
         return;
       case 'terminal':
         get().openTerminalSession(surface.terminalId);
@@ -759,6 +778,7 @@ export const useAppStore = create<AppStore>((set, get) => {
     savedSurfaces: {
       workbench: { kind: 'home' },
       work: { kind: 'work' },
+      inbox: { kind: 'inbox' },
       missions: { kind: 'mission', missionId: null },
       projects: { kind: 'home' },
       memory: { kind: 'home' },

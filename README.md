@@ -135,6 +135,7 @@ Charter combines agent orchestration, a desktop IDE, controlled execution, live 
 - **Visible worker fleets:** create and direct sibling shell or agent PTYs without per-call permission popups, with event-driven turn completion, a live monitor, pause-all, per-worker takeover, budgets, and a complete audit trail.
 - **Conversation continuity:** keep following up on managed Sessions and resume supported external CLI conversations with their original identity and working directory.
 - **Multi-project Rail:** monitor Sessions across repositories while every task retains its own project context, worktree, and state.
+- **GitHub issue import (read-only):** paste an issue URL into Work to preview its body, labels, task list, recent discussion, and local-repository match before creating a local work card; then choose the entry Agent and start a Session or Mission. Linked execution state stays synchronized after stop/completion, and imported cards have a guarded local delete action. Credentials come from a keychain-stored token or your existing `gh` login, public repositories need none, and Charter never posts anything back to GitHub.
 
 ### Observe and steer
 

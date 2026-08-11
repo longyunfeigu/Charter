@@ -210,7 +210,9 @@ export function MissionRailPanel(): React.JSX.Element {
                       ) : (
                         <span className="mission-rail-card-meta">
                           {scope === 'deleted'
-                            ? 'Recently deleted · original Session kept'
+                            ? snapshot.mission.originConversationTaskId
+                              ? 'Recently deleted · original Session kept'
+                              : 'Recently deleted · Session tree removed'
                             : `${state.label} · ${summary.completed}/${summary.total} done`}
                         </span>
                       )}

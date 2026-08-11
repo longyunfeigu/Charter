@@ -103,6 +103,7 @@ const ZH_CN = {
   Apply: '应用',
   Reset: '重置',
   'Loading…': '正在加载…',
+  'Loading agents…': '正在加载智能体…',
   'No results': '没有结果',
   Unknown: '未知',
   'Just now': '刚刚',
@@ -752,13 +753,12 @@ const ZH_CN = {
   'Waiting for your decision': '等待你的决定',
   Stop: '停止',
   'Settled · snapshots retained': '已结算 · 快照已保留',
-  'Review PR draft': '审查 PR 草稿',
+  'Prepare PR…': '准备提交 PR…',
   'Accepted · snapshot retained': '已接受 · 快照已保留',
   'Session terminal': '会话终端',
   "Open a terminal in this Session's": '在此会话的以下位置打开终端：',
   'PR draft — from the evidence ledger': 'PR 草稿——来自证据台账',
   '→ your default branch': '→ 你的默认分支',
-  'Review draft': '审查草稿',
   'Copy body': '复制正文',
   'Copy commands': '复制命令',
   'Show details': '显示详情',
@@ -1222,6 +1222,221 @@ const ZH_CN = {
   'Inspect SKILL.md and bundled files before trusting': '信任前请检查 SKILL.md 和附带文件',
   'Bundled files': '附带文件',
   '· revision': '· 修订',
+  // ---- GitHub issue import + For-you inbox (ADR-0056) ----
+  'EXTERNAL WORK': '外部工作',
+  'GITHUB · READ ONLY': 'GITHUB · 只读',
+  'Import GitHub issue': '导入 GitHub issue',
+  'Preview the source and repository match before adding it to Work.':
+    '加入工作队列前，先核对来源内容与本地仓库匹配结果。',
+  'Import progress': '导入进度',
+  'Find issue': '查找 issue',
+  'Review & import': '核对并导入',
+  Change: '更换',
+  'Open issue': '开启中的 issue',
+  'Closed issue': '已关闭的 issue',
+  'opened by': '创建者',
+  'checklist items': '项检查清单',
+  comments: '条评论',
+  'recent carried in': '条近期评论将被带入',
+  Optional: '可选',
+  'Choose later': '稍后选择',
+  'This is where Charter will start the Session or Mission.':
+    'Charter 将在此项目中启动会话或编排任务。',
+  'The issue can still be imported; choose a Project before starting work.':
+    '仍可先导入 issue；开始工作前再选择项目。',
+  'Issue URL or reference': 'Issue 链接或引用',
+  'Also accepts': '也支持',
+  'Clear issue URL': '清空 issue 链接',
+  'Reading issue context…': '正在读取 issue 上下文…',
+  'Fetching metadata, recent discussion, and matching local remotes.':
+    '正在获取元数据和近期讨论，并匹配本地 git remote。',
+  'Nothing changes on GitHub': '不会更改 GitHub 上的任何内容',
+  'Previewing and importing only read the issue.': '预览与导入只会读取 issue。',
+  'This issue is already in Work.': '这个 issue 已经在工作队列里了。',
+  'Connected with GitHub CLI': '已通过 GitHub CLI 连接',
+  'Connected with token': '已通过令牌连接',
+  'Public issues work without signing in': '无需登录即可导入公开 issue',
+  'Import to Work': '导入工作队列',
+  'Importing…': '正在导入…',
+  'Preview issue': '预览 issue',
+  'Issue URL': 'Issue 链接',
+  'Open GitHub settings': '打开 GitHub 设置',
+  'Refresh the queue': '刷新队列',
+  'Import issue from URL': '从链接导入 issue',
+  'Requests, decisions, and finished work in one queue.':
+    '请求、待决策和已完成的工作，汇成一条队列。',
+  Incoming: '新进',
+  'Work buckets': '工作分组',
+  'Filter by source': '按来源筛选',
+  'Find issue, project, or repo': '搜索 issue、项目或仓库',
+  'All sources': '全部来源',
+  'Import URL': '导入链接',
+  'Nothing here yet.': '这里还没有内容。',
+  'Checking GitHub connection…': '正在检查 GitHub 连接…',
+  'GitHub connected · gh CLI': 'GitHub 已连接 · gh CLI',
+  'GitHub not connected — public repos work': 'GitHub 未连接——公开仓库仍可导入',
+  'Import from a URL': '从链接导入',
+  'Paste a GitHub issue. Charter resolves its Project and repository before any work starts.':
+    '粘贴一个 GitHub issue。Charter 会先解析出它的项目与仓库，然后才开始任何工作。',
+  'Imports are read-only. Charter will show the exact Project, repository, and context before any work starts — nothing is ever posted back to GitHub.':
+    '导入是只读的。开始任何工作前，Charter 会展示确切的项目、仓库和上下文——绝不会向 GitHub 回写任何内容。',
+  'This issue is already in the queue.': '这个 issue 已经在队列里了。',
+  'Open existing item': '打开已有条目',
+  'Resolving…': '正在解析…',
+  'Resolve issue': '解析 issue',
+  'Choose an item from the queue to inspect it, or import a GitHub issue.':
+    '从队列中选择一项查看，或导入一个 GitHub issue。',
+  'Open in GitHub': '在 GitHub 打开',
+  'REMOVE FROM WORK': '从工作队列移除',
+  'Delete imported issue?': '删除已导入的 issue？',
+  'The imported card and its local audit trail will leave Work.':
+    '已导入的卡片及其本地审计记录将从工作队列中移除。',
+  'GitHub is not changed. Re-importing the same URL creates a fresh visible card.':
+    'GitHub 不会发生变化。再次导入同一链接可创建一张新的可见卡片。',
+  'Delete only removes the imported Work card; it does not stop Sessions or Missions.':
+    '删除只会移除导入的工作卡片，不会停止会话或编排任务。',
+  'Delete imported issue': '删除已导入的 issue',
+  'Deleting…': '正在删除…',
+  'Issue context': 'Issue 上下文',
+  'Imported without flattening the source': '按原样导入，不压平来源',
+  'This issue has no description.': '这个 issue 没有描述。',
+  'Context Charter will carry in': 'Charter 将携带的上下文',
+  'Issue body and metadata': 'Issue 正文与元数据',
+  'Title, labels, author, and source link': '标题、labels、作者和来源链接',
+  'Discussion tail preserved in order': '按顺序保留的讨论尾部',
+  Editable: '可编辑',
+  Included: '已包含',
+  'At start': '启动时',
+  'Repository context': '仓库上下文',
+  'Project rules and recent changes at start': '启动时带入项目规则与最近改动',
+  'Recent discussion': '最近讨论',
+  'Linked work': '已关联的工作',
+  'No local repository mapping': '没有本地仓库映射',
+  'Charter knows the source issue, but not where this work should run.':
+    'Charter 知道来源 issue，但还不知道这项工作该在哪里进行。',
+  'Local Project': '本地项目',
+  'Choose a Project…': '选择一个项目…',
+  'Ready to start': '可以开始',
+  'GitHub source mapped to a local Project and repository.': 'GitHub 来源已映射到本地项目与仓库。',
+  'Local work item ready for an Agent Session.': '本地工作项已可交给 Agent 会话。',
+  'Project & repository': '项目与仓库',
+  'Matched by git remote': '按 git remote 匹配',
+  'Base branch': '基线分支',
+  'GitHub issue': 'GitHub issue',
+  'Start a new execution': '启动新的执行',
+  'Choose how to run': '选择执行方式',
+  'Use a Mission for coordinated work, or one Session for a focused task.':
+    '协同工作使用 Mission，聚焦任务使用单个 Session。',
+  Recommended: '推荐',
+  'Coordinate implementation, verification, and independent review.': '协调实现、验证和独立审查。',
+  'Single Session': '单个 Session',
+  'Run one selected Agent on a small, focused change.': '由一个指定 Agent 完成小而明确的改动。',
+  'Choose the Mission lead': '选择 Mission 主 Agent',
+  'Choose the Session Agent': '选择 Session Agent',
+  'The selected Agent receives the complete issue context.': '所选 Agent 会收到完整 issue 上下文。',
+  'Model-backed': '模型驱动',
+  'Native CLI': '原生 CLI',
+  'Charter model': 'Charter 模型',
+  'Leads the Mission': '领导此 Mission',
+  'Runs this Session': '运行此 Session',
+  'Native terminal · can direct Mission workers': '原生终端 · 可调度 Mission worker',
+  'Native terminal · runs this Session directly': '原生终端 · 直接运行此 Session',
+  'Launch context': '启动上下文',
+  'Review where the Agent will work.': '确认 Agent 的工作位置。',
+  'Choose a Project': '选择一个项目',
+  'Workspace strategy': '工作区策略',
+  'Choose how the Agent should enter the repository': '选择 Agent 进入仓库的方式',
+  'Existing checkout': '现有检出目录',
+  'Agent verifies or safely switches to the selected branch.':
+    'Agent 会确认当前分支，或在安全时切换到所选分支。',
+  'Agent-created worktree': '由 Agent 创建 worktree',
+  'Prompt the Agent to create and enter an isolated worktree.':
+    '通过 Prompt 指示 Agent 创建并进入隔离 worktree。',
+  'Charter only adds the instruction. The Agent creates and manages the worktree.':
+    'Charter 只添加指示；worktree 由 Agent 创建和管理。',
+  outcomes: '项结果',
+  'Local execution only · GitHub stays read-only': '仅在本地执行 · GitHub 保持只读',
+  'Entry agent': '入口 Agent',
+  'Mission entry Agent': 'Mission 入口 Agent',
+  'Session Agent': 'Session Agent',
+  'This Agent receives the issue context first and leads the Mission.':
+    '该 Agent 会首先接收 issue 上下文并领导 Mission。',
+  'This Agent directly runs the new Session with the issue context.':
+    '该 Agent 会携带 issue 上下文直接运行新的 Session。',
+  'This Agent receives the issue context first and leads the selected execution shape.':
+    '该 Agent 会首先接收 issue 上下文，并负责领导所选执行方式。',
+  'The selected model is used by the Charter lead Session.': '所选模型将用于 Charter 的主会话。',
+  'The selected model is used by this Charter Session.': '所选模型将用于这个 Charter Session。',
+  'Native Agent runtime': '原生 Agent 运行时',
+  'Runs in its native visible terminal and may create Mission workers.':
+    '在可见的原生终端中运行，并可创建 Mission worker。',
+  'Runs this Session directly in its native visible terminal.':
+    '直接在其可见的原生终端中运行这个 Session。',
+  'A worktree can be created at start': '启动时可创建隔离 worktree',
+  Acceptance: '验收',
+  'Review and start Session': '确认并开始会话',
+  'The Composer is the final check — nothing is posted back to GitHub.':
+    'Composer 是最后一道确认——不会向 GitHub 回写任何内容。',
+  Ready: '就绪',
+  Running: '运行中',
+  Waiting: '等待中',
+  'Work is linked': '工作已关联',
+  'Charter attached this issue to durable execution records.':
+    'Charter 已将此 issue 关联到持久执行记录。',
+  'Work is running': '工作正在运行',
+  'The entry Agent is actively working with the issue context and repository mapping.':
+    '入口 Agent 正在结合 issue 上下文与仓库映射执行工作。',
+  'Work needs attention': '工作需要处理',
+  'A linked Session or Mission is waiting for a decision before it can continue.':
+    '关联的会话或编排任务正在等待决策，之后才能继续。',
+  'Work is ready for review': '工作已可审查',
+  'Execution has finished its current pass and is waiting for review.':
+    '当前执行轮次已经完成，正在等待审查。',
+  'Work is complete': '工作已完成',
+  'Every linked execution has completed.': '所有关联执行均已完成。',
+  'Work has stopped': '工作已停止',
+  'No linked execution is running. Open it to inspect, resume, or start another attempt.':
+    '当前没有关联执行在运行。打开记录即可检查、恢复或开始新的尝试。',
+  'Start new Mission / Session': '启动新的 Mission / Session',
+  Linked: '已关联',
+  'Credential for read-only issue import into the Work board.':
+    '用于向工作看板只读导入 issue 的凭据。',
+  'GitHub issue import': 'GitHub Issue 导入',
+  'Used only to read issues you import into the Work board. Charter never posts comments, pull requests, or state changes back to GitHub.':
+    '仅用于读取你导入到工作看板的 issue。Charter 绝不会向 GitHub 回写评论、Pull Request 或状态变更。',
+  'Personal access token': '个人访问令牌（PAT）',
+  'Needed for private repositories. Verified against GitHub before it is stored in the OS keychain.':
+    '私有仓库需要令牌。存入系统钥匙串前会先向 GitHub 验证。',
+  'Remove token': '移除令牌',
+  'Verifying…': '正在验证…',
+  'GitHub CLI (gh) login detected — imports use it automatically':
+    '检测到 GitHub CLI（gh）登录——导入将自动使用',
+  'Not connected — public repositories still work': '未连接——公开仓库仍可导入',
+  'GitHub token removed.': 'GitHub 令牌已移除。',
+  'A GitHub issue number must be a positive integer.': 'GitHub issue 编号必须是正整数。',
+  'GitHub took too long to respond. Check your connection and try again.':
+    'GitHub 响应超时。请检查网络连接后重试。',
+  'GitHub returned an unreadable issue response.': 'GitHub 返回了无法识别的 issue 数据。',
+  'That local Project is no longer available. Choose another Project and try again.':
+    '该本地项目已不可用。请选择其他项目后重试。',
+  'No issue was resolved.': '没有解析到 issue。',
+  'That does not look like a GitHub issue URL. Expected https://github.com/owner/repo/issues/123.':
+    '这不像 GitHub issue 链接。应为 https://github.com/owner/repo/issues/123。',
+  'That URL points to a pull request. Import works with issues for now.':
+    '这个链接指向 Pull Request。目前仅支持导入 issue。',
+  'Could not reach GitHub. Check your network connection and try again.':
+    '无法连接 GitHub。请检查网络连接后重试。',
+  'GitHub says this issue does not exist, or your token cannot see this repository.':
+    'GitHub 显示该 issue 不存在，或当前令牌无权访问此仓库。',
+  'Issue not found. Private repositories need a GitHub token — add one in Settings → GitHub.':
+    '找不到 issue。私有仓库需要 GitHub 令牌——请前往“设置 → GitHub”添加。',
+  'GitHub rejected the stored credential. Update the token in Settings → GitHub.':
+    'GitHub 拒绝了已保存的凭据。请前往“设置 → GitHub”更新令牌。',
+  'GitHub declined the request. The repository may require a token with more access.':
+    'GitHub 拒绝了请求。该仓库可能需要权限更高的令牌。',
+  'GitHub rejected that token. Check that it is not expired and has repo read access.':
+    'GitHub 拒绝了该令牌。请确认令牌未过期且拥有仓库读取权限。',
+  'GitHub returned an unexpected /user response.': 'GitHub 返回了异常的用户信息。',
   // Source control (ADR-0057: diff opens as an editor tab)
   'Merge Conflicts': '合并冲突',
   'Staged Changes': '已暂存更改',
@@ -1276,6 +1491,8 @@ function interpolate(message: string, values?: TranslationValues): string {
 function dynamicChinese(message: string): string | null {
   let match = message.match(/^(\d+) more$/);
   if (match) return `还有 ${match[1]} 项`;
+  match = message.match(/^(\d+) linked executions? will remain available\.$/);
+  if (match) return `${match[1]} 个关联执行仍会保留。`;
   match = message.match(/^(\d+) shown$/);
   if (match) return `已显示 ${match[1]} 项`;
   match = message.match(/^(\d+)([smhdw])$/);
@@ -1304,6 +1521,34 @@ function dynamicChinese(message: string): string | null {
   if (match) return `精简显示 ${match[1]} 中的会话`;
   match = message.match(/^(\d+) setting value\(s\) were invalid and fell back to defaults\.$/);
   if (match) return `${match[1]} 个设置值无效，已回退到默认值。`;
+  match = message.match(/^Imported “(.+)”\.$/);
+  if (match) return `已导入“${match[1]}”。`;
+  match = message.match(/^Personal access token · @(.+)$/);
+  if (match) return `个人访问令牌 · @${match[1]}`;
+  match = message.match(/^GitHub token verified — connected as @(.+)\.$/);
+  if (match) return `GitHub 令牌验证通过——已连接为 @${match[1]}。`;
+  match = message.match(/^GitHub connected · token @(.+)$/);
+  if (match) return `GitHub 已连接 · 令牌 @${match[1]}`;
+  match = message.match(/^Connected with token · @(.+)$/);
+  if (match) return `已通过令牌连接 · @${match[1]}`;
+  match = message.match(/^GitHub rate limit reached\. It resets in about (\d+) minute(?:s)?\.$/);
+  if (match) return `GitHub 请求已达限额，约 ${match[1]} 分钟后恢复。`;
+  match = message.match(/^GitHub returned HTTP (\d+)\.$/);
+  if (match) return `GitHub 返回了 HTTP ${match[1]}。`;
+  match = message.match(/^Ready to start in (.+)$/);
+  if (match) return `可以在 ${match[1]} 中开始`;
+  match = message.match(/^(\d+) source comments$/);
+  if (match) return `${match[1]} 条来源评论`;
+  match = message.match(/^(\d+) testable outcomes from the issue$/);
+  if (match) return `来自 issue 的 ${match[1]} 条可验证结果`;
+  match = message.match(/^(\d+) comments$/);
+  if (match) return `${match[1]} 条评论`;
+  match = message.match(/^(\d+) executions$/);
+  if (match) return `${match[1]} 个执行`;
+  match = message.match(/^(\d+) objects$/);
+  if (match) return `${match[1]} 个对象`;
+  match = message.match(/^(\d+) criteria$/);
+  if (match) return `${match[1]} 条标准`;
   return null;
 }
 

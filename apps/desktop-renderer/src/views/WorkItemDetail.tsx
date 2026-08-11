@@ -75,7 +75,7 @@ function evidenceHint(typeId: string): string {
   return 'Attach the evidence a reviewer needs to accept this outcome.';
 }
 
-function buildHandoffPrompt(item: WorkItemDto, type: WorkItemTypeDto | null): string {
+export function buildHandoffPrompt(item: WorkItemDto, type: WorkItemTypeDto | null): string {
   const custom = type?.fieldDefinitions
     .map((field) => {
       const value = item.customFields[field.key];

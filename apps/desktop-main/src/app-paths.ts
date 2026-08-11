@@ -19,6 +19,8 @@ export interface AppPaths {
   sshDir: string;
   /** Encrypted SSH passwords/passphrases (ADR-0047), isolated from provider secrets. */
   sshSecretsDir: string;
+  /** Encrypted GitHub token (ADR-0056), isolated from provider secrets. */
+  githubSecretsDir: string;
   /** Sparse local mirrors backing managed remote Diff/Review sessions. */
   remoteMirrorsDir: string;
 }
@@ -37,6 +39,7 @@ export function createAppPaths(userData: string): AppPaths {
     memoryDir: join(userData, 'memory'),
     sshDir: join(userData, 'ssh'),
     sshSecretsDir: join(userData, 'secrets', 'ssh'),
+    githubSecretsDir: join(userData, 'secrets', 'github'),
     remoteMirrorsDir: join(userData, 'remote-mirrors'),
   };
   for (const dir of [
@@ -49,6 +52,7 @@ export function createAppPaths(userData: string): AppPaths {
     paths.memoryDir,
     paths.sshDir,
     paths.sshSecretsDir,
+    paths.githubSecretsDir,
     paths.remoteMirrorsDir,
   ]) {
     mkdirSync(dir, { recursive: true });

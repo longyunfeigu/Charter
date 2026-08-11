@@ -75,6 +75,62 @@ describe('MissionOrchestrationService', () => {
     expect(changed).toHaveBeenCalledWith(adopted.snapshot.mission.id);
   });
 
+  it('deletes a settled parent Session as one tree and closes every child runtime', async () => {
+    const adopted = service.adopt({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      originConversationTaskId: 'task-origin',
+      title: 'Delete the complete Session tree',
+      goal: 'A parent Session owns its delegated child Sessions.',
+      principal: { id: 'tree-lead', kind: 'managed_agent', displayName: 'Lead' },
+      runtimeSessionId: 'runtime-tree-lead',
+      requestedRuntime: 'managed',
+    });
+    const child = service.delegate(adopted.caller, {
+      title: 'Child Session',
+      goal: 'Finish one bounded child task.',
+      acceptanceCriteria: [],
+      requestedRuntime: 'managed',
+      workMode: 'read-only',
+      reason: 'Independent child work.',
+      idempotencyKey: 'delete-tree-child',
+    });
+    service.repository.bindRuntime(child.assignment.id, child.attempt.id, {
+      runtimeSessionId: 'runtime-tree-child',
+    });
+    service.repository.completeAttempt({
+      attemptId: child.attempt.id,
+      principalId: child.assignment.assigneePrincipalId,
+      outcome: 'success',
+      summary: 'Child complete.',
+    });
+    const lead = adopted.snapshot.assignments[0]!;
+    const leadAttempt = adopted.snapshot.attempts[0]!;
+    service.repository.completeAttempt({
+      attemptId: leadAttempt.id,
+      principalId: lead.assigneePrincipalId,
+      outcome: 'success',
+      summary: 'Parent complete.',
+    });
+
+    const deleted = await service.deleteSessionTree(adopted.snapshot.mission.id);
+
+    expect(deleted.mission.state).toBe('CANCELLED');
+    expect(deleted.mission.deletedAt).not.toBeNull();
+    expect(runtime.cancelled).toEqual(
+      expect.arrayContaining([
+        {
+          runtimeSessionId: 'runtime-tree-lead',
+          reason: 'Parent Session tree deleted by user',
+        },
+        {
+          runtimeSessionId: 'runtime-tree-child',
+          reason: 'Parent Session tree deleted by user',
+        },
+      ]),
+    );
+  });
+
   it('promotes an ordinary Session and publishes only the complete validated plan', async () => {
     const changed = vi.fn();
     service.shutdown();

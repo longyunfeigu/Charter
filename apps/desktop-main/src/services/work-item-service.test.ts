@@ -72,6 +72,20 @@ function seedSessionAndMission(): void {
      VALUES ('session-1', 'ws-1', 'Research competitors', '', 'ask', 'IN_PROGRESS', '{}', ?, ?)`,
   ).run(at, at);
   db.prepare(
+    `INSERT INTO tasks
+     (id, workspace_id, title, goal_md, mode, state, model_json, external_json, created_at, updated_at)
+     VALUES ('external-1', 'ws-1', 'Claude positioning pass', '', 'edit', 'IN_PROGRESS', '{}', ?, ?, ?)`,
+  ).run(
+    JSON.stringify({
+      cli: 'claude',
+      terminalId: 'terminal-2',
+      snapshotRef: null,
+      status: 'active',
+    }),
+    at,
+    at,
+  );
+  db.prepare(
     `INSERT INTO missions
      (id, workspace_id, title, goal_md, acceptance_json, execution_policy_json,
       state, version, created_at, updated_at)
@@ -290,7 +304,7 @@ describe('WorkItemService', () => {
       agentLabel: 'Human',
       summary: '',
     });
-    service.linkExecution({
+    const terminal = service.linkExecution({
       workItemId: item.id,
       targetKind: 'terminal',
       targetId: 'terminal-2',
@@ -304,11 +318,16 @@ describe('WorkItemService', () => {
     expect(session.status).toBe('IN_PROGRESS');
     expect(session.displayLabel).toBe('Research competitors');
     expect(mission.status).toBe('RUNNING');
+    expect(terminal.status).toBe('IN_PROGRESS');
     expect(service.detail(item.id).executions).toHaveLength(4);
 
     db.prepare("UPDATE tasks SET state = 'REVIEW_READY' WHERE id = 'session-1'").run();
+    db.prepare("UPDATE tasks SET state = 'INTERRUPTED' WHERE id = 'external-1'").run();
     expect(service.snapshot().executions.find((entry) => entry.id === session.id)?.status).toBe(
       'REVIEW_READY',
+    );
+    expect(service.snapshot().executions.find((entry) => entry.id === terminal.id)?.status).toBe(
+      'INTERRUPTED',
     );
     service.unlinkExecution(mission.id);
     expect(service.detail(item.id).executions).toHaveLength(3);

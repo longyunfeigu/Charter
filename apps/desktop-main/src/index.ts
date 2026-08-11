@@ -48,6 +48,8 @@ import { M4Services, registerM4Handlers } from './ipc/m4-handlers.js';
 import { registerTerminalOpenHandlers } from './ipc/terminal-open-handlers.js';
 import { SshService } from './services/ssh-service.js';
 import { SshVaultService } from './services/ssh-vault-service.js';
+import { GithubVaultService } from './services/github-vault-service.js';
+import { GithubIssueService } from './services/github-issue-service.js';
 import { SshSftpService } from './services/ssh-sftp-service.js';
 import { SshForwardService } from './services/ssh-forward-service.js';
 import { RemoteWorkerService } from './services/remote-worker-service.js';
@@ -129,6 +131,7 @@ import {
 import { AgentRegistry } from './services/agent-registry.js';
 import { WorkItemService } from './services/work-item-service.js';
 import { registerWorkItemHandlers } from './ipc/work-item-handlers.js';
+import { registerGithubHandlers } from './ipc/github-handlers.js';
 
 const DEV_SERVER_URL = process.env.PI_IDE_DEV_SERVER_URL;
 const isDev = Boolean(DEV_SERVER_URL);
@@ -781,6 +784,26 @@ if (!gotLock) {
       registerWorkItemHandlers(workItemServiceRef, logger.child('work-item-ipc'));
       workItemServiceRef.start();
       refreshWorkBadge();
+      // ADR-0056: read-only GitHub issue import feeding the Work board.
+      const githubVault = new GithubVaultService(
+        paths.githubSecretsDir,
+        logger.child('github-vault'),
+      );
+      const githubIssues = new GithubIssueService(
+        state.db,
+        workItemServiceRef,
+        githubVault,
+        () =>
+          state
+            .recentWorkspaces()
+            .filter((workspace) => workspace.exists)
+            .map((workspace) => ({
+              path: workspace.path,
+              displayName: workspace.displayName,
+            })),
+        logger.child('github-import'),
+      );
+      registerGithubHandlers(githubIssues, logger.child('github-ipc'));
     }
     let m4: M4Services | null = null;
     if (workspaceHost && state && settings) {
@@ -1307,7 +1330,7 @@ if (!gotLock) {
         promoteForCall: (call, input) => missionCaller.promote(call, input),
       });
       missionOrchestration.start();
-      registerMissionHandlers(missionOrchestration, logger.child('mission-ipc'));
+      registerMissionHandlers(missionOrchestration, taskService, logger.child('mission-ipc'));
       const artifactService = new ArtifactService(state.db, taskService, logger.child('artifacts'));
       protocol.handle('artifact', (request) => artifactService.handleResource(request));
       registerArtifactHandlers(artifactService, logger.child('ipc'));

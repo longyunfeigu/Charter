@@ -23,3 +23,4 @@ export * from './artifacts.js';
 export * from './ssh.js';
 export * from './updates.js';
 export * from './work-items.js';
+export * from './github.js';

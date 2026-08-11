@@ -191,9 +191,14 @@ export function HomeView(): React.JSX.Element {
     setTitleDraft(handoff.title);
     setCriteria(handoff.acceptance.join('\n'));
     setAdvanced(true);
+    // ADR-0056: a mapped external item names its dispatch target; the composer
+    // follows that project (same CTX-FOLLOW move as entering a session).
+    if (handoff.projectPath && handoff.projectPath !== workspace?.path) {
+      void useWorkspaceStore.getState().followProject(handoff.projectPath);
+    }
     app.clearWorkHandoff();
     window.requestAnimationFrame(() => inputRef.current?.focus());
-  }, [app, app.workHandoff]);
+  }, [app, app.workHandoff, workspace?.path]);
 
   // Selected project = dispatch target: show its branch in the chip.
   useEffect(() => {

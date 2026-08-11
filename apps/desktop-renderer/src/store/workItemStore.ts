@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type {
   ChannelRequest,
+  GithubIssuePreviewDto,
   WorkBoardColumnDto,
   WorkBoardSnapshotDto,
   WorkEvidenceDto,
@@ -42,7 +43,19 @@ interface WorkItemStore {
   removeEvidence(id: string): Promise<boolean>;
   createType(input: ChannelRequest<'workItem.type.create'>): Promise<WorkItemTypeDto | null>;
   createColumn(input: ChannelRequest<'workItem.column.create'>): Promise<WorkBoardColumnDto | null>;
+  resolveGithubIssue(url: string): Promise<GithubResolveOutcome>;
+  importGithubIssue(url: string, projectPath?: string | null): Promise<GithubImportOutcome>;
 }
+
+export type GithubResolveOutcome =
+  | { kind: 'resolved'; preview: GithubIssuePreviewDto }
+  | { kind: 'duplicate'; itemId: string }
+  | { kind: 'error'; code: string; message: string };
+
+export type GithubImportOutcome =
+  | { kind: 'imported'; item: WorkItemDto }
+  | { kind: 'duplicate'; itemId: string }
+  | { kind: 'error'; code: string; message: string };
 
 const EMPTY_SNAPSHOT: WorkBoardSnapshotDto = {
   columns: [],
@@ -337,5 +350,39 @@ export const useWorkItemStore = create<WorkItemStore>((set, get) => ({
     }
     await get().refresh();
     return result.data.column;
+  },
+
+  // ADR-0056: resolution is intentionally side-effect free. It gives the
+  // dialog enough source and mapping context for an informed confirmation.
+  async resolveGithubIssue(url) {
+    const result = await rpcResult('github.issue.resolve', { url });
+    if (!result.ok) {
+      return { kind: 'error', code: result.error.code, message: result.error.userMessage };
+    }
+    if (result.data.duplicateItemId) {
+      return { kind: 'duplicate', itemId: result.data.duplicateItemId };
+    }
+    if (!result.data.preview) {
+      return { kind: 'error', code: 'GITHUB_RESOLVE_EMPTY', message: 'No issue was resolved.' };
+    }
+    return { kind: 'resolved', preview: result.data.preview };
+  },
+
+  // Creation happens only after the preview is confirmed. Errors stay in the
+  // dialog, which owns retry and credential recovery affordances.
+  async importGithubIssue(url, projectPath) {
+    const result = await rpcResult('github.issue.import', { url, projectPath });
+    if (!result.ok) {
+      return { kind: 'error', code: result.error.code, message: result.error.userMessage };
+    }
+    if (result.data.duplicateItemId) {
+      return { kind: 'duplicate', itemId: result.data.duplicateItemId };
+    }
+    if (!result.data.item) {
+      return { kind: 'error', code: 'GITHUB_IMPORT_EMPTY', message: 'Import returned no card.' };
+    }
+    await get().refresh();
+    await get().select(result.data.item.id);
+    return { kind: 'imported', item: result.data.item };
   },
 }));

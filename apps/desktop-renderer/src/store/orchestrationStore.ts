@@ -63,6 +63,7 @@ interface OrchestrationStore {
     reason: string,
   ): Promise<void>;
   requestRevision(missionRef: string, feedback: string): Promise<void>;
+  deleteSessionTree(missionId: string): Promise<boolean>;
   trashMission(missionId: string): Promise<boolean>;
   restoreMission(missionId: string): Promise<boolean>;
   deleteMissionPermanently(missionId: string): Promise<boolean>;
@@ -446,6 +447,40 @@ export const useOrchestrationStore = create<OrchestrationStore>((set, get) => ({
         .getState()
         .pushToast('success', 'Changes requested. The Mission is running again.');
     } else useAppStore.getState().pushToast('error', result.error.userMessage);
+  },
+
+  async deleteSessionTree(missionId) {
+    const current = get().missionsById[missionId];
+    if (!current) return false;
+    const terminalIds = [
+      ...new Set(
+        current.attempts
+          .map((attempt) => attempt.terminalId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const result = await rpcResult('mission.deleteSessionTree', { missionId });
+    if (!result.ok) {
+      useAppStore.getState().pushToast('error', result.error.userMessage);
+      return false;
+    }
+    set((state) => withMission(state, result.data.mission));
+    for (const terminalId of terminalIds) {
+      await useTerminalStore.getState().requestKill(terminalId);
+    }
+    const app = useAppStore.getState();
+    app.forgetMissionNavigation(missionId);
+    if (
+      app.missionCenter?.missionId === missionId ||
+      (app.sessionTerminalId !== null && terminalIds.includes(app.sessionTerminalId))
+    ) {
+      app.openSessionHome();
+    }
+    app.pushToast(
+      'success',
+      `Session tree deleted — ${result.data.removedSessions} ${result.data.removedSessions === 1 ? 'Session' : 'Sessions'} removed.`,
+    );
+    return true;
   },
 
   async trashMission(missionId) {

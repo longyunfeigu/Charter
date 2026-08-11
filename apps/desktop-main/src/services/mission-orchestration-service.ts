@@ -1068,6 +1068,45 @@ export class MissionOrchestrationService {
     this.changed(assignment.missionId);
   }
 
+  /** A Mission projects one parent Session plus its delegated descendants into
+   * the Session rail. Retire that projection as one aggregate: all Assignments
+   * must already be settled, every resident runtime is closed, and the durable
+   * Mission ledger moves to recoverable trash. */
+  async deleteSessionTree(missionId: string): Promise<MissionSnapshot> {
+    const snapshot = this.repository.snapshot(missionId);
+    const unsettled = snapshot.assignments.filter(
+      (assignment) => !['COMPLETED', 'FAILED', 'CANCELLED', 'ORPHANED'].includes(assignment.state),
+    );
+    if (unsettled.length > 0) {
+      throw this.failure(
+        'ORCHESTRATION_ASSIGNMENT_STILL_ACTIVE',
+        `Stop the ${unsettled.length === 1 ? 'active child Session' : `${unsettled.length} active child Sessions`} before deleting this Session tree.`,
+      );
+    }
+
+    for (const attempt of snapshot.attempts) {
+      if (!attempt.runtimeSessionId) continue;
+      const runtime = snapshot.runtimeSessions?.find(
+        (candidate) => candidate.attemptId === attempt.id,
+      );
+      if (runtime?.state === 'ENDED') continue;
+      await this.outbox.closeRuntime(attempt.id, 'Parent Session tree deleted by user');
+    }
+
+    if (!['COMPLETED', 'FAILED', 'CANCELLED'].includes(snapshot.mission.state)) {
+      this.repository.setMissionState(
+        missionId,
+        'CANCELLED',
+        'user',
+        'Parent Session tree deleted by user',
+      );
+    }
+    this.repository.trashMission(missionId);
+    const deleted = this.repository.snapshot(missionId);
+    this.changed(missionId);
+    return deleted;
+  }
+
   reassign(
     callerInput: OrchestrationCallerContext,
     input: {

@@ -3268,6 +3268,22 @@ export class TaskService {
     return null;
   }
 
+  /** Latest non-archived Session record projected from a terminal, including
+   * settled records. Mission tree deletion uses this to retire tracked child
+   * Sessions after their resident runtime has been closed. */
+  externalTaskForTerminal(terminalId: string): TaskDto | null {
+    const rows = this.db
+      .prepare(
+        `${TASK_SELECT} WHERE t.external_json IS NOT NULL AND t.archived = 0 ORDER BY t.updated_at DESC`,
+      )
+      .all() as unknown as TaskRow[];
+    for (const row of rows) {
+      const external = JSON.parse(row.external_json!) as NonNullable<TaskDto['external']>;
+      if (external.terminalId === terminalId) return this.rowToDto(row);
+    }
+    return null;
+  }
+
   /**
    * Name an external session after its first user message. The row-refresh
    * broadcast reuses task.stateChanged (the renderer's generic task upsert
@@ -3840,9 +3856,12 @@ export class TaskService {
    * Project files are never touched. A dirty isolated worktree must first be
    * archived (merge back) or rolled back so a compact rail action cannot
    * silently destroy unmerged work. */
-  async deleteTask(taskId: string): Promise<void> {
+  async assertTaskDeletionSafe(taskId: string, allowRunning = false): Promise<void> {
     const task = this.getTask(taskId);
-    if (isRunningState(task.state as TaskState) || task.external?.status === 'active') {
+    if (
+      !allowRunning &&
+      (isRunningState(task.state as TaskState) || task.external?.status === 'active')
+    ) {
       throw new ProductFailure(
         productError('TASK_RUNNING', {
           userMessage: 'Stop the running Session before deleting it.',
@@ -3850,8 +3869,6 @@ export class TaskService {
       );
     }
 
-    let worktree: TaskWorktree | null = null;
-    let worktreeRoot: string | null = null;
     if (task.worktree && existsSync(task.worktree.path)) {
       const context = this.contextForTask(taskId);
       const changes = await context.changes.changeSet(taskId);
@@ -3863,6 +3880,17 @@ export class TaskService {
           }),
         );
       }
+    }
+  }
+
+  async deleteTask(taskId: string, allowRunning = false): Promise<void> {
+    await this.assertTaskDeletionSafe(taskId, allowRunning);
+    const task = this.getTask(taskId);
+
+    let worktree: TaskWorktree | null = null;
+    let worktreeRoot: string | null = null;
+    if (task.worktree && existsSync(task.worktree.path)) {
+      const context = this.contextForTask(taskId);
       worktree = task.worktree as TaskWorktree;
       worktreeRoot = context.root;
     }

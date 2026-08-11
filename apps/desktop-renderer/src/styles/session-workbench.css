@@ -958,8 +958,13 @@ html.sr-resizing * {
   transform: none;
 }
 .sr-row-wrap:hover .sr-actions,
-.sr-actions:focus-within {
+.sr-actions:focus-within,
+.sr-actions.tree-delete {
   opacity: 1;
+}
+.sr-row-wrap.has-tree-delete .sr-session-detail time,
+.sr-row-wrap.has-tree-delete:not(.has-detail) .sr-session-tail {
+  visibility: hidden;
 }
 .sr-hover-tooltip {
   position: fixed;

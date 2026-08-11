@@ -988,4 +988,24 @@ WHERE id = 'work-col-planned'
   );
 `,
   },
+  {
+    version: 17,
+    name: 'work-item-external-refs',
+    // ADR-0056: external identity for imported work. The unique (source,
+    // ref_key) index is what makes issue import idempotent — re-importing the
+    // same issue surfaces the existing card instead of creating a twin.
+    // sourceUrl on work_items stays user-editable copy; this table is the
+    // durable identity.
+    up: `
+CREATE TABLE work_item_external_refs (
+  work_item_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE CASCADE,
+  source TEXT NOT NULL,
+  ref_key TEXT NOT NULL,
+  url TEXT NOT NULL,
+  imported_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_work_item_external_refs_key
+  ON work_item_external_refs(source, ref_key);
+`,
+  },
 ];

@@ -31,6 +31,14 @@
 | [ADR-0045](adr/ADR-0045-user-level-instruction-surfaces.md) | Accepted | 外部 CLI 用户级指令面：设置一键把 charter-terminal 手册装进受管库 + ~/.claude/skills + ~/.codex/skills（显式点击才写、tmp+rename 原子、byte 对比 upToDate 可更新）；手册自带触发条件与门票自检、无 MCP 时走 charter-terminal 命令/curl 同一扇门；修订 ADR-0044"不碰 ~/.claude"（wrapper 仍不做静默编辑）；wrapper 链加固：解析追加 ~/.local/bin 等安装目录、CLI 消失即清理 stale wrapper | 2026-07-22 | 现场失效裁定（alias/PATH prepend/安装迁移三重绕过）；ADR-0044 决策 8、ADR-0015/0017；外部参考 fanbox builtinSkillInstall；`skills.installCharterTerminal` v2 + `skills.charterTerminalStatus` |
 | [ADR-0047](adr/ADR-0047-ssh-connection-manager.md) | Accepted | 内置 SSH 连接管理器（方案 B）：ssh2@1.17.0 精确钉扎、cpu-features 不进发行版（electron-builder 排除，纯 JS 回退）；TerminalManager backend 接缝（PtyBackend + adoptBackend）复用整条终端管线；主机元数据进 settings.ssh、密码/passphrase 进独立 SshVaultService（keychain）；host key TOFU + known_hosts 只读参考、mismatch 无一键继续；秘密只 renderer→main、ssh.* 契约无 secret 字段；传输层退避重连、channel 不假续命；terminal.create v4 target 正交支持远端 claude/codex（exec 启动、knownAgent 不说谎） | 2026-07-23 | 用户确认 b-connection-manager mockup；TERM-002/005、§11.1；electerm/SimpleShell 混合架构先例；引入时 audit 归零 + shadow 钉扎重修补 |
 | [ADR-0048](adr/ADR-0048-desktop-update-delivery.md) | Accepted | 签名桌面更新与 fail-closed 预览通道：signed macOS/Windows 后台检查下载、用户明确重启安装；unsigned/Linux 仅通知与 Release 链接；安装前 SQLite 一致备份 | 2026-07-29 | M12-02/03/05/07、ADR-0043、§12.2、E2E-023/024 |
+| [ADR-0049](adr/ADR-0049-native-pty-mission-data-plane.md) | Accepted | Mission 数据面改走原生 PTY（取代 ACP 默认运行时决策） | 2026-07-31 | Mission Fabric V3 |
+| [ADR-0050](adr/ADR-0050-durable-session-continuations.md) | Accepted | 可持久化的 Session continuation（跨重启接续编排） | 2026-07-31 | ADR-0044/0049 |
+| [ADR-0051](adr/ADR-0051-role-neutral-work-board.md) | Accepted | 角色中立 Work board：执行之上的长生命周期工作项（卡片 → handoff → Session/Mission 执行链接），首版 personal & local-first | 2026-08-08 | ADR-0044/0050 |
+| [ADR-0052](adr/ADR-0052-transcript-render-performance.md) | Proposed | 转录渲染性能大修：流合并、精确订阅、containment | 2026-08-08 | §16.5、M11-04 |
+| [ADR-0053](adr/ADR-0053-work-item-document-page.md) | Accepted | Work item 捕获/编辑改为文档页（无提交按钮，离开即落库） | 2026-08-09 | ADR-0051 |
+| [ADR-0054](adr/ADR-0054-editor-lives-in-context.md) | Accepted | 编辑器归属其上下文：撤销全局 Editor 入口 | 2026-08-09 | ADR-0008/0014 |
+| [ADR-0055](adr/ADR-0055-session-switch-continuity.md) | Proposed | 会话切换连续性：per-task 时间线缓存、渐进首绘、房间常驻池 | 2026-08-09 | ADR-0052、M11-04 |
+| [ADR-0056](adr/ADR-0056-github-issue-import.md) | Proposed | 只读 GitHub issue 导入 Work board：手动 URL 导入、PAT 优先/gh CLI 兜底/公开仓库匿名、v17 外部身份去重、remote.origin.url 映射本地项目；不触碰 ADR-0022 外部写边界，回写需独立 ADR | 2026-08-09 | ADR-0051/0022/0047、external-work-inbox mock、单测+双 e2e（含真实 API 验证） |
 | [ADR-0057](adr/ADR-0057-scm-diff-in-editor.md) | Accepted | SCM diff 成为编辑器一等 tab（工作树 diff 右侧=可编辑实时 buffer、staged 只读、新文件默认行内），删除 GitDiffModal；确立壳内全屏浮层必须 portal 到 body（修复被 Session rail 压住的一类层级 bug） | 2026-08-09 | ADR-0014/0054、tab 持久化 schema 加 kind/staged |
 
 ## ADR 模板

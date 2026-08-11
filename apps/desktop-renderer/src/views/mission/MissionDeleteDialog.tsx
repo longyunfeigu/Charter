@@ -84,7 +84,9 @@ export function MissionDeleteDialog({
             <Ic name="shield" size={15} />
             <span>
               <strong>Kept safe</strong>
-              The original Session and every project file remain untouched.
+              {snapshot.mission.originConversationTaskId
+                ? 'The original Session and every project file remain untouched.'
+                : 'Every project file remains untouched. This Mission no longer has a parent Session.'}
             </span>
           </div>
         </div>

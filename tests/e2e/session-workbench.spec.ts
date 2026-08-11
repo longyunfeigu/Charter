@@ -273,7 +273,8 @@ test.describe('Session Rail Workbench', () => {
       await expect(group).toBeVisible();
       await expect(group).toContainText('1');
 
-      // The Inbox badge opens the triage panel; a panel row opens its room.
+      // The Inbox badge opens the For-you queue; a card opens its decision
+      // detail, and Open Session enters the room (ADR-0056 inbox replica).
       await expect(page.getByTestId('rail-needs-you')).toContainText('1');
       await page.getByTestId('rail-needs-you').click();
       await expect(page.getByTestId('rail-inbox-panel')).toBeVisible();
@@ -281,6 +282,8 @@ test.describe('Session Rail Workbench', () => {
         .locator('[data-testid="rail-inbox-panel"] [data-testid^="home-task-"]')
         .first()
         .click();
+      await expect(page.getByTestId('fy-attention-banner')).toBeVisible();
+      await page.getByTestId('fy-open-session').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
 
       // Clearing is reminder-only: it empties the Inbox and badge while the

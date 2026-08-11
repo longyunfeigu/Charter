@@ -104,6 +104,7 @@ test.describe('M10 — crash recovery, reliability, diagnostics', () => {
       await expect(needs).toContainText('Interrupted');
       await expect(needs).toContainText('Crash victim');
       await needs.locator('button[data-testid^="home-task-"]').first().click();
+      await page.getByTestId('fy-open-session').click();
 
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'INTERRUPTED');
       await expect(page.getByTestId('tl-restart')).toBeVisible();

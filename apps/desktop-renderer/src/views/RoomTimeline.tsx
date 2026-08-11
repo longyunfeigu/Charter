@@ -261,7 +261,7 @@ function PrDraftEntry(props: { taskId: string; draft: PrDraftDto }): React.JSX.E
           data-testid="tl-pr-draft-open"
           onClick={() => useTaskStore.getState().openPrDraft(props.taskId, draft)}
         >
-          Review draft
+          Prepare PR…
         </button>
         <button className="btn" onClick={() => void copy('PR body', draft.body)}>
           Copy body

@@ -17,6 +17,7 @@ import { onEvent, rpcResult } from '../bridge.js';
 import { okOrToast, useAppStore } from './appStore.js';
 import { STREAM_BUFFER_CAP } from '../views/timeline-window.js';
 import {
+  attentionFingerprint,
   dismissCurrentAttention,
   loadAttentionDismissals,
   saveAttentionDismissals,
@@ -73,6 +74,8 @@ interface TaskStore {
   refreshTasks(): Promise<void>;
   refreshModels(): Promise<void>;
   clearAttention(): void;
+  /** Dismiss one task's current attention signal (For-you inbox, ADR-0056). */
+  dismissAttention(taskId: string): void;
   openTask(taskId: string): Promise<void>;
   renameTask(taskId: string, title: string): Promise<boolean>;
   /** Archive (hide) a finished task; answered tasks are closed out (accepted) first. */
@@ -295,6 +298,17 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   clearAttention() {
     const attentionDismissals = dismissCurrentAttention(get().tasks, get().attentionDismissals);
+    saveAttentionDismissals(attentionDismissals);
+    set({ attentionDismissals });
+  },
+
+  dismissAttention(taskId) {
+    const task = get().tasks.find((candidate) => candidate.id === taskId);
+    if (!task) return;
+    const attentionDismissals = {
+      ...get().attentionDismissals,
+      [taskId]: attentionFingerprint(task),
+    };
     saveAttentionDismissals(attentionDismissals);
     set({ attentionDismissals });
   },

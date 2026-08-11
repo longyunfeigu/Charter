@@ -3,6 +3,7 @@ import {
   PROVIDER_PRESETS,
   providerPreset,
   type CharterTerminalSurfaceDto,
+  type GithubAuthStatusDto,
   type ProviderInfoDto,
 } from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
@@ -326,6 +327,7 @@ const SETTINGS_GROUPS: Array<{
     label: 'Data & System',
     items: [
       { id: 'privacy', label: 'Privacy', icon: 'eye' },
+      { id: 'github', label: 'GitHub', icon: 'branch' },
       { id: 'updates', label: 'Updates', icon: 'refresh' },
       { id: 'about', label: 'About', icon: 'info' },
     ],
@@ -369,6 +371,10 @@ const SECTION_COPY: Record<SettingsSection, { title: string; description: string
   privacy: {
     title: 'Privacy',
     description: 'Control local data, analytics, and crash reporting.',
+  },
+  github: {
+    title: 'GitHub',
+    description: 'Credential for read-only issue import into the Work board.',
   },
   updates: {
     title: 'Updates',
@@ -502,6 +508,117 @@ const ANALYTICS_NEVER = [
   'File paths, project names, repository URLs',
   'API keys, provider config, model responses',
 ];
+
+/** ADR-0056: credential for read-only GitHub issue import. The token is
+ * verified against /user before it is stored; the renderer only ever sees
+ * booleans and the verified login. */
+function GithubSettingsSection(): React.JSX.Element {
+  const pushToast = useAppStore((s) => s.pushToast);
+  const [status, setStatus] = useState<GithubAuthStatusDto | null>(null);
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = async (): Promise<void> => {
+    const result = await rpcResult('github.auth.status', {});
+    if (result.ok) setStatus(result.data);
+  };
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const save = async (): Promise<void> => {
+    if (!token.trim() || busy) return;
+    setBusy(true);
+    const result = await rpcResult('github.auth.setToken', { token: token.trim() });
+    setBusy(false);
+    if (result.ok) {
+      pushToast('success', `GitHub token verified — connected as @${result.data.login}.`);
+      setToken('');
+      await load();
+    } else {
+      pushToast('error', result.error.userMessage);
+    }
+  };
+
+  const remove = async (): Promise<void> => {
+    setBusy(true);
+    const result = await rpcResult('github.auth.clearToken', {});
+    setBusy(false);
+    if (result.ok) {
+      pushToast('success', 'GitHub token removed.');
+      await load();
+    } else {
+      pushToast('error', result.error.userMessage);
+    }
+  };
+
+  const connection = !status
+    ? 'Checking…'
+    : status.method === 'pat'
+      ? `Personal access token${status.tokenLogin ? ` · @${status.tokenLogin}` : ''}`
+      : status.method === 'gh-cli'
+        ? 'GitHub CLI (gh) login detected — imports use it automatically'
+        : 'Not connected — public repositories still work';
+
+  return (
+    <div className="st-card" data-testid="github-settings">
+      <div className="st-card-head">
+        <Ic name="branch" size={14} />
+        <div>
+          <div className="st-card-title">GitHub issue import</div>
+          <div className="st-card-sub">
+            Used only to read issues you import into the Work board. Charter never posts comments,
+            pull requests, or state changes back to GitHub.
+          </div>
+        </div>
+      </div>
+      <Row label="Connection" hint={connection}>
+        {status?.hasToken ? (
+          <button
+            className="btn"
+            data-testid="github-remove-token"
+            disabled={busy}
+            onClick={() => void remove()}
+          >
+            Remove token
+          </button>
+        ) : (
+          <span className="st-hint">{status?.ghCliAvailable ? 'gh CLI' : ''}</span>
+        )}
+      </Row>
+      <Row
+        label="Personal access token"
+        hint="Needed for private repositories. Verified against GitHub before it is stored in the OS keychain."
+      >
+        <span className="st-privacy-controls">
+          <input
+            className="st-input"
+            data-testid="github-token-input"
+            type="password"
+            value={token}
+            placeholder="ghp_… or github_pat_…"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={busy}
+            onChange={(e) => setToken(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void save();
+            }}
+          />
+          <button
+            className="btn primary"
+            data-testid="github-save-token"
+            disabled={!token.trim() || busy}
+            onClick={() => void save()}
+          >
+            {busy ? 'Verifying…' : 'Save'}
+          </button>
+        </span>
+      </Row>
+    </div>
+  );
+}
 
 /** PRIV-001..003: honest local-data controls (no upload transport in this build). */
 function PrivacySection(props: {
@@ -1696,6 +1813,8 @@ export function SettingsView(): React.JSX.Element {
                   set={set}
                 />
               ) : null}
+
+              {section === 'github' ? <GithubSettingsSection /> : null}
 
               {section === 'updates' ? (
                 <UpdateSettingsSection

@@ -158,6 +158,22 @@ export class GitService {
     }
   }
 
+  /** `remote.origin.url` from local config — a pure read, no network (GIT-007).
+   * Null when unset, outside a repository, or git is unavailable. */
+  async remoteOriginUrl(): Promise<string | null> {
+    try {
+      // config --get exits 1 when the key is absent; 128 outside a repository.
+      const result = await this.run(['config', '--get', 'remote.origin.url'], {
+        allowCodes: [1, 128],
+        timeoutMs: 5000,
+      });
+      const url = result.stdout.trim();
+      return result.code === 0 && url ? url : null;
+    } catch {
+      return null;
+    }
+  }
+
   async status(): Promise<GitStatus> {
     // --untracked-files=all: enumerate files INSIDE untracked directories.
     // The default collapses them into a single "dir/" row, which nothing

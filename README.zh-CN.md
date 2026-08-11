@@ -148,6 +148,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 - **一个 Session 可以指挥多个 Worker：** 主 Agent 可以创建 shell、Claude Code 或 Codex 子会话。Worker 回合完成后通过事件即时通知等待中的主 Agent；工作间会显示监看墙、当前输出、完成/失败状态，并提供 **Pause all**、单 Worker 暂停与接管。
 - **会话可以接着聊：** 受管 Session 完成后可在同一个 Room 继续追问；具有恢复能力的外部 Agent 会话会使用记录下来的会话身份和目录继续工作。
 - **多个仓库也不会混在一起：** 左侧会话栏按项目组织 Session，显示运行中、Needs you、Review 和 History；切换 Session 时，项目、Worktree、终端和 Preview 上下文会一起切换。
+- **GitHub issue 导入（只读）：** 在 Work 中粘贴 issue 链接，先预览正文、labels、任务清单、近期讨论和本地仓库匹配，确认后再生成本地工作卡；随后可选择入口 Agent，并直接开出 Session 或 Mission。关联执行停止或完成后状态会实时同步，导入卡片也提供带确认的本地删除入口。凭据使用系统钥匙串里的令牌或已有的 `gh` 登录，公开仓库无需任何配置；Charter 绝不向 GitHub 回写任何内容。
 
 ### 观察与干预
 

@@ -25,6 +25,7 @@ import { useTaskStore } from '../store/taskStore.js';
 import { stepZoom, ZOOM_DEFAULT } from '../views/ui-zoom.js';
 import { useTerminalStore } from '../views/TerminalPanel.js';
 import { WorkView } from '../views/WorkView.js';
+import { ForYouView } from '../views/ForYouView.js';
 import { WorkReminderHost } from '../views/WorkReminderHost.js';
 import { t } from '../i18n.js';
 import { observeLocalizedChrome } from '../i18n-dom.js';
@@ -536,6 +537,8 @@ export function Workbench(): React.JSX.Element {
         {remotesOpen ? <RemoteRail /> : <SessionRail />}
         {railView === 'work' ? (
           <WorkView />
+        ) : railView === 'inbox' ? (
+          <ForYouView />
         ) : railView === 'memory' ? (
           <MemoryView />
         ) : railView === 'skills' ? (

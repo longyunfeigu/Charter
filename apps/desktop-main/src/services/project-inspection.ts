@@ -39,6 +39,7 @@ function emptyGit(): ChannelResponse<'project.inspect'>['git'] {
     gitAvailable: true,
     isRepo: false,
     branch: null,
+    branches: [],
     upstream: null,
     ahead: 0,
     behind: 0,
@@ -80,14 +81,16 @@ export async function inspectRegisteredProject(state: StateService, path: string
       if (!detected.gitAvailable) {
         git = { ...git, gitAvailable: false };
       } else if (detected.isRepo) {
-        const [status, stats] = await Promise.all([
+        const [status, stats, branches] = await Promise.all([
           service.status(),
           service.numstat().catch(() => []),
+          service.branches().catch(() => []),
         ]);
         git = {
           gitAvailable: true,
           isRepo: true,
           branch: status.branch,
+          branches,
           upstream: status.upstream,
           ahead: status.ahead,
           behind: status.behind,

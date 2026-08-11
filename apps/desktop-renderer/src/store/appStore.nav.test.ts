@@ -4,8 +4,9 @@ import { mainSurfaceOf, railGroupOf, useAppStore } from './appStore.js';
 /**
  * ADR-0042 — left nav and main content always correspond. Crossing nav groups
  * (workbench ⇄ projects) swaps the main surface with the rail and restores
- * what the target group last showed; switches inside one group never touch
- * the main surface (ADR-0024 context feeding relies on that).
+ * what the target group last showed. The Inbox is the exception inside the
+ * workbench group because it owns the main page; an explicit Session opener
+ * must reveal its room (ADR-0024 context feeding still keeps Files sticky).
  */
 
 function reset(): void {
@@ -15,6 +16,7 @@ function reset(): void {
     savedSurfaces: {
       workbench: { kind: 'home' },
       work: { kind: 'work' },
+      inbox: { kind: 'inbox' },
       missions: { kind: 'mission', missionId: null },
       projects: { kind: 'home' },
       memory: { kind: 'home' },
@@ -77,7 +79,7 @@ describe('railGroupOf / mainSurfaceOf', () => {
   it('groups only conversation-feeding views; primary workspaces stand alone', () => {
     expect(railGroupOf('sessions')).toBe('workbench');
     expect(railGroupOf('missions')).toBe('missions');
-    expect(railGroupOf('inbox')).toBe('workbench');
+    expect(railGroupOf('inbox')).toBe('inbox');
     expect(railGroupOf('files')).toBe('workbench');
     expect(railGroupOf('projects')).toBe('projects');
     expect(railGroupOf('memory')).toBe('memory');
@@ -85,6 +87,18 @@ describe('railGroupOf / mainSurfaceOf', () => {
   });
 
   it('derives the surface identity with the same priority as HomeShell', () => {
+    expect(
+      mainSurfaceOf({
+        railView: 'inbox',
+        taskRoomTaskId: 'hidden-room',
+        missionCenter: null,
+        sessionTerminalId: null,
+        archaeology: null,
+        projectTool: null,
+        remotesOpen: false,
+      }),
+    ).toEqual({ kind: 'inbox' });
+
     expect(
       mainSurfaceOf({
         taskRoomTaskId: 't1',
@@ -129,6 +143,26 @@ describe('railGroupOf / mainSurfaceOf', () => {
 });
 
 describe('unified page history', () => {
+  it('opens a Session from Inbox and returns to the exact Inbox page', () => {
+    useAppStore.getState().setRailView('inbox');
+    useAppStore.getState().openTaskRoom('task-from-inbox');
+
+    expect(useAppStore.getState().railView).toBe('sessions');
+    expect(useAppStore.getState().taskRoomTaskId).toBe('task-from-inbox');
+
+    useAppStore.getState().navigateBack();
+    expect(useAppStore.getState().railView).toBe('inbox');
+    expect(useAppStore.getState().taskRoomTaskId).toBeNull();
+  });
+
+  it('opens a native terminal from Inbox instead of leaving it hidden', () => {
+    useAppStore.getState().setRailView('inbox');
+    useAppStore.getState().openTerminalSession('terminal-from-inbox');
+
+    expect(useAppStore.getState().railView).toBe('sessions');
+    expect(useAppStore.getState().sessionTerminalId).toBe('terminal-from-inbox');
+  });
+
   it('returns from a Session to the exact Project tab that opened it', () => {
     useAppStore.getState().openProjectCenter('/saved/project', 'changes');
     useAppStore.getState().openTaskRoom('task-from-project');
@@ -260,9 +294,9 @@ describe('setRailView across groups (the stale-main bug class)', () => {
     expect(useAppStore.getState().taskRoomTaskId).toBe('t-memory');
   });
 
-  it('keeps Session Archive inside the workbench and restores it after visiting Projects', () => {
+  it('keeps Session Archive under Files and restores it after visiting Projects', () => {
     useAppStore.getState().openArchaeology('/p');
-    useAppStore.getState().setRailView('inbox');
+    useAppStore.getState().setRailView('files');
     expect(useAppStore.getState().archaeology).toEqual({ scope: '/p' });
     useAppStore.getState().setRailView('projects');
     expect(useAppStore.getState().archaeology).toBeNull();
@@ -289,12 +323,20 @@ describe('setRailView across groups (the stale-main bug class)', () => {
     });
   });
 
-  it('switches inside the workbench group never touch the main surface', () => {
+  it('switching between Sessions and Files never touches the main surface', () => {
     useAppStore.getState().openTaskRoom('t1');
     useAppStore.getState().setRailView('files');
     expect(useAppStore.getState().taskRoomTaskId).toBe('t1');
-    useAppStore.getState().setRailView('inbox');
+    useAppStore.getState().setRailView('sessions');
     expect(useAppStore.getState().taskRoomTaskId).toBe('t1');
+  });
+
+  it('treats Inbox as a main page and restores the prior Session on return', () => {
+    useAppStore.getState().openTaskRoom('t1');
+    useAppStore.getState().setRailView('inbox');
+    expect(useAppStore.getState().taskRoomTaskId).toBeNull();
+    expect(mainSurfaceOf(useAppStore.getState())).toEqual({ kind: 'inbox' });
+
     useAppStore.getState().setRailView('sessions');
     expect(useAppStore.getState().taskRoomTaskId).toBe('t1');
   });
@@ -412,9 +454,9 @@ describe('surface openers keep the rail in step (reverse direction)', () => {
     expect(useAppStore.getState().archaeology).toEqual({ scope: '/x' });
   });
 
-  it('opening a room from inside the workbench never yanks the Inbox panel away', () => {
-    useAppStore.getState().setRailView('inbox');
+  it('opening a room preserves the contextual Files rail inside the workbench', () => {
+    useAppStore.getState().setRailView('files');
     useAppStore.getState().openTaskRoom('t4');
-    expect(useAppStore.getState().railView).toBe('inbox');
+    expect(useAppStore.getState().railView).toBe('files');
   });
 });

@@ -124,7 +124,7 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    expect(upgraded.appliedVersions).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
     const names = (
       upgraded.db
         .prepare(
@@ -216,7 +216,7 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    expect(upgraded.appliedVersions).toEqual([7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
     const status = (id: string) =>
       (
         upgraded.db
@@ -230,11 +230,11 @@ describe('persistence database', () => {
     upgraded.db.close();
   });
 
-  it('v9-v16 add normalized Missions, retention, and the long-lived Work domain', () => {
+  it('v9-v17 add normalized Missions, retention, and the long-lived Work domain', () => {
     const before = open(MIGRATIONS.slice(0, 8));
     before.db.close();
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([9, 10, 11, 12, 13, 14, 15, 16]);
+    expect(upgraded.appliedVersions).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17]);
     const names = (
       upgraded.db
         .prepare(
@@ -283,6 +283,14 @@ describe('persistence database', () => {
     expect(messageColumns).toEqual(
       expect.arrayContaining(['conversation_id', 'action_request_id']),
     );
+    // v17: external identity that makes GitHub issue import idempotent.
+    const refIndexes = (
+      upgraded.db.prepare('PRAGMA index_list(work_item_external_refs)').all() as Array<{
+        name: string;
+        unique: number;
+      }>
+    ).filter((index) => index.unique === 1);
+    expect(refIndexes.map((index) => index.name)).toContain('idx_work_item_external_refs_key');
     upgraded.db.close();
   });
 
@@ -313,7 +321,7 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([16]);
+    expect(upgraded.appliedVersions).toEqual([16, 17]);
     expect(
       upgraded.db.prepare('SELECT column_id, version FROM work_items WHERE id = ?').get('work-1'),
     ).toEqual({ column_id: 'work-col-inbox', version: 4 });

@@ -1490,7 +1490,7 @@ export function SessionActionDock({
             data-testid="settled-pr-draft-open"
             onClick={() => store.openPrDraft(task.id, settledPrDraft)}
           >
-            Review PR draft
+            Prepare PR…
           </button>
         ) : null}
         <ConfirmDangerButton

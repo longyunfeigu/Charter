@@ -422,6 +422,7 @@ export class AgentRegistry {
       version: this.versions.get(manifest.id) ?? null,
       source: this.sources.get(manifest.id) ?? 'builtin',
       capabilities,
+      models: [],
     };
   }
 

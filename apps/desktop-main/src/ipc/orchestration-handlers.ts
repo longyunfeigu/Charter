@@ -1,6 +1,7 @@
 import type { Logger } from '@pi-ide/foundation';
 import type { TerminalControlService } from '../services/terminal-control-service.js';
 import type { MissionOrchestrationService } from '../services/mission-orchestration-service.js';
+import type { TaskService } from '../services/task-service.js';
 import { registerHandlers } from './router.js';
 
 export function registerOrchestrationHandlers(
@@ -23,6 +24,7 @@ export function registerOrchestrationHandlers(
 
 export function registerMissionHandlers(
   missions: MissionOrchestrationService,
+  tasks: TaskService,
   logger: Logger,
 ): void {
   const userCaller = (missionId: string) => {
@@ -72,6 +74,46 @@ export function registerMissionHandlers(
       'mission.deletePermanently': async ({ missionId }) => {
         missions.repository.deleteMissionPermanently(missionId);
         return { deleted: true as const };
+      },
+      'mission.deleteSessionTree': async ({ missionId }) => {
+        const snapshot = missions.repository.snapshot(missionId);
+        const taskIds = new Set<string>();
+        if (snapshot.mission.originConversationTaskId) {
+          taskIds.add(snapshot.mission.originConversationTaskId);
+        }
+        for (const attempt of snapshot.attempts) {
+          if (attempt.runtimeSessionId?.startsWith('managed-task:')) {
+            taskIds.add(attempt.runtimeSessionId.slice('managed-task:'.length));
+          }
+          if (attempt.terminalId) {
+            const tracked = tasks.externalTaskForTerminal(attempt.terminalId);
+            if (tracked) taskIds.add(tracked.id);
+          }
+        }
+
+        // Validate the whole aggregate before closing or deleting any part of
+        // it. A child with unmerged isolated work blocks the parent deletion.
+        const existingTaskIds: string[] = [];
+        for (const taskId of taskIds) {
+          try {
+            tasks.getTask(taskId);
+          } catch {
+            // Stale runtimes can outlive an already-removed Task record.
+            continue;
+          }
+          await tasks.assertTaskDeletionSafe(taskId, true);
+          existingTaskIds.push(taskId);
+        }
+
+        await missions.deleteSessionTree(missionId);
+        for (const taskId of existingTaskIds) await tasks.deleteTask(taskId, true);
+        return {
+          // Deleting an origin Task clears the Mission's SET NULL reference.
+          // Return that final snapshot so Recently Deleted never claims the
+          // original Session was preserved by this tree-level operation.
+          mission: missions.repository.snapshot(missionId),
+          removedSessions: Math.max(1, snapshot.assignments.length),
+        };
       },
       'mission.pauseAssignment': async ({ missionId, assignmentId, paused }) => {
         missions.pause(userCaller(missionId), assignmentId, paused);

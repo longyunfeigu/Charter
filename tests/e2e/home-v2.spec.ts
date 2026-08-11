@@ -135,8 +135,11 @@ test.describe('Home v2 — advanced charter, persistent Inbox, context feeding',
       await expect(needs).toContainText('Plan ready');
       await expect(needs).toContainText('refactor utils');
 
-      // Inbox row click jumps straight to the waiting task's room.
+      // Inbox card opens the For-you decision detail; Open Session enters the room
+      // (external-work-inbox replica, ADR-0056).
       await needs.locator('button[data-testid^="home-task-"]').first().click();
+      await expect(page.getByTestId('fy-attention-banner')).toBeVisible();
+      await page.getByTestId('fy-open-session').click();
       await expect(page.getByTestId('home-view')).toHaveCount(0);
       await expect(page.getByTestId('task-room')).toBeVisible();
       await expect(page.getByTestId('plan-card')).toBeVisible();
@@ -157,6 +160,7 @@ test.describe('Home v2 — advanced charter, persistent Inbox, context feeding',
         .locator('[data-testid="rail-inbox-panel"] [data-testid^="home-task-"]')
         .first()
         .click();
+      await page.getByTestId('fy-open-session').click();
       await expect(page.getByTestId('task-room')).toBeVisible();
       await expect(page.getByTestId('session-tool-review')).toHaveAttribute(
         'aria-selected',
