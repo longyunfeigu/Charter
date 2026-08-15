@@ -331,6 +331,13 @@ export class TerminalControlService implements TerminalControlPort {
     return this.externalCallers.get(callId) ?? null;
   }
 
+  /** Resolve a stable terminal id or unique current Session name through the
+   * same fail-closed rules used by terminal.* tools. */
+  resolveTarget(target: string): string {
+    this.assertEnabled();
+    return this.resolveTargetId(target);
+  }
+
   async executeFromTerminal(input: {
     terminalId: string;
     taskId: string;
@@ -403,6 +410,15 @@ export class TerminalControlService implements TerminalControlPort {
   ): Promise<unknown> {
     this.assertEnabled();
     const terminalId = this.resolveTargetId(input.id);
+    const agent = this.terminals.agentFor(terminalId);
+    if (agent) {
+      throw new ProductFailure(
+        productError('TERMINAL_AGENT_READ_REQUIRES_SEMANTIC', {
+          userMessage: `Terminal ${terminalId} contains ${agent}. Use agent.result for its latest answer or agent.read for explicit screen diagnostics.`,
+          context: { terminalId, agent },
+        }),
+      );
+    }
     const state = this.stateFor(terminalId);
     const screen = await this.terminals.screenText?.(terminalId, input.maxBytes);
     const content = screen?.content ?? byteTail(state.buffer, input.maxBytes);
@@ -417,21 +433,32 @@ export class TerminalControlService implements TerminalControlPort {
     };
   }
 
+  /** Passive viewport primitive used by semantic agent.read(screen). */
+  async readAgentViewport(
+    terminalId: string,
+    input: { lines: number; maxBytes: number; unwrap: boolean },
+  ): Promise<unknown | null> {
+    this.assertEnabled();
+    this.stateFor(terminalId);
+    return await this.terminals.viewportText(terminalId, input);
+  }
+
+  /** Preemptible viewport traversal; semantic lifecycle gates live one layer above. */
+  async readAgentTranscript(
+    terminalId: string,
+    input: { lines: number; maxBytes: number; unwrap: boolean; signal: AbortSignal },
+  ) {
+    this.assertEnabled();
+    this.stateFor(terminalId);
+    return await this.terminals.transcriptText(terminalId, input);
+  }
+
   async send(
     caller: TerminalToolCaller,
-    input: { id: string; text: string; submit: boolean },
+    input: { id: string; text: string; submit: boolean; queueIfBlocked?: boolean },
   ): Promise<unknown> {
     this.assertEnabled();
     const terminalId = this.assertMayControl(caller, input.id);
-    this.takeSendBudget(caller);
-    this.lastSendExitSequence.set(
-      `${caller.taskId}:${terminalId}`,
-      this.stateFor(terminalId).exitSequence,
-    );
-    this.lastSendTurnSequence.set(
-      `${caller.taskId}:${terminalId}`,
-      this.stateFor(terminalId).turnSequence,
-    );
     const worker = this.workers.get(terminalId);
     if (
       worker &&
@@ -440,32 +467,45 @@ export class TerminalControlService implements TerminalControlPort {
         worker.takeover ||
         this.fleetPaused.has(worker.commanderTaskId))
     ) {
+      const reason = worker.starting
+        ? 'starting'
+        : worker.takeover
+          ? 'takeover'
+          : worker.paused
+            ? 'worker_paused'
+            : 'fleet_paused';
+      if (input.queueIfBlocked === false) {
+        this.record(caller.taskId, 'orchestration.sendNotDelivered', {
+          terminalId,
+          reason,
+          semanticPrompt: true,
+        });
+        return {
+          terminalId,
+          queued: true,
+          delivered: false,
+          reason,
+          queueLength: worker.queued.length,
+        };
+      }
+      this.takeSendBudget(caller);
+      this.captureSendCursors(caller, terminalId);
       worker.queued.push({ callerTaskId: caller.taskId, text: input.text, submit: input.submit });
       this.record(caller.taskId, 'orchestration.sendQueued', {
         terminalId,
-        reason: worker.starting
-          ? 'starting'
-          : worker.takeover
-            ? 'takeover'
-            : worker.paused
-              ? 'worker_paused'
-              : 'fleet_paused',
+        reason,
         queued: worker.queued.length,
       });
       this.changed();
       return {
         terminalId,
         queued: true,
-        reason: worker.starting
-          ? 'starting'
-          : worker.takeover
-            ? 'takeover'
-            : worker.paused
-              ? 'worker_paused'
-              : 'fleet_paused',
+        reason,
         queueLength: worker.queued.length,
       };
     }
+    this.takeSendBudget(caller);
+    this.captureSendCursors(caller, terminalId);
     this.writeInjection(terminalId, input.text, input.submit);
     this.record(caller.taskId, 'orchestration.sent', {
       terminalId,
@@ -474,6 +514,17 @@ export class TerminalControlService implements TerminalControlPort {
     });
     this.changed();
     return { terminalId, queued: false, queueLength: 0 };
+  }
+
+  private captureSendCursors(caller: TerminalToolCaller, terminalId: string): void {
+    this.lastSendExitSequence.set(
+      `${caller.taskId}:${terminalId}`,
+      this.stateFor(terminalId).exitSequence,
+    );
+    this.lastSendTurnSequence.set(
+      `${caller.taskId}:${terminalId}`,
+      this.stateFor(terminalId).turnSequence,
+    );
   }
 
   async create(

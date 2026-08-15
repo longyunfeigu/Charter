@@ -26,6 +26,7 @@ const CHARTER_MCP_INSTRUCTIONS = [
   'Use semantic judgment: when independently verifiable delegated workstreams materially improve the outcome, call orchestration_promote with the complete worker plan; never call it when the user prohibited Mission orchestration.',
   'A successful promotion immediately starts the validated plan. If already attached as a Mission member, use orchestration_inspect and do not promote again.',
   'Do not substitute terminal_create or terminal-output polling for Mission Assignments.',
+  'For ordinary visible Agent coordination, prefer agent_status, agent_prompt, event-driven agent_wait, then agent_result over parsing terminal output. agent_result uses native Adapter history when available and a marked passive screen fallback otherwise. Use agent_explain when semantic state is surprising; agent_read is diagnostic and only scrolls when mode=transcript is explicit.',
   'Use structured Mission messaging, event-driven waits, and orchestration_complete for the active Attempt.',
 ].join(' ');
 
@@ -116,6 +117,97 @@ const tools = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'agent_status',
+    description:
+      'Charter agent.status: read semantic lifecycle plus monotonic identitySeq/stateChangeSeq for a visible Agent Session.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', minLength: 1 } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'agent_explain',
+    description:
+      'Charter agent.explain: explain semantic lifecycle evidence, source, matched rule, stabilization, and sequence identity.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', minLength: 1 } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'agent_result',
+    description:
+      'Charter agent.result: read the latest settled Agent answer through its Adapter, with an explicitly marked passive screen fallback for any recognized Agent without native history support.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        maxBytes: { type: 'integer', minimum: 1, maximum: 204800, default: 65536 },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'agent_read',
+    description:
+      'Charter agent.read: passively read an Agent screen, or explicitly traverse and restore an idle alternate-screen transcript.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        mode: { type: 'string', enum: ['screen', 'transcript'], default: 'screen' },
+        lines: { type: 'integer', minimum: 1, maximum: 1000, default: 200 },
+        maxBytes: { type: 'integer', minimum: 1, maximum: 204800, default: 65536 },
+        unwrap: { type: 'boolean', default: true },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'agent_wait',
+    description:
+      'Charter agent.wait: wait without polling for a newer semantic Agent state and fail if the Agent incarnation is replaced.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        until: {
+          type: 'array',
+          items: { type: 'string', enum: ['working', 'blocked', 'idle', 'unknown', 'exited'] },
+          minItems: 1,
+          maxItems: 5,
+          default: ['idle', 'blocked', 'exited'],
+        },
+        timeoutMs: { type: 'integer', minimum: 1000, maximum: 240000, default: 60000 },
+        afterSeq: { type: 'integer', minimum: 0 },
+        identitySeq: { type: 'integer', minimum: 1 },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'agent_prompt',
+    description:
+      'Charter agent.prompt: submit conversational content to a ready visible Agent and confirm a newer Working transition.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 1 },
+        text: { type: 'string', minLength: 1, maxLength: 20000 },
+        timeoutMs: { type: 'integer', minimum: 500, maximum: 30000, default: 5000 },
+      },
+      required: ['id', 'text'],
+      additionalProperties: false,
+    },
+  },
   ...ORCHESTRATION_MCP_TOOLS,
 ] as const;
 
@@ -142,6 +234,23 @@ function ctlRoute(
     }
     case 'terminal_kill':
       return { method: 'DELETE', path: `/v1/terminals/${id}/kill` };
+    case 'agent_status':
+      return { method: 'GET', path: `/v1/agents/${id}/status` };
+    case 'agent_explain':
+      return { method: 'GET', path: `/v1/agents/${id}/explain` };
+    case 'agent_result': {
+      const maxBytes = typeof input.maxBytes === 'number' ? input.maxBytes : 65536;
+      return {
+        method: 'GET',
+        path: `/v1/agents/${id}/result?maxBytes=${encodeURIComponent(String(maxBytes))}`,
+      };
+    }
+    case 'agent_read':
+      return { method: 'POST', path: `/v1/agents/${id}/read`, body: withoutId(input) };
+    case 'agent_wait':
+      return { method: 'POST', path: `/v1/agents/${id}/wait`, body: withoutId(input) };
+    case 'agent_prompt':
+      return { method: 'POST', path: `/v1/agents/${id}/prompt`, body: withoutId(input) };
     default:
       if (name.startsWith('orchestration_')) {
         const action = name.slice('orchestration_'.length);
@@ -221,14 +330,21 @@ async function callDoor(name: string, input: JsonObject): Promise<JsonObject> {
     request.on('error', (error) => {
       finish({ ok: false, code: 'CTL_UNAVAILABLE', summary: error.message });
     });
-    const requestedWait =
-      (name === 'terminal_wait' ||
-        name === 'orchestration_wait' ||
-        name === 'orchestration_ask' ||
-        name === 'orchestration_join') &&
-      typeof effectiveInput.timeoutMs === 'number'
+    const waitLike =
+      name === 'terminal_wait' ||
+      name === 'agent_read' ||
+      name === 'agent_wait' ||
+      name === 'agent_prompt' ||
+      name === 'orchestration_wait' ||
+      name === 'orchestration_ask' ||
+      name === 'orchestration_join';
+    const requestedWait = waitLike
+      ? typeof effectiveInput.timeoutMs === 'number'
         ? effectiveInput.timeoutMs
-        : 0;
+        : name === 'agent_prompt'
+          ? 5_000
+          : 60_000
+      : 0;
     const timeoutMs = requestedWait > 0 ? requestedWait + 5_000 : 30_000;
     timer = setTimeout(() => {
       request.destroy();
@@ -254,6 +370,23 @@ function response(id: unknown, result: unknown): void {
 
 function errorResponse(id: unknown, code: number, message: string): void {
   writeMessage({ jsonrpc: '2.0', id, error: { code, message } });
+}
+
+function toolContent(name: string, result: JsonObject): string {
+  if (result.ok !== true) {
+    const code = typeof result.code === 'string' ? result.code : 'ERROR';
+    const summary = typeof result.summary === 'string' ? result.summary : 'Charter tool failed.';
+    return `${code}: ${summary}`;
+  }
+  const data =
+    result.data && typeof result.data === 'object' && !Array.isArray(result.data)
+      ? (result.data as JsonObject)
+      : null;
+  if (name === 'agent_result' && typeof data?.answer === 'string') return data.answer;
+  if ((name === 'agent_read' || name === 'terminal_read') && typeof data?.content === 'string') {
+    return data.content;
+  }
+  return JSON.stringify(result);
 }
 
 async function handleMessage(message: JsonObject): Promise<void> {
@@ -293,7 +426,8 @@ async function handleMessage(message: JsonObject): Promise<void> {
         : {};
     const result = await callDoor(name, input);
     response(id, {
-      content: [{ type: 'text', text: JSON.stringify(result) }],
+      content: [{ type: 'text', text: toolContent(name, result) }],
+      structuredContent: result,
       isError: result.ok !== true,
     });
     return;

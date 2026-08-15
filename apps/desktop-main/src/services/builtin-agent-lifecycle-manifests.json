@@ -1,0 +1,282 @@
+[
+  {
+    "id": "claude",
+    "version": "2026.08.11.1",
+    "sourceRevision": "herdr-ddffb6e1",
+    "authority": "none",
+    "aliases": ["claude-code"],
+    "rules": [
+      {
+        "id": "osc_title_working",
+        "state": "working",
+        "priority": 1100,
+        "region": { "kind": "osc_title" },
+        "visibleWorking": true,
+        "regex": ["^[\\u2800-\\u28ff] "]
+      },
+      {
+        "id": "transcript_viewer",
+        "state": "unknown",
+        "priority": 1000,
+        "region": { "kind": "bottom_non_empty_lines", "count": 4 },
+        "skipStateUpdate": true,
+        "contains": ["showing detailed transcript"],
+        "any": [
+          { "contains": ["ctrl+o", "to toggle"] },
+          { "contains": ["ctrl+e", "show all"] },
+          { "contains": ["ctrl+e", "collapse"] },
+          { "contains": ["↑↓ scroll"] },
+          { "contains": ["? for shortcuts"] }
+        ]
+      },
+      {
+        "id": "folder_trust",
+        "state": "blocked",
+        "priority": 990,
+        "region": { "kind": "whole_recent" },
+        "visibleBlocker": true,
+        "any": [
+          { "contains": ["do you trust the files in this folder?"] },
+          { "contains": ["do you trust this folder?"] },
+          { "contains": ["yes, i trust this folder"] }
+        ]
+      },
+      {
+        "id": "live_blocked_form",
+        "state": "blocked",
+        "priority": 980,
+        "region": { "kind": "after_last_horizontal_rule" },
+        "visibleBlocker": true,
+        "contains": ["esc to cancel"],
+        "any": [
+          { "contains": ["enter to confirm"] },
+          { "contains": ["enter to select"] },
+          { "contains": ["enter to submit"] }
+        ]
+      },
+      {
+        "id": "dynamic_workflow_prompt",
+        "state": "blocked",
+        "priority": 980,
+        "region": { "kind": "whole_recent" },
+        "visibleBlocker": true,
+        "contains": ["run a dynamic workflow?", "esc to cancel"]
+      },
+      {
+        "id": "live_prompt_box",
+        "state": "idle",
+        "priority": 950,
+        "region": { "kind": "bottom_non_empty_lines", "count": 10 },
+        "visibleIdle": true,
+        "lineRegex": ["^\\s*❯\\s*$"],
+        "not": [
+          { "contains": ["enter to select"] },
+          { "contains": ["esc to cancel"] },
+          { "contains": ["arrow keys to navigate"] }
+        ]
+      },
+      {
+        "id": "permission_prompt",
+        "state": "blocked",
+        "priority": 850,
+        "region": { "kind": "whole_recent" },
+        "visibleBlocker": true,
+        "any": [
+          { "contains": ["do you want to proceed?", "esc to cancel"] },
+          { "contains": ["waiting for permission"] },
+          { "contains": ["do you want to allow this connection?"] },
+          { "contains": ["tab to amend"] },
+          { "contains": ["ctrl+e to explain"] },
+          { "contains": ["review your answers"] }
+        ]
+      },
+      {
+        "id": "osc_title_idle",
+        "state": "idle",
+        "priority": 250,
+        "region": { "kind": "osc_title" },
+        "visibleIdle": true,
+        "regex": ["^✳ "]
+      }
+    ]
+  },
+  {
+    "id": "codex",
+    "version": "2026.08.11.1",
+    "sourceRevision": "herdr-ddffb6e1",
+    "authority": "none",
+    "aliases": [],
+    "rules": [
+      {
+        "id": "osc_title_blocked",
+        "state": "blocked",
+        "priority": 1100,
+        "region": { "kind": "osc_title" },
+        "visibleBlocker": true,
+        "contains": ["Action Required"]
+      },
+      {
+        "id": "osc_title_working",
+        "state": "working",
+        "priority": 1050,
+        "region": { "kind": "osc_title" },
+        "visibleWorking": true,
+        "regex": ["(?:^| )[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏](?: |$)"]
+      },
+      {
+        "id": "transcript_viewer",
+        "state": "unknown",
+        "priority": 1000,
+        "region": { "kind": "whole_recent" },
+        "skipStateUpdate": true,
+        "contains": ["↑/↓ to scroll", "pgup/pgdn to", "home/end to jump", "q to quit"],
+        "any": [{ "contains": ["esc to edit prev"] }, { "contains": ["esc/← to edit prev"] }]
+      },
+      {
+        "id": "trust_directory",
+        "state": "blocked",
+        "priority": 950,
+        "region": { "kind": "top_non_empty_lines", "count": 20 },
+        "visibleBlocker": true,
+        "contains": ["Do you trust the contents of this directory?"]
+      },
+      {
+        "id": "update_available",
+        "state": "blocked",
+        "priority": 940,
+        "region": { "kind": "whole_recent" },
+        "visibleBlocker": true,
+        "contains": ["update available!"],
+        "any": [{ "contains": ["update now"] }, { "contains": ["skip until next version"] }]
+      },
+      {
+        "id": "live_strong_blocker",
+        "state": "blocked",
+        "priority": 900,
+        "region": { "kind": "whole_recent" },
+        "visibleBlocker": true,
+        "any": [
+          { "contains": ["press enter to confirm or esc to cancel"] },
+          { "contains": ["enter to submit answer"] },
+          { "contains": ["enter to submit all"] },
+          { "contains": ["allow command?"] }
+        ]
+      },
+      {
+        "id": "weak_blocker",
+        "state": "blocked",
+        "priority": 600,
+        "region": { "kind": "whole_recent" },
+        "any": [
+          { "contains": ["[y/n]"] },
+          { "contains": ["yes (y)"] },
+          { "contains": ["would you like to", "yes"] }
+        ]
+      },
+      {
+        "id": "screen_working_fallback",
+        "state": "working",
+        "priority": 500,
+        "region": { "kind": "bottom_non_empty_lines", "count": 3 },
+        "visibleWorking": true,
+        "lineRegex": ["^[•◦]\\s+Working \\([^)]*esc to interrupt\\)(?: · .*)?$"],
+        "not": [{ "contains": ["■ Conversation interrupted"] }]
+      },
+      {
+        "id": "osc_title_idle",
+        "state": "idle",
+        "priority": 100,
+        "region": { "kind": "osc_title" },
+        "visibleIdle": true,
+        "regex": ["\\S"],
+        "not": [{ "regex": ["(?:^| )[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏](?: |$)"] }, { "contains": ["Action Required"] }]
+      }
+    ]
+  },
+  {
+    "id": "kimi",
+    "version": "2026.08.11.1",
+    "sourceRevision": "herdr-ddffb6e1",
+    "authority": "none",
+    "aliases": ["kimi-code", "kimi code"],
+    "rules": [
+      {
+        "id": "folder_trust",
+        "state": "blocked",
+        "priority": 450,
+        "region": { "kind": "whole_recent" },
+        "visibleBlocker": true,
+        "contains": ["trust this folder"],
+        "any": [{ "contains": ["don't trust"] }, { "contains": ["enable project mcp servers"] }]
+      },
+      {
+        "id": "current_approval_panel",
+        "state": "blocked",
+        "priority": 400,
+        "region": { "kind": "whole_recent" },
+        "visibleBlocker": true,
+        "contains": ["↵ confirm"],
+        "any": [
+          { "contains": ["run this command?"] },
+          { "contains": ["write this file?"] },
+          { "contains": ["apply these edits?"] },
+          { "contains": ["stop this task?"] },
+          { "contains": ["ready to build with this plan?"] },
+          { "lineRegex": ["^\\s*▶?\\s*approve .*\\?$"] }
+        ],
+        "all": [
+          {
+            "contains": [" choose"],
+            "any": [{ "contains": ["approve"] }, { "contains": ["reject"] }]
+          }
+        ]
+      },
+      {
+        "id": "question_panel",
+        "state": "blocked",
+        "priority": 390,
+        "region": { "kind": "whole_recent" },
+        "visibleBlocker": true,
+        "contains": ["↑↓ select", "esc cancel"],
+        "lineRegex": ["^\\s*question\\s*$", "^\\s*\\? "],
+        "any": [
+          { "contains": ["↵ choose"] },
+          { "contains": ["↵ toggle"] },
+          { "contains": ["↵ save"] }
+        ]
+      },
+      {
+        "id": "legacy_approval_panel",
+        "state": "blocked",
+        "priority": 300,
+        "region": { "kind": "whole_recent" },
+        "contains": ["requesting approval", "reject"],
+        "any": [{ "contains": ["approve once"] }, { "contains": ["approve for this session"] }]
+      },
+      {
+        "id": "background_agent_status_working",
+        "state": "working",
+        "priority": 120,
+        "region": { "kind": "bottom_non_empty_lines", "count": 3 },
+        "visibleWorking": true,
+        "lineRegex": ["kimi[-\\w.]*\\s+thinking\\b.*\\[[1-9][0-9]*\\s+agents?\\s+running\\]"]
+      },
+      {
+        "id": "moon_spinner_working",
+        "state": "working",
+        "priority": 100,
+        "region": { "kind": "whole_recent" },
+        "visibleWorking": true,
+        "lineRegex": ["^\\s*(🌕|🌖|🌗|🌘|🌑|🌒|🌓|🌔)\\s*$"]
+      },
+      {
+        "id": "braille_spinner_working",
+        "state": "working",
+        "priority": 90,
+        "region": { "kind": "whole_recent" },
+        "visibleWorking": true,
+        "lineRegex": ["^\\s*[\\u2800-\\u28ff]+\\s*(thinking\\.\\.\\.|working\\.\\.\\.|using )"]
+      }
+    ]
+  }
+]

@@ -7,7 +7,11 @@ import {
   type Logger,
 } from '@pi-ide/foundation';
 import { SearchService } from '@pi-ide/search-service';
-import { TerminalManager, type TerminalInfo } from '@pi-ide/terminal-service';
+import {
+  TerminalManager,
+  type AgentCliRegistration,
+  type TerminalInfo,
+} from '@pi-ide/terminal-service';
 import {
   findPythonServer,
   PythonLspClient,
@@ -105,7 +109,7 @@ export class M4Services {
     shellIntegrationDir: string | null = null,
     terminalEnvironment?: (id: string) => Record<string, string>,
     private readonly terminalDaemon: TerminalDaemonClient | null = null,
-    detectedAgentIds?: readonly string[],
+    detectedAgentIds?: readonly AgentCliRegistration[],
   ) {
     this.terminalOutput = new TerminalOutputDispatcher((delivery) => {
       if (broadcast('terminal.data', delivery) === 0) {

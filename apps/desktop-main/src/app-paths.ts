@@ -13,6 +13,8 @@ export interface AppPaths {
   logsDir: string;
   /** Managed skills store (ADR-0015) — imported SKILL.md folders live here. */
   skillsDir: string;
+  /** Versioned, data-only user Agent Packs and their activation state. */
+  agentPacksDir: string;
   /** Project-memory scratch (ADR-0028) — external-memory delete backups live here. */
   memoryDir: string;
   /** SSH host-key trust store (ADR-0047) — trusted-hosts.json lives here. */
@@ -36,6 +38,7 @@ export function createAppPaths(userData: string): AppPaths {
     backupsDir: join(userData, 'backups'),
     logsDir: join(userData, 'logs'),
     skillsDir: join(userData, 'skills'),
+    agentPacksDir: join(userData, 'agent-packs'),
     memoryDir: join(userData, 'memory'),
     sshDir: join(userData, 'ssh'),
     sshSecretsDir: join(userData, 'secrets', 'ssh'),
@@ -49,6 +52,7 @@ export function createAppPaths(userData: string): AppPaths {
     paths.backupsDir,
     paths.logsDir,
     paths.skillsDir,
+    paths.agentPacksDir,
     paths.memoryDir,
     paths.sshDir,
     paths.sshSecretsDir,

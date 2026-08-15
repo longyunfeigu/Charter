@@ -58,6 +58,16 @@ const ZH_CN: Readonly<Record<string, string>> = {
   'Quit Anyway': '仍要退出',
   'Work in progress': '工作仍在进行',
   'Some work is still in progress:': '以下工作仍在进行：',
+  'Keep running in background': '在后台继续运行',
+  'Quit and stop all': '退出并停止全部工作',
+  'Work is still running': '工作仍在运行',
+  'What should Charter do with the work still running?': 'Charter 应如何处理仍在运行的工作？',
+  'Background work may continue using CPU, network, and model tokens.':
+    '后台工作可能继续消耗 CPU、网络和模型 Token。',
+  'Remember my choice': '记住我的选择',
+  'No work is currently running': '当前没有正在运行的工作',
+  'Open Charter': '打开 Charter',
+  'Stop all running work': '停止所有正在运行的工作',
 };
 
 export function mainT(locale: AppLocale | null | undefined, english: string): string {

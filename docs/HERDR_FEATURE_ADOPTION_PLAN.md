@@ -5,6 +5,8 @@
 > Charter 基线：当前工作树，HEAD `b0bca3980a424a2a689cec370f1ce0055cb959d9`  
 > Herdr 研究基线：干净工作树，HEAD `ddffb6e1d79efb517a92034ed18b75c388a36e55`
 
+> 实施进度（2026-08-12）：能力一第一阶段、能力二 V1、能力三 V1，以及能力四的产品级 Main 保活阶段已在当前工作树完成。除 Adapter 驱动的统一 Presence、检测 Manifest、解释与 UI 展示外，现已提供 `agent.status`、`agent.explain`、`agent.result`、事件驱动的 `agent.wait`、确认 Ready→Working 的 `agent.prompt`，以及显式 `screen|transcript` 的 `agent.read`；它们均接入 Tool Gateway、Unix control door、MCP 与 CLI。`agent.result` 对有原生 history connector 的 Agent 返回精确最终答复，对其他已识别 Agent 返回明确标记的被动屏幕回退。关闭窗口时还可保留完整 Main 运行时、通过 tray 观察/停止后台工作并重新进入原 Session。能力四的独立服务阶段及能力五至七仍按本文路线分期实施；外部 Agent 状态与语义控制不会自动完成 Task、Assignment 或 Mission。
+
 ## 1. 文档目的
 
 本文将 Herdr 中值得 Charter 借鉴的七项能力转化为可评审、可分期、可验收的实施方案：
@@ -126,6 +128,7 @@ interface AgentPresenceSnapshot {
   lifecycle: AgentLifecycleState;
   attention: AgentAttentionState;
   source: AgentPresenceSource;
+  identitySeq: number;
   stateChangeSeq: number;
   changedAt: string;
   seen: boolean;
@@ -282,6 +285,8 @@ agent.wait
 agent.sendKeys
 ```
 
+V1 实现前四项。`agent.sendKeys` 涉及 raw key 白名单、终端前台身份与独立权限语义，留到后续小版本，不用 `agent.prompt` 冒充。
+
 所有目标解析应接受稳定 terminal id 或当前 Session 内唯一 Worker 名称。
 
 #### `agent.status`
@@ -314,8 +319,8 @@ agent.sendKeys
 2. 验证 Agent 当前仍控制终端前台。
 3. 记录发送前的 `stateChangeSeq` 和 identity。
 4. 通过现有 bracketed-paste + 独立 Enter 路径提交。
-5. 可选等待真实 activity edge。
-6. 可选继续等待目标状态。
+5. 必须等待真实 activity edge，确认新状态为 `working` 后才返回成功。
+6. 调用方使用返回的 identity/state sequence 继续执行 `agent.wait`。
 
 如果非 working Agent 在限定时间内没有产生状态变化，应返回 `AGENT_PROMPT_STALLED`，不能无限等待。
 
@@ -326,15 +331,16 @@ agent.sendKeys
 ```ts
 {
   target: string;
-  until: Array<'working' | 'blocked' | 'idle' | 'done' | 'unknown' | 'exited'>;
-  afterStateChangeSeq?: number;
+  until: Array<'working' | 'blocked' | 'idle' | 'unknown' | 'exited'>;
+  afterSeq?: number;
+  identitySeq?: number;
   timeoutMs: number;
 }
 ```
 
 - 初始状态已满足时立即返回。
-- 带 `afterStateChangeSeq` 时必须观察到更新后的状态。
-- 等待期间 identity 改变时返回 `AGENT_NOT_RUNNING`。
+- 带 `afterSeq` 时必须观察到更新后的状态。
+- 等待期间 identity 改变时返回 `AGENT_REPLACED`。
 - 使用事件唤醒，不进行高频轮询。
 
 #### `agent.sendKeys`
@@ -357,10 +363,19 @@ agent.sendKeys
 
 - Prompt 发送前后 Agent 被替换时安全失败。
 - 非 working 起点必须观察 activity edge，才能把后续 idle 当作新回合完成。
-- 已 working 的 Agent 可以接受 follow-up，但 API 明确它可能由当前活动回合满足等待。
+- 已 working 的 Agent 拒绝新的 `agent.prompt` 并返回 `AGENT_NOT_READY`，调用方应先等待 idle/blocked，避免把新输入注入当前活动回合。
 - blocked、unknown、exit 均能作为精确等待条件。
 - 取消只移除 waiter，不停止 Agent。
 - 所有 Agent API 调用进入现有权限和证据账本。
+
+### 5.5 V1 落地说明（2026-08-11）
+
+- `AgentPresenceSnapshot` 增加 `identitySeq`；同一终端 id 中 Agent 重启/替换时递增，普通生命周期变化只递增 `stateChangeSeq`。
+- `agent.wait` 直接订阅 Presence 事件，订阅后重读当前状态消除竞态；timeout、cancel、exit 与 replacement 都会移除 waiter。
+- `agent.prompt` 在 bracketed-paste/Enter 之前安装 Working waiter；遇到 pause/takeover 等 would-queue 条件时返回 `AGENT_PROMPT_QUEUED`，且不把 Prompt 留在稍后投递的队列中；已投递但未观察到 Working 返回 `AGENT_PROMPT_STALLED`。
+- 错误契约包括 `AGENT_NOT_FOUND`、`AGENT_NOT_READY`、`AGENT_REPLACED`、`AGENT_PROCESS_EXITED`、`AGENT_WAIT_TIMEOUT`、`AGENT_PROMPT_QUEUED` 与 `AGENT_PROMPT_STALLED`。
+- 四项能力同时暴露为 Gateway `agent.*`、MCP `agent_*`、`charter-terminal agent ...` 和 `/v1/agents/:target/...`，全部沿用已认证调用者身份与现有 tool audit。
+- Electron 闭环覆盖外部 Codex commander 创建可见 Claude worker 后执行 `status → explain → prompt → wait`，并验证全过程没有权限卡。
 
 ---
 
@@ -397,7 +412,7 @@ type TerminalReadMode = 'screen' | 'transcript';
 不满足时：
 
 - 显式 `agent.read(transcript)` 返回明确错误或被动降级标志。
-- 普通 `terminal.read` 始终返回当前可用 screen，不改变 viewport。
+- 普通 `terminal.read` 对 shell 返回当前可用 screen；识别为 Agent 时拒绝并引导到 `agent.result` 或显式 `agent.read`，不改变 viewport。
 
 ### 6.4 采集状态机
 
@@ -437,6 +452,24 @@ settle initial
 - 用户交互、Agent working、resize、对齐失败均安全中止。
 - 重复运行三次稳定，不留下滚动位置漂移。
 - 普通 screen read、状态检测和 output wait 永不触发自动滚动。
+
+### 6.7 V1 落地说明（2026-08-11）
+
+- 采集状态机与行对齐算法直接适配自 Herdr
+  `src/server/alt_screen_read.rs`、`src/terminal/history_read.rs`（研究基线
+  `ddffb6e1d79efb517a92034ed18b75c388a36e55`，Apache-2.0），在 Charter 中换成
+  xterm `IBufferLine.isWrapped` 行模型与可抢占输入租约。
+- `TerminalManager` 通过 xterm parser 观察 DEC mouse encoding，只有 alternate buffer 且启用受支持
+  mouse reporting 时才发送居中的 wheel report；合成滚轮绕过普通输入事件，不污染用户输入台账。
+- `agent.read` 默认 `mode=screen`，完全被动；只有显式 `mode=transcript` 才运行
+  settle → bottom probe → harvest → overlap merge → restore → stable verify。
+- 用户/host/orchestrator 输入、resize、resync、进程退出、Presence 离开 Idle、Agent identity 替换与调用取消
+  都会抢占读取；租约在可能时先同步发送补偿滚轮，再让真实输入继续。
+- Herdr 在采集异常时返回被动 snapshot；Charter 为避免调用方误把一屏当完整转录，改为显式
+  `AGENT_TRANSCRIPT_NOT_IDLE`、`AGENT_TRANSCRIPT_UNAVAILABLE`、
+  `AGENT_TRANSCRIPT_ABORTED`、`AGENT_TRANSCRIPT_RESTORE_FAILED` 契约。
+- Gateway `agent.result|read`、MCP `agent_result|read`、`charter-terminal agent result|read` 与
+  `/v1/agents/:target/result|read` 共用同一语义实现；普通 `terminal.read` 只服务 shell，所有读取都不会隐式触发滚动。
 
 ---
 
@@ -510,6 +543,16 @@ Cancel
 - `Quit and stop all` 保持当前有序 teardown，不遗留 PTY、SSH listener 或数据库写入。
 - 崩溃恢复与受控更新路径分别测试，不能把 E2E-only preserve 环境变量产品化。
 
+### 7.6 Main 保活阶段落地说明（2026-08-11）
+
+- `general.backgroundOnClose` 提供 `ask | keep-running | quit` 三种全局选择；默认询问，原生关闭对话框可记住选择，Settings 中可随时撤销。
+- Main 汇总 managed Agent、外部 Agent、终端子进程、非终态 Mission、SSH 连接和 renderer 未保存文件；该快照同时驱动关闭决策、更新安装 blocker、tray 和 `app.getBackgroundActivity`。
+- `keep-running` 隐藏而不销毁现有 BrowserWindow，因此 renderer 状态、数据库、AgentHost、ExternalSessionService 文件核算、Mission continuation/outbox、SSH/SFTP/forward、通知与 control door 都保留原身份继续运行。
+- tray/menu-bar 显示当前后台活动，支持重新打开原窗口、`Stop all running work` 和 `Quit and stop all`。Stop all 走 Mission 持久化取消/outbox、managed task abort、Agent/终端终止及 SSH 有序断开；真正 Quit 仍复用现有数据库最后关闭的 teardown。
+- 未保存文件不会被记住的 `quit` 偏好绕过；更新安装也把后台活动纳入 blocker。对话框明确提示后台可能继续消耗 CPU、网络和模型 Token。
+- 真实 Electron 测试已覆盖：启动外部 Claude → 隐藏窗口 → Agent 在后台改文件 → Main 继续记录 ChangeSet → activate 恢复同一窗口和终端输出；重复三次稳定，并在 980×720 桌面窗口检查设置入口。
+- 本阶段不承诺 Electron Main 完全退出、系统 logout/shutdown 后继续；那仍需要把数据库、Mission、SSH、watcher、通知和控制身份整体迁入独立服务。
+
 ---
 
 ## 8. 能力五：本地图片到外部或远端 TUI 的输入桥
@@ -572,6 +615,8 @@ Cancel
 ---
 
 ## 9. 能力六：多 Agent Adapter Pack
+
+> Wave 1 已实现：严格 Adapter engine、Claude/Codex/Kimi 完整声明、本地开发 override、failure isolation、Settings diagnostics，以及无 provider branch 的 discovery/launch。实现与验收说明见 [AGENT_ADAPTER_PACK.md](./AGENT_ADAPTER_PACK.md)。Wave 2 和签名远端 Pack 仍按下述阶段边界推进。
 
 ### 9.1 用户结果
 
@@ -1012,4 +1057,3 @@ workflow-extension.spec.ts
 - 图片附件：`apps/desktop-main/src/ipc/context-attachment-handlers.ts`
 - Skills：`apps/desktop-main/src/services/skill-store.ts`
 - Worktree：`apps/desktop-main/src/services/worktree-service.ts`
-

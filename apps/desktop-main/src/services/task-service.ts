@@ -61,6 +61,7 @@ import {
   type ToolAuditRecord,
   type ToolGateway,
   type OrchestrationToolServices,
+  type AgentControlPort,
   type VerificationGate,
 } from '@pi-ide/tool-gateway';
 import { parseHunks, type ChangeSet } from '@pi-ide/change-service';
@@ -456,6 +457,7 @@ export class TaskService {
     private readonly appPaths: AppPaths,
     private readonly logger: Logger,
     private readonly terminalControl?: TerminalControlService,
+    private readonly agentControl?: AgentControlPort,
   ) {
     const paths = appPaths;
     this.worktrees = new WorktreeService(paths, logger);
@@ -501,6 +503,7 @@ export class TaskService {
             callerTerminalForCall: (callId) => terminalControl.callerTerminalForCall(callId),
           }
         : undefined,
+      agentControl,
     );
     this.unsubscribeOrchestrationSettings = settings.onChange((state) => {
       this.contexts.syncTerminalTools(state.effective.orchestration.enabled);

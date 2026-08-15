@@ -271,6 +271,21 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
     });
   });
 
+  it('requires semantic result/read tools when the target contains a recognized Agent', async () => {
+    const terminal = terminals.create({ cwd: '/tmp', launch: 'future-agent' });
+    terminals.agents.set(terminal.id, 'future-agent');
+    terminals.screens.set(terminal.id, 'final answer');
+
+    await expect(
+      service.read({ taskId: 'task_1' }, { id: terminal.id, maxBytes: 1024 }),
+    ).rejects.toMatchObject({
+      error: {
+        code: 'TERMINAL_AGENT_READ_REQUIRES_SEMANTIC',
+        userMessage: expect.stringContaining('agent.result'),
+      },
+    });
+  });
+
   it('queues paused/taken-over sends and releases them in order on hand-back', async () => {
     const created = (await service.create(
       { taskId: 'task_1' },
@@ -278,6 +293,17 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
     )) as { terminal: TerminalInfo };
     terminals.emitData(created.terminal.id, '\u001b[?2004h');
     service.pauseWorker(created.terminal.id, true);
+    await expect(
+      service.send(
+        { taskId: 'task_1' },
+        {
+          id: created.terminal.id,
+          text: 'semantic prompt must not linger',
+          submit: true,
+          queueIfBlocked: false,
+        },
+      ),
+    ).resolves.toMatchObject({ queued: true, delivered: false, queueLength: 0 });
     await service.send(
       { taskId: 'task_1' },
       { id: created.terminal.id, text: 'first', submit: true },
@@ -288,6 +314,9 @@ describe('TerminalControlService (ORCH-001/004/005/006/007/009)', () => {
     );
     expect(terminals.writes).toHaveLength(0);
     service.pauseWorker(created.terminal.id, false);
+    expect(terminals.writes.map((entry) => entry.data).join('')).not.toContain(
+      'semantic prompt must not linger',
+    );
     expect(terminals.writes.map((entry) => entry.data)).toEqual([
       '\u001b[200~first\u001b[201~',
       '\r',

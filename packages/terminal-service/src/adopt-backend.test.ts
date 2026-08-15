@@ -9,6 +9,7 @@ class FakeBackend implements TerminalBackend {
   readonly writes: string[] = [];
   readonly resizes: Array<[number, number]> = [];
   killed = 0;
+  onWrite: ((data: string) => void) | null = null;
   private dataCb: ((data: string) => void) | null = null;
   private exitCb: ((exitCode: number) => void) | null = null;
 
@@ -16,6 +17,7 @@ class FakeBackend implements TerminalBackend {
 
   write(data: string): void {
     this.writes.push(data);
+    this.onWrite?.(data);
   }
 
   resize(cols: number, rows: number): void {
@@ -184,6 +186,102 @@ describe('TerminalManager.adoptBackend (SSH remote sessions, ADR-0047)', () => {
     expect(snapshot?.totalBytes).toBeGreaterThan(24);
     expect(snapshot?.content).not.toContain('�');
     expect(Buffer.byteLength(snapshot?.content ?? '', 'utf8')).toBeLessThanOrEqual(24);
+  });
+
+  it('drives an SGR-mouse alternate transcript and restores the bottom viewport', async () => {
+    manager = new TerminalManager(
+      () => {},
+      () => {},
+      { agentPollMs: 0 },
+    );
+    const backend = new FakeBackend();
+    const info = manager.adoptBackend(backend, {
+      title: 'codex',
+      cwd: '/repo',
+      projectName: 'repo',
+      cols: 40,
+      rows: 4,
+      knownAgent: 'codex',
+    });
+    const frames = [
+      ['sticky', 'line 7', 'line 8', 'status'],
+      ['sticky', 'line 5', 'line 6', 'line 7'],
+      ['sticky', 'line 3', 'line 4', 'line 5'],
+      ['sticky', 'line 1', 'line 2', 'line 3'],
+    ];
+    let position = 0;
+    const paint = (lines: string[]): string => `\u001b[2J\u001b[H${lines.join('\r\n')}`;
+    backend.onWrite = (data) => {
+      const up = data.match(/\u001b\[<64;/g)?.length ?? 0;
+      const down = data.match(/\u001b\[<65;/g)?.length ?? 0;
+      if (up > 0) position = Math.min(frames.length - 1, position + Math.ceil(up / 3));
+      if (down > 0) position = Math.max(0, position - Math.ceil(down / 3));
+      if (up > 0 || down > 0) backend.emit(paint(frames[position]!));
+    };
+    backend.emit(`\u001b[?1049h\u001b[?1002h\u001b[?1006h${paint(frames[0]!)}`);
+
+    const result = await manager.transcriptText(info.id, {
+      lines: 10,
+      unwrap: false,
+      maxBytes: 4096,
+      timing: {
+        settleMs: 1,
+        maxDurationMs: 1_000,
+        maxRestoreMs: 1_000,
+        maxUnalignedChecks: 2,
+      },
+    });
+
+    expect(result).toMatchObject({ ok: true, capturedRows: 10, restored: true });
+    expect(position).toBe(0);
+    expect(backend.writes.some((data) => data.includes('\u001b[<64;'))).toBe(true);
+    expect(backend.writes.some((data) => data.includes('\u001b[<65;'))).toBe(true);
+  });
+
+  it('lets real user input preempt an active transcript lease before delivery', async () => {
+    manager = new TerminalManager(
+      () => {},
+      () => {},
+      { agentPollMs: 0 },
+    );
+    const backend = new FakeBackend();
+    const info = manager.adoptBackend(backend, {
+      title: 'claude',
+      cwd: '/repo',
+      projectName: 'repo',
+      cols: 40,
+      rows: 4,
+      knownAgent: 'claude',
+    });
+    let interrupted = false;
+    backend.onWrite = (data) => {
+      if (!interrupted && data.includes('\u001b[<64;')) {
+        interrupted = true;
+        manager!.write(info.id, 'x', 'user');
+      }
+    };
+    backend.emit(
+      '\u001b[?1049h\u001b[?1002h\u001b[?1006h\u001b[2J\u001b[Hone\r\ntwo\r\nthree\r\nstatus',
+    );
+
+    const result = await manager.transcriptText(info.id, {
+      lines: 20,
+      unwrap: true,
+      maxBytes: 4096,
+      timing: { settleMs: 1, maxDurationMs: 1_000, maxRestoreMs: 100 },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'interrupted',
+      interruptedBy: 'user_input',
+      restoreAttempted: true,
+    });
+    const userIndex = backend.writes.indexOf('x');
+    expect(userIndex).toBeGreaterThan(0);
+    expect(backend.writes.slice(0, userIndex).some((data) => data.includes('\u001b[<65;'))).toBe(
+      true,
+    );
   });
 
   it('delegates kill to the backend once and forgets the session', () => {

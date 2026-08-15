@@ -55,6 +55,7 @@ import { SessionRenameDialog } from './SessionRenameDialog.js';
 import { MissionStatusStrip } from './mission/MissionStatusStrip.js';
 import { agentDisplayName } from '../store/agentCatalogStore.js';
 import { sessionFilePaths } from './session-file-projection.js';
+import { TerminalImagePasteButton } from './TerminalImagePasteButton.js';
 
 const EMPTY_TERMINAL_REFS: TerminalOutputRef[] = [];
 const EMPTY_ORCHESTRATION_PERMISSIONS: PermissionCardDto[] = [];
@@ -348,7 +349,7 @@ export const TaskRoomView = React.memo(function TaskRoomView({
                 {sessionDisplayTitle(task)}
               </span>
               <TaskStateProbe state={task.state} />
-              {task.external ? <ExternalSessionIdentity task={task} /> : null}
+              {task.external ? <ExternalSessionIdentity task={task} active={active} /> : null}
             </div>
           </div>
           <div className="session-identity-secondary">
@@ -387,6 +388,12 @@ export const TaskRoomView = React.memo(function TaskRoomView({
                 </nav>
               ) : null}
               <PreviewBadge task={task} />
+              {task.external?.status === 'active' ? (
+                <TerminalImagePasteButton
+                  terminalId={task.external.terminalId}
+                  className="session-tools-button"
+                />
+              ) : null}
               <button
                 type="button"
                 className={`session-tools-button ${sessionToolsOpen ? 'back-to-conversation' : ''}`}

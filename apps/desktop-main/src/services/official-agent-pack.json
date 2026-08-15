@@ -1,0 +1,500 @@
+[
+  {
+    "schemaVersion": 1,
+    "id": "charter-official-agents",
+    "version": "2026.8.12",
+    "displayName": "Charter Official Agents",
+    "publisher": "Charter",
+    "engine": { "min": 1, "max": 1 },
+    "adapters": [
+      {
+        "schemaVersion": 1,
+        "adapterVersion": "2026.08.12.1",
+        "engine": { "min": 1, "max": 1 },
+        "id": "gemini",
+        "displayName": "Gemini CLI",
+        "shortName": "Gemini",
+        "description": "Google's Gemini CLI with native ACP and multimodal input",
+        "mark": "gemini",
+        "accent": "#4285f4",
+        "discovery": {
+          "commands": ["gemini"],
+          "knownPaths": ["{home}/.local/bin/gemini", "{home}/.npm-global/bin/gemini"],
+          "versionArgs": ["--version"]
+        },
+        "terminal": {
+          "promptDelivery": "argv",
+          "initialPromptArgs": ["--prompt-interactive", "{prompt}"],
+          "startup": {
+            "gateMarkers": ["Do you trust this folder?", "Do you trust the files in this folder?"],
+            "readyMarkers": ["Type your message", "Gemini CLI"],
+            "readyRequired": false,
+            "requireBracketedPaste": true,
+            "deferInitialProbe": false,
+            "updateGate": null
+          },
+          "exitSequence": ["interrupt", "eof"]
+        },
+        "acp": { "kind": "native", "args": ["--acp"] },
+        "sessions": null,
+        "surfaces": {
+          "skillRoots": ["{home}/.gemini/skills"],
+          "instructionRoots": ["{home}/.gemini/GEMINI.md"],
+          "remote": true
+        },
+        "capabilities": {
+          "terminal": true,
+          "acp": true,
+          "loadSession": true,
+          "sessionList": false,
+          "sessionResume": true,
+          "images": true,
+          "embeddedContext": true,
+          "mcp": true,
+          "exactResume": false,
+          "history": false,
+          "skills": true,
+          "instructions": true,
+          "remote": true,
+          "lifecycle": "observed"
+        },
+        "lifecycle": {
+          "id": "gemini",
+          "version": "2026.06.10.1",
+          "sourceRevision": "herdr-ddffb6e1",
+          "authority": "none",
+          "aliases": [],
+          "rules": [
+            {
+              "id": "apply_or_allow_change",
+              "state": "blocked",
+              "priority": 300,
+              "region": { "kind": "whole_recent" },
+              "visibleBlocker": true,
+              "any": [
+                { "contains": ["│ Apply this change"] },
+                { "contains": ["│ Allow execution"] },
+                {
+                  "all": [
+                    { "contains": ["yes"] },
+                    {
+                      "any": [
+                        { "contains": ["waiting for user confirmation"] },
+                        { "contains": ["│ Do you want to proceed"] },
+                        { "contains": ["do you want to proceed?"] }
+                      ]
+                    }
+                  ]
+                },
+                { "lineRegex": ["^\\s*❯.*(yes|allow)"] }
+              ]
+            },
+            {
+              "id": "esc_cancel_working",
+              "state": "working",
+              "priority": 100,
+              "region": { "kind": "whole_recent" },
+              "visibleWorking": true,
+              "contains": ["esc to cancel"]
+            }
+          ]
+        }
+      },
+      {
+        "schemaVersion": 1,
+        "adapterVersion": "2026.08.12.1",
+        "engine": { "min": 1, "max": 1 },
+        "id": "opencode",
+        "displayName": "OpenCode",
+        "shortName": "OpenCode",
+        "description": "OpenCode terminal Agent with native ACP support",
+        "mark": "opencode",
+        "accent": "#f3b33d",
+        "discovery": {
+          "commands": ["opencode", "opencode2", "open-code"],
+          "knownPaths": ["{home}/.opencode/bin/opencode", "{home}/.local/bin/opencode"],
+          "versionArgs": ["--version"]
+        },
+        "terminal": {
+          "promptDelivery": "argv",
+          "initialPromptArgs": ["--prompt", "{prompt}"],
+          "startup": {
+            "gateMarkers": ["Permission required"],
+            "readyMarkers": ["Ask anything", "OpenCode"],
+            "readyRequired": false,
+            "requireBracketedPaste": true,
+            "deferInitialProbe": false,
+            "updateGate": null
+          },
+          "exitSequence": ["interrupt", "eof"]
+        },
+        "acp": { "kind": "native", "args": ["acp"] },
+        "sessions": null,
+        "surfaces": {
+          "skillRoots": ["{home}/.config/opencode/skills", "{home}/.agents/skills"],
+          "instructionRoots": ["{home}/.config/opencode/AGENTS.md", "{home}/.agents/AGENTS.md"],
+          "remote": true
+        },
+        "capabilities": {
+          "terminal": true,
+          "acp": true,
+          "loadSession": true,
+          "sessionList": false,
+          "sessionResume": true,
+          "images": true,
+          "embeddedContext": true,
+          "mcp": true,
+          "exactResume": false,
+          "history": false,
+          "skills": true,
+          "instructions": true,
+          "remote": true,
+          "lifecycle": "observed"
+        },
+        "lifecycle": {
+          "id": "opencode",
+          "version": "2026.06.10.1",
+          "sourceRevision": "herdr-ddffb6e1",
+          "authority": "none",
+          "aliases": ["opencode2", "open-code"],
+          "rules": [
+            {
+              "id": "permission_required",
+              "state": "blocked",
+              "priority": 300,
+              "region": { "kind": "whole_recent" },
+              "visibleBlocker": true,
+              "any": [
+                { "contains": ["△ Permission required"] },
+                {
+                  "contains": ["esc dismiss"],
+                  "any": [
+                    { "contains": ["enter confirm"] },
+                    { "contains": ["enter submit"] },
+                    { "contains": ["enter toggle"] }
+                  ],
+                  "all": [{ "any": [{ "contains": ["↑↓ select"] }, { "contains": ["⇆ tab"] }] }]
+                }
+              ]
+            },
+            {
+              "id": "interrupt_hint_working",
+              "state": "working",
+              "priority": 110,
+              "region": { "kind": "whole_recent" },
+              "visibleWorking": true,
+              "any": [
+                { "contains": ["esc to interrupt"] },
+                { "contains": ["ctrl+c to interrupt"] },
+                { "contains": ["press esc to interrupt"] },
+                { "lineRegex": [".*opencode.*esc (again to )?interrupt"] }
+              ]
+            },
+            {
+              "id": "progress_bar_working",
+              "state": "working",
+              "priority": 100,
+              "region": { "kind": "whole_recent" },
+              "visibleWorking": true,
+              "regex": ["(■|⬝){4,}"]
+            }
+          ]
+        }
+      },
+      {
+        "schemaVersion": 1,
+        "adapterVersion": "2026.08.12.1",
+        "engine": { "min": 1, "max": 1 },
+        "id": "copilot",
+        "displayName": "GitHub Copilot CLI",
+        "shortName": "Copilot",
+        "description": "GitHub Copilot CLI with native ACP preview support",
+        "mark": "copilot",
+        "accent": "#8b5cf6",
+        "discovery": {
+          "commands": ["copilot", "github-copilot", "ghcs"],
+          "knownPaths": ["{home}/.local/bin/copilot"],
+          "versionArgs": ["--version"]
+        },
+        "terminal": {
+          "promptDelivery": "deferred",
+          "startup": {
+            "gateMarkers": ["Do you trust the files in this folder?", "Do you trust this folder?"],
+            "readyMarkers": ["GitHub Copilot", "What would you like to do?"],
+            "readyRequired": false,
+            "requireBracketedPaste": true,
+            "deferInitialProbe": false,
+            "updateGate": null
+          },
+          "exitSequence": ["interrupt", "eof"]
+        },
+        "acp": { "kind": "native", "args": ["--acp", "--stdio"] },
+        "sessions": null,
+        "surfaces": {
+          "skillRoots": ["{home}/.copilot/skills"],
+          "instructionRoots": [
+            "{home}/.copilot/copilot-instructions.md",
+            "{home}/.copilot/instructions"
+          ],
+          "remote": true
+        },
+        "capabilities": {
+          "terminal": true,
+          "acp": true,
+          "loadSession": true,
+          "sessionList": false,
+          "sessionResume": true,
+          "images": true,
+          "embeddedContext": true,
+          "mcp": true,
+          "exactResume": false,
+          "history": false,
+          "skills": true,
+          "instructions": true,
+          "remote": true,
+          "lifecycle": "observed"
+        },
+        "lifecycle": {
+          "id": "copilot",
+          "version": "2026.07.07.1",
+          "sourceRevision": "herdr-ddffb6e1",
+          "authority": "none",
+          "aliases": ["github-copilot", "ghcs"],
+          "rules": [
+            {
+              "id": "selection_blocker",
+              "state": "blocked",
+              "priority": 300,
+              "region": { "kind": "whole_recent" },
+              "visibleBlocker": true,
+              "all": [
+                { "any": [{ "contains": ["esc to cancel"] }, { "contains": ["esc cancel"] }] },
+                {
+                  "any": [
+                    { "contains": ["enter to select"] },
+                    { "contains": ["enter to confirm"] },
+                    { "contains": ["enter to submit"] },
+                    { "contains": ["enter accept"] }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "working_cancel_hint",
+              "state": "working",
+              "priority": 100,
+              "region": { "kind": "whole_recent" },
+              "visibleWorking": true,
+              "any": [
+                { "contains": ["esc to cancel"] },
+                { "contains": ["esc cancel"] },
+                { "contains": ["esc again to cancel"] },
+                { "contains": ["esc interrupt"] }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "schemaVersion": 1,
+        "adapterVersion": "2026.08.12.1",
+        "engine": { "min": 1, "max": 1 },
+        "id": "cursor",
+        "displayName": "Cursor Agent",
+        "shortName": "Cursor",
+        "description": "Cursor's terminal Agent CLI",
+        "mark": "cursor",
+        "accent": "#7c7cff",
+        "discovery": {
+          "commands": ["cursor-agent"],
+          "knownPaths": ["{home}/.local/bin/cursor-agent", "{home}/.cursor/bin/cursor-agent"],
+          "versionArgs": ["--version"]
+        },
+        "terminal": {
+          "promptDelivery": "argv",
+          "initialPromptArgs": ["{prompt}"],
+          "startup": {
+            "gateMarkers": ["Do you trust this folder?", "Do you trust the files in this folder?"],
+            "readyMarkers": ["Cursor Agent", "Ask anything"],
+            "readyRequired": false,
+            "requireBracketedPaste": true,
+            "deferInitialProbe": false,
+            "updateGate": null
+          },
+          "exitSequence": ["interrupt", "eof"]
+        },
+        "acp": null,
+        "sessions": null,
+        "surfaces": {
+          "skillRoots": [],
+          "instructionRoots": ["{home}/.cursor/rules"],
+          "remote": true
+        },
+        "capabilities": {
+          "terminal": true,
+          "acp": false,
+          "loadSession": false,
+          "sessionList": false,
+          "sessionResume": false,
+          "images": false,
+          "embeddedContext": false,
+          "mcp": false,
+          "exactResume": false,
+          "history": false,
+          "skills": false,
+          "instructions": true,
+          "remote": true,
+          "lifecycle": "observed"
+        },
+        "lifecycle": {
+          "id": "cursor",
+          "version": "2026.08.03.1",
+          "sourceRevision": "herdr-ddffb6e1",
+          "authority": "none",
+          "aliases": ["cursor-agent"],
+          "rules": [
+            {
+              "id": "write_file_approval",
+              "state": "blocked",
+              "priority": 320,
+              "region": { "kind": "bottom_non_empty_lines", "count": 8 },
+              "visibleBlocker": true,
+              "contains": ["write to this file?", "proceed (y)"],
+              "any": [
+                { "contains": ["reject & propose changes"] },
+                { "contains": ["esc or n or p"] },
+                { "contains": ["add write("] }
+              ]
+            },
+            {
+              "id": "approval_prompt",
+              "state": "blocked",
+              "priority": 300,
+              "region": { "kind": "whole_recent" },
+              "visibleBlocker": true,
+              "any": [
+                {
+                  "contains": ["waiting for approval", "run this command?"],
+                  "any": [{ "contains": ["run (once) (y)"] }, { "contains": ["skip (esc or n)"] }]
+                },
+                { "contains": ["(y) (enter)"] },
+                { "lineRegex": ["^\\s*allow .*\\(y\\)"] },
+                { "contains": ["keep (n)"] },
+                { "contains": ["skip (esc or n)"] },
+                { "lineRegex": ["^\\s*(?:→\\s*)?run .*\\(y\\)"] }
+              ]
+            },
+            {
+              "id": "stop_hint_working",
+              "state": "working",
+              "priority": 100,
+              "region": { "kind": "bottom_non_empty_lines", "count": 6 },
+              "visibleWorking": true,
+              "contains": ["ctrl+c to stop"]
+            },
+            {
+              "id": "background_task_status_working",
+              "state": "working",
+              "priority": 95,
+              "region": { "kind": "bottom_non_empty_lines", "count": 5 },
+              "visibleWorking": true,
+              "lineRegex": ["\\b[1-9][0-9]*\\s+background\\s+tasks?\\b"]
+            },
+            {
+              "id": "spinner_working",
+              "state": "working",
+              "priority": 90,
+              "region": { "kind": "bottom_non_empty_lines", "count": 8 },
+              "visibleWorking": true,
+              "lineRegex": ["^\\s*(⬡|⬢|[\\u2800-\\u28FF]+)\\s+\\p{Alphabetic}+\\w*ing\\b"]
+            }
+          ]
+        }
+      },
+      {
+        "schemaVersion": 1,
+        "adapterVersion": "2026.08.12.1",
+        "engine": { "min": 1, "max": 1 },
+        "id": "aider",
+        "displayName": "Aider",
+        "shortName": "Aider",
+        "description": "Aider's pair-programming terminal CLI",
+        "mark": "aider",
+        "accent": "#27ae60",
+        "discovery": {
+          "commands": ["aider"],
+          "knownPaths": ["{home}/.local/bin/aider"],
+          "versionArgs": ["--version"]
+        },
+        "terminal": {
+          "promptDelivery": "deferred",
+          "startup": {
+            "gateMarkers": [],
+            "readyMarkers": ["> "],
+            "readyRequired": false,
+            "requireBracketedPaste": true,
+            "deferInitialProbe": false,
+            "updateGate": null
+          },
+          "exitSequence": ["interrupt", "eof"]
+        },
+        "acp": null,
+        "sessions": null,
+        "surfaces": {
+          "skillRoots": [],
+          "instructionRoots": [],
+          "remote": true
+        },
+        "capabilities": {
+          "terminal": true,
+          "acp": false,
+          "loadSession": false,
+          "sessionList": false,
+          "sessionResume": false,
+          "images": true,
+          "embeddedContext": false,
+          "mcp": false,
+          "exactResume": false,
+          "history": false,
+          "skills": false,
+          "instructions": false,
+          "remote": true,
+          "lifecycle": "observed"
+        },
+        "lifecycle": {
+          "id": "aider",
+          "version": "2026.08.12.1",
+          "sourceRevision": "aider-main-20260812",
+          "authority": "none",
+          "aliases": [],
+          "rules": [
+            {
+              "id": "confirmation_prompt",
+              "state": "blocked",
+              "priority": 300,
+              "region": { "kind": "whole_recent" },
+              "visibleBlocker": true,
+              "contains": ["(Y)es/(N)o"]
+            },
+            {
+              "id": "waiting_for_model",
+              "state": "working",
+              "priority": 120,
+              "region": { "kind": "bottom_non_empty_lines", "count": 6 },
+              "visibleWorking": true,
+              "lineRegex": ["^\\s*Waiting for .+"]
+            },
+            {
+              "id": "composer_prompt",
+              "state": "idle",
+              "priority": 100,
+              "region": { "kind": "bottom_non_empty_lines", "count": 4 },
+              "visibleIdle": true,
+              "lineRegex": ["^\\s*(?:\\S+(?:\\s+multi)?|multi)?\\s*>\\s*$"]
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

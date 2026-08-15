@@ -361,6 +361,12 @@ test('visible Mission controls hold real PTY input, keep the turn alive, and han
 
     await openMission(launched.page, missionId);
     const details = launched.page.getByTestId('mission-work-detail');
+    const missionPresence = details.getByTestId(`agent-presence-${terminalId}`);
+    await expect(missionPresence).toBeVisible();
+    await expect(missionPresence).toHaveAttribute('data-lifecycle', /^(working|unknown)$/);
+    await missionPresence.click();
+    await expect(details.getByTestId('agent-presence-explain')).toContainText('manifest');
+    await missionPresence.click();
     await expect(details.getByText('Adjust direction', { exact: true })).toBeVisible();
     await expect(details.getByTestId('mission-open-agent-session')).toHaveText(
       /Open Agent session/,

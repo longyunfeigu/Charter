@@ -28,12 +28,21 @@ describe('remoteLaunchSequence', () => {
     );
   });
 
-  it('quotes the folder and first prompt as independent POSIX shell arguments', () => {
+  it('quotes the folder and manifest argv as independent POSIX shell arguments', () => {
     const folder = "/srv/Edy's project";
     const prompt = "Review SSH reconnects; don't run `touch /tmp/pwned`";
 
-    expect(remoteLaunchSequence('claude', folder, `  ${prompt}\n`)).toBe(
+    expect(remoteLaunchSequence('claude', folder, [prompt])).toBe(
       `cd -- ${shellSingleQuote(folder)} && exec claude ${shellSingleQuote(prompt)}\r`,
+    );
+  });
+
+  it('supports flag-based Agent prompt contracts and rejects command injection', () => {
+    expect(remoteLaunchSequence('gemini', '/srv/project', ['--prompt-interactive', 'review'])).toBe(
+      "cd -- '/srv/project' && exec gemini '--prompt-interactive' 'review'\r",
+    );
+    expect(() => remoteLaunchSequence('gemini; touch /tmp/pwned', null)).toThrow(
+      'unsupported characters',
     );
   });
 });

@@ -81,7 +81,12 @@ import {
   SshWorkerStatusSchema,
 } from './ssh.js';
 import { UpdateStateSchema } from './updates.js';
-import { AgentCatalogDtoSchema, AgentIdSchema } from './agents.js';
+import {
+  AgentCatalogDtoSchema,
+  AgentIdSchema,
+  AgentPackActionResultDtoSchema,
+  AgentPackCatalogDtoSchema,
+} from './agents.js';
 import {
   WorkBoardSnapshotDtoSchema,
   WorkBoardColumnDtoSchema,
@@ -104,11 +109,29 @@ import {
   GithubIssueImportResultSchema,
   GithubIssueResolveResultSchema,
 } from './github.js';
+import { AgentPresenceExplainSchema, AgentPresenceSnapshotSchema } from './agent-presence.js';
+import {
+  AgentVerificationBeginResultSchema,
+  AgentVerificationRunSchema,
+  AgentVerificationSnapshotSchema,
+} from './agent-verification.js';
 
 const SettingsStateSchema = z.object({
   effective: SettingsSchema,
   issues: z.array(z.string()),
   overrideKeys: z.array(z.string()),
+});
+
+const BackgroundActivitySchema = z.object({
+  agentCount: z.number().int().nonnegative(),
+  managedAgentCount: z.number().int().nonnegative(),
+  externalAgentCount: z.number().int().nonnegative(),
+  terminalJobCount: z.number().int().nonnegative(),
+  missionCount: z.number().int().nonnegative(),
+  remoteConnectionCount: z.number().int().nonnegative(),
+  blockers: z.array(z.string()),
+  hasRunningWork: z.boolean(),
+  background: z.boolean(),
 });
 
 const TerminalContextSchema = z.discriminatedUnion('kind', [
@@ -290,11 +313,84 @@ function ch<Req extends z.ZodType, Res extends z.ZodType>(
  */
 export const CHANNELS = {
   'app.getInfo': ch('app.getInfo', 1, z.object({}).strict(), AppInfoSchema),
+  'app.getBackgroundActivity': ch(
+    'app.getBackgroundActivity',
+    1,
+    z.object({}).strict(),
+    BackgroundActivitySchema,
+  ),
   'agents.list': ch(
     'agents.list',
     1,
     z.object({ refresh: z.boolean().default(false) }).strict(),
     AgentCatalogDtoSchema,
+  ),
+  'agents.packs.list': ch('agents.packs.list', 1, z.object({}).strict(), AgentPackCatalogDtoSchema),
+  'agents.packs.install': ch(
+    'agents.packs.install',
+    1,
+    z.object({}).strict(),
+    AgentPackActionResultDtoSchema,
+  ),
+  'agents.packs.setEnabled': ch(
+    'agents.packs.setEnabled',
+    1,
+    z.object({ id: AgentIdSchema, enabled: z.boolean() }).strict(),
+    AgentPackActionResultDtoSchema,
+  ),
+  'agents.packs.rollback': ch(
+    'agents.packs.rollback',
+    1,
+    z.object({ id: AgentIdSchema }).strict(),
+    AgentPackActionResultDtoSchema,
+  ),
+  'agents.packs.remove': ch(
+    'agents.packs.remove',
+    1,
+    z.object({ id: AgentIdSchema }).strict(),
+    AgentPackActionResultDtoSchema,
+  ),
+  'agents.verification.scan': ch(
+    'agents.verification.scan',
+    1,
+    z.object({ refresh: z.boolean().default(false) }).strict(),
+    AgentVerificationSnapshotSchema,
+  ),
+  'agents.verification.begin': ch(
+    'agents.verification.begin',
+    1,
+    z
+      .object({
+        agentId: AgentIdSchema,
+        mode: z.enum(['core', 'image']),
+        target: z.enum(['local', 'ssh']),
+      })
+      .strict(),
+    AgentVerificationBeginResultSchema,
+  ),
+  'agents.verification.attach': ch(
+    'agents.verification.attach',
+    1,
+    z.object({ runId: z.string().min(1).max(100), terminalId: z.string().min(1) }).strict(),
+    AgentVerificationRunSchema,
+  ),
+  'agents.verification.getRun': ch(
+    'agents.verification.getRun',
+    1,
+    z.object({ runId: z.string().min(1).max(100) }).strict(),
+    z.object({ run: AgentVerificationRunSchema.nullable() }).strict(),
+  ),
+  'agents.verification.cancel': ch(
+    'agents.verification.cancel',
+    1,
+    z.object({ runId: z.string().min(1).max(100) }).strict(),
+    AgentVerificationRunSchema,
+  ),
+  'agents.verification.export': ch(
+    'agents.verification.export',
+    1,
+    z.object({}).strict(),
+    z.object({ markdownPath: z.string().nullable(), jsonPath: z.string().nullable() }).strict(),
   ),
   'workItem.snapshot': ch(
     'workItem.snapshot',
@@ -952,8 +1048,8 @@ export const CHANNELS = {
         launch: AgentIdSchema.default('shell'),
         /**
          * Composer text delivered by the selected Agent backend. Local
-         * deferred Agents receive it after TUI readiness; SSH Agents receive
-         * it as a quoted first-prompt argument. Ignored for plain shells.
+         * and SSH Adapters either place it in manifest-owned argv or defer it
+         * until the TUI Composer is ready. Ignored for plain shells.
          */
         initialPrompt: z.string().min(1).max(20000).optional(),
         /** Create a task-owned worktree immediately before launching a visible
@@ -968,7 +1064,7 @@ export const CHANNELS = {
           .strict()
           .optional(),
         /** ADR-0047: run this session on a saved SSH host instead of a local
-         * PTY. Orthogonal to launch — claude/codex start on the remote. */
+         * PTY. Orthogonal to launch — any remote-capable Adapter starts there. */
         target: z
           .object({
             kind: z.literal('ssh'),
@@ -998,6 +1094,18 @@ export const CHANNELS = {
     2,
     TerminalWriteRequestSchema,
     z.object({ ok: z.boolean() }),
+  ),
+  'terminal.pasteClipboardImage': ch(
+    'terminal.pasteClipboardImage',
+    1,
+    z.object({ id: z.string().min(1) }).strict(),
+    z
+      .object({
+        pasted: z.boolean(),
+        remote: z.boolean(),
+        sizeBytes: z.number().int().nonnegative(),
+      })
+      .strict(),
   ),
   'terminal.resize': ch(
     'terminal.resize',
@@ -1583,6 +1691,39 @@ export const CHANNELS = {
     1,
     z.object({}).strict(),
     z.object({ sessions: z.array(ExternalSessionSnapshotSchema) }),
+  ),
+  /** Unified, read-only lifecycle projection for a detected external Agent.
+   * Presence never completes a task or controls the underlying process. */
+  'agentPresence.list': ch(
+    'agentPresence.list',
+    1,
+    z.object({}).strict(),
+    z.object({ presences: z.array(AgentPresenceSnapshotSchema) }).strict(),
+  ),
+  'agentPresence.get': ch(
+    'agentPresence.get',
+    1,
+    z.object({ terminalId: z.string().min(1) }).strict(),
+    z.object({ presence: AgentPresenceSnapshotSchema.nullable() }).strict(),
+  ),
+  'agentPresence.explain': ch(
+    'agentPresence.explain',
+    1,
+    z.object({ terminalId: z.string().min(1) }).strict(),
+    z.object({ explain: AgentPresenceExplainSchema.nullable() }).strict(),
+  ),
+  /** Clears only Charter's local attention edge. It does not write to the PTY
+   * or mutate Agent/task lifecycle. */
+  'agentPresence.markSeen': ch(
+    'agentPresence.markSeen',
+    1,
+    z
+      .object({
+        terminalId: z.string().min(1),
+        surface: z.enum(['session-rail', 'session-header', 'terminal-header']),
+      })
+      .strict(),
+    z.object({ presence: AgentPresenceSnapshotSchema.nullable() }).strict(),
   ),
   /** Reconcile a live external Session with its entry snapshot before Diff.
    * This is an on-demand correctness fallback for coalesced watcher events. */

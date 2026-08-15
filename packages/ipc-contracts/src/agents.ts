@@ -48,8 +48,39 @@ export const AgentCatalogCapabilitiesSchema = z.object({
   skills: z.boolean(),
   instructions: z.boolean(),
   remote: z.boolean(),
+  /** How lifecycle state is established. `observed` means bounded OSC/screen
+   * evidence; `structured` is an authoritative Agent integration. */
+  lifecycle: z.enum(['none', 'observed', 'structured']),
 });
 export type AgentCatalogCapabilities = z.infer<typeof AgentCatalogCapabilitiesSchema>;
+
+export const AgentAdapterMetadataSchema = z.object({
+  schemaVersion: z.number().int().positive(),
+  adapterVersion: z.string().min(1).max(100),
+  engineMin: z.number().int().positive(),
+  engineMax: z.number().int().positive(),
+  source: z.enum(['builtin', 'pack', 'override']),
+  sourcePath: z.string().nullable(),
+  lifecycleVersion: z.string().nullable(),
+  lifecycleAuthority: z.enum(['full', 'session-only', 'none']),
+});
+export type AgentAdapterMetadata = z.infer<typeof AgentAdapterMetadataSchema>;
+
+export const AgentAdapterDiagnosticSchema = z.object({
+  agentId: AgentIdSchema.nullable(),
+  sourcePath: z.string(),
+  severity: z.enum(['warning', 'error']),
+  code: z.enum([
+    'invalid-json',
+    'invalid-manifest',
+    'incompatible-engine',
+    'duplicate-pack',
+    'duplicate-override',
+    'override-disabled',
+  ]),
+  message: z.string().min(1).max(2_000),
+});
+export type AgentAdapterDiagnostic = z.infer<typeof AgentAdapterDiagnosticSchema>;
 
 /** Public projection of one trusted Agent manifest plus its current host detection. */
 export const DetectedAgentDtoSchema = z.object({
@@ -62,7 +93,7 @@ export const DetectedAgentDtoSchema = z.object({
   installed: z.boolean(),
   executable: z.string().nullable(),
   version: z.string().nullable(),
-  source: z.enum(['builtin', 'user']),
+  adapter: AgentAdapterMetadataSchema,
   capabilities: AgentCatalogCapabilitiesSchema,
   /** Selectable models for a native terminal launch — static manifest
    * suggestions merged with choices discovered from the CLI's own local
@@ -74,5 +105,41 @@ export type DetectedAgentDto = z.infer<typeof DetectedAgentDtoSchema>;
 export const AgentCatalogDtoSchema = z.object({
   agents: z.array(DetectedAgentDtoSchema),
   scannedAt: z.string(),
+  engineVersion: z.number().int().positive(),
+  overrideEnabled: z.boolean(),
+  diagnostics: z.array(AgentAdapterDiagnosticSchema),
 });
 export type AgentCatalogDto = z.infer<typeof AgentCatalogDtoSchema>;
+
+/** Installed, data-only Agent Pack. Pack files may declare Adapter manifests
+ * but never executable JavaScript; `local` means the user explicitly chose an
+ * unsigned file, while `verified` means its Ed25519 signature matched a host
+ * trust key. */
+export const AgentPackDtoSchema = z.object({
+  id: AgentIdSchema,
+  displayName: z.string().min(1).max(100),
+  publisher: z.string().min(1).max(100),
+  currentVersion: z.string().min(1).max(100),
+  previousVersion: z.string().min(1).max(100).nullable(),
+  availableVersions: z.array(z.string().min(1).max(100)).max(32),
+  enabled: z.boolean(),
+  trust: z.enum(['local', 'verified']),
+  adapterIds: z.array(AgentIdSchema).min(1).max(16),
+  installedAt: z.string(),
+  sourcePath: z.string(),
+  /** Bundled Packs are shipped and verified with Charter itself. They may be
+   * disabled, but cannot be removed or replaced by a local import. */
+  bundled: z.boolean().default(false),
+});
+export type AgentPackDto = z.infer<typeof AgentPackDtoSchema>;
+
+export const AgentPackCatalogDtoSchema = z.object({
+  packs: z.array(AgentPackDtoSchema),
+});
+export type AgentPackCatalogDto = z.infer<typeof AgentPackCatalogDtoSchema>;
+
+export const AgentPackActionResultDtoSchema = z.object({
+  changed: z.boolean(),
+  catalog: AgentPackCatalogDtoSchema,
+});
+export type AgentPackActionResultDto = z.infer<typeof AgentPackActionResultDtoSchema>;

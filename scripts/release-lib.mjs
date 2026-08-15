@@ -186,6 +186,12 @@ export function generateReleaseMetadata({
   const inventory = dependencyInventory(projectRoot);
   const licensesJson = join(outputDir, 'third-party-licenses.json');
   const licensesMd = join(outputDir, 'THIRD_PARTY_NOTICES.md');
+  const sourceAdaptationNoticesPath = join(projectRoot, 'THIRD_PARTY_NOTICES.md');
+  const sourceAdaptationNotices = existsSync(sourceAdaptationNoticesPath)
+    ? readFileSync(sourceAdaptationNoticesPath, 'utf8')
+        .replace(/^# Third-party notices\s*/u, '')
+        .trim()
+    : 'No separately adapted source is declared.';
   writeFileSync(licensesJson, `${JSON.stringify(inventory, null, 2)}\n`);
   const licenseLines = [
     '# Charter third-party notices',
@@ -201,6 +207,10 @@ export function generateReleaseMetadata({
       (item) =>
         `| ${item.name.replaceAll('|', '\\|')} | ${item.version} | ${item.license.replaceAll('|', '\\|')} | ${item.developmentOnly ? 'development' : 'runtime'}${item.optional ? ', optional' : ''} |`,
     ),
+    '',
+    '## Bundled source adaptations',
+    '',
+    sourceAdaptationNotices,
     '',
   ];
   writeFileSync(licensesMd, `${licenseLines.join('\n')}\n`);

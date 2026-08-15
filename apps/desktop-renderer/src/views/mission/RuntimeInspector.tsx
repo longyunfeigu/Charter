@@ -4,6 +4,8 @@ import { ConfirmDangerButton } from '../ui.js';
 import { Ic, ProviderMark, type ProviderMarkKind } from '../home-icons.js';
 import { latestProgressForAssignment, taskStateCopy } from './mission-view-model.js';
 import { useAgentCatalogStore } from '../../store/agentCatalogStore.js';
+import { useAgentPresenceStore } from '../../store/agentPresenceStore.js';
+import { AgentPresenceBadge } from '../AgentPresenceBadge.js';
 
 type InspectorTab = 'details' | 'session' | 'conversation' | 'attempts' | 'evidence';
 
@@ -94,6 +96,10 @@ export function RuntimeInspector({
   const attempt = assignment
     ? (snapshot.attempts.find((item) => item.id === assignment.activeAttemptId) ?? null)
     : null;
+  const presence = useAgentPresenceStore((state) =>
+    attempt?.terminalId ? state.byTerminal[attempt.terminalId] : undefined,
+  );
+  useEffect(() => useAgentPresenceStore.getState().init(), []);
   const task = assignment
     ? snapshot.tasks.find((item) => item.id === assignment.taskId)
     : undefined;
@@ -212,6 +218,9 @@ export function RuntimeInspector({
           <strong>{principal?.displayName ?? 'Agent'}</strong>
         </span>
         <span className={`mission-state-pill tone-${state.tone}`}>{state.label}</span>
+        {attempt?.terminalId && presence ? (
+          <AgentPresenceBadge terminalId={attempt.terminalId} explainable />
+        ) : null}
       </header>
 
       <nav className="mission-inspector-tabs" aria-label="Work details">

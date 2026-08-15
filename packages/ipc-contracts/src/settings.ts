@@ -28,6 +28,8 @@ export const SettingsSchema = z.object({
       skin: SkinSchema.default('studio'),
       uiScale: z.number().min(0.8).max(2).default(1),
       confirmOnQuitWithRunningAgent: z.boolean().default(true),
+      /** What closing the last visible window does while Charter-owned work is live. */
+      backgroundOnClose: z.enum(['ask', 'keep-running', 'quit']).default('ask'),
     })
     .prefault({}),
   editor: z

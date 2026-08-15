@@ -258,7 +258,7 @@ export class SkillStore {
   private readonly stateFile: string;
   private readonly home: string;
   private readonly discoverExternal: boolean;
-  private readonly agentSources: readonly { id: string; label: string; root: string }[];
+  private agentSources: readonly { id: string; label: string; root: string }[];
   private readonly onDidChange: (event: { reason: string; revision: number }) => void;
   private state: StoreState;
   private entries: CatalogEntry[] = [];
@@ -418,6 +418,13 @@ export class SkillStore {
     this.reconcileTimer = null;
     for (const watcher of this.watchers.values()) watcher.close();
     this.watchers.clear();
+  }
+
+  /** Refresh provider-owned roots after Agent Pack activation changes. */
+  updateAgentSources(sources: readonly { id: string; label: string; root: string }[]): void {
+    this.agentSources = [...sources];
+    this.refreshWatchers();
+    this.rescan('agent-packs');
   }
 
   private scheduleRescan(): void {

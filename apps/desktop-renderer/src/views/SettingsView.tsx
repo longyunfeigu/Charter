@@ -9,10 +9,12 @@ import {
 import { rpcResult } from '../bridge.js';
 import { useAppStore, type SettingsSection } from '../store/appStore.js';
 import { useTaskStore } from '../store/taskStore.js';
+import { useAgentCatalogStore } from '../store/agentCatalogStore.js';
 import { Ic } from './home-icons.js';
 import { MemoryView } from './MemoryView.js';
 import { SkillsView } from './SkillsView.js';
 import { SkillSourcesSettingsSection } from './SkillSourcesSettings.js';
+import { AgentVerificationCenter } from './AgentVerificationCenter.js';
 import { SKIN_LABELS, type AppearanceSkin } from '../appearance.js';
 import { ZOOM_STEPS, zoomPercentLabel } from './ui-zoom.js';
 import { t } from '../i18n.js';
@@ -296,6 +298,171 @@ function ProvidersBlock(): React.JSX.Element {
           </div>
         ))
       )}
+    </div>
+  );
+}
+
+function AgentAdaptersBlock(): React.JSX.Element {
+  const init = useAgentCatalogStore((state) => state.init);
+  const refresh = useAgentCatalogStore((state) => state.refresh);
+  const agents = useAgentCatalogStore((state) => state.agents);
+  const loading = useAgentCatalogStore((state) => state.loading);
+  const error = useAgentCatalogStore((state) => state.error);
+  const engineVersion = useAgentCatalogStore((state) => state.engineVersion);
+  const overrideEnabled = useAgentCatalogStore((state) => state.overrideEnabled);
+  const diagnostics = useAgentCatalogStore((state) => state.diagnostics);
+  const packs = useAgentCatalogStore((state) => state.packs);
+  const packBusy = useAgentCatalogStore((state) => state.packBusy);
+  const installPack = useAgentCatalogStore((state) => state.installPack);
+  const setPackEnabled = useAgentCatalogStore((state) => state.setPackEnabled);
+  const rollbackPack = useAgentCatalogStore((state) => state.rollbackPack);
+  const removePack = useAgentCatalogStore((state) => state.removePack);
+
+  useEffect(() => init(), [init]);
+
+  return (
+    <div className="st-card st-adapters" data-testid="agent-adapters">
+      <div className="st-card-head">
+        <Ic name="bot" size={14} />
+        <div>
+          <div className="st-card-title">Agent Adapters</div>
+          <div className="st-card-sub">
+            Engine {engineVersion} · strict capability, launch, session and lifecycle contracts ·
+            local override {overrideEnabled ? 'enabled' : 'disabled'}
+          </div>
+        </div>
+        <span className="st-sp" />
+        <button className="btn" disabled={loading} onClick={() => void refresh(true)}>
+          {loading ? 'Scanning…' : 'Rescan'}
+        </button>
+        <button
+          className="btn"
+          data-testid="agent-pack-install"
+          disabled={packBusy !== null}
+          onClick={() => void installPack()}
+        >
+          {packBusy === 'install' ? 'Installing…' : 'Install Pack…'}
+        </button>
+      </div>
+      {error ? <div className="st-adapter-diagnostic error">{error}</div> : null}
+      <div className="st-pack-list" data-testid="agent-pack-list">
+        {packs.length === 0 ? (
+          <div className="st-pack-empty">
+            No Agent Packs available. Packs are declarative JSON and cannot run extension code.
+          </div>
+        ) : (
+          packs.map((pack) => (
+            <div className="st-pack" data-testid={`agent-pack-${pack.id}`} key={pack.id}>
+              <div className="st-pack-main">
+                <div>
+                  <b>{pack.displayName}</b>
+                  <span className={`st-adapter-state ${pack.enabled ? 'ready' : ''}`}>
+                    {pack.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                  <span className={`st-pack-trust ${pack.trust}`}>{pack.trust}</span>
+                  {pack.bundled ? <span className="st-pack-trust verified">official</span> : null}
+                </div>
+                <div className="st-adapter-meta mono">
+                  {pack.publisher} · v{pack.currentVersion} · {pack.adapterIds.join(', ')}
+                </div>
+                <div className="st-adapter-path mono">{pack.sourcePath}</div>
+              </div>
+              <div className="st-pack-actions">
+                <button
+                  className="btn"
+                  disabled={packBusy !== null}
+                  data-testid={`agent-pack-toggle-${pack.id}`}
+                  onClick={() => void setPackEnabled(pack.id, !pack.enabled)}
+                >
+                  {pack.enabled ? 'Disable' : 'Enable'}
+                </button>
+                {!pack.bundled ? (
+                  <>
+                    <button
+                      className="btn"
+                      disabled={packBusy !== null || !pack.previousVersion}
+                      data-testid={`agent-pack-rollback-${pack.id}`}
+                      title={
+                        pack.previousVersion
+                          ? `Switch to stored version ${pack.previousVersion}`
+                          : 'No previous version is stored'
+                      }
+                      onClick={() => void rollbackPack(pack.id)}
+                    >
+                      Roll back
+                    </button>
+                    <button
+                      className="btn quiet-danger"
+                      disabled={packBusy !== null}
+                      data-testid={`agent-pack-remove-${pack.id}`}
+                      onClick={() => {
+                        if (window.confirm(`Remove ${pack.displayName} and its stored versions?`)) {
+                          void removePack(pack.id);
+                        }
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+      <AgentVerificationCenter />
+      {diagnostics.map((diagnostic, index) => (
+        <div
+          className={`st-adapter-diagnostic ${diagnostic.severity}`}
+          data-testid="agent-adapter-diagnostic"
+          key={`${diagnostic.sourcePath}:${diagnostic.code}:${index}`}
+        >
+          <b>{diagnostic.code}</b> · {diagnostic.message}
+          <span className="mono">{diagnostic.sourcePath}</span>
+        </div>
+      ))}
+      <div className="st-adapter-list">
+        {agents.map((agent) => {
+          const capabilityLabels = [
+            agent.capabilities.terminal && 'Terminal',
+            agent.capabilities.acp && 'ACP',
+            agent.capabilities.images && 'Images',
+            agent.capabilities.exactResume && 'Exact resume',
+            agent.capabilities.history && 'History',
+            agent.capabilities.skills && 'Skills',
+            agent.capabilities.instructions && 'Instructions',
+            agent.capabilities.remote && 'SSH',
+            agent.capabilities.lifecycle === 'observed' && 'Observed lifecycle',
+            agent.capabilities.lifecycle === 'structured' && 'Structured lifecycle',
+          ].filter((value): value is string => Boolean(value));
+          return (
+            <div className="st-adapter" data-testid={`agent-adapter-${agent.id}`} key={agent.id}>
+              <div className="st-adapter-main">
+                <div>
+                  <b>{agent.displayName}</b>
+                  <span className={`st-adapter-state ${agent.installed ? 'ready' : ''}`}>
+                    {agent.installed ? 'Installed' : 'Not installed locally'}
+                  </span>
+                </div>
+                <div className="st-adapter-meta mono">
+                  Adapter {agent.adapter.adapterVersion} · {agent.adapter.source}
+                  {agent.adapter.lifecycleVersion
+                    ? ` · lifecycle ${agent.adapter.lifecycleVersion} (${agent.adapter.lifecycleAuthority})`
+                    : ''}
+                </div>
+                {agent.adapter.sourcePath ? (
+                  <div className="st-adapter-path mono">{agent.adapter.sourcePath}</div>
+                ) : null}
+              </div>
+              <div className="st-adapter-capabilities">
+                {capabilityLabels.map((label) => (
+                  <span key={label}>{label}</span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1318,6 +1485,25 @@ export function SettingsView(): React.JSX.Element {
                     </div>
                   </Row>
                   <Row
+                    label={t('When closing a window')}
+                    hint={t(
+                      'Applies while Agents, Missions, terminal jobs, or remote connections are still running.',
+                    )}
+                  >
+                    <select
+                      className="st-input"
+                      data-testid="settings-background-on-close"
+                      value={settings.general.backgroundOnClose}
+                      onChange={(event) =>
+                        set({ general: { backgroundOnClose: event.target.value } })
+                      }
+                    >
+                      <option value="ask">{t('Ask what to do')}</option>
+                      <option value="keep-running">{t('Keep work running in background')}</option>
+                      <option value="quit">{t('Quit and stop all work')}</option>
+                    </select>
+                  </Row>
+                  <Row
                     label={t('Rich Markdown by default')}
                     hint={t(
                       'Open .md files in the Notion-style editor (toggle per file on the tab)',
@@ -1656,6 +1842,7 @@ export function SettingsView(): React.JSX.Element {
                       />
                     </Row>
                   </div>
+                  <AgentAdaptersBlock />
                   <div className="st-card">
                     <div className="st-card-head">
                       <Ic name="terminal" size={14} />

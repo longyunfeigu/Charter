@@ -91,6 +91,30 @@ function route(
     }
     return null;
   }
+  if (parts.length === 4 && parts[0] === 'v1' && parts[1] === 'agents') {
+    const id = decodeURIComponent(parts[2] ?? '');
+    const action = parts[3];
+    if (method === 'GET' && action === 'status') {
+      return { toolName: 'agent.status', input: { id } };
+    }
+    if (method === 'GET' && action === 'explain') {
+      return { toolName: 'agent.explain', input: { id } };
+    }
+    if (method === 'GET' && action === 'result') {
+      const maxBytes = Number(url.searchParams.get('maxBytes') ?? 64 * 1024);
+      return { toolName: 'agent.result', input: { id, maxBytes } };
+    }
+    if (method === 'POST' && action === 'read') {
+      return { toolName: 'agent.read', input: { id } };
+    }
+    if (method === 'POST' && action === 'wait') {
+      return { toolName: 'agent.wait', input: { id } };
+    }
+    if (method === 'POST' && action === 'prompt') {
+      return { toolName: 'agent.prompt', input: { id } };
+    }
+    return null;
+  }
   if (parts.length !== 4 || parts[0] !== 'v1' || parts[1] !== 'terminals') return null;
   const id = decodeURIComponent(parts[2] ?? '');
   const action = parts[3];
@@ -111,13 +135,29 @@ function route(
 }
 
 function statusFor(code: string): number {
-  if (code === 'TERMINAL_NOT_FOUND') return 404;
-  if (code === 'TERMINAL_DEPTH_LIMIT' || code === 'TERMINAL_SELF_CONTROL') return 409;
+  if (code === 'TERMINAL_NOT_FOUND' || code === 'AGENT_NOT_FOUND') return 404;
+  if (
+    code === 'TERMINAL_DEPTH_LIMIT' ||
+    code === 'TERMINAL_SELF_CONTROL' ||
+    code === 'AGENT_REPLACED' ||
+    code === 'AGENT_PROCESS_EXITED' ||
+    code === 'AGENT_NOT_READY' ||
+    code === 'AGENT_RESULT_NOT_SETTLED' ||
+    code === 'TERMINAL_AGENT_READ_REQUIRES_SEMANTIC' ||
+    code === 'AGENT_TRANSCRIPT_NOT_IDLE' ||
+    code === 'AGENT_TRANSCRIPT_UNAVAILABLE' ||
+    code === 'AGENT_TRANSCRIPT_ABORTED' ||
+    code === 'AGENT_TRANSCRIPT_RESTORE_FAILED' ||
+    code === 'AGENT_PROMPT_QUEUED' ||
+    code === 'AGENT_PROMPT_STALLED'
+  )
+    return 409;
   if (code === 'TERMINAL_WORKER_BUDGET' || code === 'TERMINAL_SEND_BUDGET') return 429;
   if (code === 'ORCHESTRATION_PROMOTION_BUDGET') return 429;
   if (code === 'ORCHESTRATION_DISABLED' || code === 'TOOL_UNKNOWN') return 501;
   if (code === 'PERMISSION_DENIED') return 403;
   if (code === 'CANCELLED') return 499;
+  if (code === 'AGENT_WAIT_TIMEOUT') return 408;
   return 400;
 }
 

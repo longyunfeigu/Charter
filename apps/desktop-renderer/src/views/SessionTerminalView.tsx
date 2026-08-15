@@ -26,6 +26,9 @@ import {
 } from './external-terminal-lifecycle.js';
 import { canResumeExternal } from './labels.js';
 import { agentDisplayName } from '../store/agentCatalogStore.js';
+import { useAgentPresenceStore } from '../store/agentPresenceStore.js';
+import { AgentPresenceBadge } from './AgentPresenceBadge.js';
+import { TerminalImagePasteButton } from './TerminalImagePasteButton.js';
 
 function launchName(launch: string): string {
   return launch === 'shell' ? 'Terminal' : agentDisplayName(launch);
@@ -166,10 +169,23 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
   const terminalReadOnly = item !== undefined && (item.exited || lifecycle?.interactive === false);
   const changedFiles = relatedSession?.files.length ?? relatedTask?.changedFiles ?? 0;
   const defaultTools = defaultExternalTerminalTools(lifecycle?.agent ?? 'active', changedFiles);
+  const viewRef = useRef<HTMLElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const toolPreferenceTouched = useRef(false);
   const [tool, setTool] = useState<'editor' | 'changes'>(() => defaultTools.tool);
   const [toolOpen, setToolOpen] = useState(() => defaultTools.open);
+  const presence = useAgentPresenceStore((state) => state.byTerminal[terminalId]);
+
+  useEffect(() => useAgentPresenceStore.getState().init(), []);
+  useEffect(() => {
+    if (
+      presence?.attention === 'done' &&
+      useAppStore.getState().sessionTerminalId === terminalId &&
+      viewRef.current?.isConnected
+    ) {
+      void useAgentPresenceStore.getState().markSeen(terminalId, 'terminal-header');
+    }
+  }, [presence?.attention, terminalId]);
 
   useEffect(() => {
     if (toolPreferenceTouched.current || !lifecycle) return;
@@ -327,6 +343,7 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
 
   return (
     <main
+      ref={viewRef}
       className="stv-root"
       data-testid="session-terminal-view"
       data-terminal-id={terminalId}
@@ -343,6 +360,7 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
               : `${item.contextLabel} · ${item.projectName}`}
           </span>
         </div>
+        <AgentPresenceBadge terminalId={terminalId} explainable />
         {lifecycle ? (
           <>
             <span
@@ -381,6 +399,7 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
             exited={item.exited}
           />
         ) : null}
+        {!terminalReadOnly ? <TerminalImagePasteButton terminalId={terminalId} /> : null}
         <button
           className={toolOpen ? 'active' : ''}
           data-testid="session-tools-toggle"

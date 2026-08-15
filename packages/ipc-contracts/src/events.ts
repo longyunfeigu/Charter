@@ -7,6 +7,7 @@ import { MissionSnapshotSchema, OrchestrationSnapshotSchema } from './orchestrat
 import { SftpTransferStateSchema, SshConnectionStateSchema, SshForwardStateSchema } from './ssh.js';
 import { UpdateStateSchema } from './updates.js';
 import { WorkItemDtoSchema, WorkReminderDtoSchema } from './work-items.js';
+import { AgentPresenceSnapshotSchema } from './agent-presence.js';
 
 export interface EventChannelDef<S extends z.ZodType = z.ZodType> {
   name: string;
@@ -162,6 +163,8 @@ export const EVENT_CHANNELS = {
       taskId: z.string().nullable(),
     }),
   ),
+  /** A detected external Agent changed process, lifecycle or attention state. */
+  'agentPresence.changed': ev('agentPresence.changed', 1, AgentPresenceSnapshotSchema),
   /** ADR-0021: a command-finish notification was clicked — scroll the terminal
    * to the block start and flash it (the landing point is the block, not the app). */
   'terminal.revealBlock': ev(

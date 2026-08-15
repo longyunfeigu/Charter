@@ -47,14 +47,68 @@ async function openLegacyOrchestration(page: Page): Promise<void> {
   await expect(page.getByTestId('orchestration-fleet')).toBeVisible();
 }
 
-function createExternalDriver(): { bin: string; executable: string; probe: string } {
+function createExternalDriver(): {
+  bin: string;
+  executable: string;
+  probe: string;
+  viewportProbe: string;
+} {
   const bin = mkdtempSync(join(tmpdir(), 'charter-m13-driver-'));
   const executable = join(bin, 'codex');
+  const semanticWorker = join(bin, 'claude');
   const probe = join(bin, 'result.json');
+  const viewportProbe = join(bin, 'viewport.ndjson');
   writeFileSync(
     join(bin, '.zshenv'),
     `export PATH=${JSON.stringify(`${bin}:${process.env.PATH ?? ''}`)}\n`,
   );
+  writeFileSync(
+    semanticWorker,
+    [
+      '#!/usr/bin/env node',
+      "const fs = require('node:fs');",
+      `const viewportProbe = ${JSON.stringify(viewportProbe)};`,
+      "process.stdin.setEncoding('utf8');",
+      'process.stdin.setRawMode?.(true);',
+      'process.stdin.resume();',
+      "const history = Array.from({ length: 80 }, (_, index) => `history-line-${String(index + 1).padStart(3, '0')}`);",
+      'let position = 0;',
+      'let pending = false;',
+      'function render(status = "❯ ready") {',
+      '  const end = 80 - position * 2;',
+      '  const start = Math.max(0, end - 22);',
+      "  const lines = ['CLAUDE TRANSCRIPT', ...history.slice(start, end), status];",
+      "  process.stdout.write('\\u001b[2J\\u001b[H' + lines.join('\\r\\n'));",
+      "  fs.appendFileSync(viewportProbe, JSON.stringify({ type: 'render', position, start, end, status }) + '\\n');",
+      '}',
+      "process.stdout.write('\\u001b[?1049h\\u001b[?1002h\\u001b[?1006h\\u001b]2;✳ Claude\\u0007');",
+      'render();',
+      "process.stdin.on('data', (chunk) => {",
+      "  fs.appendFileSync(viewportProbe, JSON.stringify({ type: 'input', hex: Buffer.from(chunk).toString('hex') }) + '\\n');",
+      '  const up = (chunk.match(/\\u001b\\[<64;/g) || []).length;',
+      '  const down = (chunk.match(/\\u001b\\[<65;/g) || []).length;',
+      '  if (up || down) {',
+      "    fs.appendFileSync(viewportProbe, JSON.stringify({ type: 'wheel', up, down, before: position }) + '\\n');",
+      '    if (up) position = Math.min(29, position + up);',
+      '    if (down) position = Math.max(0, position - down);',
+      '    render();',
+      '    return;',
+      '  }',
+      '  if (pending || !/[\\r\\n]/.test(chunk)) return;',
+      '  pending = true;',
+      "  process.stdout.write('\\u001b]2;⠋ Claude\\u0007');",
+      "  render('semantic-agent-working');",
+      '  setTimeout(() => {',
+      "    process.stdout.write('\\u001b]2;✳ Claude\\u0007');",
+      "    position = 0; render('❯ semantic-agent-finished');",
+      '    pending = false;',
+      '  }, 300);',
+      '});',
+      'setTimeout(() => process.exit(0), 30000);',
+      '',
+    ].join('\n'),
+  );
+  chmodSync(semanticWorker, 0o755);
   writeFileSync(
     executable,
     [
@@ -87,7 +141,8 @@ function createExternalDriver(): { bin: string; executable: string; probe: strin
       '}',
       'async function call(name, args) {',
       "  const result = await rpc('tools/call', { name, arguments: args });",
-      '  return JSON.parse(result.content[0].text);',
+      '  const structured = result.structuredContent ?? JSON.parse(result.content[0].text);',
+      '  return { ...structured, mcpText: result.content[0].text };',
       '}',
       'const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));',
       'async function ready() {',
@@ -111,7 +166,25 @@ function createExternalDriver(): { bin: string; executable: string; probe: strin
       "  const sent = await call('terminal_send', { id, text: \"printf 'EXTERNAL_ORCH_OK\\\\n'\", submit: true });",
       "  const waited = await call('terminal_wait', { id, mode: 'command', timeoutMs: 10000, quietMs: 500 });",
       "  const read = await call('terminal_read', { id, maxBytes: 4096 });",
-      '  fs.writeFileSync(probe, JSON.stringify({ instructions: initialized.instructions, tools: listed.tools.map((tool) => tool.name), workerId: id, created, sent, waited, read }));',
+      "  const agentCreated = await call('terminal_create', { launch: 'claude', submit: true });",
+      '  if (!agentCreated.ok) throw new Error(JSON.stringify(agentCreated));',
+      '  const agentId = agentCreated.data.terminal.id;',
+      '  let status = null;',
+      '  for (let attempt = 0; attempt < 80; attempt += 1) {',
+      "    status = await call('agent_status', { id: agentId });",
+      "    if (status.ok && status.data.state === 'idle') break;",
+      "    if (!status.ok && status.code !== 'AGENT_NOT_FOUND') throw new Error(JSON.stringify(status));",
+      '    await pause(100);',
+      '  }',
+      "  if (!status?.ok || status.data.state !== 'idle') throw new Error(`Agent never became idle: ${JSON.stringify(status)}`);",
+      "  const explained = await call('agent_explain', { id: agentId });",
+      "  const agentScreen = await call('agent_read', { id: agentId, mode: 'screen', lines: 24, maxBytes: 65536, unwrap: true });",
+      "  const agentTranscript = await call('agent_read', { id: agentId, mode: 'transcript', lines: 60, maxBytes: 65536, unwrap: true });",
+      "  const prompted = await call('agent_prompt', { id: agentId, text: 'Review the semantic API.', timeoutMs: 5000 });",
+      '  if (!prompted.ok) throw new Error(JSON.stringify(prompted));',
+      "  const agentWaited = await call('agent_wait', { id: agentId, until: ['idle', 'blocked', 'exited'], afterSeq: prompted.data.startedStateChangeSeq, identitySeq: prompted.data.identitySeq, timeoutMs: 10000 });",
+      "  const agentResult = await call('agent_result', { id: agentId, maxBytes: 65536 });",
+      '  fs.writeFileSync(probe, JSON.stringify({ instructions: initialized.instructions, tools: listed.tools.map((tool) => tool.name), workerId: id, created, sent, waited, read, agentId, status, explained, agentScreen, agentTranscript, prompted, agentWaited, agentResult }));',
       "  console.log('external-orchestration-driver-done');",
       '  mcp.kill();',
       '}',
@@ -120,7 +193,7 @@ function createExternalDriver(): { bin: string; executable: string; probe: strin
     ].join('\n'),
   );
   chmodSync(executable, 0o755);
-  return { bin, executable, probe };
+  return { bin, executable, probe, viewportProbe };
 }
 
 function createDirectCodexWorker(): { bin: string; probe: string } {
@@ -636,6 +709,41 @@ test.describe('M13 session orchestration', () => {
         sent: { ok: boolean };
         waited: { ok: boolean; data?: { exitCode?: number } };
         read: { ok: boolean; data?: { content?: string } };
+        agentId: string;
+        status: {
+          ok: boolean;
+          data?: { state?: string; identitySeq?: number; stateChangeSeq?: number };
+        };
+        explained: {
+          ok: boolean;
+          data?: { state?: string; explanation?: { matchedRule?: unknown } };
+        };
+        agentScreen: {
+          ok: boolean;
+          data?: { mode?: string; content?: string; restored?: boolean };
+        };
+        agentTranscript: {
+          ok: boolean;
+          data?: {
+            mode?: string;
+            content?: string;
+            restored?: boolean;
+            capturedRows?: number;
+          };
+        };
+        prompted: {
+          ok: boolean;
+          data?: { accepted?: boolean; identitySeq?: number; startedStateChangeSeq?: number };
+        };
+        agentWaited: {
+          ok: boolean;
+          data?: { matched?: string; presence?: { lifecycle?: string } };
+        };
+        agentResult: {
+          ok: boolean;
+          mcpText?: string;
+          data?: { source?: string; fidelity?: string; answer?: string };
+        };
       };
       expect(result.instructions).toContain('host-provided context');
       expect(result.instructions).toContain('orchestration_inspect');
@@ -647,6 +755,12 @@ test.describe('M13 session orchestration', () => {
         'terminal_wait',
         'terminal_read',
         'terminal_kill',
+        'agent_status',
+        'agent_explain',
+        'agent_result',
+        'agent_read',
+        'agent_wait',
+        'agent_prompt',
         'orchestration_promote',
         'orchestration_inspect',
         'orchestration_sync',
@@ -677,6 +791,63 @@ test.describe('M13 session orchestration', () => {
       ).toBe(true);
       expect(result.waited?.data?.exitCode).toBe(0);
       expect(result.read?.data?.content).toContain('EXTERNAL_ORCH_OK');
+      expect(result.status).toMatchObject({ ok: true, data: { state: 'idle', identitySeq: 1 } });
+      expect(result.explained).toMatchObject({ ok: true, data: { state: 'idle' } });
+      expect(result.agentScreen).toMatchObject({
+        ok: true,
+        data: { mode: 'screen', restored: true },
+      });
+      expect(result.agentScreen.data?.content).toContain('history-line-080');
+      expect(result.agentScreen.data?.content).not.toContain('history-line-025');
+      expect(result.agentTranscript).toMatchObject({
+        ok: true,
+        data: { mode: 'transcript', restored: true, capturedRows: 60 },
+      });
+      expect(result.agentTranscript.data?.content).toContain('history-line-025');
+      expect(result.agentTranscript.data?.content).toContain('history-line-080');
+      expect(result.agentTranscript.data?.content?.match(/CLAUDE TRANSCRIPT/g)).toHaveLength(1);
+      const viewportEvents = readFileSync(driver.viewportProbe, 'utf8')
+        .trim()
+        .split('\n')
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              type: string;
+              up?: number;
+              down?: number;
+              position?: number;
+            },
+        );
+      expect(viewportEvents.some((event) => event.type === 'wheel' && (event.up ?? 0) > 0)).toBe(
+        true,
+      );
+      expect(viewportEvents.some((event) => event.type === 'wheel' && (event.down ?? 0) > 0)).toBe(
+        true,
+      );
+      expect(viewportEvents.filter((event) => event.type === 'render').at(-1)?.position).toBe(0);
+      expect(result.prompted).toMatchObject({
+        ok: true,
+        data: { accepted: true, identitySeq: 1, startedStateChangeSeq: expect.any(Number) },
+      });
+      expect(result.agentWaited).toMatchObject({
+        ok: true,
+        data: { matched: 'idle', presence: { lifecycle: 'idle' } },
+      });
+      expect(result.agentResult).toMatchObject({
+        ok: true,
+        data: { source: 'screen', fidelity: 'observed', answer: expect.any(String) },
+      });
+      expect(result.agentResult.mcpText).toBe(result.agentResult.data?.answer);
+      for (const toolName of [
+        'agent.status',
+        'agent.explain',
+        'agent.result',
+        'agent.read',
+        'agent.wait',
+        'agent.prompt',
+      ]) {
+        await expect(pendingPermission(page, toolName)).toHaveCount(0);
+      }
       await openLegacyOrchestration(page);
       await expect(page.getByTestId('orchestration-fleet')).toBeVisible();
       await expect(pendingPermission(page, 'terminal.kill')).toHaveCount(0);

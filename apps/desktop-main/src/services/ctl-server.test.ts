@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { ToolCallRequest } from '@pi-ide/agent-contract';
 import type { Logger } from '@pi-ide/foundation';
-import { ToolGateway } from '@pi-ide/tool-gateway';
+import { registerAgentTools, ToolGateway } from '@pi-ide/tool-gateway';
 import { CtlServer } from './ctl-server.js';
 import {
   TerminalControlIdentityRegistry,
@@ -25,14 +25,25 @@ function unixRequest(input: {
   socketPath: string;
   path: string;
   token?: string;
+  method?: 'GET' | 'POST';
+  body?: Record<string, unknown>;
 }): Promise<{ status: number; body: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
+    const payload = input.body ? JSON.stringify(input.body) : null;
     const req = request(
       {
         socketPath: input.socketPath,
         path: input.path,
-        method: 'GET',
-        headers: input.token ? { authorization: `Bearer ${input.token}` } : {},
+        method: input.method ?? 'GET',
+        headers: {
+          ...(input.token ? { authorization: `Bearer ${input.token}` } : {}),
+          ...(payload
+            ? {
+                'content-type': 'application/json',
+                'content-length': Buffer.byteLength(payload),
+              }
+            : {}),
+        },
       },
       (response) => {
         const chunks: Buffer[] = [];
@@ -46,6 +57,7 @@ function unixRequest(input: {
       },
     );
     req.on('error', reject);
+    if (payload) req.write(payload);
     req.end();
   });
 }
@@ -74,6 +86,18 @@ describe.skipIf(process.platform === 'win32')('CtlServer Unix door (ORCH-008/012
       risk: () => ({ level: 'R0', reasons: ['read'] }),
       preview: async () => ({ summary: 'list' }),
       execute: async () => ({ code: 'OK', summary: 'listed', data: { caller: 'ok' } }),
+    });
+    registerAgentTools(gateway, {
+      callerTerminalForCall: () => 'term_caller',
+      control: {
+        preflightPrompt: () => undefined,
+        status: (caller, input) => ({ caller, input, state: 'idle' }),
+        explain: () => ({ state: 'idle' }),
+        result: async (caller, input) => ({ caller, input, answer: 'finished' }),
+        read: async (caller, input) => ({ caller, input, restored: true }),
+        wait: async () => ({ matched: 'idle' }),
+        prompt: async (caller, input) => ({ caller, input, accepted: true }),
+      },
     });
     const control = {
       async executeFromTerminal(input: {
@@ -152,6 +176,88 @@ describe.skipIf(process.platform === 'win32')('CtlServer Unix door (ORCH-008/012
     await expect(pending).resolves.toMatchObject({
       status: 200,
       body: { ok: true, code: 'OK' },
+    });
+  });
+
+  it('routes authenticated semantic Agent status and prompt calls through the gateway', async () => {
+    await server.start();
+    const identity = identities.issue('term_caller');
+    await expect(
+      unixRequest({
+        socketPath,
+        path: '/v1/agents/Reviewer/result?maxBytes=90000',
+        token: identity.token,
+      }),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        ok: true,
+        data: {
+          answer: 'finished',
+          input: { id: 'Reviewer', maxBytes: 90000 },
+        },
+      },
+    });
+    await expect(
+      unixRequest({
+        socketPath,
+        path: '/v1/agents/Reviewer/read',
+        method: 'POST',
+        token: identity.token,
+        body: { mode: 'transcript', lines: 300 },
+      }),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        ok: true,
+        data: {
+          restored: true,
+          caller: { taskId: 'task_external', terminalId: 'term_caller' },
+          input: {
+            id: 'Reviewer',
+            mode: 'transcript',
+            lines: 300,
+            maxBytes: 65536,
+            unwrap: true,
+          },
+        },
+      },
+    });
+    await expect(
+      unixRequest({
+        socketPath,
+        path: '/v1/agents/Reviewer/status',
+        token: identity.token,
+      }),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        ok: true,
+        data: {
+          caller: { taskId: 'task_external', terminalId: 'term_caller' },
+          input: { id: 'Reviewer' },
+          state: 'idle',
+        },
+      },
+    });
+    await expect(
+      unixRequest({
+        socketPath,
+        path: '/v1/agents/Reviewer/prompt',
+        method: 'POST',
+        token: identity.token,
+        body: { text: 'Review the patch.' },
+      }),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        ok: true,
+        data: {
+          accepted: true,
+          caller: { taskId: 'task_external', terminalId: 'term_caller' },
+          input: { id: 'Reviewer', text: 'Review the patch.', timeoutMs: 5000 },
+        },
+      },
     });
   });
 });

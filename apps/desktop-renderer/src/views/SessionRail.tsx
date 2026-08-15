@@ -60,6 +60,7 @@ import { agentDisplayName } from '../store/agentCatalogStore.js';
 import { runningSessionTargets, type RunningSessionTarget } from './session-running-targets.js';
 import { visibleProjectSessionTasks } from './mission-session-visibility.js';
 import { formatDate, formatRelativeTime, getLocale, t } from '../i18n.js';
+import { agentPresencePresentation, useAgentPresenceStore } from '../store/agentPresenceStore.js';
 
 export { isHistoryEntry, type SessionEntry } from './rail-groups.js';
 
@@ -374,6 +375,11 @@ function SessionTaskRow({
   const missionStatus = mission ? missionSessionStatus(mission) : null;
   const externalSession = useExternalStore((state) => state.sessions[task.id]);
   const externalWorking = useExternalStore((state) => Boolean(state.working[task.id]));
+  const presence = useAgentPresenceStore((state) =>
+    task.external ? state.byTerminal[task.external.terminalId] : undefined,
+  );
+  const presenceView = presence ? agentPresencePresentation(presence) : null;
+  const livePresenceDetail = presence?.processState === 'running' ? presenceView?.detail : null;
   const resumingTaskId = useExternalStore((state) => state.resumingTaskId);
   const externalTerminal = useTerminalStore((state) =>
     task.external
@@ -381,12 +387,17 @@ function SessionTaskRow({
       : undefined,
   );
   const live = task.external
-    ? (externalSession?.status ?? task.external.status) === 'active'
+    ? presence
+      ? presence.processState === 'running'
+      : (externalSession?.status ?? task.external.status) === 'active'
     : running;
   const working = missionStatus
     ? missionAwareWorking(externalWorking || workerWorking, missionRuntimeStatus)
     : task.external
-      ? missionAwareWorking(externalWorking || workerWorking, missionRuntimeStatus)
+      ? missionAwareWorking(
+          presence?.lifecycle === 'working' || externalWorking || workerWorking,
+          missionRuntimeStatus,
+        )
       : ['EXPLORING', 'PLANNING', 'IN_PROGRESS', 'VERIFYING'].includes(task.state);
   const badge = missionStatus
     ? {
@@ -399,7 +410,17 @@ function SessionTaskRow({
         : missionRuntimeStatus === 'failed'
           ? { label: 'Failed', tone: 'failed' }
           : { label: 'Stopped', tone: 'neutral' }
-      : statusBadge(task);
+      : presenceView && presence?.processState === 'running'
+        ? {
+            label: presenceView.label,
+            tone:
+              presenceView.tone === 'success'
+                ? 'answered'
+                : presenceView.tone === 'attention'
+                  ? 'review'
+                  : presenceView.tone,
+          }
+        : statusBadge(task);
   const resumable = canResumeExternal(task) && !live;
   const endable = task.external !== null && live;
   const missionTreeDeletable = Boolean(
@@ -429,10 +450,14 @@ function SessionTaskRow({
   const rowDescription = mission
     ? `${providerLabel(provider)} · ${displayTitle} · ${mission.taskTitle} — ${missionDetail ?? 'Mission work'}`
     : `${providerLabel(provider)} · ${displayTitle} · ${task.projectName} — ${
-        working ? 'Agent working' : (externalLifecycle?.summary ?? meta.label)
+        livePresenceDetail ??
+        (working ? 'Agent working' : (externalLifecycle?.summary ?? meta.label))
       }`;
 
   const open = (): void => {
+    if (task.external && presence?.attention === 'done') {
+      void useAgentPresenceStore.getState().markSeen(task.external.terminalId, 'session-rail');
+    }
     void useTaskStore.getState().openTask(task.id);
     app.openTaskRoom(task.id);
   };
@@ -469,6 +494,7 @@ function SessionTaskRow({
         data-completion={completion?.tone}
         data-reply={reply ? 'true' : undefined}
         data-working={working ? 'true' : 'false'}
+        data-agent-lifecycle={presence?.lifecycle}
         aria-label={rowDescription}
         {...hoverTooltip.triggerProps(rowDescription, `session-tooltip-task-${task.id}`)}
         onClick={() => {
@@ -512,7 +538,8 @@ function SessionTaskRow({
                 ) : (
                   <>
                     {task.projectName} ·{' '}
-                    {action?.label ??
+                    {livePresenceDetail ??
+                      action?.label ??
                       (working ? 'Agent is working...' : null) ??
                       externalLifecycle?.summary ??
                       (isAnswered(task)
@@ -616,7 +643,10 @@ function TerminalSessionRow({
   const app = useAppStore();
   const hoverTooltip = useSessionHoverTooltip();
   const item = useTerminalStore((state) => state.items.find((entry) => entry.id === terminalId));
+  const presence = useAgentPresenceStore((state) => state.byTerminal[terminalId]);
   if (!item) return null;
+  const presenceView = presence ? agentPresencePresentation(presence) : null;
+  const livePresenceView = presence?.processState === 'running' ? presenceView : null;
   const selected = app.sessionTerminalId === terminalId || missionSelected;
   const provider = mission?.provider ?? launch;
   const showDetail = showProject || Boolean(mission);
@@ -625,7 +655,10 @@ function TerminalSessionRow({
   const missionTreeDeletable = Boolean(
     mission && mission.parentKey === null && missionStatus && !missionStatus.live,
   );
-  const visiblyWorking = missionAwareWorking(working, missionRuntimeStatus);
+  const visiblyWorking = missionAwareWorking(
+    presence?.lifecycle === 'working' || working,
+    missionRuntimeStatus,
+  );
   const missionStatusLabel =
     missionStatus?.label === 'Active' && visiblyWorking ? 'Working' : missionStatus?.label;
   // The brand mark carries the provider — never repeat the CLI name as the
@@ -640,9 +673,11 @@ function TerminalSessionRow({
     ? 'Process ended'
     : item.remote
       ? 'Remote SSH session live'
-      : visiblyWorking
-        ? `${providerLabel(provider)} working`
-        : 'Terminal live';
+      : livePresenceView
+        ? livePresenceView.detail
+        : visiblyWorking
+          ? `${providerLabel(provider)} working`
+          : 'Terminal live';
   const rowDescription = mission
     ? `${providerLabel(provider)} · ${sessionName} · ${mission.taskTitle} — ${missionDetail ?? terminalState}`
     : `${providerLabel(provider)} · ${sessionName} · ${item.contextLabel} — ${terminalState}`;
@@ -665,6 +700,9 @@ function TerminalSessionRow({
           if (!item.remote || item.remote.workspaceKind === 'local') {
             void useWorkspaceStore.getState().followProject(item.projectPath);
           }
+          if (presence?.attention === 'done') {
+            void useAgentPresenceStore.getState().markSeen(terminalId, 'session-rail');
+          }
           app.openTerminalSession(terminalId);
         }}
       >
@@ -674,7 +712,21 @@ function TerminalSessionRow({
             <span className={`sr-live-dot ${item.exited ? '' : 'live'}`} />
             {item.remote ? <span className="sr-remote-mark">⌁</span> : null}
             <b>{sessionName}</b>
-            {item.exited ? <span className="sr-state neutral">Ended</span> : null}
+            {livePresenceView && !missionStatus && !missionSettled ? (
+              <span
+                className={`sr-state ${
+                  livePresenceView.tone === 'success'
+                    ? 'answered'
+                    : livePresenceView.tone === 'attention'
+                      ? 'review'
+                      : livePresenceView.tone
+                }`}
+              >
+                {livePresenceView.label}
+              </span>
+            ) : item.exited ? (
+              <span className="sr-state neutral">Ended</span>
+            ) : null}
             {!item.exited && (missionStatus || missionSettled) ? (
               <span
                 className={`sr-state ${
@@ -707,11 +759,12 @@ function TerminalSessionRow({
                 ) : (
                   <>
                     {item.projectName} ·{' '}
-                    {item.exited
-                      ? 'Process ended · session retained'
-                      : item.remote
-                        ? 'Remote SSH session is live'
-                        : 'Terminal session is live'}
+                    {livePresenceView?.detail ??
+                      (item.exited
+                        ? 'Process ended · session retained'
+                        : item.remote
+                          ? 'Remote SSH session is live'
+                          : 'Terminal session is live')}
                   </>
                 )}
               </span>
@@ -924,6 +977,7 @@ export function SessionRail(): React.JSX.Element {
     void useTaskStore.getState().refreshTasks();
     terminalStore.init();
     useExternalStore.getState().init();
+    useAgentPresenceStore.getState().init();
     useOrchestrationStore.getState().init();
     refreshRecent();
     // eslint-disable-next-line react-hooks/exhaustive-deps

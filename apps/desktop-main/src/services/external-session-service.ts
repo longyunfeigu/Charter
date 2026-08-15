@@ -21,7 +21,14 @@ import {
 } from './cli-session-locator.js';
 import type { ExternalLaunchIntents } from './external-launch-intents.js';
 import { TypedLineTracker } from './typed-line-tracker.js';
-import type { AgentRegistry, AgentTerminalExitAction } from './agent-registry.js';
+import {
+  evaluateAdapterStartup,
+  type AgentRegistry,
+  type AgentStartupAction,
+  type AgentStartupState,
+  type AgentTerminalExitAction,
+} from './agent-registry.js';
+import { BUILTIN_AGENT_ADAPTERS } from './agent-adapter-manifest.js';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -184,103 +191,46 @@ export function isAccountablePath(relativePath: string): boolean {
   return true;
 }
 
-/** Codex paints the directory-trust gate before its composer. Quiet-time alone
- * cannot distinguish those screens, and typing into the gate discards the
- * Composer's first message. Compare the last gate and ready-screen paints so
- * retained scrollback from an accepted gate does not keep blocking forever. */
-function codexStartupScreenPositions(output: string): { gate: number; ready: number } {
-  const compact = cleanTerminalText(output).toLowerCase().replace(/\s+/g, '');
-  const gate = Math.max(
-    compact.lastIndexOf('doyoutrustthecontentsofthisdirectory'),
-    compact.lastIndexOf('pressentertocontinue'),
+const BUILTIN_STARTUP_ADAPTERS = new Map(
+  BUILTIN_AGENT_ADAPTERS.map((adapter) => [adapter.id, adapter]),
+);
+
+/** Compatibility exports for recorded fixtures. Provider markers live in the
+ * built-in Adapter data; these helpers contain no provider behavior. */
+function builtinStartupState(cli: string, output: string): AgentStartupState {
+  return evaluateAdapterStartup(
+    BUILTIN_STARTUP_ADAPTERS.get(cli) ?? null,
+    cleanTerminalText(output),
+    bracketedPasteComposerReady(output),
   );
-  const ready = Math.max(compact.lastIndexOf('openaicodex'), compact.lastIndexOf('/modeltochange'));
-  return { gate, ready };
 }
 
 export function codexStartupTrustGateActive(output: string): boolean {
-  const { gate, ready } = codexStartupScreenPositions(output);
-  return gate >= 0 && gate > ready;
+  return builtinStartupState('codex', output).trustGateActive;
 }
 
 export function codexStartupComposerReady(output: string): boolean {
-  const { gate, ready } = codexStartupScreenPositions(output);
-  return ready >= 0 && ready > gate;
+  return builtinStartupState('codex', output).composerReady;
 }
 
 export function codexStartupUpdateGateActive(output: string): boolean {
-  const compact = cleanTerminalText(output).toLowerCase().replace(/\s+/g, '');
-  const updateGate = Math.max(
-    compact.lastIndexOf('updateavailable!'),
-    compact.lastIndexOf('updatenow'),
-    compact.lastIndexOf('skipuntilnextversion'),
-  );
-  const { ready } = codexStartupScreenPositions(output);
-  return updateGate >= 0 && updateGate > ready;
-}
-
-/** Kimi enables bracketed-paste before its folder-trust chooser, so terminal
- * mode alone is not a Composer-ready signal. Compare the latest chooser and
- * welcome/composer paints just as we do for Codex. */
-function kimiStartupScreenPositions(output: string): { gate: number; ready: number } {
-  const compact = cleanTerminalText(output).toLowerCase().replace(/\s+/g, '');
-  const gate = Math.max(
-    compact.lastIndexOf('trustthisfolder?'),
-    compact.lastIndexOf('enableprojectmcpservers'),
-    compact.lastIndexOf("don'ttrust"),
-  );
-  const ready = Math.max(
-    compact.lastIndexOf('welcometokimicode!'),
-    compact.lastIndexOf('nosessionyet—onewillbecreatedonyourfirstmessage.'),
-    compact.lastIndexOf('send/helpforhelpinformation.'),
-  );
-  return { gate, ready };
+  return builtinStartupState('codex', output).updateGateActive;
 }
 
 export function kimiStartupTrustGateActive(output: string): boolean {
-  const { gate, ready } = kimiStartupScreenPositions(output);
-  return gate >= 0 && gate > ready;
+  return builtinStartupState('kimi', output).trustGateActive;
 }
 
 export function kimiStartupComposerReady(output: string): boolean {
-  const { gate, ready } = kimiStartupScreenPositions(output);
-  return ready >= 0 && ready > gate && bracketedPasteComposerReady(output);
-}
-
-/** Claude's first-run trust chooser also owns bracketed-paste mode. The
- * normal welcome paint is the provider-owned proof that its Composer exists. */
-function claudeStartupScreenPositions(output: string): { gate: number; ready: number } {
-  const compact = cleanTerminalText(output).toLowerCase().replace(/\s+/g, '');
-  const gate = Math.max(
-    compact.lastIndexOf('doyoutrustthefilesinthisfolder?'),
-    compact.lastIndexOf('doyoutrustthisfolder?'),
-    compact.lastIndexOf('yes,itrustthisfolder'),
-  );
-  const ready = Math.max(
-    compact.lastIndexOf('welcomeback!'),
-    compact.lastIndexOf('tipsforgettingstarted'),
-  );
-  return { gate, ready };
+  return builtinStartupState('kimi', output).composerReady;
 }
 
 export function externalStartupTrustGateActive(cli: string, output: string): boolean {
-  if (cli === 'codex') return codexStartupTrustGateActive(output);
-  if (cli === 'kimi') return kimiStartupTrustGateActive(output);
-  if (cli === 'claude') {
-    const { gate, ready } = claudeStartupScreenPositions(output);
-    return gate >= 0 && gate > ready;
-  }
-  return false;
+  return builtinStartupState(cli, output).trustGateActive;
 }
 
 export function externalStartupComposerReady(cli: string, output: string): boolean {
-  if (cli === 'codex') return codexStartupComposerReady(output);
-  if (cli === 'kimi') return kimiStartupComposerReady(output);
-  if (cli === 'claude') {
-    const { gate, ready } = claudeStartupScreenPositions(output);
-    return bracketedPasteComposerReady(output) && (gate < 0 || (ready >= 0 && ready > gate));
-  }
-  return bracketedPasteComposerReady(output);
+  return builtinStartupState(cli, output).composerReady;
 }
 
 /**
@@ -378,7 +328,7 @@ interface LiveSession {
   promptAwaitingStart: boolean;
   promptSubmitAttempts: number;
   startupTrustGateHandled: boolean;
-  codexUpdateGateHandled: boolean;
+  startupUpdateGateHandled: boolean;
   /** Product/doorbell Enter is provisional until the TUI emits output. */
   orchestratorSubmitPending: boolean;
   /** Notification copy: the user message the current reply answers. */
@@ -653,6 +603,7 @@ export class ExternalSessionService {
       if (this.tasks.getTask(task.taskId).external?.remote) continue;
       const sessionId = await discoverCliSessionId({
         cli: task.cli,
+        connector: this.agents?.sessionIdentityConnector(task.cli) ?? undefined,
         cwd: task.cwd,
         startedAtMs: task.createdAtMs,
         endedAtMs: task.updatedAtMs,
@@ -1170,11 +1121,10 @@ export class ExternalSessionService {
     session.promptSubmitAttempts = 0;
     session.startupTrustGateHandled = false;
     this.schedulePromptDeadline(session, PROMPT_DELIVERY_DEADLINE_MS);
-    // An already-painted TUI (slow detection) produces no further output —
-    // seed one settle window instead of waiting for the deadline. Codex is the
-    // exception: process detection regularly wins the race against its first
-    // trust-gate paint, so a seeded timer would type into an unseen gate.
-    if (session.cli !== 'codex') this.notePromptReadiness(session);
+    // An already-painted TUI (slow detection) produces no further output.
+    // Adapters whose process detection regularly wins the first gate paint
+    // explicitly defer this probe.
+    if (!this.startupState(session.cli, '').deferInitialProbe) this.notePromptReadiness(session);
   }
 
   private schedulePromptDeadline(session: LiveSession, delayMs: number): void {
@@ -1202,26 +1152,16 @@ export class ExternalSessionService {
       return;
     }
     const recent = this.terminals.recentData(session.terminalId);
-    if (
-      session.cli === 'codex' &&
-      codexStartupUpdateGateActive(recent) &&
-      !session.codexUpdateGateHandled
-    ) {
-      // Product-launched Codex has a pending first prompt, so leaving it
-      // parked on the optional self-update screen would silently drop the
-      // requested run. Select "Skip" (one row below "Update now") without
-      // changing the user's installed CLI, then resume normal readiness.
-      session.codexUpdateGateHandled = true;
-      this.writeProduct(session, '\u001b[B');
-      session.promptEnterTimer = setTimeout(() => {
-        session.promptEnterTimer = null;
-        if (!session.ended) this.writeProduct(session, '\r');
-        this.schedulePromptDeadline(session, PROMPT_SETTLE_QUIET_MS);
-      }, PROMPT_ENTER_BASE_DELAY_MS);
-      session.promptEnterTimer.unref?.();
+    const startup = this.startupState(session.cli, recent);
+    if (startup.updateGateActive && !session.startupUpdateGateHandled) {
+      // A product-launched Agent with a pending first prompt must not remain
+      // parked on an optional update chooser. The Adapter owns the safe
+      // navigation sequence; Charter never changes the installed CLI here.
+      session.startupUpdateGateHandled = true;
+      this.runStartupActions(session, startup.updateActions);
       return;
     }
-    if (externalStartupTrustGateActive(session.cli, recent)) {
+    if (startup.trustGateActive) {
       if (!session.startupTrustGateHandled) {
         session.startupTrustGateHandled = true;
         this.tasks.recordEvent(session.taskId, 'external.startupGateAccepted', {
@@ -1237,7 +1177,7 @@ export class ExternalSessionService {
       this.schedulePromptDeadline(session, PROMPT_SETTLE_QUIET_MS);
       return;
     }
-    if (!externalStartupComposerReady(session.cli, recent)) {
+    if (!startup.composerReady) {
       // Process detection, shell echo and bracketed-paste mode can all precede
       // the true Composer. Keep waiting for provider-owned ready text.
       this.schedulePromptDeadline(session, PROMPT_SETTLE_QUIET_MS);
@@ -1259,6 +1199,38 @@ export class ExternalSessionService {
       session.promptEnterTimer = null;
       this.submitPendingPrompt(session);
     }, externalPromptEnterDelayMs(prompt));
+    session.promptEnterTimer.unref?.();
+  }
+
+  private startupState(cli: string, output: string): AgentStartupState {
+    const cleaned = cleanTerminalText(output);
+    const pasteReady = bracketedPasteComposerReady(output);
+    return this.agents?.startupState(cli, cleaned, pasteReady) ?? builtinStartupState(cli, output);
+  }
+
+  private runStartupActions(
+    session: LiveSession,
+    actions: readonly AgentStartupAction[],
+    index = 0,
+  ): void {
+    if (session.ended) return;
+    const action = actions[index];
+    if (!action) {
+      this.schedulePromptDeadline(session, PROMPT_SETTLE_QUIET_MS);
+      return;
+    }
+    const payload: Record<AgentStartupAction, string> = {
+      up: '\u001b[A',
+      down: '\u001b[B',
+      right: '\u001b[C',
+      left: '\u001b[D',
+      enter: '\r',
+    };
+    this.writeProduct(session, payload[action]);
+    session.promptEnterTimer = setTimeout(() => {
+      session.promptEnterTimer = null;
+      this.runStartupActions(session, actions, index + 1);
+    }, PROMPT_ENTER_BASE_DELAY_MS);
     session.promptEnterTimer.unref?.();
   }
 
@@ -1567,7 +1539,7 @@ export class ExternalSessionService {
       promptAwaitingStart: false,
       promptSubmitAttempts: 0,
       startupTrustGateHandled: false,
-      codexUpdateGateHandled: false,
+      startupUpdateGateHandled: false,
       orchestratorSubmitPending: false,
       typedLine: new TypedLineTracker(),
       lastUserLine: null,
@@ -2027,6 +1999,7 @@ export class ExternalSessionService {
         ? await (this.remoteSessionIdentity?.(session.taskId, session.cli) ?? Promise.resolve(null))
         : await discoverCliSessionId({
             cli: session.cli,
+            connector: this.agents?.sessionIdentityConnector(session.cli) ?? undefined,
             cwd: session.cwd,
             startedAtMs: session.startedAtMs,
             endedAtMs: Date.now(),
@@ -2450,7 +2423,7 @@ export class ExternalSessionService {
       promptAwaitingStart: false,
       promptSubmitAttempts: 0,
       startupTrustGateHandled: false,
-      codexUpdateGateHandled: false,
+      startupUpdateGateHandled: false,
       orchestratorSubmitPending: false,
       typedLine: new TypedLineTracker(),
       lastUserLine: null,

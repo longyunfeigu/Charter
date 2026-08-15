@@ -1,5 +1,8 @@
 [
   {
+    "schemaVersion": 1,
+    "adapterVersion": "2026.08.12.1",
+    "engine": { "min": 1, "max": 1 },
     "id": "claude",
     "displayName": "Claude Code",
     "shortName": "Claude",
@@ -14,6 +17,18 @@
     "terminal": {
       "promptDelivery": "deferred",
       "newSessionArgs": ["--session-id", "{sessionId}"],
+      "startup": {
+        "gateMarkers": [
+          "Do you trust the files in this folder?",
+          "Do you trust this folder?",
+          "Yes, I trust this folder"
+        ],
+        "readyMarkers": ["Welcome back!", "Tips for getting started"],
+        "readyRequired": false,
+        "requireBracketedPaste": true,
+        "deferInitialProbe": false,
+        "updateGate": null
+      },
       "exitSequence": ["interrupt", "interrupt"]
     },
     "acp": {
@@ -26,15 +41,35 @@
       "defaultHome": "{home}/.claude",
       "resumeArgs": ["--resume", "{sessionId}"],
       "continueArgs": ["--continue"],
-      "historyConnector": "claude"
+      "historyConnector": "claude",
+      "identityConnector": "claude"
     },
     "surfaces": {
       "skillRoots": ["{home}/.claude/skills"],
       "instructionRoots": ["{home}/.claude/CLAUDE.md"],
       "remote": true
+    },
+    "capabilities": {
+      "terminal": true,
+      "acp": true,
+      "loadSession": true,
+      "sessionList": true,
+      "sessionResume": true,
+      "images": true,
+      "embeddedContext": true,
+      "mcp": true,
+      "exactResume": true,
+      "history": true,
+      "skills": true,
+      "instructions": true,
+      "remote": true,
+      "lifecycle": "observed"
     }
   },
   {
+    "schemaVersion": 1,
+    "adapterVersion": "2026.08.12.1",
+    "engine": { "min": 1, "max": 1 },
     "id": "codex",
     "displayName": "Codex",
     "shortName": "Codex",
@@ -48,6 +83,17 @@
     },
     "terminal": {
       "promptDelivery": "deferred",
+      "startup": {
+        "gateMarkers": ["Do you trust the contents of this directory", "Press Enter to continue"],
+        "readyMarkers": ["OpenAI Codex", "/model to change"],
+        "readyRequired": true,
+        "requireBracketedPaste": false,
+        "deferInitialProbe": true,
+        "updateGate": {
+          "markers": ["Update available!", "Update now", "Skip until next version"],
+          "actions": ["down", "enter"]
+        }
+      },
       "exitSequence": ["interrupt", "eof"]
     },
     "acp": {
@@ -59,15 +105,35 @@
       "preassignId": false,
       "defaultHome": "{home}/.codex",
       "resumeArgs": ["resume", "{sessionId}"],
-      "historyConnector": "codex"
+      "historyConnector": "codex",
+      "identityConnector": "codex"
     },
     "surfaces": {
       "skillRoots": ["{home}/.codex/skills"],
       "instructionRoots": ["{home}/.codex/AGENTS.md"],
       "remote": true
+    },
+    "capabilities": {
+      "terminal": true,
+      "acp": true,
+      "loadSession": true,
+      "sessionList": true,
+      "sessionResume": true,
+      "images": true,
+      "embeddedContext": true,
+      "mcp": true,
+      "exactResume": true,
+      "history": true,
+      "skills": true,
+      "instructions": true,
+      "remote": true,
+      "lifecycle": "observed"
     }
   },
   {
+    "schemaVersion": 1,
+    "adapterVersion": "2026.08.12.1",
+    "engine": { "min": 1, "max": 1 },
     "id": "kimi",
     "displayName": "Kimi Code",
     "shortName": "Kimi",
@@ -81,6 +147,18 @@
     },
     "terminal": {
       "promptDelivery": "deferred",
+      "startup": {
+        "gateMarkers": ["Trust this folder?", "Enable project MCP servers", "Don't trust"],
+        "readyMarkers": [
+          "Welcome to Kimi Code!",
+          "No session yet — one will be created on your first message.",
+          "Send /help for help information."
+        ],
+        "readyRequired": true,
+        "requireBracketedPaste": true,
+        "deferInitialProbe": false,
+        "updateGate": null
+      },
       "exitSequence": ["interrupt", "interrupt", "interrupt"]
     },
     "acp": {
@@ -94,12 +172,29 @@
       "continueArgs": ["--continue"],
       "homeEnv": "KIMI_CODE_HOME",
       "defaultHome": "{home}/.kimi-code",
-      "historyConnector": "kimi"
+      "historyConnector": "kimi",
+      "identityConnector": "kimi"
     },
     "surfaces": {
       "skillRoots": ["{dataHome}/skills", "{home}/.agents/skills"],
       "instructionRoots": ["{dataHome}/AGENTS.md", "{home}/.agents/AGENTS.md"],
       "remote": true
+    },
+    "capabilities": {
+      "terminal": true,
+      "acp": true,
+      "loadSession": true,
+      "sessionList": true,
+      "sessionResume": true,
+      "images": true,
+      "embeddedContext": true,
+      "mcp": true,
+      "exactResume": true,
+      "history": true,
+      "skills": true,
+      "instructions": true,
+      "remote": true,
+      "lifecycle": "observed"
     }
   }
 ]

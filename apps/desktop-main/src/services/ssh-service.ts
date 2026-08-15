@@ -62,6 +62,21 @@ export interface CreateRemoteTerminalOptions {
   rows?: number;
 }
 
+export interface SshServiceOptions {
+  sshDir: string;
+  sshConfigPath?: string;
+  knownHostsPath?: string;
+  resolveAgentLaunch?: (
+    agentId: string,
+    prompt: string | null,
+  ) => {
+    command: string;
+    args: string[];
+    promptDelivery: 'argv' | 'deferred';
+    sessionId: string | null;
+  } | null;
+}
+
 /**
  * Orchestrates SSH Remotes in the main process (ADR-0047): the host book
  * (settings.ssh), the ssh2 connection manager, keychain secrets, host-key
@@ -82,16 +97,18 @@ export class SshService implements SshPromptBridge {
   private readonly lastState = new Map<string, string>();
   private remoteWorker: RemoteWorkerService | null = null;
   private launchIntents: ExternalLaunchIntents | null = null;
+  private readonly resolveAgentLaunch: NonNullable<SshServiceOptions['resolveAgentLaunch']> | null;
 
   constructor(
     private readonly settings: SettingsService,
     private readonly vault: SshVaultService,
     private readonly terminals: TerminalManager,
     private readonly logger: Logger,
-    options: { sshDir: string; sshConfigPath?: string; knownHostsPath?: string } = {
+    options: SshServiceOptions = {
       sshDir: join(homedir(), '.charter-ssh'),
     },
   ) {
+    this.resolveAgentLaunch = options.resolveAgentLaunch ?? null;
     const home = homedir();
     this.sshConfigPath = options.sshConfigPath ?? join(home, '.ssh', 'config');
     this.hostKeys = createHostKeyStore({
@@ -390,9 +407,10 @@ export class SshService implements SshPromptBridge {
 
   async probeCli(hostId: string, cli: string): Promise<{ found: boolean; path: string | null }> {
     try {
+      const command = this.resolveAgentLaunch?.(cli, null)?.command ?? cli;
       const result = await this.manager.exec(
         this.target(this.requireHost(hostId)),
-        remoteCliProbeCommand(cli),
+        remoteCliProbeCommand(command),
       );
       const outputLines = result.stdout
         .split(/\r?\n/)
@@ -420,6 +438,25 @@ export class SshService implements SshPromptBridge {
     // Probe before adopting so the green agent dot only lights when the CLI
     // is really present (knownAgent must not lie).
     const agentLaunch = launch === 'shell' ? null : launch;
+    const agentSpec = agentLaunch
+      ? (this.resolveAgentLaunch?.(agentLaunch, options.initialPrompt?.trim() || null) ??
+        (this.resolveAgentLaunch
+          ? null
+          : {
+              command: agentLaunch,
+              args: options.initialPrompt?.trim() ? [options.initialPrompt.trim()] : [],
+              promptDelivery: 'argv' as const,
+              sessionId: null,
+            }))
+      : null;
+    if (agentLaunch && !agentSpec) {
+      throw new ProductFailure(
+        productError('AGENT_NOT_AVAILABLE', {
+          userMessage: `${agentLaunch} does not have a remote launch contract in this Charter build.`,
+          retryable: false,
+        }),
+      );
+    }
     const agentFound = agentLaunch ? (await this.probeCli(host.id, agentLaunch)).found : false;
 
     if (agentLaunch && !agentFound) {
@@ -462,9 +499,9 @@ export class SshService implements SshPromptBridge {
       // the first prompt/accounting edge.
       this.launchIntents.register(terminalId, {
         cli: agentLaunch,
-        sessionId: null,
+        sessionId: agentSpec!.sessionId,
         prompt: options.initialPrompt?.trim() || null,
-        promptDelivery: 'argv',
+        promptDelivery: agentSpec!.promptDelivery,
       });
     }
 
@@ -519,9 +556,9 @@ export class SshService implements SshPromptBridge {
           try {
             backend.write(
               remoteLaunchSequence(
-                launch,
+                agentSpec!.command,
                 managed?.root ?? host.remoteWorkdir,
-                options.initialPrompt ?? null,
+                agentSpec!.args,
               ),
             );
           } catch (error) {

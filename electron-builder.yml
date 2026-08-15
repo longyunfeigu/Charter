@@ -43,6 +43,11 @@ asarUnpack:
 extraResources:
   - from: node_modules/node-pty
     to: node_modules/node-pty
+  # Apache-2.0 source adaptation notices (alternate-screen transcript reader).
+  - from: THIRD_PARTY_NOTICES.md
+    to: legal/THIRD_PARTY_NOTICES.md
+  - from: LICENSES
+    to: legal/LICENSES
 
 npmRebuild: false
 

@@ -279,3 +279,41 @@ input needed to be delivered yet.
 - Shell creation returns immediately. During the existing startup-safety window, follow-up sends
   are queued with `reason: "starting"` and released in order after the shell is paste-ready. This
   preserves the input-loss guard while removing the 350ms control-plane response delay.
+
+## Amendment (2026-08-11): semantic Agent control over unified Presence
+
+Raw terminal primitives remain necessary for shells, but they force a coordinator to infer Agent
+meaning from `busy`, screen text, and quiet timing. The unified Presence engine now supplies a
+provider-neutral lifecycle, so Charter adds six semantic tools on the same Gateway/identity/audit
+path: `agent.status`, `agent.explain`, `agent.result`, `agent.read`, `agent.wait`, and `agent.prompt`.
+
+- Presence carries two monotonic cursors. `identitySeq` changes only when a terminal id receives a
+  new/restarted Agent process; `stateChangeSeq` changes on every committed presence transition.
+  Waiters pin both, so an old idle state or a replacement process cannot satisfy a new wait.
+- `agent.wait` is event-driven. It subscribes before re-reading current Presence, supports exact
+  working/blocked/idle/unknown/exited conditions, and cleans up on match, timeout, cancellation,
+  process exit, or replacement. It never polls terminal text.
+- `agent.prompt` accepts only idle/blocked Agents, installs a newer-Working waiter before using the
+  existing bracketed-paste + Enter delivery path, and returns success only after that edge. Queued
+  delivery is `AGENT_PROMPT_QUEUED` and the prompt is not retained for later delivery; delivered input without a Working edge is
+  `AGENT_PROMPT_STALLED`. Active/unknown targets fail with `AGENT_NOT_READY` rather than injecting
+  into an ambiguous turn.
+- `agent.read` defaults to a passive `screen` read. Only explicit `mode=transcript` may acquire the
+  preemptible interaction lease, drive an idle alternate-screen TUI with mouse-wheel reports,
+  overlap-align captured rows, and verify bottom restoration. User input, resize, lifecycle/identity
+  changes, alignment failure, timeout, and restore failure are explicit errors.
+- `agent.result` is the normal post-wait answer path. It asks the Adapter-selected trusted history
+  connector for the latest provider final answer; any recognized Agent without a usable native
+  connector falls back to the passive current screen with `fidelity=observed`. Core semantic
+  control never branches on provider names. `terminal.read` rejects recognized Agent targets so a
+  coordinator cannot accidentally return to raw TUI scraping.
+- The tools are R0 conversational/observation operations and therefore create no permission card,
+  while Terminal Control still enforces orchestration enabled, caller depth, self-control, pause,
+  takeover, and send budgets. Calls remain ledgered by the Gateway.
+- The Unix door exposes `/v1/agents/:target/status|explain|result|read|wait|prompt`; the injected MCP exposes
+  `agent_status|explain|result|read|wait|prompt`; the compatibility CLI exposes
+  `charter-terminal agent <command>`. All are projections of the same Gateway tools.
+- `agent.sendKeys` is deliberately deferred: raw key combinations need a separate allowlist and
+  foreground-identity contract. Normal text must use `agent.prompt`.
+- Lifecycle state is coordination evidence only. None of these operations completes or mutates a
+  Charter Task, Assignment, Attempt, or Mission.

@@ -75,6 +75,35 @@ describe('MissionOrchestrationService', () => {
     expect(changed).toHaveBeenCalledWith(adopted.snapshot.mission.id);
   });
 
+  it('persists and delivers a background stop-all without shutting down the service', async () => {
+    const adopted = service.adopt({
+      workspaceId: 'ws-1',
+      workspaceRoot: '/repo',
+      title: 'Background work',
+      goal: 'Stop every live Assignment from the background menu.',
+      principal: { id: 'background-lead', kind: 'managed_agent', displayName: 'Lead' },
+      runtimeSessionId: 'runtime-background-lead',
+      requestedRuntime: 'managed',
+    });
+    service.delegate(adopted.caller, {
+      goal: 'Child background work',
+      acceptanceCriteria: [],
+      requestedRuntime: 'managed',
+      reason: 'Exercise global cancellation.',
+      idempotencyKey: 'background-child',
+    });
+    await runner.drain();
+
+    expect(service.cancelAll('Stopped from background controls')).toBe(2);
+    await runner.drain();
+
+    const snapshot = service.repository.snapshot(adopted.snapshot.mission.id);
+    expect(snapshot.mission.state).toBe('CANCELLED');
+    expect(snapshot.assignments.every((assignment) => assignment.state === 'CANCELLED')).toBe(true);
+    expect(runtime.cancelled).toHaveLength(2);
+    expect(service.cancelAll('Already stopped')).toBe(0);
+  });
+
   it('deletes a settled parent Session as one tree and closes every child runtime', async () => {
     const adopted = service.adopt({
       workspaceId: 'ws-1',

@@ -23,7 +23,13 @@ export interface TerminalControlPort {
   ): unknown | Promise<unknown>;
   send(
     caller: TerminalToolCaller,
-    input: { id: string; text: string; submit: boolean },
+    input: {
+      id: string;
+      text: string;
+      submit: boolean;
+      /** Host-only semantic prompt policy; terminal.send keeps queueing. */
+      queueIfBlocked?: boolean;
+    },
   ): Promise<unknown>;
   create(
     caller: TerminalToolCaller,

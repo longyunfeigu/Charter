@@ -8,8 +8,9 @@ import type { TerminalBackend } from '@pi-ide/terminal-service';
  *
  * processTitle() returns null so the agent-detection poll skips it — remote
  * foreground processes are invisible to the local `ps` snapshot. Remote
- * claude/codex sessions light up instead via an explicit knownAgent marker at
- * adopt time (the CLI is started with `exec`, so it owns the channel to exit).
+ * Agent sessions light up instead via an explicit canonical knownAgent marker
+ * at adopt time (the manifest command is started with `exec`, so it owns the
+ * channel to exit).
  */
 export function createSshTerminalBackend(
   session: ShellSession,
@@ -73,13 +74,12 @@ export function remoteCliProbeCommand(cli: string): string {
 export function remoteLaunchSequence(
   cli: string,
   remoteWorkdir: string | null,
-  initialPrompt: string | null = null,
+  args: readonly string[] = [],
 ): string {
   const cd = remoteWorkdir ? `cd -- ${shellSingleQuote(remoteWorkdir)} && ` : '';
-  // Claude Code and Codex both accept the first interactive prompt as a
-  // positional argument. Remote sessions cannot reuse the local process
-  // detector's deferred composer handshake, so deliver the prompt atomically
-  // with the trusted launch instead of racing blind PTY writes after startup.
-  const prompt = initialPrompt?.trim() ? ` ${shellSingleQuote(initialPrompt.trim())}` : '';
-  return `${cd}exec ${cli}${prompt}\r`;
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(cli)) {
+    throw new Error('Remote CLI name contains unsupported characters');
+  }
+  const argv = args.map((value) => ` ${shellSingleQuote(value)}`).join('');
+  return `${cd}exec ${cli}${argv}\r`;
 }

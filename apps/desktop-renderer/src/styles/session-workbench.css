@@ -904,6 +904,10 @@ html.sr-resizing * {
   background: var(--success-bg);
   color: var(--success);
 }
+.sr-state.active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
 .sr-state.review {
   background: var(--warning-bg);
   color: var(--warning);
@@ -1864,6 +1868,90 @@ html.sr-resizing * {
 }
 .stv-status.terminal.live {
   color: var(--success);
+}
+
+/* Unified external-Agent lifecycle. The badge is evidence-only: clicking it
+   opens diagnostics and never writes to the PTY or task state. */
+.agent-presence-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+.agent-presence-badge {
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: var(--fg-muted);
+  font: 700 9px var(--font-ui);
+  white-space: nowrap;
+}
+.agent-presence-badge:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.agent-presence-badge:not(:disabled) {
+  cursor: pointer;
+}
+.agent-presence-badge i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+.agent-presence-badge.tone-active {
+  color: var(--accent);
+}
+.agent-presence-badge.tone-active i {
+  animation: agent-presence-pulse 1.2s ease-in-out infinite;
+}
+.agent-presence-badge.tone-attention {
+  color: var(--warning);
+}
+.agent-presence-badge.tone-success {
+  color: var(--success);
+}
+.agent-presence-badge.tone-neutral {
+  color: var(--fg-faint);
+}
+@keyframes agent-presence-pulse {
+  50% {
+    opacity: 0.35;
+    transform: scale(0.78);
+  }
+}
+.agent-presence-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 80;
+  width: min(320px, calc(100vw - 32px));
+  display: grid;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  box-shadow: var(--shadow-menu);
+  font: 10.5px/1.45 var(--font-ui);
+  white-space: normal;
+}
+.agent-presence-popover strong {
+  color: var(--fg);
+  font-size: 11px;
+}
+.agent-presence-popover code,
+.agent-presence-popover small {
+  overflow-wrap: anywhere;
+  color: var(--fg-faint);
+  font: 9.5px/1.4 var(--font-mono);
 }
 .stv-spacer {
   flex: 1;

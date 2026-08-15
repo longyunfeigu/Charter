@@ -257,6 +257,260 @@
   border-bottom: none;
 }
 
+.st-adapters .st-card-head {
+  align-items: center;
+}
+.st-adapter-list {
+  display: grid;
+}
+.st-pack-list {
+  display: grid;
+  margin: 0 -16px;
+  padding: 0 16px;
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+  border-bottom: 1px solid var(--border-soft);
+}
+.st-pack-empty {
+  padding: 11px 2px;
+  color: var(--fg-faint);
+  font-size: 10.5px;
+}
+.st-pack {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.st-pack:last-child {
+  border-bottom: 0;
+}
+.st-pack-main > div:first-child,
+.st-pack-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.st-pack-trust {
+  padding: 2px 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--fg-faint);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.st-pack-trust.verified {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border-soft));
+}
+.st-verification {
+  margin: 0 -16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--bg-card) 94%, var(--accent));
+}
+.st-verification-head,
+.st-verification-title,
+.st-verification-actions,
+.st-verification-levels,
+.st-verification-privacy {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.st-verification-target {
+  width: auto;
+  max-width: 180px;
+}
+.st-verification-levels {
+  flex-wrap: wrap;
+  margin-top: 10px;
+  color: var(--fg-faint);
+  font-size: 9.5px;
+}
+.st-verification-levels span {
+  padding-right: 9px;
+  border-right: 1px solid var(--border-soft);
+}
+.st-verification-levels span:last-child {
+  border-right: 0;
+}
+.st-verification-list {
+  display: grid;
+  margin-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
+.st-verification-agent {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 10px 16px;
+  padding: 11px 2px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.st-verification-title {
+  font-size: 11.5px;
+}
+.st-verification-level,
+.st-verification-run {
+  padding: 2px 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--fg-faint);
+  font-size: 9px;
+}
+.st-verification-level.integration_tested {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-soft));
+}
+.st-verification-level.locally_verified,
+.st-verification-run.passed {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border-soft));
+}
+.st-verification-run.needs_user {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border-soft));
+}
+.st-verification-message {
+  margin-top: 4px;
+  color: var(--fg-muted);
+  font-size: 10px;
+}
+.st-verification-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.st-verification-details {
+  grid-column: 1 / -1;
+  color: var(--fg-faint);
+  font-size: 10px;
+}
+.st-verification-details summary {
+  width: max-content;
+  cursor: pointer;
+}
+.st-verification-checks {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+}
+.st-verification-checks > div {
+  display: grid;
+  grid-template-columns: 8px minmax(110px, 150px) 1fr;
+  gap: 7px;
+  align-items: baseline;
+}
+.st-verification-check {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-faint);
+}
+.st-verification-check.passed {
+  background: var(--success);
+}
+.st-verification-check.available {
+  background: var(--accent);
+}
+.st-verification-check.failed,
+.st-verification-check.needs_user {
+  background: var(--warning);
+}
+.st-verification-check.unsupported,
+.st-verification-check.not_run {
+  opacity: 0.45;
+}
+.st-verification-privacy {
+  margin-top: 10px;
+  color: var(--fg-faint);
+  font-size: 9.5px;
+}
+.st-adapter {
+  display: grid;
+  grid-template-columns: minmax(250px, 1fr) minmax(260px, 1fr);
+  gap: 16px;
+  padding: 13px 2px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.st-adapter:last-child {
+  border-bottom: 0;
+}
+.st-adapter-main > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.st-adapter-state {
+  color: var(--fg-faint);
+  font-size: 10px;
+  font-weight: 500;
+}
+.st-adapter-state.ready {
+  color: var(--success);
+}
+.st-adapter-meta,
+.st-adapter-path {
+  margin-top: 5px;
+  color: var(--fg-faint);
+  font-size: 9.5px;
+  overflow-wrap: anywhere;
+}
+.st-adapter-capabilities {
+  display: flex;
+  align-content: flex-start;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.st-adapter-capabilities span {
+  padding: 3px 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--bg-chip);
+  color: var(--fg-muted);
+  font-size: 9.5px;
+}
+.st-adapter-diagnostic {
+  display: grid;
+  gap: 4px;
+  margin: 10px 2px 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 36%, var(--border));
+  border-radius: 7px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 10.5px;
+}
+.st-adapter-diagnostic.error {
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-card));
+  color: var(--danger);
+}
+
+@media (max-width: 900px) {
+  .st-adapter,
+  .st-pack {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+  .st-pack-actions {
+    justify-content: flex-start;
+  }
+  .st-verification-head,
+  .st-verification-agent {
+    grid-template-columns: 1fr;
+  }
+  .st-verification-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .st-verification-actions {
+    justify-content: flex-start;
+  }
+}
+
 /* Coordinated skin picker: code-native miniature surfaces, no screenshot
  * assets, so the preview stays faithful to the real token sets. */
 .st-skin-block {

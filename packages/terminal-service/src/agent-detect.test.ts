@@ -126,6 +126,26 @@ describe('TerminalManager.pollOnce detection gating (ADR-0017 amendment)', () =>
     return { m: manager, events, readProcessTable };
   }
 
+  it('normalizes executable aliases to the canonical Adapter id', () => {
+    const events: Array<{ id: string; agent: string | null }> = [];
+    manager = new TerminalManager(
+      () => {},
+      () => {},
+      {
+        agentPollMs: 0,
+        agentClis: [{ id: 'cursor', aliases: ['cursor-agent'] }],
+        readTitle: () => 'cursor-agent',
+        readProcessTable: () => null,
+      },
+    );
+    manager.onAgentState((event) => events.push({ id: event.id, agent: event.agent }));
+    const info = manager.create({ cwd: tmpdir(), shellPath: '/bin/sh' });
+
+    manager.pollOnce();
+    expect(events).toEqual([{ id: info.id, agent: 'cursor' }]);
+    expect(manager.agentFor(info.id)).toBe('cursor');
+  });
+
   it('detects a version-named foreground binary via the process-tree fallback (native claude installer)', () => {
     // Real-world shape: ~/.local/bin/claude → .../versions/2.1.209, so the
     // kernel short name node-pty reports is "2.1.209", never "claude".

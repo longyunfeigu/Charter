@@ -201,6 +201,32 @@ export class MissionOrchestrationService {
     this.outbox.stop();
   }
 
+  /** User-owned global stop from the background menu. This is deliberately
+   * separate from shutdown: cancellation is persisted and delivered through
+   * the normal outbox while Main, the database, and notifications stay live. */
+  cancelAll(reason: string): number {
+    const liveMissionStates = new Set(['PLANNING', 'RUNNING', 'BLOCKED', 'VERIFYING']);
+    const liveAssignmentStates = new Set(['PENDING', 'ACTIVE', 'WAITING', 'PAUSED', 'ORPHANED']);
+    let cancelled = 0;
+    for (const mission of this.repository.listMissions(200)) {
+      if (!liveMissionStates.has(mission.state)) continue;
+      const snapshot = this.repository.snapshot(mission.id);
+      for (const assignment of snapshot.assignments) {
+        const current = this.repository.getAssignment(assignment.id);
+        if (!current || !liveAssignmentStates.has(current.state)) continue;
+        this.repository.cancelAssignment(current.id, null, reason);
+        cancelled += 1;
+      }
+      const currentMission = this.repository.getMission(mission.id);
+      if (currentMission && liveMissionStates.has(currentMission.state)) {
+        this.repository.setMissionState(mission.id, 'CANCELLED', null, reason);
+      }
+      this.changed(mission.id);
+    }
+    this.outbox.wake();
+    return cancelled;
+  }
+
   adopt(input: AdoptMissionInput): {
     caller: OrchestrationCallerContext;
     snapshot: MissionSnapshot;

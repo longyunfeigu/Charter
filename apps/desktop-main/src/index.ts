@@ -1,13 +1,17 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
+  Menu,
+  nativeImage,
   nativeTheme,
   net,
   Notification,
   protocol,
   session,
   shell,
+  Tray,
 } from 'electron';
 import { basename, join, normalize } from 'node:path';
 import {
@@ -88,6 +92,10 @@ import { PreviewService } from './services/preview-service.js';
 import { ExternalSessionService } from './services/external-session-service.js';
 import { ExternalLaunchIntents } from './services/external-launch-intents.js';
 import { registerExternalHandlers } from './ipc/external-handlers.js';
+import { AgentPresenceService } from './services/agent-presence-service.js';
+import { AgentSemanticControlService } from './services/agent-semantic-control-service.js';
+import { AgentResultReader } from './services/agent-result-reader.js';
+import { registerAgentPresenceHandlers } from './ipc/agent-presence-handlers.js';
 import { SessionArchaeologyService } from './services/session-archaeology.js';
 import { registerArchaeologyHandlers } from './ipc/archaeology-handlers.js';
 import { ScreenshotWatcher } from './services/screenshot-watcher.js';
@@ -129,9 +137,21 @@ import {
   FallbackRuntimeAdapter,
 } from './services/acp-runtime.js';
 import { AgentRegistry } from './services/agent-registry.js';
+import { AGENT_ADAPTER_ENGINE_VERSION } from './services/agent-adapter-manifest.js';
+import { AgentPackService } from './services/agent-pack-service.js';
+import { AgentVerificationService } from './services/agent-verification-service.js';
+import { registerAgentVerificationHandlers } from './ipc/agent-verification-handlers.js';
+import { TerminalImagePasteService } from './services/terminal-image-paste-service.js';
 import { WorkItemService } from './services/work-item-service.js';
 import { registerWorkItemHandlers } from './ipc/work-item-handlers.js';
 import { registerGithubHandlers } from './ipc/github-handlers.js';
+import {
+  backgroundActivity,
+  backgroundActivityLines,
+  backgroundTrayTitle,
+  windowCloseAction,
+  type BackgroundActivitySnapshot,
+} from './services/background-runtime.js';
 
 const DEV_SERVER_URL = process.env.PI_IDE_DEV_SERVER_URL;
 const isDev = Boolean(DEV_SERVER_URL);
@@ -155,6 +175,7 @@ let boot: Bootstrap | null = null;
 let mainWindow: BrowserWindow | null = null;
 let updateServiceRef: UpdateService | null = null;
 let m4Ref: M4Services | null = null;
+let agentVerificationRef: AgentVerificationService | null = null;
 let terminalDaemonRef: TerminalDaemonClient | null = null;
 let m5Ref: M5Services | null = null;
 let agentHostRef: AgentHost | null = null;
@@ -162,6 +183,8 @@ let terminalRecordingRef: TerminalRecordingCoordinator | null = null;
 let terminalReplayRef: TerminalReplayService | null = null;
 let taskServiceRef: TaskService | null = null;
 let externalSessionsRef: ExternalSessionService | null = null;
+let agentPresenceRef: AgentPresenceService | null = null;
+let agentSemanticControlRef: AgentSemanticControlService | null = null;
 let archaeologyRef: SessionArchaeologyService | null = null;
 let externalLaunchIntents: ExternalLaunchIntents | null = null;
 let skillStoreRef: SkillStore | null = null;
@@ -175,15 +198,44 @@ let remoteWorkerRef: RemoteWorkerService | null = null;
 let terminalIdentitiesRef: TerminalControlIdentityRegistry | null = null;
 let ctlServerRef: CtlServer | null = null;
 let missionOrchestrationRef: MissionOrchestrationService | null = null;
+let missionRepositoryRef: MissionRepository | null = null;
 let missionRecoveryRef: OrchestrationRecoveryService | null = null;
 let acpPoolRef: AcpProcessPool | null = null;
 let agentRegistryRef: AgentRegistry | null = null;
+let agentPackServiceRef: AgentPackService | null = null;
+let terminalImagePasteRef: TerminalImagePasteService | null = null;
+let agentPackRuntimeRefreshRef: (() => void) | null = null;
 let workItemServiceRef: WorkItemService | null = null;
+
+function refreshAgentPackIntegrations(): void {
+  const registry = agentRegistryRef;
+  if (!registry) return;
+  registry.reload();
+  const configured = process.env.PI_IDE_EXTERNAL_CLIS
+    ? process.env.PI_IDE_EXTERNAL_CLIS.split(',')
+        .map((id) => id.trim().toLowerCase())
+        .filter(Boolean)
+    : registry.terminalAgentCliIdentities();
+  m4Ref?.terminals.setAgentClis(configured);
+  agentPresenceRef?.updateManifests(registry.lifecycleManifests());
+  const skillHome = process.env.PI_IDE_SKILLS_HOME;
+  const sources = registry.skillSources(skillHome);
+  skillStoreRef?.updateAgentSources(sources);
+  agentPackRuntimeRefreshRef?.();
+  if (!process.env.PI_IDE_E2E || Boolean(skillHome) || Boolean(process.env.PI_IDE_AGENT_HOME)) {
+    installCharterTerminalSurfaces(sources.map(({ id, root }) => ({ target: id, root })));
+  }
+}
 export function getM5(): M5Services | null {
   return m5Ref;
 }
 const quitBlockers = new Map<number, string[]>();
 let forceQuit = false;
+let backgroundMode = false;
+let backgroundTray: Tray | null = null;
+let backgroundRefreshTimer: ReturnType<typeof setInterval> | null = null;
+let closePromptOpen = false;
+let stoppingBackgroundWork = false;
 
 function windowBackground(skin: string, dark: boolean): string {
   if (skin === 'studio') return dark ? '#1a1917' : '#fbfaf7';
@@ -193,6 +245,252 @@ function windowBackground(skin: string, dark: boolean): string {
   if (skin === 'atelier') return dark ? '#292319' : '#fbf8f0';
   if (skin === 'codex') return dark ? '#191b1a' : '#fcfcfb';
   return dark ? '#1a1917' : '#fbfaf7';
+}
+
+function currentBackgroundActivity(): BackgroundActivitySnapshot {
+  const externalAgentIds = new Set(
+    (agentPresenceRef?.list() ?? [])
+      .filter((presence) => presence.processState === 'running')
+      .map((presence) => presence.terminalId),
+  );
+  const terminalJobCount =
+    m4Ref?.terminals
+      .list()
+      .filter(
+        (terminal) =>
+          !externalAgentIds.has(terminal.id) && m4Ref?.terminals.hasRunningChildren(terminal.id),
+      ).length ?? 0;
+  const missionCount =
+    missionRepositoryRef
+      ?.listMissions(200)
+      .filter((mission) => ['PLANNING', 'RUNNING', 'BLOCKED', 'VERIFYING'].includes(mission.state))
+      .length ?? 0;
+  const remoteConnectionCount =
+    sshServiceRef?.listHosts().filter((host) => host.connection.state !== 'disconnected').length ??
+    0;
+  return backgroundActivity({
+    managedAgents: agentHostRef?.activeRunCount() ?? 0,
+    externalAgents: externalAgentIds.size,
+    terminalJobs: terminalJobCount,
+    missions: missionCount,
+    remoteConnections: remoteConnectionCount,
+    blockers: [...quitBlockers.values()].flat(),
+  });
+}
+
+function createBackgroundTrayIcon() {
+  const size = process.platform === 'darwin' ? 18 : 20;
+  const center = (size - 1) / 2;
+  const outer = size * 0.42;
+  const inner = size * 0.24;
+  const pixels = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const distance = Math.hypot(x - center, y - center);
+      const gap = x > center + size * 0.14 && y < center - size * 0.06;
+      if (distance < inner || distance > outer || gap) continue;
+      const offset = (y * size + x) * 4;
+      pixels[offset] = 111;
+      pixels[offset + 1] = 87;
+      pixels[offset + 2] = 232;
+      pixels[offset + 3] = 255;
+    }
+  }
+  const icon = nativeImage.createFromBitmap(pixels, { width: size, height: size, scaleFactor: 1 });
+  if (process.platform === 'darwin') icon.setTemplateImage(true);
+  return icon;
+}
+
+function localizedBackgroundLines(activity: BackgroundActivitySnapshot): string[] {
+  if (boot?.settings?.effective.general.locale !== 'zh-CN')
+    return backgroundActivityLines(activity);
+  const lines: string[] = [];
+  if (activity.agentCount > 0) lines.push(`${activity.agentCount} 个 Agent`);
+  if (activity.missionCount > 0) lines.push(`${activity.missionCount} 个编排任务`);
+  if (activity.terminalJobCount > 0) lines.push(`${activity.terminalJobCount} 个终端作业`);
+  if (activity.remoteConnectionCount > 0)
+    lines.push(`${activity.remoteConnectionCount} 个远程连接`);
+  lines.push(...activity.blockers);
+  return lines;
+}
+
+function refreshBackgroundTray(): void {
+  if (!backgroundTray) return;
+  const activity = currentBackgroundActivity();
+  const locale = boot?.settings?.effective.general.locale;
+  const lines = localizedBackgroundLines(activity);
+  backgroundTray.setToolTip(
+    locale === 'zh-CN'
+      ? `Charter — ${lines.join('，') || '没有正在运行的工作'}`
+      : backgroundTrayTitle(activity),
+  );
+  if (process.platform === 'darwin') {
+    backgroundTray.setTitle(activity.agentCount > 0 ? String(activity.agentCount) : '');
+  }
+  backgroundTray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: lines.length > 0 ? lines.join(' · ') : mainT(locale, 'No work is currently running'),
+        enabled: false,
+      },
+      { type: 'separator' },
+      { label: mainT(locale, 'Open Charter'), click: () => restoreMainWindow('tray-menu') },
+      {
+        label: mainT(locale, 'Stop all running work'),
+        enabled: activity.hasRunningWork && !stoppingBackgroundWork,
+        click: () => void stopAllBackgroundWork(),
+      },
+      { type: 'separator' },
+      { label: mainT(locale, 'Quit and stop all'), click: () => quitAndStopAll() },
+    ]),
+  );
+}
+
+function ensureBackgroundTray(): void {
+  if (!backgroundTray) {
+    backgroundTray = new Tray(createBackgroundTrayIcon());
+    backgroundTray.on('click', () => restoreMainWindow('tray-click'));
+  }
+  refreshBackgroundTray();
+}
+
+function stopBackgroundRefresh(): void {
+  if (backgroundRefreshTimer) clearInterval(backgroundRefreshTimer);
+  backgroundRefreshTimer = null;
+}
+
+function enterBackground(win: BrowserWindow): void {
+  backgroundMode = true;
+  ensureBackgroundTray();
+  // AppKit may reactivate an application that remains "active" after its last
+  // visible BrowserWindow is hidden. Hide the application as one unit on
+  // macOS; a later Dock/tray activation still runs the normal restore path.
+  if (process.platform === 'darwin') app.hide();
+  else win.hide();
+  stopBackgroundRefresh();
+  backgroundRefreshTimer = setInterval(refreshBackgroundTray, 2_000);
+  backgroundRefreshTimer.unref?.();
+  boot?.logger.info('window hidden; runtime continuing in background', {
+    ...currentBackgroundActivity(),
+  });
+}
+
+function restoreMainWindow(source = 'internal'): void {
+  const wasBackground = backgroundMode;
+  backgroundMode = false;
+  stopBackgroundRefresh();
+  backgroundTray?.destroy();
+  backgroundTray = null;
+  if (process.platform === 'darwin') app.show();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    if (wasBackground) boot?.logger.info('background window restored', { source });
+    return;
+  }
+  if (app.isReady() && boot) mainWindow = createMainWindow(boot);
+}
+
+function quitAndStopAll(): void {
+  forceQuit = true;
+  stopBackgroundRefresh();
+  app.quit();
+}
+
+async function stopAllBackgroundWork(): Promise<void> {
+  if (stoppingBackgroundWork) return;
+  stoppingBackgroundWork = true;
+  refreshBackgroundTray();
+  try {
+    let missionsCancelled = 0;
+    try {
+      missionsCancelled =
+        missionOrchestrationRef?.cancelAll('Stopped from Charter background controls') ?? 0;
+    } catch (error) {
+      boot?.logger.warn('background stop-all could not cancel every Mission', {
+        error: errorMessage(error),
+      });
+    }
+    const activeTasks = taskServiceRef?.listTasks('active', true, 'all') ?? [];
+    const taskStops = await Promise.allSettled(
+      activeTasks.map((task) => taskServiceRef!.stopTask(task.id)),
+    );
+    const externalIds = new Set(
+      (agentPresenceRef?.list() ?? [])
+        .filter((presence) => presence.processState === 'running')
+        .map((presence) => presence.terminalId),
+    );
+    let terminalsStopped = 0;
+    for (const terminal of m4Ref?.terminals.list() ?? []) {
+      if (externalIds.has(terminal.id) || m4Ref?.terminals.hasRunningChildren(terminal.id)) {
+        try {
+          m4Ref?.terminals.kill(terminal.id);
+          terminalsStopped += 1;
+        } catch (error) {
+          boot?.logger.warn('background stop-all could not stop terminal', {
+            terminalId: terminal.id,
+            error: errorMessage(error),
+          });
+        }
+      }
+    }
+    sshForwardsRef?.stopAll();
+    sshSftpRef?.closeAll();
+    sshServiceRef?.disconnectAll();
+    boot?.logger.info('background stop-all requested', {
+      assignments: missionsCancelled,
+      tasks: activeTasks.length,
+      taskFailures: taskStops.filter((result) => result.status === 'rejected').length,
+      terminals: terminalsStopped,
+    });
+  } finally {
+    stoppingBackgroundWork = false;
+    refreshBackgroundTray();
+  }
+}
+
+async function askWindowClose(win: BrowserWindow, bootstrap: Bootstrap): Promise<void> {
+  if (closePromptOpen) return;
+  closePromptOpen = true;
+  try {
+    const activity = currentBackgroundActivity();
+    const locale = bootstrap.settings?.effective.general.locale;
+    const lines = localizedBackgroundLines(activity);
+    const result = await dialog.showMessageBox(win, {
+      type: 'warning',
+      buttons: [
+        mainT(locale, 'Keep running in background'),
+        mainT(locale, 'Quit and stop all'),
+        mainT(locale, 'Cancel'),
+      ],
+      defaultId: 0,
+      cancelId: 2,
+      title: mainT(locale, 'Work is still running'),
+      message: mainT(locale, 'What should Charter do with the work still running?'),
+      detail: `${lines.map((line) => `• ${line}`).join('\n')}\n\n${mainT(
+        locale,
+        'Background work may continue using CPU, network, and model tokens.',
+      )}`,
+      checkboxLabel: mainT(locale, 'Remember my choice'),
+      checkboxChecked: false,
+      noLink: true,
+    });
+    if (result.response === 2 || win.isDestroyed()) return;
+    if (result.response === 0) {
+      if (result.checkboxChecked) {
+        bootstrap.settings?.update('global', { general: { backgroundOnClose: 'keep-running' } });
+      }
+      enterBackground(win);
+      return;
+    }
+    if (result.checkboxChecked) {
+      bootstrap.settings?.update('global', { general: { backgroundOnClose: 'quit' } });
+    }
+    quitAndStopAll();
+  } finally {
+    closePromptOpen = false;
+  }
 }
 
 // §12.3 CSP — extracted to csp.ts so the directives are unit-pinned (ADR-0022).
@@ -371,29 +669,22 @@ function createMainWindow(bootstrap: Bootstrap): BrowserWindow {
 
   win.on('close', (event) => {
     if (forceQuit) return;
-    const blockers = [...quitBlockers.values()].flat();
-    if (blockers.length > 0) {
-      const choice = dialog.showMessageBoxSync(win, {
-        type: 'warning',
-        buttons: [
-          mainT(bootstrap.settings?.effective.general.locale, 'Cancel'),
-          mainT(bootstrap.settings?.effective.general.locale, 'Quit Anyway'),
-        ],
-        defaultId: 0,
-        cancelId: 0,
-        title: mainT(bootstrap.settings?.effective.general.locale, 'Work in progress'),
-        message: mainT(
-          bootstrap.settings?.effective.general.locale,
-          'Some work is still in progress:',
-        ),
-        detail: blockers.map((b) => `• ${b}`).join('\n'),
-      });
-      if (choice === 0) {
-        event.preventDefault();
-        return;
-      }
-      forceQuit = true;
+    const activity = currentBackgroundActivity();
+    const action = windowCloseAction(
+      bootstrap.settings?.effective.general.backgroundOnClose ?? 'ask',
+      activity,
+    );
+    if (action === 'close') return;
+    event.preventDefault();
+    if (action === 'keep-running') {
+      enterBackground(win);
+      return;
     }
+    if (action === 'quit') {
+      quitAndStopAll();
+      return;
+    }
+    void askWindowClose(win, bootstrap);
   });
 
   // Dev visibility: renderer console errors/warnings surface in the dev log
@@ -455,9 +746,67 @@ function registerCoreHandlers(bootstrap: Bootstrap): void {
   registerHandlers(
     {
       'app.getInfo': async () => getAppInfo(),
+      'app.getBackgroundActivity': async () => ({
+        ...currentBackgroundActivity(),
+        background: backgroundMode,
+      }),
       'agents.list': async ({ refresh }) => {
-        if (!agentRegistryRef) return { agents: [], scannedAt: new Date(0).toISOString() };
+        if (!agentRegistryRef) {
+          return {
+            agents: [],
+            scannedAt: new Date(0).toISOString(),
+            engineVersion: AGENT_ADAPTER_ENGINE_VERSION,
+            overrideEnabled: false,
+            diagnostics: [],
+          };
+        }
         return refresh ? agentRegistryRef.refresh() : agentRegistryRef.catalog();
+      },
+      'agents.packs.list': async () => agentPackServiceRef?.catalog() ?? { packs: [] },
+      'agents.packs.install': async () => {
+        const packs = agentPackServiceRef;
+        if (!packs) return { changed: false, catalog: { packs: [] } };
+        const win = mainWindow ?? BrowserWindow.getFocusedWindow();
+        const options: Electron.OpenDialogOptions = {
+          title: 'Install Agent Pack',
+          properties: ['openFile'],
+          filters: [
+            { name: 'Charter Agent Pack', extensions: ['json'] },
+            { name: 'All files', extensions: ['*'] },
+          ],
+        };
+        const result = win
+          ? await dialog.showOpenDialog(win, options)
+          : await dialog.showOpenDialog(options);
+        if (result.canceled || !result.filePaths[0]) {
+          return { changed: false, catalog: packs.catalog() };
+        }
+        packs.install(result.filePaths[0]);
+        refreshAgentPackIntegrations();
+        return { changed: true, catalog: packs.catalog() };
+      },
+      'agents.packs.setEnabled': async ({ id, enabled }) => {
+        const changed = agentPackServiceRef?.setEnabled(id, enabled) ?? false;
+        if (changed) refreshAgentPackIntegrations();
+        return { changed, catalog: agentPackServiceRef?.catalog() ?? { packs: [] } };
+      },
+      'agents.packs.rollback': async ({ id }) => {
+        const changed = agentPackServiceRef?.rollback(id) ?? false;
+        if (changed) refreshAgentPackIntegrations();
+        return { changed, catalog: agentPackServiceRef?.catalog() ?? { packs: [] } };
+      },
+      'agents.packs.remove': async ({ id }) => {
+        const changed = agentPackServiceRef?.remove(id) ?? false;
+        if (changed) refreshAgentPackIntegrations();
+        return { changed, catalog: agentPackServiceRef?.catalog() ?? { packs: [] } };
+      },
+      'terminal.pasteClipboardImage': async ({ id }) => {
+        if (!terminalImagePasteRef) {
+          throw new Error('Terminal image paste is unavailable while terminal services start.');
+        }
+        const result = await terminalImagePasteRef.paste(id);
+        agentVerificationRef?.noteImagePasted(id);
+        return result;
       },
       'app.openExternal': async ({ url }) => ({ opened: await openExternalChecked(url, logger) }),
       'app.revealPath': async ({ path }) => {
@@ -477,7 +826,8 @@ function registerCoreHandlers(bootstrap: Bootstrap): void {
         ),
       }),
       'updates.install': async ({ force }) => {
-        const blockers = [...quitBlockers.values()].flat();
+        const activity = currentBackgroundActivity();
+        const blockers = localizedBackgroundLines(activity);
         if (blockers.length > 0 && !force) return { installing: false, blockers };
         return { installing: await updateServiceRef!.install(), blockers: [] };
       },
@@ -621,10 +971,7 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
+    restoreMainWindow('second-instance');
   });
 
   app.whenReady().then(async () => {
@@ -678,12 +1025,15 @@ if (!gotLock) {
     }
 
     const agentHome = process.env.PI_IDE_E2E ? process.env.PI_IDE_AGENT_HOME : undefined;
+    agentPackServiceRef = new AgentPackService(paths.agentPacksDir, logger.child('agent-packs'));
     agentRegistryRef = new AgentRegistry(logger.child('agent-registry'), {
       ...(agentHome ? { homeDir: agentHome } : {}),
       userManifestDir:
         process.env.PI_IDE_AGENT_MANIFESTS ??
         join(agentHome ?? app.getPath('home'), '.charter', 'agents'),
+      allowOverrides: !app.isPackaged || process.env.PI_IDE_AGENT_ADAPTER_OVERRIDES === '1',
       probeVersions: !process.env.PI_IDE_E2E,
+      packManifests: () => agentPackServiceRef?.activeManifests() ?? [],
     });
 
     boot = { paths, logs, logger, settings, state, workspaceHost, startupError };
@@ -718,6 +1068,7 @@ if (!gotLock) {
         broadcast('settings.changed', { issues: s.issues, overrideKeys: s.overrideKeys });
         installApplicationMenu({ isDev, locale: s.effective.general.locale });
         updateServiceRef?.syncSettings(s.effective.updates);
+        refreshBackgroundTray();
       });
     }
     nativeTheme.on('updated', () => {
@@ -757,13 +1108,8 @@ if (!gotLock) {
           if (!process.env.PI_IDE_E2E && BrowserWindow.getFocusedWindow() === null) {
             app.dock?.bounce('critical');
           }
-          const win = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null;
           const focusItem = (): void => {
-            if (win) {
-              if (win.isMinimized()) win.restore();
-              win.show();
-              win.focus();
-            }
+            restoreMainWindow('work-reminder');
             broadcast('app.focusWorkItem', { itemId: item.id });
           };
           if (
@@ -851,15 +1197,26 @@ if (!gotLock) {
           // Direct visible Sessions can invoke the trusted bare Agent id in
           // their existing login shell, allowing the same alias/function a
           // manual zsh launch would use.
-          shellCommand: executable === orchestrationExecutable ? null : launch,
+          shellCommand:
+            executable === orchestrationExecutable ||
+            basename(spec.executable).toLocaleLowerCase() !== launch.toLocaleLowerCase()
+              ? null
+              : launch,
         };
+      };
+      const resolveRemoteAgentLaunch = (launch: string, initialPrompt: string | null) => {
+        const sessionId = agentRegistryRef!.preassignSessionId(launch) ? randomUUID() : null;
+        return agentRegistryRef!.remoteLaunchSpec(launch, {
+          prompt: initialPrompt,
+          sessionId,
+        });
       };
       const missionVirtualTasks = new Map<string, string>();
       const detectedAgentIds = process.env.PI_IDE_EXTERNAL_CLIS
         ? process.env.PI_IDE_EXTERNAL_CLIS.split(',')
             .map((id) => id.trim().toLowerCase())
             .filter(Boolean)
-        : agentRegistryRef.terminalAgentIds();
+        : agentRegistryRef.terminalAgentCliIdentities();
       m4 = new M4Services(
         workspaceHost,
         settings,
@@ -883,6 +1240,27 @@ if (!gotLock) {
       );
       for (const id of m4.restoredTerminalIds) terminalIdentitiesRef.issue(id);
       m4.terminals.onExitEvent(({ id }) => terminalIdentitiesRef?.revokeTerminal(id));
+      agentPresenceRef = new AgentPresenceService(m4.terminals, logger.child('agent-presence'), {
+        manifests: agentRegistryRef.lifecycleManifests(),
+        onChanged: (presence) => {
+          broadcast('agentPresence.changed', presence);
+          refreshBackgroundTray();
+        },
+      });
+      registerAgentPresenceHandlers(agentPresenceRef, logger.child('agent-presence-ipc'));
+      agentVerificationRef = new AgentVerificationService(
+        join(paths.agentPacksDir, 'verification-results.json'),
+        agentRegistryRef,
+        () => agentPackServiceRef?.catalog() ?? { packs: [] },
+        m4.terminals,
+        agentPresenceRef,
+        logger.child('agent-verification'),
+      );
+      registerAgentVerificationHandlers(
+        agentVerificationRef,
+        agentRegistryRef,
+        logger.child('agent-verification-ipc'),
+      );
       terminalControlRef = new TerminalControlService(m4.terminals, logger.child('orchestration'), {
         enabled: () => settings.effective.orchestration.enabled,
         maxWorkers: () => settings.effective.orchestration.maxWorkers,
@@ -902,12 +1280,47 @@ if (!gotLock) {
         onChanged: (snapshot) => broadcast('orchestration.changed', snapshot),
         recordEvent: (taskId, type, payload) => taskServiceRef?.recordEvent(taskId, type, payload),
       });
+      agentSemanticControlRef = new AgentSemanticControlService(
+        agentPresenceRef,
+        terminalControlRef,
+        logger.child('agent-semantic-control'),
+        {
+          resultReader: new AgentResultReader(),
+          resultSessionForTerminal: (terminalId, agent) => {
+            const task = taskServiceRef?.externalTaskForTerminal(terminalId);
+            const external = task?.external;
+            if (!task || !external) return null;
+            const source = agentRegistryRef?.sessionHistorySource(agent) ?? null;
+            const startedAtMs = Date.parse(task.createdAt);
+            const updatedAtMs = Date.parse(task.updatedAt);
+            return {
+              taskId: task.id,
+              agent,
+              connector: source?.connector ?? null,
+              dataHome: source?.dataHome ?? null,
+              cwd: external.cwd ?? task.projectPath,
+              sessionId: external.sessionId ?? null,
+              startedAtMs: Number.isFinite(startedAtMs) ? startedAtMs : Date.now(),
+              endedAtMs:
+                external.status === 'active'
+                  ? Date.now()
+                  : Number.isFinite(updatedAtMs)
+                    ? updatedAtMs
+                    : Date.now(),
+              remote: Boolean(external.remote),
+            };
+          },
+          recordSessionId: (taskId, sessionId) =>
+            taskServiceRef?.setExternalSessionId(taskId, sessionId),
+        },
+      );
       registerOrchestrationHandlers(terminalControlRef, logger.child('ipc'));
       // ADR-0047: SSH Remotes. Vault (keychain) + connection manager + host
       // book; wired into terminal.create as a remote launcher below.
       const sshVault = new SshVaultService(paths.sshSecretsDir, logger.child('ssh-vault'));
       sshServiceRef = new SshService(settings, sshVault, m4.terminals, logger.child('ssh'), {
         sshDir: paths.sshDir,
+        resolveAgentLaunch: resolveRemoteAgentLaunch,
         // E2E points config/known_hosts at fixtures (mirrors PI_IDE_SKILLS_HOME).
         ...(process.env.PI_IDE_SSH_CONFIG ? { sshConfigPath: process.env.PI_IDE_SSH_CONFIG } : {}),
         ...(process.env.PI_IDE_SSH_KNOWN_HOSTS
@@ -949,6 +1362,22 @@ if (!gotLock) {
         emit: (state) => broadcast('ssh.sftpProgress', state),
         logger: logger.child('ssh-sftp'),
       });
+      terminalImagePasteRef = new TerminalImagePasteService(
+        join(tmpdir(), `charter-image-paste-${process.getuid?.() ?? process.pid}`),
+        m4.terminals,
+        logger.child('terminal-image-paste'),
+        {
+          readClipboardImage: () => {
+            const image = clipboard.readImage();
+            if (image.isEmpty()) return null;
+            const { width, height } = image.getSize();
+            return { bytes: image.toPNG(), width, height };
+          },
+          openSftp: (hostId) => sshServiceRef!.openSftpSession(hostId),
+          supportsImages: (agentId) =>
+            agentRegistryRef?.manifest(agentId)?.capabilities.images === true,
+        },
+      );
       sshForwardsRef = new SshForwardService({
         getForward: (hostId, forwardId) => sshServiceRef!.getForward(hostId, forwardId),
         openStream: (hostId, dstHost, dstPort) =>
@@ -1122,7 +1551,11 @@ if (!gotLock) {
         events: (windowDays) => taskServiceRef?.skillUsageEvents(windowDays) ?? [],
         externalEvents: async (windowDays) =>
           (await archaeologyRef?.skillUsageEvents(windowDays)) ?? [],
-        agentSurfaces: () => charterAgentSurfaces,
+        agentSurfaces: () =>
+          agentRegistryRef!.skillSources(skillHome).map(({ id, root }) => ({
+            target: id,
+            root,
+          })),
       });
       // ADR-0028: project memory — shared rules source, review-correction
       // capture, managed-block sync, external private-memory management.
@@ -1151,6 +1584,7 @@ if (!gotLock) {
         paths,
         logger.child('tasks'),
         terminalControlRef,
+        agentSemanticControlRef,
       );
       taskServiceRef = taskService;
       remoteWorkerRef.attachTaskLookup((taskId) => taskService.getTask(taskId));
@@ -1161,6 +1595,7 @@ if (!gotLock) {
         })),
       );
       const missionRepository = new MissionRepository(state.db);
+      missionRepositoryRef = missionRepository;
       const missionRuntimes = new OrchestrationRuntimeRegistry();
       const settleVisibleMissionSession = async (terminalId: string): Promise<void> => {
         const sessions = externalSessionsRef;
@@ -1180,7 +1615,6 @@ if (!gotLock) {
       missionRuntimes.register(new ManagedAgentRuntime(taskService, settings));
       const acpCompatibilityEnabled =
         Boolean(terminalIntegration) &&
-        agentRegistryRef.acpAgentIds().length > 0 &&
         process.env.PI_IDE_ACP !== '0' &&
         (!process.env.PI_IDE_E2E || process.env.PI_IDE_ACP === '1');
       if (acpCompatibilityEnabled && terminalIntegration) {
@@ -1228,34 +1662,49 @@ if (!gotLock) {
           },
         };
         const useAcpForNewMissions = process.env.PI_IDE_ACP === '1';
-        for (const provider of agentRegistryRef.acpAgentIds()) {
-          const acpRuntime = new AcpRuntimeAdapter(
-            provider,
-            pool,
-            missionRepository,
-            options,
-            logger.child(`acp-${provider}`),
-          );
-          missionRuntimes.registerForRuntime(
-            provider,
-            new FallbackRuntimeAdapter(acpRuntime, visibleMissionRuntime, {
-              startWith: useAcpForNewMissions ? 'primary' : 'fallback',
-              // Native PTY is the product path. If it cannot start, surface the
-              // real launch error instead of silently changing interaction
-              // semantics to the experimental ACP transport.
-              fallbackOnStartFailure: useAcpForNewMissions,
-            }),
-          );
-        }
+        const registeredAcpProviders = new Set<string>();
+        const syncAcpRuntimes = (): void => {
+          for (const provider of agentRegistryRef!.acpAgentIds()) {
+            if (registeredAcpProviders.has(provider)) continue;
+            const acpRuntime = new AcpRuntimeAdapter(
+              provider,
+              pool,
+              missionRepository,
+              options,
+              logger.child(`acp-${provider}`),
+            );
+            missionRuntimes.registerForRuntime(
+              provider,
+              new FallbackRuntimeAdapter(acpRuntime, visibleMissionRuntime, {
+                startWith: useAcpForNewMissions ? 'primary' : 'fallback',
+                // Native PTY is the product path. If it cannot start, surface the
+                // real launch error instead of silently changing interaction
+                // semantics to the experimental ACP transport.
+                fallbackOnStartFailure: useAcpForNewMissions,
+              }),
+            );
+            registeredAcpProviders.add(provider);
+          }
+        };
+        syncAcpRuntimes();
+        // Pack removal stops new selection through the catalog. Runtime
+        // adapters already registered stay alive until quit so an in-flight
+        // ACP Mission can still be steered/cancelled safely.
+        agentPackRuntimeRefreshRef = syncAcpRuntimes;
       }
       const missionOutbox = new OrchestrationOutboxRunner(missionRepository, missionRuntimes, {
-        onChanged: (missionId) =>
-          broadcast('mission.changed', missionRepository.snapshot(missionId)),
+        onChanged: (missionId) => {
+          broadcast('mission.changed', missionRepository.snapshot(missionId));
+          refreshBackgroundTray();
+        },
       });
       const missionOrchestration = new MissionOrchestrationService(
         missionRepository,
         missionOutbox,
-        (missionId) => broadcast('mission.changed', missionRepository.snapshot(missionId)),
+        (missionId) => {
+          broadcast('mission.changed', missionRepository.snapshot(missionId));
+          refreshBackgroundTray();
+        },
         {
           maxPromotionWorkers: () => settings.effective.orchestration.maxWorkers,
           runtimeCatalog: () => [
@@ -1446,18 +1895,23 @@ if (!gotLock) {
         workspaceHost,
         logger.child('external'),
         externalLaunchIntents,
-        ({ terminalId, taskId, status, source }) =>
+        ({ terminalId, taskId, status, source }) => {
+          agentPresenceRef?.notifyTurnSettled({ terminalId, taskId, status, source });
           terminalControlRef?.notifyTurnSettled(terminalId, {
             taskId,
             status,
             source,
-          }),
-        ({ terminalId, taskId, source }) =>
+          });
+        },
+        ({ terminalId, taskId, source }) => {
+          agentPresenceRef?.notifyTurnStarted({ terminalId, taskId });
           terminalControlRef?.notifyTurnStarted(terminalId, {
             taskId,
             source,
-          }),
+          });
+        },
         ({ terminalId, taskId }) => {
+          agentPresenceRef?.bindTask(terminalId, taskId);
           terminalControlRef?.bindWorkerTask(terminalId, taskId);
           remoteWorkerRef?.bindTask(terminalId, taskId);
         },
@@ -1566,16 +2020,14 @@ if (!gotLock) {
           note.show();
         },
         focusTask: (taskId) => {
-          const win = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null;
-          if (win) {
-            if (win.isMinimized()) win.restore();
-            win.show();
-            win.focus();
-          }
+          restoreMainWindow('task-notification');
           broadcast('app.focusTask', { taskId });
         },
       });
-      taskService.onStateChanged((info) => notifications.onTaskState(info));
+      taskService.onStateChanged((info) => {
+        notifications.onTaskState(info);
+        refreshBackgroundTray();
+      });
       taskService.onAttention((info) => notifications.pingAttention(info));
 
       // ADR-0021: command-finish notifications — same hygiene as PIVOT-014,
@@ -1592,12 +2044,7 @@ if (!gotLock) {
           note.show();
         },
         reveal: (terminalId, blockId) => {
-          const win = mainWindow ?? BrowserWindow.getAllWindows()[0] ?? null;
-          if (win) {
-            if (win.isMinimized()) win.restore();
-            win.show();
-            win.focus();
-          }
+          restoreMainWindow('command-notification');
           broadcast('terminal.revealBlock', { id: terminalId, blockId });
         },
       });
@@ -1741,11 +2188,19 @@ if (!gotLock) {
   app.on('will-quit', (event) => {
     if (cleanupDone) return;
     event.preventDefault();
+    backgroundMode = false;
+    stopBackgroundRefresh();
+    backgroundTray?.destroy();
+    backgroundTray = null;
     skillStoreRef?.dispose();
     workItemServiceRef?.dispose();
     updateServiceRef?.dispose();
     clipboardWatcherRef?.dispose();
     screenshotWatcherRef?.dispose();
+    agentSemanticControlRef = null;
+    agentVerificationRef?.dispose();
+    agentVerificationRef = null;
+    agentPresenceRef?.dispose();
     externalSessionsRef?.dispose(); // before terminals: sessions close into review while the DB is open
     missionOrchestrationRef?.shutdown();
     missionRecoveryRef?.stop();
@@ -1755,7 +2210,7 @@ if (!gotLock) {
     terminalRecordingRef = null;
     sshForwardsRef?.stopAll(); // listeners first, so nothing re-dials mid-quit
     sshSftpRef?.closeAll();
-    sshServiceRef?.disconnectAll(); // close ssh transports before their PTY-equivalents
+    const imageCleanup = terminalImagePasteRef?.dispose() ?? Promise.resolve();
     // Release M4's timers/listeners immediately, but keep the authenticated
     // daemon socket open for the shutdown request below.
     m4Ref?.dispose({ closeTerminalDaemon: false });
@@ -1773,6 +2228,7 @@ if (!gotLock) {
       acpPoolRef?.shutdown() ?? Promise.resolve(),
       agentHostRef?.dispose() ?? Promise.resolve(),
       terminalReplayRef?.dispose() ?? Promise.resolve(),
+      imageCleanup.finally(() => sshServiceRef?.disconnectAll()),
     ]);
     void disposal
       .catch(() => undefined)
@@ -1783,6 +2239,7 @@ if (!gotLock) {
         setTimeout(() => {
           boot?.state?.close();
           terminalDaemonRef = null;
+          missionRepositoryRef = null;
           cleanupDone = true;
           boot?.logger.info('teardown complete, quitting');
           app.quit();
@@ -1797,9 +2254,7 @@ if (!gotLock) {
   });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0 && app.isReady() && boot) {
-      mainWindow = createMainWindow(boot);
-    }
+    restoreMainWindow('app-activate');
   });
   app.on('browser-window-focus', () => {
     skillStoreRef?.rescan('focus');

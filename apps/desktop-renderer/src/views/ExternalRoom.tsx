@@ -19,6 +19,8 @@ import {
   isLeakedTerminalReply,
   isExternalCli,
 } from './external-terminal-lifecycle.js';
+import { useAgentPresenceStore } from '../store/agentPresenceStore.js';
+import { AgentPresenceBadge } from './AgentPresenceBadge.js';
 
 function activeTerminalInput(item: Pick<TermInstance, 'term'>): string {
   const buffer = item.term.buffer.active;
@@ -37,7 +39,13 @@ function activeTerminalInput(item: Pick<TermInstance, 'term'>): string {
  * beside the Session title gives the terminal back the full height that used
  * to be consumed by a second, terminal-only header row.
  */
-export function ExternalSessionIdentity({ task }: { task: TaskDto }): React.JSX.Element {
+export function ExternalSessionIdentity({
+  task,
+  active = true,
+}: {
+  task: TaskDto;
+  active?: boolean;
+}): React.JSX.Element {
   const external = task.external!;
   const session = useExternalStore((state) => state.sessions[task.id]);
   const ownerTaskId = useExternalStore((state) => state.taskByTerminal[external.terminalId]);
@@ -58,9 +66,24 @@ export function ExternalSessionIdentity({ task }: { task: TaskDto }): React.JSX.
   const peekOpen = useAppStore((state) => state.peek?.taskId === task.id);
   const follow = useExternalStore((state) => state.follow[task.id] ?? true);
   const provider = isExternalCli(external.cli) ? externalCliLabel(external.cli) : external.cli;
+  const presence = useAgentPresenceStore((state) => state.byTerminal[external.terminalId]);
+  const identityRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => useAgentPresenceStore.getState().init(), []);
+  useEffect(() => {
+    if (
+      active &&
+      presence?.attention === 'done' &&
+      useAppStore.getState().taskRoomTaskId === task.id &&
+      identityRef.current?.isConnected
+    ) {
+      void useAgentPresenceStore.getState().markSeen(external.terminalId, 'session-header');
+    }
+  }, [active, external.terminalId, presence?.attention, task.id]);
 
   return (
     <div
+      ref={identityRef}
       className="session-external-identity"
       data-testid="session-external-identity"
       aria-label={live ? `${provider} running` : lifecycle?.summary}
@@ -72,6 +95,7 @@ export function ExternalSessionIdentity({ task }: { task: TaskDto }): React.JSX.
         aria-label={live ? 'External Agent live' : undefined}
       />
       <span className="tr-extname">✳ {provider}</span>
+      <AgentPresenceBadge terminalId={external.terminalId} explainable />
       {live && peekOpen ? (
         <button
           className={`tr-extlive ${follow ? '' : 'paused'}`}

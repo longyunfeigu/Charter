@@ -11,6 +11,8 @@ import {
   registerVerificationTool,
   registerSkillTool,
   registerTerminalTools,
+  registerAgentTools,
+  AGENT_TOOL_NAMES,
   registerOrchestrationTools,
   ORCHESTRATION_TOOL_NAMES,
   createPlanAwarePermission,
@@ -21,6 +23,7 @@ import {
   type SkillProviderEntry,
   type ToolAuditRecord,
   type TerminalControlPort,
+  type AgentControlPort,
   type OrchestrationToolServices,
   type VerificationGate,
 } from '@pi-ide/tool-gateway';
@@ -157,6 +160,7 @@ export class ProjectContexts {
       control: TerminalControlPort;
       callerTerminalForCall(callId: string): string | null;
     },
+    private readonly agentControl?: AgentControlPort,
   ) {}
 
   get(root: string): ProjectContext | null {
@@ -244,6 +248,12 @@ export class ProjectContexts {
         control: this.terminalControl.control,
         callerTerminalForCall: (callId) => this.terminalControl!.callerTerminalForCall(callId),
       });
+      if (this.agentControl) {
+        registerAgentTools(gateway, {
+          control: this.agentControl,
+          callerTerminalForCall: (callId) => this.terminalControl!.callerTerminalForCall(callId),
+        });
+      }
     }
     if (this.settings.effective.orchestration.enabled && this.orchestrationTools) {
       registerOrchestrationTools(gateway, this.orchestrationTools);
@@ -288,8 +298,15 @@ export class ProjectContexts {
           control: this.terminalControl.control,
           callerTerminalForCall: (callId) => this.terminalControl!.callerTerminalForCall(callId),
         });
+        if (this.agentControl) {
+          registerAgentTools(context.gateway, {
+            control: this.agentControl,
+            callerTerminalForCall: (callId) => this.terminalControl!.callerTerminalForCall(callId),
+          });
+        }
       } else {
         for (const name of names) context.gateway.unregister(name);
+        for (const name of AGENT_TOOL_NAMES) context.gateway.unregister(name);
       }
     }
   }

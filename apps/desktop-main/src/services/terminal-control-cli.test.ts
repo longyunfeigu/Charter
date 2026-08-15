@@ -31,6 +31,89 @@ describe('terminal-control CLI parser', () => {
     });
   });
 
+  it('parses semantic Agent status, explain, result, read, wait and prompt calls', () => {
+    expect(parseTerminalControlCli(['agent', 'status', 'Reviewer'])).toEqual({
+      kind: 'call',
+      name: 'agent_status',
+      input: { id: 'Reviewer' },
+    });
+    expect(parseTerminalControlCli(['agent', 'explain', 'term_2'])).toEqual({
+      kind: 'call',
+      name: 'agent_explain',
+      input: { id: 'term_2' },
+    });
+    expect(
+      parseTerminalControlCli(['agent', 'result', 'Reviewer', '--max-bytes', '90000']),
+    ).toEqual({
+      kind: 'call',
+      name: 'agent_result',
+      input: { id: 'Reviewer', maxBytes: 90000 },
+    });
+    expect(
+      parseTerminalControlCli([
+        'agent',
+        'read',
+        'Reviewer',
+        '--mode',
+        'transcript',
+        '--lines',
+        '400',
+        '--max-bytes',
+        '90000',
+        '--no-unwrap',
+      ]),
+    ).toEqual({
+      kind: 'call',
+      name: 'agent_read',
+      input: {
+        id: 'Reviewer',
+        mode: 'transcript',
+        lines: 400,
+        maxBytes: 90000,
+        unwrap: false,
+      },
+    });
+    expect(
+      parseTerminalControlCli([
+        'agent',
+        'wait',
+        'Reviewer',
+        '--until',
+        'idle,blocked,exited',
+        '--after-seq',
+        '12',
+        '--identity-seq',
+        '3',
+        '--timeout-ms',
+        '9000',
+      ]),
+    ).toEqual({
+      kind: 'call',
+      name: 'agent_wait',
+      input: {
+        id: 'Reviewer',
+        until: ['idle', 'blocked', 'exited'],
+        afterSeq: 12,
+        identitySeq: 3,
+        timeoutMs: 9000,
+      },
+    });
+    expect(
+      parseTerminalControlCli([
+        'agent',
+        'prompt',
+        'Reviewer',
+        'review the patch',
+        '--timeout-ms',
+        '5000',
+      ]),
+    ).toEqual({
+      kind: 'call',
+      name: 'agent_prompt',
+      input: { id: 'Reviewer', text: 'review the patch', timeoutMs: 5000 },
+    });
+  });
+
   it('parses recursive Mission orchestration commands', () => {
     expect(parseTerminalControlCli(['orchestration', 'inspect', '--json'])).toEqual({
       kind: 'call',

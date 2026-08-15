@@ -4,6 +4,15 @@ import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import type { IPty } from 'node-pty';
 import * as nodePty from 'node-pty';
 import { shellIntegrationSpawn, type ShellIntegrationConfig } from './shell-integration.js';
+import {
+  readAlternateScreenTranscript,
+  snapshotRowsText,
+  type AlternateScreenTranscriptDriver,
+  type TerminalScreenSnapshot,
+  type TerminalTranscriptReadResult,
+  type TerminalTranscriptTiming,
+  type TranscriptWheelDirection,
+} from './transcript-read.js';
 
 export {
   SHELL_INTEGRATION_FILES,
@@ -11,6 +20,7 @@ export {
   type ShellIntegrationConfig,
   type ShellSpawnPlan,
 } from './shell-integration.js';
+export * from './transcript-read.js';
 
 /** SSH remote host coordinates for an adopted session (ADR-0047). */
 export interface TerminalRemoteInfo {
@@ -158,26 +168,103 @@ interface Session {
   tracker: AgentStateTracker;
   recentData: TerminalReplayBuffer;
   screen: HeadlessTerminal;
+  mouseEncoding: MouseEncodingState;
   knownAgent: string | null;
+}
+
+interface MouseEncodingState {
+  mode: 'default' | 'utf8' | 'sgr' | 'sgr-pixels';
+}
+
+interface ActiveTranscriptRead {
+  interrupt(reason: string): void;
 }
 
 const TERMINAL_REPLAY_LIMIT = 64 * 1024;
 const TERMINAL_REPLAY_HARD_LIMIT = 96 * 1024;
 
-function newScreen(cols: number, rows: number, scrollback: number): HeadlessTerminal {
-  return new HeadlessTerminal({
+function privateModeParams(params: (number | number[])[]): number[] {
+  return params.flatMap((parameter) => (Array.isArray(parameter) ? parameter : [parameter]));
+}
+
+function newScreen(
+  cols: number,
+  rows: number,
+  scrollback: number,
+  mouseEncoding: MouseEncodingState,
+): HeadlessTerminal {
+  const screen = new HeadlessTerminal({
     cols: Math.max(2, cols),
     rows: Math.max(1, rows),
     scrollback: Math.max(100, Math.min(100_000, scrollback)),
     allowProposedApi: true,
   });
+  const observe = (enabled: boolean, params: (number | number[])[]): boolean => {
+    for (const mode of privateModeParams(params)) {
+      if (enabled) {
+        if (mode === 1005) mouseEncoding.mode = 'utf8';
+        else if (mode === 1006) mouseEncoding.mode = 'sgr';
+        else if (mode === 1016) mouseEncoding.mode = 'sgr-pixels';
+      } else if (
+        (mode === 1005 && mouseEncoding.mode === 'utf8') ||
+        (mode === 1006 && mouseEncoding.mode === 'sgr') ||
+        (mode === 1016 && mouseEncoding.mode === 'sgr-pixels')
+      ) {
+        mouseEncoding.mode = 'default';
+      }
+    }
+    // Observe DECSET/DECRST without consuming xterm's built-in handler.
+    return false;
+  };
+  screen.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => observe(true, params));
+  screen.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => observe(false, params));
+  return screen;
+}
+
+function flushScreen(screen: HeadlessTerminal): Promise<void> {
+  return new Promise((resolve) => screen.write('', resolve));
+}
+
+function visibleScreenSnapshot(screen: HeadlessTerminal): TerminalScreenSnapshot {
+  const buffer = screen.buffer.active;
+  const start = buffer.type === 'normal' ? buffer.viewportY : 0;
+  const rows = [];
+  for (let index = 0; index < screen.rows; index += 1) {
+    const line = buffer.getLine(start + index);
+    rows.push({
+      text: line?.translateToString(true) ?? '',
+      wrapContinuation: line?.isWrapped ?? false,
+    });
+  }
+  return { cols: screen.cols, rows };
+}
+
+function encodeTranscriptWheel(
+  direction: TranscriptWheelDirection,
+  snapshot: TerminalScreenSnapshot,
+  encoding: MouseEncodingState['mode'],
+): string | null {
+  const button = direction === 'up' ? 64 : 65;
+  const column = Math.floor(Math.max(0, snapshot.cols - 1) / 2) + 1;
+  const row = Math.floor(Math.max(0, snapshot.rows.length - 1) / 2) + 1;
+  if (encoding === 'sgr') return `\u001b[<${button};${column};${row}M`;
+  if (encoding === 'sgr-pixels') return null;
+  if (encoding === 'utf8') {
+    try {
+      return `\u001b[M${String.fromCodePoint(button + 32, column + 32, row + 32)}`;
+    } catch {
+      return null;
+    }
+  }
+  if (button + 32 > 255 || column + 32 > 255 || row + 32 > 255) return null;
+  return `\u001b[M${String.fromCharCode(button + 32, column + 32, row + 32)}`;
 }
 
 function utf8Tail(value: string, maxBytes: number): string {
   const bytes = Buffer.from(value, 'utf8');
   if (bytes.byteLength <= maxBytes) return value;
   let tail = bytes.subarray(bytes.byteLength - maxBytes).toString('utf8');
-  if (tail.charCodeAt(0) === 0xfffd) tail = tail.slice(1);
+  while (tail.charCodeAt(0) === 0xfffd) tail = tail.slice(1);
   return tail;
 }
 
@@ -494,6 +581,36 @@ export function terminalPresentationEnv(
 /** Known coding-agent CLIs; overridable via PI_IDE_EXTERNAL_CLIS (tests). */
 export const DEFAULT_AGENT_CLIS = ['claude', 'codex'] as const;
 
+/** One canonical Adapter id and the executable/process names that identify it.
+ * Keeping these separate matters for CLIs such as `cursor-agent`, whose
+ * executable name is not the product's stable Adapter id (`cursor`). */
+export interface AgentCliIdentity {
+  id: string;
+  aliases: readonly string[];
+}
+
+export type AgentCliRegistration = string | AgentCliIdentity;
+
+function normalizeAgentCliRegistrations(registrations: readonly AgentCliRegistration[]): {
+  clis: string[];
+  canonicalByCli: Map<string, string>;
+} {
+  const canonicalByCli = new Map<string, string>();
+  for (const registration of registrations) {
+    const id = (typeof registration === 'string' ? registration : registration.id)
+      .trim()
+      .toLowerCase();
+    if (!id) continue;
+    const aliases =
+      typeof registration === 'string' ? [registration] : [id, ...registration.aliases];
+    for (const aliasValue of aliases) {
+      const alias = aliasValue.trim().toLowerCase();
+      if (alias) canonicalByCli.set(alias, id);
+    }
+  }
+  return { clis: [...canonicalByCli.keys()], canonicalByCli };
+}
+
 function basename(p: string): string {
   const clean = p.split('\\').join('/');
   return clean.slice(clean.lastIndexOf('/') + 1);
@@ -643,7 +760,7 @@ export function findAgentInTable(
 
 export interface TerminalManagerOptions {
   /** Agent CLI names to detect (ADR-0017); default claude/codex. */
-  agentClis?: readonly string[];
+  agentClis?: readonly AgentCliRegistration[];
   /** Foreground-process poll interval; 0 disables polling (tests drive pollOnce). */
   agentPollMs?: number;
   /** ADR-0021: resolved at spawn time so a settings flip applies to the next terminal. */
@@ -765,6 +882,7 @@ class PtyBackend implements TerminalBackend {
 /** User terminal sessions (separate security domain from agent commands, TERM-005). */
 export class TerminalManager {
   private readonly sessions = new Map<string, Session>();
+  private readonly activeTranscriptReads = new Map<string, ActiveTranscriptRead>();
   private readonly createdListeners = new Set<
     (info: { terminal: TerminalInfo; cols: number; rows: number }) => void
   >();
@@ -780,7 +898,8 @@ export class TerminalManager {
   private readonly agentListeners = new Set<
     (info: { id: string; agent: string | null; cwd: string }) => void
   >();
-  private readonly agentClis: readonly string[];
+  private agentClis: readonly string[];
+  private canonicalAgentByCli = new Map<string, string>();
   private readonly readTitle: (session: { backend: TerminalBackend; pty?: IPty }) => string;
   private readonly readTable: () => ProcessTableEntry[] | null;
   private readonly shellIntegration: (() => ShellIntegrationConfig | null) | null;
@@ -799,13 +918,16 @@ export class TerminalManager {
     private readonly onExit: (id: string, exitCode: number) => void,
     options: TerminalManagerOptions = {},
   ) {
-    this.agentClis =
+    const configuredAgentClis =
       options.agentClis ??
       (process.env.PI_IDE_EXTERNAL_CLIS
         ? process.env.PI_IDE_EXTERNAL_CLIS.split(',')
             .map((s) => s.trim().toLowerCase())
             .filter(Boolean)
         : DEFAULT_AGENT_CLIS);
+    const normalizedAgents = normalizeAgentCliRegistrations(configuredAgentClis);
+    this.agentClis = normalizedAgents.clis;
+    this.canonicalAgentByCli = normalizedAgents.canonicalByCli;
     this.readTitle = options.readTitle ?? ((s) => s.backend.processTitle() ?? '');
     this.asyncProcessTable = options.readProcessTable === undefined;
     this.readTable = options.readProcessTable ?? (() => this.cachedProcessTable);
@@ -877,6 +999,20 @@ export class TerminalManager {
     return () => this.exitListeners.delete(listener);
   }
 
+  /** Refresh declarative Agent ids after a user Pack is enabled or disabled.
+   * Running PTYs are not restarted; the next bounded process sample adopts the
+   * new detection set. */
+  setAgentClis(agentClis: readonly AgentCliRegistration[]): void {
+    const normalized = normalizeAgentCliRegistrations(agentClis);
+    this.agentClis = normalized.clis;
+    this.canonicalAgentByCli = normalized.canonicalByCli;
+    this.pollOnce();
+  }
+
+  private canonicalAgent(agent: string): string | null {
+    return this.canonicalAgentByCli.get(agent.trim().toLowerCase()) ?? null;
+  }
+
   private emitData(id: string, data: string, sequence?: number): void {
     const session = this.sessions.get(id);
     if (session) {
@@ -897,8 +1033,8 @@ export class TerminalManager {
    * table, so the SSH service owns this explicit detection edge. */
   declareKnownAgent(id: string, agent: string): boolean {
     const session = this.sessions.get(id);
-    const normalized = agent.trim().toLowerCase();
-    if (!session || !this.agentClis.includes(normalized)) return false;
+    const normalized = this.canonicalAgent(agent);
+    if (!session || !normalized) return false;
     if (session.knownAgent === normalized) return true;
     session.knownAgent = normalized;
     const change = session.tracker.update(normalized);
@@ -929,6 +1065,197 @@ export class TerminalManager {
     if (!session) return null;
     await new Promise<void>((resolve) => session.screen.write('', resolve));
     return screenText(session.screen, maxBytes);
+  }
+
+  /** Passive current viewport read. This never writes to the PTY or moves the TUI. */
+  async viewportText(
+    id: string,
+    options: { lines: number; unwrap: boolean; maxBytes: number },
+  ): Promise<{
+    content: string;
+    bytes: number;
+    totalBytes: number;
+    truncated: boolean;
+    capturedRows: number;
+    activeBuffer: 'normal' | 'alternate';
+  } | null> {
+    const session = this.sessions.get(id);
+    if (!session) return null;
+    await flushScreen(session.screen);
+    if (this.sessions.get(id) !== session) return null;
+    const snapshot = visibleScreenSnapshot(session.screen);
+    return {
+      ...snapshotRowsText(snapshot.rows, options),
+      capturedRows: snapshot.rows.length,
+      activeBuffer: session.screen.buffer.active.type,
+    };
+  }
+
+  /**
+   * Explicit alternate-screen transcript traversal. Its synthetic wheel input
+   * bypasses ordinary input events; every real input/resize preempts the lease.
+   */
+  async transcriptText(
+    id: string,
+    options: {
+      lines: number;
+      unwrap: boolean;
+      maxBytes: number;
+      signal?: AbortSignal;
+      /** Deterministic test seam; product callers use Herdr-derived defaults. */
+      timing?: Partial<TerminalTranscriptTiming>;
+    },
+  ): Promise<TerminalTranscriptReadResult> {
+    const session = this.sessions.get(id);
+    if (!session) {
+      return {
+        ok: false,
+        reason: 'terminal_unavailable',
+        restoreAttempted: false,
+        restored: false,
+      };
+    }
+    if (this.activeTranscriptReads.has(id)) {
+      return {
+        ok: false,
+        reason: 'read_in_progress',
+        restoreAttempted: false,
+        restored: false,
+      };
+    }
+    await flushScreen(session.screen);
+    if (this.sessions.get(id) !== session) {
+      return {
+        ok: false,
+        reason: 'terminal_unavailable',
+        restoreAttempted: false,
+        restored: false,
+      };
+    }
+    if (session.screen.buffer.active.type !== 'alternate') {
+      return {
+        ok: false,
+        reason: 'not_alternate_screen',
+        restoreAttempted: false,
+        restored: false,
+      };
+    }
+    const initial = visibleScreenSnapshot(session.screen);
+    if (options.lines <= initial.rows.length) {
+      return {
+        ok: true,
+        ...snapshotRowsText(initial.rows, options),
+        capturedRows: initial.rows.length,
+        reachedTop: false,
+        restored: true,
+      };
+    }
+    if (
+      session.screen.modes.mouseTrackingMode === 'none' ||
+      session.mouseEncoding.mode === 'sgr-pixels'
+    ) {
+      return {
+        ok: false,
+        reason: 'mouse_reporting_unavailable',
+        restoreAttempted: false,
+        restored: false,
+      };
+    }
+
+    let interruptedBy: string | null = options.signal?.aborted ? 'cancelled' : null;
+    let emergencyRestore: Parameters<AlternateScreenTranscriptDriver['setEmergencyRestore']>[0] =
+      null;
+    const wheelBytes = (
+      direction: TranscriptWheelDirection,
+      events: number,
+      snapshot: TerminalScreenSnapshot,
+    ): string | null => {
+      if (this.sessions.get(id) !== session || events < 1) return null;
+      if (session.screen.modes.mouseTrackingMode === 'none') return null;
+      const encoded = encodeTranscriptWheel(direction, snapshot, session.mouseEncoding.mode);
+      return encoded ? encoded.repeat(events) : null;
+    };
+    const sendWheelImmediate = (
+      direction: TranscriptWheelDirection,
+      events: number,
+      snapshot: TerminalScreenSnapshot,
+    ): boolean => {
+      const bytes = wheelBytes(direction, events, snapshot);
+      if (!bytes) return false;
+      try {
+        session.backend.write(bytes);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const sendWheel: AlternateScreenTranscriptDriver['sendWheel'] = async (
+      direction,
+      events,
+      snapshot,
+    ) => {
+      const bytes = wheelBytes(direction, events, snapshot);
+      if (!bytes) return false;
+      try {
+        if (session.backend.writeAccepted) {
+          const accepted = await session.backend.writeAccepted(bytes);
+          return accepted && this.sessions.get(id) === session;
+        }
+        session.backend.write(bytes);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const active: ActiveTranscriptRead = {
+      interrupt: (reason) => {
+        if (interruptedBy) return;
+        interruptedBy = reason;
+        const plan = emergencyRestore;
+        emergencyRestore = null;
+        if (plan) sendWheelImmediate(plan.direction, plan.events, plan.snapshot);
+      },
+    };
+    const onAbort = (): void => active.interrupt('cancelled');
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    this.activeTranscriptReads.set(id, active);
+    const driver: AlternateScreenTranscriptDriver = {
+      snapshot: async () => {
+        if (this.sessions.get(id) !== session) return null;
+        await flushScreen(session.screen);
+        if (
+          this.sessions.get(id) !== session ||
+          session.screen.buffer.active.type !== 'alternate'
+        ) {
+          return null;
+        }
+        return visibleScreenSnapshot(session.screen);
+      },
+      sendWheel,
+      interruptedBy: () => interruptedBy,
+      setEmergencyRestore: (plan) => {
+        emergencyRestore = plan;
+      },
+    };
+    try {
+      if (interruptedBy) {
+        return {
+          ok: false,
+          reason: 'interrupted',
+          interruptedBy,
+          restoreAttempted: false,
+          restored: false,
+        };
+      }
+      return await readAlternateScreenTranscript(driver, initial, options);
+    } finally {
+      options.signal?.removeEventListener('abort', onAbort);
+      if (this.activeTranscriptReads.get(id) === active) this.activeTranscriptReads.delete(id);
+    }
+  }
+
+  private interruptTranscriptRead(id: string, reason: string): void {
+    this.activeTranscriptReads.get(id)?.interrupt(reason);
   }
 
   /** One detection sample across all sessions (interval-driven; public for tests). */
@@ -969,6 +1296,7 @@ export class TerminalManager {
           const pid = session.backend.processId?.() ?? session.info.pid;
           if (table && pid > 0) match = findAgentInTable(table, pid, this.agentClis);
         }
+        if (match) match = this.canonicalAgent(match);
       } catch {
         match = null; // a dying pty reads as "no agent"
       }
@@ -1125,32 +1453,39 @@ export class TerminalManager {
   ): TerminalInfo {
     const tracker = new AgentStateTracker();
     if (knownAgent) tracker.update(knownAgent);
+    const mouseEncoding: MouseEncodingState = { mode: 'default' };
     const session: Session = {
       info,
       backend,
       pty,
       tracker,
       recentData: new TerminalReplayBuffer(),
-      screen: newScreen(cols, rows, scrollback),
+      screen: newScreen(cols, rows, scrollback, mouseEncoding),
+      mouseEncoding,
       knownAgent,
     };
     backend.onData((data, sequence) => this.emitData(id, data, sequence));
     backend.onResync?.((replay, sequence) => {
       const liveSession = this.sessions.get(id);
       if (!liveSession) return;
+      this.interruptTranscriptRead(id, 'terminal_resync');
       liveSession.recentData.replace(replay);
+      const replacementMouseEncoding: MouseEncodingState = { mode: 'default' };
       const replacement = newScreen(
         liveSession.screen.cols,
         liveSession.screen.rows,
         liveSession.screen.options.scrollback ?? scrollback,
+        replacementMouseEncoding,
       );
       replacement.write(replay);
       liveSession.screen.dispose();
       liveSession.screen = replacement;
+      liveSession.mouseEncoding = replacementMouseEncoding;
       this.onResync?.(id, replay, sequence);
     });
     backend.onExit((exitCode) => {
       const liveSession = this.sessions.get(id);
+      this.interruptTranscriptRead(id, 'terminal_exited');
       this.sessions.delete(id);
       liveSession?.screen.dispose();
       this.fireAgentExitIfActive(id, liveSession);
@@ -1175,6 +1510,7 @@ export class TerminalManager {
   write(id: string, data: string, source: TerminalInputSource = 'host'): void {
     const session = this.sessions.get(id);
     if (!session) return;
+    this.interruptTranscriptRead(id, `${source}_input`);
     for (const listener of this.inputListeners) listener({ id, data });
     for (const listener of this.sourcedInputListeners) listener({ id, data, source });
     session.backend.write(data);
@@ -1187,6 +1523,7 @@ export class TerminalManager {
   ): Promise<boolean> {
     const session = this.sessions.get(id);
     if (!session) return false;
+    this.interruptTranscriptRead(id, `${source}_input`);
     for (const listener of this.inputListeners) listener({ id, data });
     for (const listener of this.sourcedInputListeners) listener({ id, data, source });
     if (session.backend.writeAccepted) return await session.backend.writeAccepted(data);
@@ -1209,6 +1546,7 @@ export class TerminalManager {
   changeContext(id: string, context: TerminalContextUpdate): TerminalInfo | null {
     const session = this.sessions.get(id);
     if (!session) return null;
+    this.interruptTranscriptRead(id, 'context_change');
     session.backend.write(`${terminalCwdCommand(session.info.shell, context.cwd)}\r`);
     Object.assign(session.info, context);
     session.backend.updateMetadata?.(session.info);
@@ -1219,8 +1557,9 @@ export class TerminalManager {
     if (cols < 2 || rows < 1 || cols > 1000 || rows > 500) return;
     const session = this.sessions.get(id);
     if (!session) return;
-    session?.backend.resize(cols, rows);
-    session?.screen.resize(cols, rows);
+    this.interruptTranscriptRead(id, 'resize');
+    session.backend.resize(cols, rows);
+    session.screen.resize(cols, rows);
     for (const listener of this.resizeListeners) listener({ id, cols, rows });
   }
 
@@ -1254,6 +1593,7 @@ export class TerminalManager {
   kill(id: string): void {
     const session = this.sessions.get(id);
     if (!session) return;
+    this.interruptTranscriptRead(id, 'terminal_killed');
     this.fireAgentExitIfActive(id, session);
     this.sessions.delete(id);
     session.screen.dispose();
@@ -1263,6 +1603,7 @@ export class TerminalManager {
   disposeAll(): void {
     for (const [id, session] of [...this.sessions]) {
       if (session.backend.persistent) {
+        this.interruptTranscriptRead(id, 'terminal_detached');
         session.backend.detach?.();
         session.screen.dispose();
         this.sessions.delete(id);

@@ -66,6 +66,12 @@ const ZH_CN = {
   'UI zoom': '界面缩放',
   'Whole window outside a focused terminal · terminal focus uses independent font zoom':
     '调整除聚焦终端外的整个窗口 · 聚焦终端使用独立字号缩放',
+  'When closing a window': '关闭窗口时',
+  'Applies while Agents, Missions, terminal jobs, or remote connections are still running.':
+    '当智能体、编排任务、终端作业或远程连接仍在运行时生效。',
+  'Ask what to do': '询问如何处理',
+  'Keep work running in background': '让工作在后台继续',
+  'Quit and stop all work': '退出并停止所有工作',
   'Rich Markdown by default': '默认使用富文本 Markdown',
   'Open .md files in the Notion-style editor (toggle per file on the tab)':
     '在 Notion 风格编辑器中打开 .md 文件（可在标签页中单独切换）',

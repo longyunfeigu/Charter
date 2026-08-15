@@ -325,11 +325,13 @@ test.describe('External Session identity and presence', () => {
         await expect(page.getByTestId('terminal-host').locator('.xterm')).toBeVisible({
           timeout: 15_000,
         });
-        await page.getByTestId('terminal-host').locator('.xterm').click();
-        await page.keyboard.type(join(bin, provider));
-        await page.keyboard.press('Enter');
         const terminalId = await page.getByTestId('terminal-host').getAttribute('data-terminal-id');
         expect(terminalId).toBeTruthy();
+        await typeTerminalCommand(page, join(bin, provider), {
+          terminalId: terminalId!,
+          xterm: page.getByTestId('terminal-host').locator('.xterm'),
+          timeout: 20_000,
+        });
         await waitForTerminalOutput(page, `observed-${provider}-ready`, {
           terminalId: terminalId!,
         });
@@ -339,6 +341,8 @@ test.describe('External Session identity and presence', () => {
         const row = page.getByTestId(`home-task-${task.id}`);
         await expect(row).toBeVisible();
         await expect(row).toHaveAttribute('data-working', 'false');
+        await expect(row).toHaveAttribute('data-agent-lifecycle', 'unknown');
+        await expect(row.locator('.sr-state')).toHaveText('Starting');
         await expect(row).not.toHaveAttribute('data-reply', 'true');
         await row.click();
         await expect(row).toHaveClass(/selected/);
@@ -392,7 +396,6 @@ test.describe('External Session identity and presence', () => {
         await page.locator('.toast button[aria-label="Dismiss"]').evaluateAll((buttons) => {
           for (const button of buttons) (button as HTMLButtonElement).click();
         });
-
         // Exercise the exact in-Session path from the report — ADR-0030: the
         // CLI's own input line is the room's only composer, so the turn is
         // typed straight into the session terminal. The host sees the
@@ -402,6 +405,11 @@ test.describe('External Session identity and presence', () => {
         await page.keyboard.type('finish this observed turn');
         await page.keyboard.press('Enter');
         await expect(row).toHaveAttribute('data-working', 'true');
+        await expect(row).toHaveAttribute('data-agent-lifecycle', 'working');
+        await expect(row.locator('.sr-state')).toHaveText('Working');
+        // Leave immediately after the accepted Enter edge so later terminal
+        // reads cannot race the unseen/seen boundary.
+        await page.getByTestId('task-room-back').click();
         await waitForTerminalOutput(page, 'observed-reply-start', {
           terminalId: task.external!.terminalId,
           timeout: 8_000,
@@ -411,9 +419,6 @@ test.describe('External Session identity and presence', () => {
         // the generic 1s quiet fallback used by title-less observed agents.
         await page.waitForTimeout(1_300);
         await expect(row).toHaveAttribute('data-working', 'true');
-        // Leave before the observed quiet-window edge: background Sessions
-        // announce completion, while an open Session owns its local status.
-        await page.getByTestId('task-room-back').click();
         await waitForTerminalOutput(page, 'observed-reply-complete', {
           terminalId: task.external!.terminalId,
           timeout: 10_000,
@@ -430,6 +435,16 @@ test.describe('External Session identity and presence', () => {
 
         await expect(row).toHaveAttribute('data-reply', 'true', { timeout: 8_000 });
         await expect(row).toHaveAttribute('data-working', 'false');
+        await expect(row).toHaveAttribute('data-agent-lifecycle', 'idle');
+        const hostPresence = await page.evaluate(async (terminalId) => {
+          const result = (await window.product.rpc['agentPresence.get']!({ terminalId })) as {
+            ok: boolean;
+            data?: { presence: { lifecycle: string; attention: string; stateChangeSeq: number } };
+          };
+          return result.data?.presence ?? null;
+        }, task.external!.terminalId);
+        expect(hostPresence?.attention).toBe('done');
+        await expect(row.locator('.sr-state')).toHaveText('Done');
         await expect(row).toHaveClass(/reply-shake/);
         await expect(row).toHaveCSS('animation-name', 'srAttentionFade');
         await expect(row).toHaveCSS('animation-duration', '1.2s');
@@ -473,6 +488,14 @@ test.describe('External Session identity and presence', () => {
         await notice.getByRole('button', { name: /Open Session/i }).click();
         await expect(page.getByTestId('task-room')).toHaveAttribute('data-task-id', task.id);
         await expect(row).toHaveClass(/selected/);
+        await page.getByTestId('rail-compact-close').click();
+        const presence = page.getByTestId(`agent-presence-${task.external!.terminalId}`);
+        await expect(presence).toHaveText('Ready');
+        await presence.click();
+        await expect(page.getByTestId('agent-presence-explain')).toContainText(
+          /Rule (osc_title_idle|observed_output_settled)/,
+        );
+        await expect(page.getByTestId('agent-presence-explain')).toContainText('manifest');
         expect(errors, errors.join('\n')).toEqual([]);
         await expect(page.locator('vite-error-overlay')).toHaveCount(0);
       } finally {

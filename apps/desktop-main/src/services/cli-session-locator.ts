@@ -49,12 +49,18 @@ const CODEX_META_READ_BYTES = 256 * 1024;
 
 export interface DiscoverInput {
   cli: string;
+  /** Adapter-selected implementation. Defaults to `cli` for compatibility
+   * with older callers and fixtures. */
+  connector?: string;
   /** The directory the CLI ran in (external.cwd), not the accounting root. */
   cwd: string;
   startedAtMs: number;
   endedAtMs: number;
   /** Test seam. */
   home?: string;
+  /** Adapter-resolved provider data directory. When present it takes
+   * precedence over provider-specific environment/default-home discovery. */
+  dataHome?: string;
   /** Test/backfill seam: Codex homes themselves, each containing `sessions/`. */
   codexHomes?: string[];
   /** Test seam for the Main process's inherited Codex home. */
@@ -83,7 +89,11 @@ async function newestInWindow(
 }
 
 async function discoverClaude(input: DiscoverInput): Promise<string | null> {
-  const dir = join(input.home ?? homedir(), '.claude', 'projects', claudeProjectDirName(input.cwd));
+  const dir = join(
+    input.dataHome ?? join(input.home ?? homedir(), '.claude'),
+    'projects',
+    claudeProjectDirName(input.cwd),
+  );
   const candidates: Candidate[] = [];
   for (const name of await readdir(dir)) {
     if (!name.endsWith('.jsonl')) continue;
@@ -169,6 +179,7 @@ async function discoverCodex(input: DiscoverInput): Promise<string | null> {
 const KIMI_INDEX_READ_BYTES = 4 * 1024 * 1024;
 
 function kimiHome(input: DiscoverInput): string {
+  if (input.dataHome) return resolve(input.dataHome);
   if (input.kimiHome) return resolve(input.kimiHome);
   if (!input.home && process.env.KIMI_CODE_HOME && isAbsolute(process.env.KIMI_CODE_HOME)) {
     return resolve(process.env.KIMI_CODE_HOME);
@@ -251,6 +262,7 @@ async function discoverKimi(input: DiscoverInput): Promise<string | null> {
  * the host conversation to a terminal session that started at the same time.
  */
 function codexHomeCandidates(input: DiscoverInput, includePrivateHostHome: boolean): string[] {
+  if (input.dataHome) return [resolve(input.dataHome)];
   if (input.codexHomes) return [...new Set(input.codexHomes.map((value) => resolve(value)))];
   const homes = [join(input.home ?? homedir(), '.codex')];
   const configuredHome =
@@ -350,11 +362,20 @@ export async function locateCodexSession(
  */
 export async function discoverCliSessionId(input: DiscoverInput): Promise<string | null> {
   try {
-    if (input.cli === 'claude') return await discoverClaude(input);
-    if (input.cli === 'codex') return await discoverCodex(input);
-    if (input.cli === 'kimi') return await discoverKimi(input);
-    return null;
+    const connector = SESSION_ID_CONNECTORS[input.connector ?? input.cli];
+    return connector ? await connector(input) : null;
   } catch {
     return null;
   }
 }
+
+/** Connector implementations are host code because they parse bounded native
+ * storage formats. The Adapter selects one by id; adding an Agent with no
+ * identity support needs no provider branch and simply declares none. */
+const SESSION_ID_CONNECTORS: Readonly<
+  Record<string, (input: DiscoverInput) => Promise<string | null>>
+> = {
+  claude: discoverClaude,
+  codex: discoverCodex,
+  kimi: discoverKimi,
+};

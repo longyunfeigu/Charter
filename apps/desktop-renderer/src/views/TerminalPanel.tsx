@@ -70,6 +70,7 @@ import {
 } from './external-terminal-lifecycle.js';
 import { showExternalFilePreview } from './ExternalFilePreview.js';
 import { agentDisplayName, useAgentCatalogStore } from '../store/agentCatalogStore.js';
+import { TerminalImagePasteButton } from './TerminalImagePasteButton.js';
 
 /** `shell` or an opaque Agent id from the detected Agent Catalog. */
 export type TerminalLaunch = string;
@@ -1831,6 +1832,7 @@ export function SessionBar({ terminalId }: { terminalId: string }): React.JSX.El
       >
         ⤢ Room
       </button>
+      {live ? <TerminalImagePasteButton terminalId={terminalId} className="tsb-btn" /> : null}
       {live ? (
         <button
           className="tsb-btn primary"

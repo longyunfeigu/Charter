@@ -34,7 +34,7 @@ export interface FakeSshOptions {
   shellBanner?: string;
   /** CLIs that the login-shell probe should report as installed. */
   installedClis?: string[];
-  /** Marker line printed when the shell receives an `exec claude` / `exec codex`. */
+  /** Marker line printed when the shell receives an installed Agent launch. */
   claudeMarker?: string;
   /** Seed the SFTP filesystem (defaults to a home dir with two entries). */
   fs?: MemFs;
@@ -264,8 +264,12 @@ export async function startFakeSshServer(opts: FakeSshOptions = {}): Promise<Fak
       channel.on('data', (data: Buffer) => {
         const text = data.toString('utf8');
         shellInput.push(text);
-        if (/exec\s+(claude|codex|kimi)/.test(text)) {
-          channel.write(`${claudeMarker}\r\n`);
+        if (
+          installed.some((cli) =>
+            new RegExp(`(?:^|\\s)exec\\s+${cli.replaceAll('.', '\\.')}(?:\\s|\\r|$)`).test(text),
+          )
+        ) {
+          channel.write(`\u001b[?2004h${claudeMarker}\r\n`);
         }
       });
     },

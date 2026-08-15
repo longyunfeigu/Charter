@@ -217,13 +217,12 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       });
       expect(managedMetadata?.remote?.workerSessionId).toMatch(/^rws_/);
 
-      // The first prompt and selected folder cross the SSH PTY as one quoted
-      // launch command; no local Agent process is involved.
+      // The manifest-owned launch argv and deferred Composer prompt both cross
+      // the SSH PTY; no local Agent process is involved.
       await expect
         .poll(() => sshd.shellInput.join(''), { timeout: 10000 })
-        .toContain(
-          "cd -- '/home/tester/docs' && exec claude 'Audit reconnects; don'\\''t touch local files'\r",
-        );
+        .toMatch(/cd -- '\/home\/tester\/docs' && exec claude '--session-id' '[0-9a-f-]{36}'\r/);
+      await expect.poll(() => sshd.shellInput.join(''), { timeout: 10000 }).toContain(prompt);
       await expect(page.getByTestId('external-terminal-host').locator('.xterm')).toBeVisible();
 
       // A remote write is collected by the Worker (not by a local fs watcher)
@@ -321,6 +320,14 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       // the desktop first to prove the durable task/Worker binding survives a
       // real main-process restart, including remote writes made while offline.
       await page.getByTestId('review-close').click();
+      const remoteSessionId = await page.evaluate(async (taskId) => {
+        const result = (await window.product.rpc['task.get']!({
+          taskId,
+          eventsAfter: 0,
+        })) as { data?: { task: { external: { sessionId: string | null } | null } } };
+        return result.data?.task.external?.sessionId ?? null;
+      }, remoteTaskId);
+      expect(remoteSessionId).toMatch(/^[0-9a-f-]{36}$/);
       await app.close();
       sshd.fs.writeFile(
         '/home/tester/docs/after-restart.txt',
@@ -337,9 +344,7 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       await acceptPrompts(page);
       await expect
         .poll(() => sshd.shellInput.join(''), { timeout: 15000 })
-        .toContain(
-          "cd -- '/home/tester/docs' && exec claude '--resume' '11111111-2222-4333-8444-555555555555'\r",
-        );
+        .toContain(`cd -- '/home/tester/docs' && exec claude '--resume' '${remoteSessionId}'\r`);
       await expect
         .poll(
           () =>
@@ -367,6 +372,102 @@ test.describe('SSH Remotes (ADR-0047)', () => {
           { timeout: 15000 },
         )
         .toContain('after-restart.txt');
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('official Pack probes and launches all five Agents with manifest-owned SSH commands', async () => {
+    test.setTimeout(120_000);
+    await sshd.close();
+    sshd = await startFakeSshServer({
+      password: 'e2e-password',
+      shellBanner: 'official-pack-sshd ready',
+      installedClis: ['gemini', 'opencode', 'copilot', 'cursor-agent', 'aider'],
+    });
+    sshd.fs.mkdirp('/home/tester/project');
+    const { app, page } = await launchApp({ home: 'keep' });
+    try {
+      await page.getByTestId('home-target').click();
+      await page.getByTestId('home-target-connect').click();
+      await page.getByTestId('rm-field-label').fill('official-agent-host');
+      await page.getByTestId('rm-field-host').fill('127.0.0.1');
+      await page.getByTestId('rm-field-port').fill(String(sshd.port));
+      await page.getByTestId('rm-field-username').fill('tester');
+      await page.getByTestId('rm-auth-password').click();
+      await page.getByTestId('rm-field-password').fill('e2e-password');
+      await page.getByTestId('rm-dialog-submit').click();
+      await acceptPrompts(page);
+      await expect(page.getByTestId('remote-setup-configure')).toBeVisible({ timeout: 20_000 });
+
+      for (const id of ['gemini', 'opencode', 'copilot', 'cursor', 'aider']) {
+        await expect(page.getByTestId(`remote-setup-agent-${id}`)).toContainText(
+          'Ready on this server',
+          { timeout: 20_000 },
+        );
+      }
+      await page.getByTestId('remote-worker-install').click();
+      await expect(page.getByTestId('remote-worker-section')).toContainText('Ready · v1.2.0', {
+        timeout: 15_000,
+      });
+      await page.getByTestId('remote-setup-browse').click();
+      await page.getByTestId('remote-folder-project').click();
+      await page
+        .getByTestId('remote-folder-browser')
+        .getByRole('button', { name: 'Use this folder' })
+        .click();
+      await page.getByTestId('remote-setup-agent-gemini').click();
+      await page.getByTestId('remote-setup-use').click();
+
+      const hostId = await page.evaluate(async () => {
+        const result = (await window.product.rpc['ssh.listHosts']!({})) as {
+          data?: { hosts: Array<{ id: string; label: string }> };
+        };
+        return result.data?.hosts.find((host) => host.label === 'official-agent-host')?.id ?? null;
+      });
+      expect(hostId).toBeTruthy();
+
+      const expectedLaunch: Record<string, string> = {
+        gemini:
+          "cd -- '/home/tester/project' && exec gemini '--prompt-interactive' 'ssh prompt gemini'\r",
+        opencode:
+          "cd -- '/home/tester/project' && exec opencode '--prompt' 'ssh prompt opencode'\r",
+        copilot: "cd -- '/home/tester/project' && exec copilot\r",
+        cursor: "cd -- '/home/tester/project' && exec cursor-agent 'ssh prompt cursor'\r",
+        aider: "cd -- '/home/tester/project' && exec aider\r",
+      };
+      for (const id of ['gemini', 'opencode', 'copilot', 'cursor', 'aider']) {
+        const prompt = `ssh prompt ${id}`;
+        const result = (await page.evaluate(
+          async ({ hostId: remoteHostId, launch, initialPrompt }) =>
+            window.product.rpc['terminal.create']!({
+              context: { kind: 'scratch' },
+              launch,
+              initialPrompt,
+              target: { kind: 'ssh', hostId: remoteHostId, workspaceKind: 'remote' },
+            }),
+          { hostId: hostId!, launch: id, initialPrompt: prompt },
+        )) as { ok: true; data: { id: string } } | { ok: false; error?: { userMessage?: string } };
+        if (!result.ok) throw new Error(result.error?.userMessage ?? `failed to launch ${id}`);
+        await expect
+          .poll(() => sshd.shellInput.join(''), { timeout: 15_000 })
+          .toContain(expectedLaunch[id]);
+        if (id === 'copilot' || id === 'aider') {
+          await expect.poll(() => sshd.shellInput.join(''), { timeout: 15_000 }).toContain(prompt);
+        }
+        const metadata = await page.evaluate(async (terminalId) => {
+          const listed = (await window.product.rpc['terminal.list']!({})) as {
+            data?: { items: Array<{ id: string; launch: string; persistence: string }> };
+          };
+          return listed.data?.items.find((terminal) => terminal.id === terminalId) ?? null;
+        }, result.data.id);
+        expect(metadata).toMatchObject({ launch: id, persistence: 'remote' });
+        await page.evaluate(
+          async (terminalId) =>
+            window.product.rpc['terminal.kill']!({ id: terminalId, force: true }),
+          result.data.id,
+        );
+      }
     } finally {
       await app.close();
     }
@@ -493,9 +594,12 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       ).toBe(false);
       await expect
         .poll(() => sshd.shellInput.join(''), { timeout: 10000 })
-        .toContain(
-          `cd -- '${localTask.root}' && exec claude 'Work remotely against my local project'\r`,
+        .toMatch(
+          new RegExp(`cd -- '${localTask.root}' && exec claude '--session-id' '[0-9a-f-]{36}'\\r`),
         );
+      await expect
+        .poll(() => sshd.shellInput.join(''), { timeout: 10000 })
+        .toContain('Work remotely against my local project');
 
       // Files remains the real local ProjectTree in this mode, while the
       // generated remote execution root is kept out of product navigation.

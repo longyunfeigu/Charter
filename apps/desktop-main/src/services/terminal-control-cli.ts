@@ -14,7 +14,7 @@ export type TerminalControlCliInvocation =
   | { kind: 'call'; name: string; input: Record<string, unknown> };
 
 export const TERMINAL_CONTROL_CLI_USAGE =
-  'Usage: charter orchestration <COMMAND> [--request-file FILE|--request-json JSON] [--dry-run] [--json]\n       charter orchestration <COMMAND> --help [--json]\n       charter-terminal <list|create|send|wait|read|kill> [arguments]';
+  'Usage: charter orchestration <COMMAND> [--request-file FILE|--request-json JSON] [--dry-run] [--json]\n       charter orchestration <COMMAND> --help [--json]\n       charter-terminal <list|create|send|wait|read|kill> [arguments]\n       charter-terminal agent <status|explain|result|read|wait|prompt> <SESSION> [arguments]';
 
 export interface OrchestrationCliHelp {
   command: string | null;
@@ -197,6 +197,78 @@ export function parseTerminalControlCli(args: string[]): TerminalControlCliInvoc
   }
   const command = args[0]!;
   if (command === 'help') return { kind: 'help' };
+  if (command === 'agent') {
+    const action = args[1];
+    if (!action || !['status', 'explain', 'result', 'read', 'wait', 'prompt'].includes(action)) {
+      return { kind: 'error', message: `Unknown Agent command: ${action ?? ''}`.trim() };
+    }
+    const id = args[2];
+    if (!id) return { kind: 'error', message: `agent ${action} requires a Session name or id.` };
+    if (action === 'status' || action === 'explain') {
+      return { kind: 'call', name: `agent_${action}`, input: { id } };
+    }
+    if (action === 'result') {
+      return {
+        kind: 'call',
+        name: 'agent_result',
+        input: {
+          id,
+          ...(option(args, '--max-bytes') ? { maxBytes: Number(option(args, '--max-bytes')) } : {}),
+        },
+      };
+    }
+    if (action === 'read') {
+      return {
+        kind: 'call',
+        name: 'agent_read',
+        input: {
+          id,
+          mode: option(args, '--mode') ?? 'screen',
+          ...(option(args, '--lines') ? { lines: Number(option(args, '--lines')) } : {}),
+          ...(option(args, '--max-bytes') ? { maxBytes: Number(option(args, '--max-bytes')) } : {}),
+          unwrap: !args.includes('--no-unwrap'),
+        },
+      };
+    }
+    if (action === 'wait') {
+      const until = option(args, '--until');
+      return {
+        kind: 'call',
+        name: 'agent_wait',
+        input: {
+          id,
+          ...(until
+            ? {
+                until: until
+                  .split(',')
+                  .map((item) => item.trim())
+                  .filter(Boolean),
+              }
+            : {}),
+          ...(option(args, '--timeout-ms')
+            ? { timeoutMs: Number(option(args, '--timeout-ms')) }
+            : {}),
+          ...(option(args, '--after-seq') ? { afterSeq: Number(option(args, '--after-seq')) } : {}),
+          ...(option(args, '--identity-seq')
+            ? { identitySeq: Number(option(args, '--identity-seq')) }
+            : {}),
+        },
+      };
+    }
+    const text = args[3];
+    if (!text) return { kind: 'error', message: 'agent prompt requires non-empty text.' };
+    return {
+      kind: 'call',
+      name: 'agent_prompt',
+      input: {
+        id,
+        text,
+        ...(option(args, '--timeout-ms')
+          ? { timeoutMs: Number(option(args, '--timeout-ms')) }
+          : {}),
+      },
+    };
+  }
   if (command === 'list') return { kind: 'call', name: 'terminal_list', input: {} };
   if (command === 'create') {
     return {

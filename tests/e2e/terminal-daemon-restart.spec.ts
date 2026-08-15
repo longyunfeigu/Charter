@@ -171,7 +171,13 @@ test.describe('daemon-backed terminal recovery', () => {
 
       const sequenceBeforeCancel =
         (await terminalPtySnapshot(second.page)).sequences[terminalId!] ?? 0;
-      const restoredXterm = second.page.locator('.xterm').last();
+      // A fresh shell can be created alongside daemon-restored sessions while
+      // the renderer is booting. Select by the PTY identity under test instead
+      // of depending on whichever xterm happened to mount last.
+      await second.page.getByTestId(`terminal-tab-${terminalId}`).click();
+      const restoredHost = second.page.getByTestId('terminal-host');
+      await expect(restoredHost).toHaveAttribute('data-terminal-id', terminalId!);
+      const restoredXterm = restoredHost.locator('.xterm');
       await restoredXterm.click();
       await expect(restoredXterm.locator('.xterm-helper-textarea')).toBeFocused();
       await second.page.keyboard.press('Control+c');
@@ -180,6 +186,7 @@ test.describe('daemon-backed terminal recovery', () => {
       await waitForTerminalSequenceAdvance(second.page, terminalId!, sequenceBeforeCancel);
       await typeTerminalCommand(second.page, "printf '\\033[?1049lAFTER_RESTART_INPUT_OK\\n'", {
         terminalId: terminalId!,
+        xterm: restoredXterm,
       });
       await waitForTerminalOutput(second.page, 'AFTER_RESTART_INPUT_OK', { terminalId });
 

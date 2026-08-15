@@ -24,3 +24,5 @@ export * from './ssh.js';
 export * from './updates.js';
 export * from './work-items.js';
 export * from './github.js';
+export * from './agent-presence.js';
+export * from './agent-verification.js';
