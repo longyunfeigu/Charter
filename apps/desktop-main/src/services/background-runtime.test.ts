@@ -3,6 +3,7 @@ import {
   backgroundActivity,
   backgroundActivityLines,
   backgroundTrayTitle,
+  rendererCrashAction,
   windowCloseAction,
 } from './background-runtime.js';
 
@@ -61,5 +62,25 @@ describe('background runtime close policy', () => {
     expect(windowCloseAction('ask', activity)).toBe('ask');
     expect(windowCloseAction('quit', activity)).toBe('ask');
     expect(windowCloseAction('keep-running', activity)).toBe('keep-running');
+  });
+});
+
+describe('renderer crash recovery policy', () => {
+  it('reloads in place for isolated crashes', () => {
+    expect(rendererCrashAction([1000], 1000).action).toBe('reload');
+    expect(rendererCrashAction([0, 30_000], 30_000).action).toBe('reload');
+  });
+
+  it('escalates to asking only on a crash loop (3+ within the window)', () => {
+    const now = 60_000;
+    expect(rendererCrashAction([now - 50_000, now - 20_000, now], now).action).toBe('ask');
+  });
+
+  it('forgets crashes older than the loop window', () => {
+    const now = 200_000;
+    // Two stale crashes + one fresh: not a loop.
+    const verdict = rendererCrashAction([1000, 2000, now], now);
+    expect(verdict.action).toBe('reload');
+    expect(verdict.recentCrashes).toEqual([now]);
   });
 });

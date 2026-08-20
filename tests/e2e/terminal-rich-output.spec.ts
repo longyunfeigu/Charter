@@ -58,9 +58,8 @@ test.describe('rich agent terminal output', () => {
       );
 
       const fileUri = `file://${join(fixture, 'rich-output.md')}`;
-      const filePath = join(fixture, 'rich-output.md');
       const tableCommand =
-        `printf '\\033[1mUpdate\\033[0m(\\033[4m${filePath}\\033[0m)\\n` +
+        `printf '\\033[2J\\033[H\\033[1mUpdate\\033[0m(\\033[4mrich-output.md\\033[0m)\\n` +
         `\\033[90m\\033]8;;${fileUri}\\007rich-output.md\\033]8;;\\007 after-link\\033[0m\\n` +
         `┌────────────────┬────────────────┐\\n` +
         `│ 文件           │ 作用           │\\n` +
@@ -79,7 +78,7 @@ test.describe('rich agent terminal output', () => {
         rows.filter({ hasText: '└────────────────┴────────────────┘' }).last(),
       ).toBeVisible();
 
-      const claudeRow = rows.filter({ hasText: /^Update\(.+rich-output\.md\)$/ }).last();
+      const claudeRow = rows.filter({ hasText: /^Update\(rich-output\.md\)$/ }).last();
       await expect(claudeRow).toBeVisible();
       const claudePathColors = await claudeRow
         .locator('span')

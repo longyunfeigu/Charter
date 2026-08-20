@@ -121,6 +121,16 @@ function sha(content: Buffer | string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
+/** Inline patches are display sugar — the truth is the before/after blobs.
+ * An oversized generated diff (lockfiles, build output, minified bundles) is
+ * stored as null, the same shape binary changes already use, so one giant
+ * file cannot bloat app.db by megabytes per observation. */
+export const MAX_STORED_PATCH_BYTES = 1_048_576;
+function boundedPatch(patch: string | null): string | null {
+  if (patch !== null && Buffer.byteLength(patch, 'utf8') > MAX_STORED_PATCH_BYTES) return null;
+  return patch;
+}
+
 function chgError(
   code: string,
   userMessage: string,
@@ -259,13 +269,15 @@ export class ChangeService {
 
     let patch: string | null = null;
     if (!(beforeBytes && detectBinary(beforeBytes)) && !(afterBytes && detectBinary(afterBytes))) {
-      patch = createTwoFilesPatch(
-        relativePath,
-        relativePath,
-        beforeBytes?.toString('utf8') ?? '',
-        afterBytes?.toString('utf8') ?? '',
-        '',
-        '',
+      patch = boundedPatch(
+        createTwoFilesPatch(
+          relativePath,
+          relativePath,
+          beforeBytes?.toString('utf8') ?? '',
+          afterBytes?.toString('utf8') ?? '',
+          '',
+          '',
+        ),
       );
     }
 
@@ -396,6 +408,7 @@ export class ChangeService {
     const afterHash = sha(next);
     await this.blobs.put(Buffer.from(next, 'utf8'));
     const stored = createTwoFilesPatch(input.path, input.path, current.content, next, '', '');
+    // Stats come from the full diff; only the stored copy is bounded.
     const stats = countDiff(stored);
     this.repo.recordChange({
       id: newId('chg'),
@@ -405,7 +418,7 @@ export class ChangeService {
       kind: 'modified',
       beforeHash: current.hash,
       afterHash,
-      patch: stored,
+      patch: boundedPatch(stored),
       renameTo: null,
       author: 'agent',
       createdAt: new Date().toISOString(),
@@ -475,7 +488,7 @@ export class ChangeService {
       kind: 'created',
       beforeHash: null,
       afterHash,
-      patch: createTwoFilesPatch(input.path, input.path, '', input.content, '', ''),
+      patch: boundedPatch(createTwoFilesPatch(input.path, input.path, '', input.content, '', '')),
       renameTo: null,
       author: 'agent',
       createdAt: new Date().toISOString(),

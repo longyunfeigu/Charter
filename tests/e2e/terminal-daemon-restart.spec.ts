@@ -149,7 +149,12 @@ test.describe('daemon-backed terminal recovery', () => {
         env: environment,
       });
       secondApp = second.app;
-      await second.page.keyboard.press('Control+`');
+      // Layout state is durable across a Main restart. If the first window
+      // closed with the terminal dock open, the restored window may already
+      // show it; blindly toggling would close the very surface under test.
+      const restoredPanel = second.page.getByTestId('terminal-panel');
+      if (!(await restoredPanel.isVisible())) await second.page.keyboard.press('Control+`');
+      await expect(restoredPanel).toBeVisible();
       await expect(second.page.getByTestId(`terminal-tab-${terminalId}`)).toBeVisible({
         timeout: 15_000,
       });

@@ -44,4 +44,39 @@ test.describe('zh-CN chrome vs identifiers', () => {
       await app.close();
     }
   });
+
+  test('the work capture page translates its section chrome', async () => {
+    const { app, page } = await launchApp({ env: { PI_IDE_FORCE_MOCK: '1' }, home: 'keep' });
+    try {
+      await page.getByTestId('home-settings').click();
+      await page.getByTestId('settings-section-general').click();
+      await page.getByTestId('settings-locale').selectOption('zh-CN');
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('home-view')).toBeVisible({ timeout: 15000 });
+
+      await page.getByTestId('rail-view-work').click();
+      await page.getByTestId('work-new-item').click();
+      const workPage = page.getByTestId('work-item-page');
+      await expect(workPage).toBeVisible();
+
+      // Reported leftovers: the outcome/background sections stayed English
+      // while their neighbours translated. Headings and placeholders must
+      // localize through the chrome layer.
+      await expect(workPage).toContainText('结果 / 请求');
+      await expect(workPage).toContainText('背景与上下文');
+      await expect(workPage).not.toContainText('Outcome / request');
+      await expect(workPage).not.toContainText('Background and context');
+      await expect(page.getByTestId('work-description')).toHaveAttribute(
+        'placeholder',
+        '这件事完成时，什么应当成立？',
+      );
+      await expect(page.getByTestId('work-background')).toHaveAttribute(
+        'placeholder',
+        '为什么是现在、相关历史、约束、链接和已做出的决定',
+      );
+      await expect(workPage).toContainText('附件与链接');
+    } finally {
+      await app.close();
+    }
+  });
 });

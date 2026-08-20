@@ -229,6 +229,64 @@ describe('SshSftpService', () => {
     await expect(service.delete('h1', '/home/u/big', 'dir')).rejects.toThrow(/2000/);
   });
 
+  it('panel close never tears down a channel that still carries a running transfer', async () => {
+    const fake = fakeSession();
+    let releaseDownload!: () => void;
+    const gate = new Promise<void>((resolve) => (releaseDownload = resolve));
+    fake.session.download = async (_remotePath, _localPath, opts) => {
+      await gate; // a big file: the transfer outlives the Files panel
+      if (opts?.signal?.aborted) throw new Error('aborted');
+      opts?.onProgress?.(100, 100);
+    };
+    const events: SftpTransferState[] = [];
+    const service = new SshSftpService({
+      openSession: async () => fake.session,
+      chooseSavePath: async (name) => `/tmp/${name}`,
+      emit: (state) => events.push(state),
+      logger: silentLogger,
+      closeGraceMs: 5,
+    });
+    fake.nodes.set('/home/u/big.bin', { type: 'file', data: 'x'.repeat(64) });
+
+    const id = await service.download('h1', '/home/u/big.bin', 'big.bin');
+    expect(id).toBeTruthy();
+    // The user leaves the Files panel mid-transfer.
+    await service.close('h1');
+    await new Promise((resolve) => setTimeout(resolve, 40)); // grace elapses
+    expect(fake.closed()).toBe(false); // channel survives — the transfer owns it
+
+    releaseDownload();
+    await vi.waitFor(() => expect(events.at(-1)?.status).toBe('done'));
+  });
+
+  it('closeAll (app quit) still aborts running transfers and closes channels', async () => {
+    const fake = fakeSession();
+    let sawAbort = false;
+    fake.session.download = async (_remotePath, _localPath, opts) => {
+      await new Promise<void>((_resolve, reject) => {
+        const fail = (): void => {
+          sawAbort = true;
+          reject(new Error('aborted'));
+        };
+        if (opts?.signal?.aborted) return fail();
+        opts?.signal?.addEventListener('abort', fail);
+      });
+    };
+    const events: SftpTransferState[] = [];
+    const service = new SshSftpService({
+      openSession: async () => fake.session,
+      chooseSavePath: async (name) => `/tmp/${name}`,
+      emit: (state) => events.push(state),
+      logger: silentLogger,
+    });
+    fake.nodes.set('/home/u/big.bin', { type: 'file', data: 'x'.repeat(64) });
+    await service.download('h1', '/home/u/big.bin', 'big.bin');
+    service.closeAll();
+    await vi.waitFor(() => expect(fake.closed()).toBe(true));
+    await vi.waitFor(() => expect(sawAbort).toBe(true));
+    await vi.waitFor(() => expect(events.at(-1)?.status).toBe('canceled'));
+  });
+
   it('close() tears the session down after the grace window', async () => {
     const { service, fake } = makeService({ closeGraceMs: 20 });
     await service.home('h1');

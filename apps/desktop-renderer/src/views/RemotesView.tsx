@@ -495,7 +495,7 @@ export function RemotesView(): React.JSX.Element {
                     <Ic name="terminal" size={13} />
                     <span>
                       <strong>{session.title}</strong>
-                      <small>{session.cwd || host.remoteWorkdir || '~'}</small>
+                      <small>{session.liveCwd ?? (session.cwd || host.remoteWorkdir || '~')}</small>
                     </span>
                     <em>Live</em>
                     <Ic name="chevron" size={11} />

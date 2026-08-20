@@ -11,7 +11,6 @@ import { ProjectToolView } from './ProjectToolView.js';
 import { ArchaeologyView } from './ArchaeologyView.js';
 import { ProjectCenterView } from './ProjectCenterView.js';
 import { RemotesView } from './RemotesView.js';
-import { RemoteInspector } from './RemoteInspector.js';
 import { useTerminalStore } from './TerminalPanel.js';
 import { FileLens } from './FileLens.js';
 import { NewProjectDialog } from './NewProjectDialog.js';
@@ -100,16 +99,11 @@ export function HomeShell(): React.JSX.Element {
       <div className="hm-content">
         <SessionRoomPool activeTaskId={roomSurfaceVisible ? taskRoomTaskId : null} />
         {remotesOpen ? (
-          <div className="rm-workspace">
-            <div className="rm-workspace-main">
-              {sessionTerminalId ? (
-                <SessionTerminalView key={sessionTerminalId} terminalId={sessionTerminalId} />
-              ) : (
-                <RemotesView />
-              )}
-            </div>
-            <RemoteInspector />
-          </div>
+          sessionTerminalId ? (
+            <SessionTerminalView key={sessionTerminalId} terminalId={sessionTerminalId} />
+          ) : (
+            <RemotesView />
+          )
         ) : sessionTerminalId ? (
           <SessionTerminalView key={sessionTerminalId} terminalId={sessionTerminalId} />
         ) : missionCenter ? (

@@ -24,6 +24,8 @@ export interface FakeSshServer {
   dropConnections(): void;
   /** Gracefully end only the most recently opened shell channel. */
   closeLatestShell(): void;
+  /** Write raw bytes out of the most recent shell (e.g. an OSC 7 cwd report). */
+  writeToLatestShell(text: string): void;
   close(): Promise<void>;
 }
 
@@ -38,6 +40,10 @@ export interface FakeSshOptions {
   claudeMarker?: string;
   /** Seed the SFTP filesystem (defaults to a home dir with two entries). */
   fs?: MemFs;
+  /** ADR-0059: when set, the shell answers the app's cwd-sync injection
+   * (`__charter_cwd`) with an OSC 7 report for this directory — what a real
+   * bash/zsh would do on its next prompt. */
+  cwdReport?: string;
 }
 
 export async function startFakeSshServer(opts: FakeSshOptions = {}): Promise<FakeSshServer> {
@@ -45,7 +51,11 @@ export async function startFakeSshServer(opts: FakeSshOptions = {}): Promise<Fak
   const installed = opts.installedClis ?? ['claude', 'codex'];
   const claudeMarker = opts.claudeMarker ?? 'REMOTE-CLI-STARTED';
   const fs = opts.fs ?? new MemFs('/home/tester');
-  const shellChannels: Array<{ exit(code: number): void; end(): void }> = [];
+  const shellChannels: Array<{
+    exit(code: number): void;
+    end(): void;
+    write(data: string): void;
+  }> = [];
   const shellInput: string[] = [];
 
   const execReplies: Record<string, string> = {};
@@ -264,6 +274,11 @@ export async function startFakeSshServer(opts: FakeSshOptions = {}): Promise<Fak
       channel.on('data', (data: Buffer) => {
         const text = data.toString('utf8');
         shellInput.push(text);
+        // ADR-0059: a real bash/zsh would run the injected hook at its next
+        // prompt; the fake shell answers the injection with the OSC 7 report.
+        if (opts.cwdReport && text.includes('__charter_cwd')) {
+          channel.write(`\u001b]7;file://fake${opts.cwdReport}\u001b\\`);
+        }
         if (
           installed.some((cli) =>
             new RegExp(`(?:^|\\s)exec\\s+${cli.replaceAll('.', '\\.')}(?:\\s|\\r|$)`).test(text),
@@ -288,6 +303,9 @@ export async function startFakeSshServer(opts: FakeSshOptions = {}): Promise<Fak
       const channel = shellChannels.at(-1);
       channel?.exit(0);
       channel?.end();
+    },
+    writeToLatestShell(text: string) {
+      shellChannels.at(-1)?.write(text);
     },
     close: () => server.close(),
   };

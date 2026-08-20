@@ -67,6 +67,31 @@ export function remoteCliProbeCommand(cli: string): string {
 }
 
 /**
+ * ADR-0059 — remote cwd sync. One line typed into a plain remote shell that
+ * hooks the prompt (zsh precmd / bash PROMPT_COMMAND) to emit OSC 7
+ * (`ESC ]7;file://host/path ESC \`) so the renderer always knows the shell's
+ * live working directory (drop-upload target, Files drawer follow).
+ *
+ * Constraints that shaped it:
+ * - It runs in whatever login shell the server gives us, so it must be a
+ *   bash/zsh polyglot and degrade to a silent no-op elsewhere (POSIX sh has
+ *   neither hook; the guard clauses make the whole line vanish).
+ * - It is visibly echoed once at the first prompt — same tradeoff VS Code and
+ *   iTerm2 accept for typed integration. The leading space keeps it out of
+ *   history on HISTCONTROL/HIST_IGNORE_SPACE setups.
+ * - `%s` printf of "$PWD" needs no URL-encoding: the renderer parses our own
+ *   emission and splits on the authority's first `/`, so raw paths round-trip.
+ */
+export function remoteCwdSyncSequence(): string {
+  // zsh's array append is a parse error in POSIX shells, and a parse error
+  // aborts the whole line before its 2>/dev/null takes effect — so the
+  // zsh-only syntax ships inside an eval string that only zsh ever parses.
+  const zsh = `__charter_cwd(){ builtin printf '\\e]7;file://%s%s\\e\\\\' "$HOST" "$PWD"; }; eval 'precmd_functions+=(__charter_cwd)'; __charter_cwd`;
+  const bash = `__charter_cwd(){ builtin printf '\\e]7;file://%s%s\\e\\\\' "$HOSTNAME" "$PWD"; }; PROMPT_COMMAND="__charter_cwd\${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; __charter_cwd`;
+  return ` { if [ -n "$ZSH_VERSION" ]; then ${zsh}; elif [ -n "$BASH_VERSION" ]; then ${bash}; fi; } 2>/dev/null\r`;
+}
+
+/**
  * The keystrokes that start a remote CLI in an already-open login shell.
  * `exec` replaces the shell so the CLI owns the channel — quitting it ends the
  * session, matching the local direct-launch semantics (knownAgent-until-exit).

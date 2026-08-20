@@ -160,6 +160,9 @@ export const SettingsSchema = z.object({
       keepaliveSeconds: z.number().int().min(0).max(600).default(30),
       /** Auto-reconnect the transport with exponential backoff on drops. */
       autoReconnect: z.boolean().default(true),
+      /** ADR-0059: inject a one-line prompt hook into plain remote shells so
+       * they report their cwd via OSC 7 (live target for drops/Files drawer). */
+      cwdSync: z.boolean().default(true),
     })
     .prefault({}),
 });

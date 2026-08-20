@@ -1,5 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { GithubAuthStatusDto, TaskDto, WorkItemDto } from '@pi-ide/ipc-contracts';
+import type {
+  GithubAuthStatusDto,
+  OutcomeContractSummary,
+  TaskDto,
+  WorkItemDto,
+} from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
 import { useAppStore } from '../store/appStore.js';
 import { useWorkItemStore } from '../store/workItemStore.js';
@@ -152,6 +157,7 @@ function ItemList(props: { items: WorkItemDto[]; now: number }): React.JSX.Eleme
 /** Attention rows: sessions needing a decision + fired work reminders. */
 function AttentionList(props: {
   tasks: TaskDto[];
+  contracts: OutcomeContractSummary[];
   now: number;
   query: string;
   onClear(): void;
@@ -165,7 +171,13 @@ function AttentionList(props: {
   const reminders = attentionItems(snapshot).filter(
     (item) => !query || item.title.toLowerCase().includes(query),
   );
-  if (tasks.length === 0 && reminders.length === 0) {
+  const contracts = props.contracts.flatMap((contract) => {
+    if (contract.subjectKind !== 'work_item' || contract.lifecycle === 'draft') return [];
+    const item = snapshot.items.find((candidate) => candidate.id === contract.subjectId);
+    if (!item || (query && !item.title.toLowerCase().includes(query))) return [];
+    return [{ contract, item }];
+  });
+  if (tasks.length === 0 && reminders.length === 0 && contracts.length === 0) {
     return <div className="sr-empty">Nothing needs you right now.</div>;
   }
   return (
@@ -189,6 +201,21 @@ function AttentionList(props: {
           meta={`${presentedMeta(task).short} · ${task.external?.cli ?? 'Charter Agent'}`}
           selected={selection?.kind === 'task' && selection.id === task.id}
           onSelect={() => useForYouStore.getState().selectTask(task.id)}
+        />
+      ))}
+      {contracts.map(({ contract, item }) => (
+        <Row
+          key={`outcome:${contract.id}`}
+          id={contract.id}
+          testid={`fy-outcome-${contract.id}`}
+          source={isExternalItem(item) ? 'github' : 'charter'}
+          refLine="Acceptance contract"
+          time={relativeTime(contract.updatedAt, props.now)}
+          title={item.title}
+          status={contract.lifecycle === 'verified' ? 'review' : 'blocked'}
+          meta={`${contract.blockingPassed}/${contract.blockingTotal} verified · ${contract.acceptanceState}`}
+          selected={selection?.kind === 'item' && selection.id === item.id}
+          onSelect={() => void useForYouStore.getState().selectItem(item.id)}
         />
       ))}
       {reminders.map((item) => (
@@ -222,6 +249,7 @@ export function ForYouRail(props: {
   const source = useForYouStore((state) => state.source);
   const importOpen = useForYouStore((state) => state.importOpen);
   const [auth, setAuth] = useState<GithubAuthStatusDto | null>(null);
+  const [outcomeContracts, setOutcomeContracts] = useState<OutcomeContractSummary[]>([]);
 
   useEffect(() => initWorkItems(), [initWorkItems]);
   useEffect(() => {
@@ -229,6 +257,11 @@ export function ForYouRail(props: {
       if (result.ok) setAuth(result.data);
     });
   }, [importOpen]);
+  useEffect(() => {
+    void rpcResult('outcomes.summaries', {}).then((result) => {
+      if (result.ok) setOutcomeContracts(result.data.contracts);
+    });
+  }, [tab, snapshot]);
 
   const incoming = useMemo(() => incomingItems(snapshot), [snapshot]);
   const review = useMemo(() => reviewItems(snapshot), [snapshot]);
@@ -252,7 +285,12 @@ export function ForYouRail(props: {
     });
 
   const counts: Record<ForYouTab, number> = {
-    attention: props.attentionTasks.length + reminderCount,
+    attention:
+      props.attentionTasks.length +
+      reminderCount +
+      outcomeContracts.filter(
+        (contract) => contract.subjectKind === 'work_item' && contract.lifecycle !== 'draft',
+      ).length,
     incoming: incoming.length,
     review: review.length,
   };
@@ -349,6 +387,7 @@ export function ForYouRail(props: {
         {tab === 'attention' ? (
           <AttentionList
             tasks={props.attentionTasks}
+            contracts={outcomeContracts}
             now={props.now}
             query={query}
             onClear={props.onClearAttention}

@@ -145,10 +145,13 @@ import { TerminalImagePasteService } from './services/terminal-image-paste-servi
 import { WorkItemService } from './services/work-item-service.js';
 import { registerWorkItemHandlers } from './ipc/work-item-handlers.js';
 import { registerGithubHandlers } from './ipc/github-handlers.js';
+import { OutcomeContractService } from './services/outcome-contract-service.js';
+import { registerOutcomeContractHandlers } from './ipc/outcome-contract-handlers.js';
 import {
   backgroundActivity,
   backgroundActivityLines,
   backgroundTrayTitle,
+  rendererCrashAction,
   windowCloseAction,
   type BackgroundActivitySnapshot,
 } from './services/background-runtime.js';
@@ -206,6 +209,7 @@ let agentPackServiceRef: AgentPackService | null = null;
 let terminalImagePasteRef: TerminalImagePasteService | null = null;
 let agentPackRuntimeRefreshRef: (() => void) | null = null;
 let workItemServiceRef: WorkItemService | null = null;
+let outcomeContractRef: OutcomeContractService | null = null;
 
 function refreshAgentPackIntegrations(): void {
   const registry = agentRegistryRef;
@@ -704,7 +708,14 @@ function createMainWindow(bootstrap: Bootstrap): BrowserWindow {
     });
   }
 
+  let rendererCrashTimes: number[] = [];
   win.webContents.on('render-process-gone', (_event, details) => {
+    // A clean renderer exit (normal teardown) is not a crash — never record or
+    // react to it. Everything else is fatal for the window's content.
+    if (details.reason === 'clean-exit') {
+      bootstrap.logger.info('renderer exited cleanly');
+      return;
+    }
     bootstrap.logger.error('renderer crashed', { reason: details.reason });
     bootstrap.state?.recordError(
       'renderer',
@@ -714,24 +725,36 @@ function createMainWindow(bootstrap: Bootstrap): BrowserWindow {
         context: { reason: details.reason },
       }),
     );
-    if (details.reason === 'clean-exit') return;
-    // E2E/soak (M10): recover without a blocking dialog — reload immediately.
-    if (process.env.PI_IDE_E2E) {
+    rendererCrashTimes.push(Date.now());
+    const verdict = rendererCrashAction(rendererCrashTimes, Date.now());
+    rendererCrashTimes = verdict.recentCrashes;
+    // Recover in place. A synchronous dialog here blocks the main-process
+    // event loop — no IPC, no repaint, a frozen window — which is worse than
+    // the crash itself. E2E/soak (M10) always reloads so tests never hang.
+    if (verdict.action === 'reload' || process.env.PI_IDE_E2E) {
       win.webContents.reload();
       return;
     }
-    const choice = dialog.showMessageBoxSync({
-      type: 'error',
-      buttons: ['Reload Window', 'Quit'],
-      defaultId: 0,
-      title: 'Window crashed',
-      message: 'The Charter window crashed. Your agent tasks and files on disk are unaffected.',
-    });
-    if (choice === 0) win.webContents.reload();
-    else {
-      forceQuit = true;
-      app.quit();
-    }
+    // Crash loop: reloading has not stuck. Ask asynchronously — main keeps
+    // servicing events (background agents, terminals) while the dialog is up.
+    void dialog
+      .showMessageBox(win, {
+        type: 'error',
+        buttons: ['Reload Window', 'Quit'],
+        defaultId: 0,
+        title: 'Window crashed',
+        message:
+          'The Charter window keeps crashing. Your agent tasks and files on disk are unaffected.',
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          rendererCrashTimes = [];
+          win.webContents.reload();
+        } else {
+          forceQuit = true;
+          app.quit();
+        }
+      });
   });
 
   win.on('closed', () => {
@@ -1587,6 +1610,15 @@ if (!gotLock) {
         agentSemanticControlRef,
       );
       taskServiceRef = taskService;
+      outcomeContractRef = new OutcomeContractService(state.db, logger.child('outcome-contracts'));
+      registerOutcomeContractHandlers(
+        outcomeContractRef,
+        taskService,
+        workItemServiceRef!,
+        agentRegistryRef,
+        agentSemanticControlRef,
+        logger.child('outcome-contract-ipc'),
+      );
       remoteWorkerRef.attachTaskLookup((taskId) => taskService.getTask(taskId));
       remoteWorkerRef.attachChangedPathLookup(async (taskId) =>
         (await taskService.changeSetForReview(taskId)).files.map((file) => ({
@@ -1803,6 +1835,7 @@ if (!gotLock) {
         logger.child('ipc'),
         artifactService,
         remoteWorkerRef,
+        outcomeContractRef,
       );
       registerM7Handlers(taskService, logger.child('ipc'));
       registerM8Handlers(taskService, logger.child('ipc'), remoteWorkerRef);
@@ -2194,6 +2227,7 @@ if (!gotLock) {
     backgroundTray = null;
     skillStoreRef?.dispose();
     workItemServiceRef?.dispose();
+    outcomeContractRef = null;
     updateServiceRef?.dispose();
     clipboardWatcherRef?.dispose();
     screenshotWatcherRef?.dispose();

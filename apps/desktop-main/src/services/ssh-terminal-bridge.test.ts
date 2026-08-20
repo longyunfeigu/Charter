@@ -1,6 +1,8 @@
+import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import {
   remoteCliProbeCommand,
+  remoteCwdSyncSequence,
   remoteLaunchSequence,
   shellSingleQuote,
 } from './ssh-terminal-bridge.js';
@@ -44,5 +46,48 @@ describe('remoteLaunchSequence', () => {
     expect(() => remoteLaunchSequence('gemini; touch /tmp/pwned', null)).toThrow(
       'unsupported characters',
     );
+  });
+});
+
+describe('remoteCwdSyncSequence (ADR-0059)', () => {
+  const line = remoteCwdSyncSequence();
+  const script = line.replace(/\r$/, '');
+  const shellAvailable = (shell: string): boolean =>
+    spawnSync('command', ['-v', shell], { shell: '/bin/sh' }).status === 0;
+
+  it('is one history-hygienic line that degrades silently', () => {
+    expect(line.startsWith(' ')).toBe(true); // HISTCONTROL/HIST_IGNORE_SPACE skip
+    expect(line.endsWith('\r')).toBe(true);
+    expect(line).not.toContain('\n');
+    expect(line).toContain('2>/dev/null');
+    expect(line).toContain('$ZSH_VERSION');
+    expect(line).toContain('$BASH_VERSION');
+  });
+
+  it.skipIf(!shellAvailable('bash'))('emits OSC 7 with the cwd in real bash', () => {
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8', cwd: '/tmp' });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(']7;file://');
+    // /tmp may resolve through a symlink (macOS /private/tmp) — match the tail.
+    expect(result.stdout).toMatch(/\]7;file:\/\/[^/]*\/.*tmp/);
+    // The hook must chain, not clobber, an existing PROMPT_COMMAND.
+    const chained = spawnSync(
+      'bash',
+      ['-c', `PROMPT_COMMAND='echo kept';${script}; eval "$PROMPT_COMMAND"`],
+      { encoding: 'utf8' },
+    );
+    expect(chained.stdout).toContain('kept');
+  });
+
+  it.skipIf(!shellAvailable('zsh'))('emits OSC 7 with the cwd in real zsh', () => {
+    const result = spawnSync('zsh', ['-c', script], { encoding: 'utf8', cwd: '/tmp' });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(']7;file://');
+  });
+
+  it.skipIf(!shellAvailable('dash'))('is a silent no-op in a plain POSIX shell', () => {
+    const result = spawnSync('dash', ['-c', script], { encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('');
   });
 });

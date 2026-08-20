@@ -11,6 +11,7 @@ import type { SettingsService } from '../services/settings-service.js';
 import type { ModelCatalogService } from '../services/model-catalog.js';
 import type { ArtifactService } from '../services/artifact-service.js';
 import type { RemoteWorkerService } from '../services/remote-worker-service.js';
+import type { OutcomeContractService } from '../services/outcome-contract-service.js';
 
 export function registerM6Handlers(
   tasks: TaskService,
@@ -21,6 +22,7 @@ export function registerM6Handlers(
   logger: Logger,
   artifacts?: ArtifactService,
   remoteWorker?: RemoteWorkerService | null,
+  outcomes?: OutcomeContractService | null,
 ): void {
   registerHandlers(
     {
@@ -133,6 +135,7 @@ export function registerM6Handlers(
         // must never have already removed its Worker baseline/workspace.
         const task = tasks.getTask(taskId);
         await tasks.deleteTask(taskId);
+        outcomes?.deleteForSubject('task', taskId);
         await remoteWorker?.destroyTask(taskId, task).catch((error) => {
           logger.warn('remote Worker cleanup skipped during Session deletion', {
             taskId,

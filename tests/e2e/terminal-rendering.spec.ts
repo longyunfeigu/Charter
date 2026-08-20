@@ -58,10 +58,29 @@ test.describe('terminal renderer and character widths', () => {
       );
       expect(
         await page.getByTestId('terminal-host').evaluate((host) => {
-          const style = getComputedStyle(host);
-          return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft];
+          const hostStyle = getComputedStyle(host);
+          const xterm = host.querySelector('.xterm');
+          if (!(xterm instanceof HTMLElement)) return null;
+          const xtermStyle = getComputedStyle(xterm);
+          return {
+            host: [
+              hostStyle.paddingTop,
+              hostStyle.paddingRight,
+              hostStyle.paddingBottom,
+              hostStyle.paddingLeft,
+            ],
+            xterm: [
+              xtermStyle.paddingTop,
+              xtermStyle.paddingRight,
+              xtermStyle.paddingBottom,
+              xtermStyle.paddingLeft,
+            ],
+          };
         }),
-      ).toEqual(['10px', '12px', '10px', '12px']);
+      ).toEqual({
+        host: ['0px', '0px', '0px', '0px'],
+        xterm: ['10px', '12px', '10px', '12px'],
+      });
       expect(
         await page.getByTestId('terminal-host').evaluate((host) => {
           const parts = [

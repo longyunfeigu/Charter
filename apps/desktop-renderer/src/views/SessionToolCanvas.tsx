@@ -31,6 +31,7 @@ import {
   nextChangeIndex,
   type DiffLine,
 } from './accessible-diff.js';
+import { OutcomeContractPanel } from './OutcomeContractPanel.js';
 
 const NO_CANVAS_EVENTS: never[] = [];
 
@@ -51,6 +52,7 @@ const SESSION_TABS: Array<{ id: SessionTool; label: string; icon: string }> = [
   { id: 'diff', label: 'Diff', icon: 'file' },
   { id: 'preview', label: 'Output', icon: 'eye' },
   { id: 'terminal', label: 'Terminal', icon: 'terminal' },
+  { id: 'acceptance', label: 'Acceptance', icon: 'check' },
   { id: 'review', label: 'Review', icon: 'check' },
 ];
 
@@ -71,6 +73,11 @@ export function SessionToolCanvas(props: {
   const tool = useAppStore((state) => state.sessionTool);
   const open = useAppStore((state) => state.sessionToolsOpen);
   const expanded = useAppStore((state) => state.sessionToolExpanded);
+  const manualSplit = useAppStore((state) => state.sessionSplit[task.id]);
+  // Diff may request the expanded stop while an exact hand-dragged ratio is
+  // still in force. In that case the button is an explicit "use expanded
+  // stop" action, not a misleading "Balance" action.
+  const expandedStopActive = expanded && manualSplit === undefined;
   const tablistRef = useRef<HTMLDivElement>(null);
   const running = RUNNING_TASK_STATES.has(task.state);
   const toolTabs =
@@ -196,21 +203,25 @@ export function SessionToolCanvas(props: {
           type="button"
           className="session-tool-expand"
           data-testid="session-tool-expand"
-          aria-pressed={expanded}
+          aria-pressed={tool === 'preview' ? expanded : expandedStopActive}
           title={
             tool === 'preview'
               ? expanded
                 ? 'Return to the conversation and compact Output'
                 : 'Open Output as a full Session workspace'
-              : expanded
+              : expandedStopActive
                 ? 'Restore balanced Session view'
                 : 'Give the tool canvas more room'
           }
           onClick={() => {
             // Output Focus temporarily covers the split, so the user's exact
             // conversation ratio can return unchanged with Back to Session.
-            if (tool !== 'preview') app.setSessionSplit(task.id, null);
-            app.setSessionToolExpanded(!expanded);
+            if (tool === 'preview') {
+              app.setSessionToolExpanded(!expanded);
+              return;
+            }
+            app.setSessionSplit(task.id, null);
+            app.setSessionToolExpanded(manualSplit === undefined ? !expanded : true);
           }}
         >
           <Ic name="layout" size={13} />
@@ -219,7 +230,7 @@ export function SessionToolCanvas(props: {
               ? expanded
                 ? 'Back to Session'
                 : 'Focus'
-              : expanded
+              : expandedStopActive
                 ? 'Balance'
                 : 'Expand'}
           </span>
@@ -257,6 +268,8 @@ export function SessionToolCanvas(props: {
           <RoomPreviewRail task={task} />
         ) : tool === 'terminal' ? (
           <SessionTerminalTool task={task} />
+        ) : tool === 'acceptance' ? (
+          <OutcomeContractPanel subjectKind="task" subjectId={task.id} surface="session" />
         ) : tool === 'review' ? (
           <SessionReviewSummary
             task={task}

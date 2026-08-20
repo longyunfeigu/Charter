@@ -1,0 +1,482 @@
+/* Remote session file transfer (ADR-0059) — drop veil, upload toast, Files
+   drawer. All colours from theme.css tokens; class prefix `rfl-`. The layer
+   mounts inside .stv-root, which becomes its positioning context. */
+
+.stv-root {
+  position: relative;
+}
+
+/* ── drop veil ─────────────────────────────────────────────────────────── */
+
+.rfl-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-editor) 82%, transparent);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+.rfl-veil-card {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: min(440px, 80%);
+  padding: 24px 26px 20px;
+  border: 1.5px dashed var(--border);
+  border-radius: 14px;
+  background: var(--bg-card);
+  box-shadow: 0 18px 50px color-mix(in srgb, var(--fg) 14%, transparent);
+  text-align: center;
+}
+.rfl-veil-icon {
+  color: var(--fg-muted);
+}
+.rfl-veil-card strong {
+  font: 600 15px var(--font-display);
+}
+.rfl-veil-card strong em {
+  font-style: normal;
+}
+.rfl-veil-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 12px var(--font-mono);
+  color: var(--fg-muted);
+}
+.rfl-veil-target b {
+  color: var(--fg);
+  font-weight: 600;
+}
+.rfl-live {
+  font: 700 8px var(--font-mono);
+  font-style: normal;
+  letter-spacing: 0.1em;
+  color: var(--ok, #3d7a4f);
+  border: 1px solid color-mix(in srgb, var(--ok, #3d7a4f) 35%, transparent);
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: color-mix(in srgb, var(--ok, #3d7a4f) 10%, transparent);
+}
+.rfl-veil-hints {
+  display: flex;
+  gap: 16px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--fg-faint);
+  font-size: 11.5px;
+}
+.rfl-veil-hints kbd {
+  font: 600 10px var(--font-mono);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: var(--bg-sidebar);
+}
+
+/* ── upload toast ──────────────────────────────────────────────────────── */
+
+.rfl-toast {
+  position: absolute;
+  right: 16px;
+  bottom: 44px;
+  z-index: 40;
+  width: 320px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  box-shadow: 0 14px 40px color-mix(in srgb, var(--fg) 16%, transparent);
+}
+.rfl-toast-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.rfl-toast-head strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.rfl-toast-state {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font: 700 11px var(--font-mono);
+  background: var(--bg-hover);
+  color: var(--fg-muted);
+}
+.rfl-toast-state.done {
+  background: color-mix(in srgb, var(--ok, #3d7a4f) 14%, transparent);
+  color: var(--ok, #3d7a4f);
+}
+.rfl-toast-state.failed {
+  background: color-mix(in srgb, var(--danger, #a33) 14%, transparent);
+  color: var(--danger, #a33);
+}
+.rfl-x {
+  border: none;
+  background: none;
+  color: var(--fg-faint);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px;
+}
+.rfl-x:hover {
+  color: var(--fg);
+}
+.rfl-toast-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 7px 0 6px;
+  font: 400 11px var(--font-mono);
+  color: var(--fg-faint);
+}
+.rfl-toast-meta span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rfl-bar {
+  height: 4px;
+  border-radius: 3px;
+  background: var(--border-soft);
+  overflow: hidden;
+}
+.rfl-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.18s linear;
+}
+.rfl-bar i.indeterminate {
+  width: 30%;
+  animation: rfl-indeterminate 1.2s ease-in-out infinite;
+}
+@keyframes rfl-indeterminate {
+  0% {
+    margin-left: 0;
+  }
+  50% {
+    margin-left: 70%;
+  }
+  100% {
+    margin-left: 0;
+  }
+}
+.rfl-toast-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+}
+.rfl-toast-actions button {
+  flex: 1;
+  padding: 5px 0;
+  font: 500 12px var(--font-ui);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-editor);
+  color: var(--fg);
+  cursor: pointer;
+}
+.rfl-toast-actions button:hover {
+  background: var(--bg-hover);
+}
+
+.rfl-note {
+  position: absolute;
+  right: 16px;
+  bottom: 44px;
+  z-index: 40;
+  max-width: 340px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-card);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--fg) 12%, transparent);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* ── Files drawer ──────────────────────────────────────────────────────── */
+
+.rfl-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  width: min(400px, 85%);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
+  box-shadow: -16px 0 40px color-mix(in srgb, var(--fg) 10%, transparent);
+  animation: rfl-slide-in 0.22s cubic-bezier(0.3, 0.9, 0.3, 1);
+}
+@keyframes rfl-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.rfl-drawer header {
+  flex: none;
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.rfl-drawer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-muted);
+}
+.rfl-drawer-title strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 13.5px var(--font-display);
+  color: var(--fg);
+}
+.rfl-drawer-title strong em {
+  font-style: normal;
+}
+.rfl-drawer-proto {
+  font: 600 9px var(--font-mono);
+  letter-spacing: 0.1em;
+  color: var(--fg-faint);
+}
+.rfl-drawer-pathrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rfl-drawer-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 11.5px var(--font-mono);
+  color: var(--fg-muted);
+}
+.rfl-follow {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font: 500 11px var(--font-ui);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-editor);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.rfl-follow.on {
+  color: var(--ok, #3d7a4f);
+  border-color: color-mix(in srgb, var(--ok, #3d7a4f) 35%, transparent);
+  background: color-mix(in srgb, var(--ok, #3d7a4f) 8%, transparent);
+}
+.rfl-drift {
+  flex: none;
+  padding: 3px 8px;
+  font: 500 11px var(--font-ui);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--fg);
+  cursor: pointer;
+}
+.rfl-pending {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-sidebar);
+  font-size: 12px;
+}
+.rfl-pending span {
+  flex: 1;
+  min-width: 0;
+}
+.rfl-pending button {
+  padding: 4px 10px;
+  font: 500 11.5px var(--font-ui);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  cursor: pointer;
+}
+.rfl-pending button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-card);
+}
+.rfl-error {
+  flex: none;
+  margin: 8px 14px 0;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger, #a33) 30%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--danger, #a33) 7%, transparent);
+  color: var(--fg);
+  font-size: 12px;
+}
+.rfl-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 8px;
+}
+.rfl-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 9px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  font-size: 12.5px;
+  color: var(--fg);
+  text-align: left;
+}
+.rfl-row:hover {
+  background: var(--bg-sidebar);
+}
+button.rfl-row {
+  cursor: pointer;
+}
+.rfl-row.up {
+  color: var(--fg-faint);
+  cursor: pointer;
+}
+.rfl-row-icon {
+  width: 16px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--fg-muted);
+}
+.rfl-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: none;
+  background: none;
+  padding: 0;
+  font: 400 12.5px var(--font-mono);
+  color: var(--fg);
+  text-align: left;
+}
+button.rfl-row-name {
+  cursor: pointer;
+}
+button.rfl-row-name:hover {
+  text-decoration: underline;
+}
+.rfl-row-size {
+  flex: none;
+  font: 400 10.5px var(--font-mono);
+  color: var(--fg-faint);
+}
+.rfl-row-actions {
+  display: none;
+  flex: none;
+  gap: 4px;
+}
+.rfl-row:hover .rfl-row-actions {
+  display: flex;
+}
+.rfl-row-actions button {
+  padding: 2px 8px;
+  font: 500 11px var(--font-ui);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.rfl-row-actions button:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+.rfl-empty {
+  padding: 22px 0;
+  text-align: center;
+  color: var(--fg-faint);
+  font-size: 12px;
+}
+.rfl-drawer footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.rfl-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font: 500 12px var(--font-ui);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-editor);
+  color: var(--fg);
+  cursor: pointer;
+}
+.rfl-upload:hover {
+  background: var(--bg-hover);
+}
+.rfl-upload:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.rfl-foot-hint {
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+
+/* ── live cwd chip marker (terminal session bar) ───────────────────────── */
+
+.tsb-cwd-live {
+  font: 700 8px var(--font-mono);
+  font-style: normal;
+  letter-spacing: 0.1em;
+  margin-left: 6px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: var(--ok, #3d7a4f);
+  border: 1px solid color-mix(in srgb, var(--ok, #3d7a4f) 35%, transparent);
+  background: color-mix(in srgb, var(--ok, #3d7a4f) 10%, transparent);
+}

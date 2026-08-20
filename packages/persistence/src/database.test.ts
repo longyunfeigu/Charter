@@ -124,7 +124,9 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+    expect(upgraded.appliedVersions).toEqual([
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+    ]);
     const names = (
       upgraded.db
         .prepare(
@@ -216,7 +218,7 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+    expect(upgraded.appliedVersions).toEqual([7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
     const status = (id: string) =>
       (
         upgraded.db
@@ -230,11 +232,11 @@ describe('persistence database', () => {
     upgraded.db.close();
   });
 
-  it('v9-v17 add normalized Missions, retention, and the long-lived Work domain', () => {
+  it('v9-v18 add normalized Missions, retention, Work, and Outcome Contracts', () => {
     const before = open(MIGRATIONS.slice(0, 8));
     before.db.close();
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17]);
+    expect(upgraded.appliedVersions).toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
     const names = (
       upgraded.db
         .prepare(
@@ -247,7 +249,7 @@ describe('persistence database', () => {
             'orchestration_resume_intents','deleted_external_sessions',
             'orchestration_conversations','orchestration_conversation_participants',
             'orchestration_action_requests','orchestration_action_resolutions',
-            'orchestration_incidents') ORDER BY name`,
+            'orchestration_incidents','outcome_contracts','outcome_contract_versions') ORDER BY name`,
         )
         .all() as { name: string }[]
     ).map((row) => row.name);
@@ -274,6 +276,8 @@ describe('persistence database', () => {
       'orchestration_resume_intents',
       'orchestration_runtime_events',
       'orchestration_runtime_sessions',
+      'outcome_contract_versions',
+      'outcome_contracts',
     ]);
     const messageColumns = (
       upgraded.db.prepare('PRAGMA table_info(orchestration_messages)').all() as Array<{
@@ -321,7 +325,7 @@ describe('persistence database', () => {
     before.db.close();
 
     const upgraded = open(MIGRATIONS);
-    expect(upgraded.appliedVersions).toEqual([16, 17]);
+    expect(upgraded.appliedVersions).toEqual([16, 17, 18]);
     expect(
       upgraded.db.prepare('SELECT column_id, version FROM work_items WHERE id = ?').get('work-1'),
     ).toEqual({ column_id: 'work-col-inbox', version: 4 });

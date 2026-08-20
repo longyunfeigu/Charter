@@ -55,7 +55,9 @@ test.describe('M11-05 accessibility', () => {
 
       // At browser/OS accessibility zoom beyond the product presets, the
       // primary composer action must remain inside the usable viewport.
-      await page.getByRole('button', { name: 'Close' }).click();
+      // Settings is a full-page route now; its stable Back control is locale
+      // neutral even when the machine's persisted UI language is Chinese.
+      await page.getByTestId('settings-back').click();
       await app.evaluate(({ BrowserWindow }) => {
         BrowserWindow.getAllWindows()[0]!.webContents.setZoomFactor(2);
       });

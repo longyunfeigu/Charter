@@ -29,6 +29,7 @@ import { agentDisplayName } from '../store/agentCatalogStore.js';
 import { useAgentPresenceStore } from '../store/agentPresenceStore.js';
 import { AgentPresenceBadge } from './AgentPresenceBadge.js';
 import { TerminalImagePasteButton } from './TerminalImagePasteButton.js';
+import { useRemoteFilesLayer } from './SessionRemoteFiles.js';
 
 function launchName(launch: string): string {
   return launch === 'shell' ? 'Terminal' : agentDisplayName(launch);
@@ -176,6 +177,32 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
   const [toolOpen, setToolOpen] = useState(() => defaultTools.open);
   const presence = useAgentPresenceStore((state) => state.byTerminal[terminalId]);
 
+  // ADR-0059: remote drop-to-upload + Files drawer. In a host-scoped manager
+  // the transfers target the active dock terminal (its live cwd), falling back
+  // to this route's terminal; an Agent session always targets itself.
+  const remoteFilesTarget = useTerminalStore((state) => {
+    const current = state.items.find((entry) => entry.id === terminalId);
+    if (!current?.remote) return null;
+    if (current.launch !== 'shell') return current;
+    const focused = state.items.find((entry) => entry.id === state.active);
+    if (
+      focused &&
+      focused.remote?.hostId === current.remote.hostId &&
+      !focused.hidden &&
+      !focused.exited
+    ) {
+      return focused;
+    }
+    if (!current.exited) return current;
+    return (
+      state.items.find(
+        (entry) =>
+          entry.remote?.hostId === current.remote?.hostId && !entry.hidden && !entry.exited,
+      ) ?? current
+    );
+  });
+  const remoteFiles = useRemoteFilesLayer(remoteFilesTarget);
+
   useEffect(() => useAgentPresenceStore.getState().init(), []);
   useEffect(() => {
     if (
@@ -245,6 +272,7 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
         data-testid="session-terminal-view"
         data-terminal-id={terminalId}
         data-terminal-scope={terminalScope}
+        {...remoteFiles.dragProps}
       >
         <header className="stv-header">
           <ProviderMark provider="shell" size={19} />
@@ -272,6 +300,16 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
             {managerEnded ? 'Ended' : 'Live'}
           </span>
           <span className="stv-spacer" />
+          {item.remote ? (
+            <button
+              className={remoteFiles.drawerOpen ? 'active' : ''}
+              data-testid="session-files"
+              title={`Browse files on ${item.remote.hostLabel} without leaving this session`}
+              onClick={remoteFiles.openDrawer}
+            >
+              <Ic name="folder" size={12} /> Files
+            </button>
+          ) : null}
           {remoteContext ? (
             <RemoteControls
               hostId={item.remote!.hostId}
@@ -332,6 +370,7 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
           <span className="stv-spacer" />
           <span>PTYs stay alive while you switch Sessions</span>
         </footer>
+        {remoteFiles.layer}
       </main>
     );
   }
@@ -349,6 +388,7 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
       data-terminal-id={terminalId}
       data-agent-state={lifecycle?.agent}
       data-terminal-state={lifecycle?.terminal}
+      {...remoteFiles.dragProps}
     >
       <header className="stv-header">
         <ProviderMark provider={item.launch === 'shell' ? 'shell' : item.launch} size={19} />
@@ -392,12 +432,22 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
         )}
         <span className="stv-spacer" />
         {item.remote ? (
-          <RemoteControls
-            hostId={item.remote.hostId}
-            hostLabel={item.remote.hostLabel}
-            launch={item.launch}
-            exited={item.exited}
-          />
+          <>
+            <button
+              className={remoteFiles.drawerOpen ? 'active' : ''}
+              data-testid="session-files"
+              title={`Browse files on ${item.remote.hostLabel} without leaving this session`}
+              onClick={remoteFiles.openDrawer}
+            >
+              <Ic name="folder" size={12} /> Files
+            </button>
+            <RemoteControls
+              hostId={item.remote.hostId}
+              hostLabel={item.remote.hostLabel}
+              launch={item.launch}
+              exited={item.exited}
+            />
+          </>
         ) : null}
         {!terminalReadOnly ? <TerminalImagePasteButton terminalId={terminalId} /> : null}
         <button
@@ -516,10 +566,11 @@ export function SessionTerminalView({ terminalId }: { terminalId: string }): Rea
           {lifecycle?.summary ??
             `${launchName(item.launch)} · ${item.exited ? 'process ended' : 'live session'}`}
         </span>
-        <span>{item.cwd}</span>
+        <span>{item.liveCwd ?? item.cwd}</span>
         <span className="stv-spacer" />
         <span>PTY remains alive while you edit, preview or switch Sessions</span>
       </footer>
+      {remoteFiles.layer}
     </main>
   );
 }

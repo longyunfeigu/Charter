@@ -24,7 +24,8 @@ import {
 export type OverlayKind = 'none' | 'diagnostics' | 'about';
 /** Contextual tools owned by the active Session. These replace the old
  * app-level workspace shell. */
-export type SessionTool = 'summary' | 'diff' | 'file' | 'preview' | 'terminal' | 'review';
+export type SessionTool =
+  'summary' | 'diff' | 'file' | 'preview' | 'terminal' | 'acceptance' | 'review';
 export type PreviewRailMode = 'artifact' | 'live';
 /** Historical V1 orchestration can still be opened programmatically while its
  * compatibility data is migrated. V2 Missions use their own product surface. */
@@ -1110,24 +1111,41 @@ export const useAppStore = create<AppStore>((set, get) => {
     },
 
     openTaskRoom(taskId) {
-      // The peek belongs to one room — entering a different task's room resets it.
-      const peek = get().peek;
+      // A Session's tool context belongs to that room. Reopening the same
+      // Session from Home/For You should restore the last tool, expansion,
+      // and peek that navigation history already captured. A different
+      // Session must still start clean so one task can never inherit another
+      // task's file or acceptance context.
+      const state = get();
+      const rememberedRoom =
+        state.taskRoomTaskId === taskId
+          ? captureNavigation()
+          : [...state.navigationBack, ...state.navigationForward]
+              .reverse()
+              .find((entry) => entry.taskRoomTaskId === taskId);
+      const rememberedPeek =
+        rememberedRoom?.peek?.taskId === taskId
+          ? { ...rememberedRoom.peek, paths: [...rememberedRoom.peek.paths] }
+          : null;
+      const rememberedPreviewTaskId = rememberedRoom?.previewRailTaskId === taskId ? taskId : null;
       navigate(() => {
         set({
           taskRoomTaskId: taskId,
           missionCenter: null,
           sessionRoomView: 'conversation',
           sessionTerminalId: null,
-          sessionTool: 'summary',
-          sessionToolsOpen: false,
-          sessionToolExpanded: false,
+          sessionTool: rememberedRoom?.sessionTool ?? 'summary',
+          sessionToolsOpen: rememberedRoom?.sessionToolsOpen ?? false,
+          sessionToolExpanded: rememberedRoom?.sessionToolExpanded ?? false,
+          peek: rememberedPeek,
+          previewRailTaskId: rememberedPreviewTaskId,
+          previewRailMode: rememberedRoom?.previewRailMode ?? 'live',
           projectTool: null,
           projectCenter: null,
           projectBottomTab: null,
           archaeology: null,
           remotesOpen: false,
           sessionNotices: get().sessionNotices.filter((notice) => notice.taskId !== taskId),
-          ...(peek && peek.taskId !== taskId ? { peek: null } : {}),
           ...crossRailPatch('sessions'),
         });
       });

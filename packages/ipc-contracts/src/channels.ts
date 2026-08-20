@@ -115,6 +115,19 @@ import {
   AgentVerificationRunSchema,
   AgentVerificationSnapshotSchema,
 } from './agent-verification.js';
+import {
+  OutcomeAcceptanceStateSchema,
+  OutcomeAgentRunSchema,
+  OutcomeClaimStatusSchema,
+  OutcomeContractDraftSchema,
+  OutcomeContractSchema,
+  OutcomeContractSummarySchema,
+  OutcomeContractVersionSchema,
+  OutcomeDomainPackSchema,
+  OutcomeDomainSchema,
+  OutcomeEvidenceDraftSchema,
+  OutcomeSubjectKindSchema,
+} from './outcome-contracts.js';
 
 const SettingsStateSchema = z.object({
   effective: SettingsSchema,
@@ -390,6 +403,198 @@ export const CHANNELS = {
     'agents.verification.export',
     1,
     z.object({}).strict(),
+    z.object({ markdownPath: z.string().nullable(), jsonPath: z.string().nullable() }).strict(),
+  ),
+  'outcomes.packs': ch(
+    'outcomes.packs',
+    1,
+    z.object({}).strict(),
+    z.object({ packs: z.array(OutcomeDomainPackSchema) }).strict(),
+  ),
+  'outcomes.summaries': ch(
+    'outcomes.summaries',
+    1,
+    z.object({}).strict(),
+    z.object({ contracts: z.array(OutcomeContractSummarySchema) }).strict(),
+  ),
+  'outcomes.get': ch(
+    'outcomes.get',
+    1,
+    z
+      .object({
+        subjectKind: OutcomeSubjectKindSchema,
+        subjectId: z.string().min(1).max(200),
+      })
+      .strict(),
+    z.object({ contract: OutcomeContractSchema }).strict(),
+  ),
+  'outcomes.history': ch(
+    'outcomes.history',
+    1,
+    z.object({ contractId: z.string().min(1).max(120) }).strict(),
+    z.object({ versions: z.array(OutcomeContractVersionSchema) }).strict(),
+  ),
+  'outcomes.updateDraft': ch(
+    'outcomes.updateDraft',
+    1,
+    z
+      .object({
+        contractId: z.string().min(1).max(120),
+        draft: OutcomeContractDraftSchema,
+        actor: z.string().trim().min(1).max(500).default('You'),
+      })
+      .strict(),
+    z.object({ contract: OutcomeContractSchema }).strict(),
+  ),
+  'outcomes.applyPack': ch(
+    'outcomes.applyPack',
+    1,
+    z
+      .object({
+        contractId: z.string().min(1).max(120),
+        domain: OutcomeDomainSchema,
+        actor: z.string().trim().min(1).max(500).default('You'),
+      })
+      .strict(),
+    z.object({ contract: OutcomeContractSchema }).strict(),
+  ),
+  'outcomes.freeze': ch(
+    'outcomes.freeze',
+    1,
+    z
+      .object({
+        contractId: z.string().min(1).max(120),
+        actor: z.string().trim().min(1).max(500).default('You'),
+      })
+      .strict(),
+    z.object({ contract: OutcomeContractSchema }).strict(),
+  ),
+  'outcomes.revise': ch(
+    'outcomes.revise',
+    1,
+    z
+      .object({
+        contractId: z.string().min(1).max(120),
+        actor: z.string().trim().min(1).max(500).default('You'),
+        reason: z.string().max(5_000).default(''),
+      })
+      .strict(),
+    z.object({ contract: OutcomeContractSchema }).strict(),
+  ),
+  'outcomes.observe': ch(
+    'outcomes.observe',
+    1,
+    z
+      .object({
+        contractId: z.string().min(1).max(120),
+        claimId: z.string().min(1).max(120),
+        value: z.string().max(20_000),
+        actor: z.string().trim().min(1).max(500).default('Charter'),
+        evidence: z.array(OutcomeEvidenceDraftSchema).max(20).default([]),
+      })
+      .strict(),
+    z.object({ contract: OutcomeContractSchema }).strict(),
+  ),
+  'outcomes.reviewClaim': ch(
+    'outcomes.reviewClaim',
+    1,
+    z
+      .object({
+        contractId: z.string().min(1).max(120),
+        claimId: z.string().min(1).max(120),
+        status: OutcomeClaimStatusSchema.exclude(['pending']),
+        actual: z.string().max(20_000),
+        note: z.string().max(20_000).default(''),
+        actor: z.string().trim().min(1).max(500),
+        evidence: z.array(OutcomeEvidenceDraftSchema).max(20).default([]),
+      })
+      .strict(),
+    z.object({ contract: OutcomeContractSchema }).strict(),
+  ),
+  'outcomes.runCommands': ch(
+    'outcomes.runCommands',
+    1,
+    z.object({ contractId: z.string().min(1).max(120) }).strict(),
+    z.object({ contract: OutcomeContractSchema, ran: z.number().int().nonnegative() }).strict(),
+  ),
+  'outcomes.agent.begin': ch(
+    'outcomes.agent.begin',
+    1,
+    z
+      .object({
+        contractId: z.string().min(1).max(120),
+        agentId: AgentIdSchema,
+        actor: z.string().trim().min(1).max(500).default('You'),
+      })
+      .strict(),
+    z
+      .object({
+        contract: OutcomeContractSchema,
+        run: OutcomeAgentRunSchema,
+        prompt: z.string().min(1).max(40_000),
+      })
+      .strict(),
+  ),
+  'outcomes.agent.attach': ch(
+    'outcomes.agent.attach',
+    1,
+    z
+      .object({
+        contractId: z.string().min(1).max(120),
+        runId: z.string().min(1).max(120),
+        terminalId: z.string().min(1).max(200),
+      })
+      .strict(),
+    z.object({ contract: OutcomeContractSchema }).strict(),
+  ),
+  'outcomes.agent.collect': ch(
+    'outcomes.agent.collect',
+    1,
+    z
+      .object({
+        contractId: z.string().min(1).max(120),
+        runId: z.string().min(1).max(120),
+      })
+      .strict(),
+    z
+      .object({
+        contract: OutcomeContractSchema,
+        collected: z.boolean(),
+        waiting: z.boolean(),
+      })
+      .strict(),
+  ),
+  'outcomes.agent.cancel': ch(
+    'outcomes.agent.cancel',
+    1,
+    z
+      .object({
+        contractId: z.string().min(1).max(120),
+        runId: z.string().min(1).max(120),
+        actor: z.string().trim().min(1).max(500).default('You'),
+      })
+      .strict(),
+    z.object({ contract: OutcomeContractSchema }).strict(),
+  ),
+  'outcomes.decide': ch(
+    'outcomes.decide',
+    1,
+    z
+      .object({
+        contractId: z.string().min(1).max(120),
+        decision: OutcomeAcceptanceStateSchema.exclude(['pending']),
+        actor: z.string().trim().min(1).max(500),
+        role: z.string().trim().min(1).max(500),
+        note: z.string().max(10_000).default(''),
+        override: z.boolean().default(false),
+      })
+      .strict(),
+    z.object({ contract: OutcomeContractSchema }).strict(),
+  ),
+  'outcomes.export': ch(
+    'outcomes.export',
+    1,
+    z.object({ contractId: z.string().min(1).max(120) }).strict(),
     z.object({ markdownPath: z.string().nullable(), jsonPath: z.string().nullable() }).strict(),
   ),
   'workItem.snapshot': ch(

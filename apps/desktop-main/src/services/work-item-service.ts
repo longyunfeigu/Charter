@@ -133,6 +133,22 @@ const DEFAULT_TYPES: Array<{
     ],
   },
   {
+    id: 'work-type-finance',
+    name: 'Finance',
+    icon: 'chart',
+    color: '#0f766e',
+    description: 'Reconciliation, close, controls, supporting records and accountable approval.',
+    fields: [
+      field('entity', 'Entity', 'text', true),
+      field('period', 'Period', 'text', true),
+      field('currency', 'Currency', 'text', true),
+      field('source_of_truth', 'Source of truth', 'text', true),
+      field('tolerance', 'Tolerance', 'number'),
+      field('performer', 'Performer', 'text'),
+      field('approval_owner', 'Approval owner', 'text', true),
+    ],
+  },
+  {
     id: 'work-type-engineering',
     name: 'Engineering',
     icon: 'terminal',

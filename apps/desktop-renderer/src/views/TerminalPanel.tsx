@@ -37,6 +37,7 @@ import { useTaskStore } from '../store/taskStore.js';
 import { useSshStore } from '../store/sshStore.js';
 import { useDraftStore } from '../store/draftStore.js';
 import { Ic } from './home-icons.js';
+import { parseOsc7Cwd } from './terminal-osc7.js';
 import { useQuickConsoleStore } from '../store/quickConsoleStore.js';
 import { TerminalBlocks, type BlocksHost, type TermBlock } from './terminal-blocks.js';
 import { TerminalUserInputTracker } from './terminal-input-provenance.js';
@@ -104,6 +105,9 @@ export interface TermInstance {
   blocks: TerminalBlocks;
   exited: boolean;
   cwd: string;
+  /** ADR-0059: live shell cwd from OSC 7 reports (remote cwd-sync hook or any
+   * emitting shell); null until the first report. Falls back to `cwd`. */
+  liveCwd: string | null;
   projectName: string;
   projectPath: string | null;
   contextKind: 'focused' | 'recent' | 'task' | 'scratch';
@@ -197,6 +201,8 @@ interface TerminalStore {
   confirmKill(id: string, confirmed: boolean): Promise<void>;
   rename(id: string, title: string): void;
   clearActive(): void;
+  /** ADR-0059: record an OSC 7 cwd report so chips/drop targets re-render. */
+  setLiveCwd(id: string, cwd: string): void;
   /** Returns false when focus is outside xterm so the caller can zoom the UI. */
   zoomFocused(direction: TerminalZoomDirection): boolean;
 }
@@ -821,7 +827,11 @@ export function applyTerminalAppearance(
   const element = item.term.element;
   const host = element?.parentElement;
   if (host) {
-    host.style.padding = `${paddingY}px ${paddingX}px`;
+    // FitAddon measures the host border box but subtracts padding from the
+    // xterm element itself. Padding the host made the row calculation too
+    // tall, so the final character row could extend below a narrow panel.
+    // Keep the same visual inset on xterm where FitAddon can account for it.
+    host.style.padding = '0';
     host.style.boxSizing = 'border-box';
     // xterm only paints complete character cells.  Without a matching host
     // surface, the unused edge of a light terminal exposes xterm's default
@@ -830,6 +840,8 @@ export function applyTerminalAppearance(
     host.dataset.terminalPadding = `${paddingX}x${paddingY}`;
   }
   if (element) {
+    element.style.padding = `${paddingY}px ${paddingX}px`;
+    element.style.boxSizing = 'border-box';
     element.style.backgroundColor = surfaceColor;
     element.dataset.terminalFontSize = String(fontSize);
     element.dataset.terminalFontWeight = String(fontWeight);
@@ -1109,6 +1121,13 @@ function createTermInstance(
     return blocks.handleOsc133(data);
   });
   term.parser.registerOscHandler(9, (data) => blocks.handleOsc9(data));
+  // ADR-0059: shells that announce their cwd keep the context chip, drop
+  // targets and the Files drawer pointed at the live directory.
+  term.parser.registerOscHandler(7, (data) => {
+    const cwd = parseOsc7Cwd(data);
+    if (cwd) useTerminalStore.getState().setLiveCwd(info.id, cwd);
+    return true;
+  });
   term.onKey(() => inputTracker.mark());
   term.onData((data) => {
     const paste = isRecentTerminalPaste(term);
@@ -1141,6 +1160,7 @@ function createTermInstance(
     fit,
     blocks,
     exited: false,
+    liveCwd: null,
     quick,
     currentInput: '',
     lastCommand: '',
@@ -1672,6 +1692,12 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     set({ items: get().items.map((t) => (t.id === id ? { ...t, title } : t)) });
   },
 
+  setLiveCwd(id, cwd) {
+    const item = get().items.find((t) => t.id === id);
+    if (!item || item.liveCwd === cwd) return;
+    set({ items: get().items.map((t) => (t.id === id ? { ...t, liveCwd: cwd } : t)) });
+  },
+
   clearActive() {
     const active = get().items.find((t) => t.id === get().active);
     active?.term.clear();
@@ -1718,14 +1744,20 @@ export function SessionBar({ terminalId }: { terminalId: string }): React.JSX.El
   const session = taskId ? sessions[taskId] : undefined;
   const task = taskId ? (tasks.find((entry) => entry.id === taskId) ?? null) : null;
   if (!item) return null;
-  const context = `${item.projectName} · context cwd ${compactTerminalPath(item.cwd)}`;
+  // ADR-0059: an OSC 7 report supersedes the host-set context directory.
+  const cwd = item.liveCwd ?? item.cwd;
+  const context = `${item.projectName} · context cwd ${compactTerminalPath(cwd)}`;
+  const cwdTitle = item.liveCwd
+    ? `Live shell cwd (reported by the shell): ${cwd}`
+    : `Host-set context cwd: ${item.cwd}`;
   if (!taskId) {
     return (
       <div className="term-session-bar shell" data-testid="terminal-context-bar">
         <Ic name="terminal" size={13} />
         <span className="tsb-shell-name">{item.title}</span>
-        <span className="tsb-context" title={`Host-set context cwd: ${item.cwd}`}>
+        <span className="tsb-context" data-testid="tsb-cwd" title={cwdTitle}>
           {context}
+          {item.liveCwd ? <i className="tsb-cwd-live">LIVE</i> : null}
         </span>
         <span className="tsb-sp" />
         <span
@@ -1774,8 +1806,9 @@ export function SessionBar({ terminalId }: { terminalId: string }): React.JSX.El
       >
         {task?.external?.remote ? 'REMOTE · Worker tracked' : 'EXT · unmanaged'}
       </span>
-      <span className="tsb-context" title={`Host-set context cwd: ${item.cwd}`}>
+      <span className="tsb-context" data-testid="tsb-cwd" title={cwdTitle}>
         {context}
+        {item.liveCwd ? <i className="tsb-cwd-live">LIVE</i> : null}
       </span>
       {live ? (
         <span key={files} className="tsb-files" data-testid="session-bar-files">
@@ -2451,8 +2484,9 @@ export function TerminalPanel({ scope = { kind: 'all' } }: TerminalPanelProps): 
     (scopedTerminalId
       ? (dockItems.find((terminal) => terminal.id === scopedTerminalId) ?? null)
       : null);
-  const showSessionList =
-    scope.kind === 'all' || (scope.kind === 'remote-host' && visibleItems.length > 1);
+  // Remote-host sessions are listed and switched in the Remote Explorer rail;
+  // only the global terminal manager needs its own session list.
+  const showSessionList = scope.kind === 'all';
 
   useEffect(() => {
     store.init();
@@ -2512,43 +2546,29 @@ export function TerminalPanel({ scope = { kind: 'all' } }: TerminalPanelProps): 
         ) : null}
       </div>
       {showSessionList ? (
-        <aside
-          className={`terminal-list ${scope.kind === 'remote-host' ? 'remote-scoped' : ''}`}
-          aria-label={
-            scope.kind === 'remote-host' ? `${scope.hostLabel} SSH sessions` : 'Terminal sessions'
-          }
-          data-testid={scope.kind === 'remote-host' ? 'ssh-session-switcher' : undefined}
-        >
-          {scope.kind === 'remote-host' ? (
-            <div className="terminal-scope-row" data-testid="ssh-session-switcher-heading">
-              <Ic name="server" size={13} />
-              <span>{scope.hostLabel} sessions</span>
-              <b>{visibleItems.length}</b>
-            </div>
-          ) : (
-            <div className="terminal-new-row">
-              <button
-                className="terminal-new-button"
-                data-testid="terminal-new"
-                disabled={!workspace}
-                title={
-                  workspace ? `Create a shell in ${workspace.displayName}` : 'Open a project first'
-                }
-                onClick={() => void store.create({ context: { kind: 'focused' }, launch: 'shell' })}
-              >
-                <Ic name="plus" size={14} /> New Terminal
-              </button>
-              <button
-                className="terminal-new-menu"
-                data-testid="terminal-new-menu"
-                title="Choose terminal type and working context"
-                aria-label="Choose terminal type and working context"
-                onClick={() => setNewTerminalOpen(true)}
-              >
-                <Ic name="chevron" size={14} />
-              </button>
-            </div>
-          )}
+        <aside className="terminal-list" aria-label="Terminal sessions">
+          <div className="terminal-new-row">
+            <button
+              className="terminal-new-button"
+              data-testid="terminal-new"
+              disabled={!workspace}
+              title={
+                workspace ? `Create a shell in ${workspace.displayName}` : 'Open a project first'
+              }
+              onClick={() => void store.create({ context: { kind: 'focused' }, launch: 'shell' })}
+            >
+              <Ic name="plus" size={14} /> New Terminal
+            </button>
+            <button
+              className="terminal-new-menu"
+              data-testid="terminal-new-menu"
+              title="Choose terminal type and working context"
+              aria-label="Choose terminal type and working context"
+              onClick={() => setNewTerminalOpen(true)}
+            >
+              <Ic name="chevron" size={14} />
+            </button>
+          </div>
           <div className="terminal-list-scroll">
             {visibleItems.map((terminal) => {
               const fallbackTask = tasks
@@ -2599,11 +2619,6 @@ export function TerminalPanel({ scope = { kind: 'all' } }: TerminalPanelProps): 
               const selected = inSide || (!promoted && dockActive);
               const taskLabel = task?.title ?? terminal.contextLabel;
               const activate = (): void => {
-                if (scope.kind === 'remote-host') {
-                  store.setActive(terminal.id);
-                  useAppStore.getState().openRemoteTerminalSession(terminal.id, scope.hostId);
-                  return;
-                }
                 // When the focus slot is already in use, the session list is a
                 // real switcher: clicking another live Agent atomically swaps
                 // the two existing PTYs. No tiny secondary action is required.

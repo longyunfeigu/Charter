@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>远端文件传输 · 交互 mockup</title>
+<style>
+  :root {
+    --font-ui: 'Iowan Old Style', 'Palatino Linotype', Georgia, 'Songti SC', serif;
+    --font-display: 'Charter', 'Iowan Old Style', Georgia, serif;
+    --font-mono: Menlo, Monaco, 'SF Mono', Consolas, monospace;
+    --bg-sidebar: #f6f5f1;
+    --bg-editor: #fbfaf7;
+    --bg-card: #ffffff;
+    --bg-hover: #e8e5de;
+    --border: #e5e1d8;
+    --border-soft: #edeae3;
+    --fg: #201e1a;
+    --fg-muted: #6e6a61;
+    --fg-faint: #a39e94;
+    --accent: #1b1a16;
+    --ok: #3d7a4f;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--font-ui);
+    background: #eceae4;
+    color: var(--fg);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── demo strip（非产品 UI，演示控件） ─────────────────── */
+  .demo-strip {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: #f2efe6;
+    border-bottom: 1px dashed #c9c2b2;
+    font-size: 13px;
+  }
+  .demo-strip .tag {
+    font: 600 9px var(--font-mono);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 3px 7px;
+    background: var(--bg-card);
+  }
+  .demo-strip button {
+    font: 500 12px var(--font-ui);
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg-card);
+    color: var(--fg);
+    cursor: pointer;
+  }
+  .demo-strip button:hover { background: var(--bg-hover); }
+  .file-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border: 1px solid #d8c4a3;
+    border-radius: 8px;
+    background: #fff8e9;
+    font: 500 12px var(--font-ui);
+    cursor: grab;
+    user-select: none;
+  }
+  .file-chip:active { cursor: grabbing; }
+  .file-chip .ico { font-size: 14px; }
+  .demo-note { margin-left: auto; color: var(--fg-faint); font-size: 12px; }
+
+  /* ── 产品复刻区 ───────────────────────────────────────── */
+  .app { flex: 1; display: flex; min-height: 0; }
+
+  .rail {
+    width: 260px;
+    flex: none;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+    padding: 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .rail .kicker {
+    font: 600 9px var(--font-mono);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+  }
+  .rail h1 { font: 600 15px var(--font-display); }
+  .rail .search {
+    height: 30px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--fg-faint);
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    gap: 7px;
+  }
+  .rail .sect {
+    font-size: 11px;
+    color: var(--fg-faint);
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+  }
+  .host-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 9px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .host-row .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
+  .host-row small { display: block; color: var(--fg-faint); font-size: 11px; }
+  .sess-row {
+    margin-left: 18px;
+    padding: 8px 10px;
+    border: 1px solid #cfe0d4;
+    background: #eef5f0;
+    border-radius: 8px;
+    font-size: 12.5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sess-row small { color: var(--fg-faint); }
+
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+
+  .sess-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-editor);
+  }
+  .sess-head .glyph {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    font: 700 13px var(--font-mono);
+  }
+  .sess-head .who strong { font: 600 14px var(--font-display); display: block; }
+  .sess-head .who small { color: var(--fg-muted); font: 400 11px var(--font-mono); }
+  .live {
+    display: inline-flex; align-items: center; gap: 5px;
+    color: var(--ok); font-size: 12px;
+  }
+  .live::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  .sess-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+  .sess-actions button {
+    font: 500 12.5px var(--font-ui);
+    padding: 6px 11px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--fg-muted);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sess-actions button:hover { background: var(--bg-hover); color: var(--fg); }
+  .sess-actions button.files-btn {
+    border-color: var(--border);
+    background: var(--bg-card);
+    color: var(--fg);
+  }
+  .badge-new {
+    font: 700 8px var(--font-mono);
+    letter-spacing: .08em;
+    background: #3d7a4f;
+    color: #fff;
+    border-radius: 4px;
+    padding: 2px 4px;
+  }
+
+  .ctx-bar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-editor);
+    font: 500 12px var(--font-mono);
+    color: var(--fg-muted);
+  }
+  .cwd-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    border-radius: 6px;
+    padding: 3px 9px;
+    transition: box-shadow .3s;
+  }
+  .cwd-chip .lbl { color: var(--fg-faint); }
+  .cwd-chip .val { color: var(--fg); }
+  .cwd-chip .livecwd {
+    font-size: 8px; font-weight: 700; letter-spacing: .1em;
+    color: var(--ok); border: 1px solid #cfe0d4; border-radius: 4px;
+    padding: 1px 4px; background: #eef5f0;
+  }
+  .cwd-chip.pulse { box-shadow: 0 0 0 3px #cfe0d4; }
+  .pty-tag { margin-left: auto; color: var(--fg-faint); font-size: 10px; letter-spacing: .1em; }
+
+  .term-wrap { flex: 1; min-height: 0; position: relative; }
+  .term {
+    height: 100%;
+    overflow-y: auto;
+    padding: 20px 26px 30px;
+    background: var(--bg-editor);
+    font: 400 13px/1.85 var(--font-mono);
+    color: #35322c;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .term .dim { color: var(--fg-faint); }
+  .term .p { color: #7a5f3f; }
+  .term .ok { color: var(--ok); }
+
+  /* ── A：拖拽上传浮层 ──────────────────────────────────── */
+  .drop-veil {
+    position: absolute;
+    inset: 0;
+    background: rgba(251, 250, 247, .82);
+    backdrop-filter: blur(2px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 30;
+  }
+  .drop-veil.on { display: flex; }
+  .drop-card {
+    width: 460px;
+    border: 1.5px dashed #b9b2a2;
+    border-radius: 14px;
+    background: var(--bg-card);
+    box-shadow: 0 18px 50px rgba(32, 30, 26, .14);
+    padding: 26px 28px 22px;
+    text-align: center;
+    pointer-events: none;
+  }
+  .drop-card .up { font-size: 26px; }
+  .drop-card h2 { font: 600 16px var(--font-display); margin: 8px 0 4px; }
+  .drop-card .target {
+    font: 500 12.5px var(--font-mono);
+    color: var(--fg-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  .drop-card .target b { color: var(--fg); font-weight: 600; }
+  .drop-card .hint {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-soft);
+    color: var(--fg-faint);
+    font-size: 11.5px;
+    display: flex;
+    justify-content: center;
+    gap: 18px;
+  }
+  kbd {
+    font: 600 10px var(--font-mono);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 1px 5px;
+    background: var(--bg-sidebar);
+  }
+
+  /* ── 进度 / 完成 toast ────────────────────────────────── */
+  .toast {
+    position: absolute;
+    right: 18px;
+    bottom: 18px;
+    width: 340px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-card);
+    box-shadow: 0 14px 40px rgba(32, 30, 26, .16);
+    padding: 14px 16px;
+    z-index: 40;
+    display: none;
+  }
+  .toast.on { display: block; }
+  .toast .row1 { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+  .toast .row1 .name { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toast .cancel { border: none; background: none; color: var(--fg-faint); cursor: pointer; font-size: 15px; }
+  .toast .meta { display: flex; justify-content: space-between; color: var(--fg-faint); font: 400 11px var(--font-mono); margin: 8px 0 6px; }
+  .toast .bar { height: 4px; border-radius: 3px; background: var(--border-soft); overflow: hidden; }
+  .toast .bar i { display: block; height: 100%; width: 0%; background: var(--accent); border-radius: 3px; transition: width .18s linear; }
+  .toast .done-actions { display: none; margin-top: 10px; gap: 8px; }
+  .toast.done .done-actions { display: flex; }
+  .toast.done .bar, .toast.done .meta { display: none; }
+  .toast .done-actions button {
+    flex: 1;
+    font: 500 12px var(--font-ui);
+    padding: 6px 0;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg-editor);
+    cursor: pointer;
+  }
+  .toast .done-actions button:hover { background: var(--bg-hover); }
+  .toast .okmark { color: var(--ok); font-size: 15px; }
+
+  /* ── B：文件抽屉 ──────────────────────────────────────── */
+  .drawer {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 480px;
+    background: var(--bg-card);
+    border-left: 1px solid var(--border);
+    box-shadow: -18px 0 44px rgba(32, 30, 26, .10);
+    transform: translateX(102%);
+    transition: transform .28s cubic-bezier(.3, .9, .3, 1);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+  }
+  .drawer.on { transform: translateX(0); }
+  .drawer header {
+    flex: none;
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border-soft);
+    display: grid;
+    gap: 9px;
+  }
+  .drawer .h-row { display: flex; align-items: center; gap: 8px; }
+  .drawer .h-row strong { font: 600 14px var(--font-display); flex: 1; }
+  .drawer .h-row small { color: var(--fg-faint); font: 400 11px var(--font-mono); }
+  .drawer .close { border: none; background: none; font-size: 17px; color: var(--fg-faint); cursor: pointer; }
+  .crumb-row { display: flex; align-items: center; gap: 8px; }
+  .crumbs {
+    flex: 1;
+    font: 500 12px var(--font-mono);
+    color: var(--fg-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .follow {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 8px;
+    background: var(--bg-editor);
+    cursor: pointer;
+    user-select: none;
+    flex: none;
+  }
+  .follow.on { color: var(--ok); border-color: #cfe0d4; background: #eef5f0; }
+  .drift {
+    display: none;
+    font-size: 11px;
+    color: #7a5f3f;
+    background: #fff8e9;
+    border: 1px solid #e9d9bd;
+    border-radius: 6px;
+    padding: 4px 9px;
+    cursor: pointer;
+  }
+  .drift.on { display: inline-flex; gap: 5px; }
+  .drawer .list { flex: 1; overflow-y: auto; padding: 6px 8px; }
+  .frow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .frow:hover { background: var(--bg-sidebar); }
+  .frow .fi { width: 18px; text-align: center; flex: none; }
+  .frow .fn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .frow .fs { color: var(--fg-faint); font: 400 11px var(--font-mono); flex: none; }
+  .frow .fa { display: none; gap: 4px; flex: none; }
+  .frow:hover .fa { display: flex; }
+  .frow .fa button {
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    border-radius: 6px;
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+    color: var(--fg-muted);
+  }
+  .frow .fa button:hover { color: var(--fg); background: var(--bg-hover); }
+  .frow.up-row { color: var(--fg-faint); }
+  .drawer footer {
+    flex: none;
+    padding: 11px 14px;
+    border-top: 1px solid var(--border-soft);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .drawer footer .upload-btn {
+    font: 500 12.5px var(--font-ui);
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-editor);
+    cursor: pointer;
+  }
+  .drawer footer .upload-btn:hover { background: var(--bg-hover); }
+  .drawer footer small { color: var(--fg-faint); font-size: 11px; }
+
+  .flash {
+    animation: flash 1.1s ease-out;
+  }
+  @keyframes flash {
+    0% { background: #eef5f0; }
+    100% { background: transparent; }
+  }
+</style>
+</head>
+<body>
+
+<div class="demo-strip">
+  <span class="tag">MOCKUP · 模拟数据</span>
+  <span class="file-chip" id="fakeFile" draggable="true"><span class="ico">📦</span>训练数据.tar.gz · 2.4 GB</span>
+  <button id="btnPlay">▶ 播放完整演示</button>
+  <button id="btnCd">模拟：在终端里 cd shards/</button>
+  <span class="demo-note">把左边的文件拖进终端试试（从 Finder 拖真文件进来也行）</span>
+</div>
+
+<div class="app">
+  <aside class="rail">
+    <div>
+      <div class="kicker">基础设施</div>
+      <h1>远程资源管理器</h1>
+    </div>
+    <div class="search">🔍 搜索主机或会话</div>
+    <div class="sect"><span>已连接</span><span>1</span></div>
+    <div class="host-row"><span class="dot"></span><span><strong>192.168.33.70</strong><small>root@192.168.33.70</small></span></div>
+    <div class="sess-row">⌨️ <span>192.168.33.70</span><small>实时</small></div>
+    <div class="sect"><span>已保存</span><span>1</span></div>
+    <div class="host-row" style="opacity:.6"><span class="dot" style="background:var(--fg-faint)"></span><span><strong>10.0.3.46</strong><small>root@10.0.3.46</small></span></div>
+  </aside>
+
+  <main class="main" id="sessionMain">
+    <div class="sess-head">
+      <div class="glyph">&gt;_</div>
+      <div class="who">
+        <strong>SSH · 192.168.33.70</strong>
+        <small>root@192.168.33.70:22</small>
+      </div>
+      <span class="live">实时</span>
+      <div class="sess-actions">
+        <button class="files-btn" id="btnFiles">🗂 文件 <span class="badge-new">NEW</span></button>
+        <button>＋ 新建 SSH 会话</button>
+        <button>&gt;_ 所有终端</button>
+        <button>断开连接</button>
+      </div>
+    </div>
+
+    <div class="ctx-bar">
+      <span>&gt;_ 192.168.33.70</span>
+      <span class="cwd-chip" id="cwdChip">
+        <span class="lbl">cwd</span>
+        <span class="val" id="cwdVal">~/datasets/asr-zh</span>
+        <span class="livecwd" title="shell integration 实时汇报（OSC 7）">LIVE</span>
+      </span>
+      <span class="pty-tag">PTY LIVE</span>
+    </div>
+
+    <div class="term-wrap" id="termWrap">
+      <div class="term" id="term"><span class="dim"># （模拟输出）claude 正在这个会话里跑，SFTP 走独立通道，传文件不打断它</span>
+
+<span class="ok">✻</span> Worked for 1m 40s
+
+<span class="ok">※</span> <b>recap:</b> <span class="dim">You wanted to know which files in this dataset dir are worth sharing for ASR
+  training. I've classified everything: sample/ is redundant but useful as a smoke test…</span>
+
+<span class="p">root@gpu-node:~/datasets/asr-zh#</span> <span id="termCursor">▊</span></div>
+
+      <!-- A：拖拽浮层 -->
+      <div class="drop-veil" id="dropVeil">
+        <div class="drop-card">
+          <div class="up">⬆︎</div>
+          <h2>上传到 192.168.33.70</h2>
+          <div class="target">目标目录 <b id="dropTarget">~/datasets/asr-zh</b>（跟随终端）</div>
+          <div class="hint">
+            <span>松开 <b>直接上传</b></span>
+            <span><kbd>⌥</kbd> 仅粘贴本地路径</span>
+            <span><kbd>⇧</kbd> 松开后选目录</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 进度 / 完成 toast -->
+      <div class="toast" id="toast">
+        <div class="row1">
+          <span id="toastIcon">📦</span>
+          <span class="name" id="toastName">训练数据.tar.gz</span>
+          <button class="cancel" title="取消">✕</button>
+        </div>
+        <div class="meta"><span id="toastSpeed">48 MB/s</span><span id="toastPct">0%</span></div>
+        <div class="bar"><i id="toastBar"></i></div>
+        <div class="done-actions">
+          <button id="btnPastePath">在终端粘贴远端路径</button>
+          <button id="btnReveal">在文件抽屉中查看</button>
+        </div>
+      </div>
+
+      <!-- B：文件抽屉 -->
+      <div class="drawer" id="drawer">
+        <header>
+          <div class="h-row">
+            <strong>文件 · 192.168.33.70</strong>
+            <small>SFTP</small>
+            <button class="close" id="btnDrawerClose">✕</button>
+          </div>
+          <div class="crumb-row">
+            <span class="crumbs" id="crumbs">~/datasets/asr-zh</span>
+            <span class="drift" id="drift">终端已 cd → 跟随</span>
+            <span class="follow on" id="follow">📌 跟随终端</span>
+          </div>
+        </header>
+        <div class="list" id="fileList"></div>
+        <footer>
+          <button class="upload-btn">⬆︎ 上传文件…</button>
+          <small>也可以直接把文件拖进终端或这里</small>
+        </footer>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  // ── 模拟状态 ──────────────────────────────────────────
+  let cwd = '~/datasets/asr-zh';
+  let following = true;
+  let drawerPath = cwd;
+
+  const DIRS = {
+    '~/datasets/asr-zh': [
+      ['📁', 'manifests/', '—'],
+      ['📁', 'sample/', '—'],
+      ['📁', 'shards/', '—'],
+      ['📄', 'README.md', '18 KB'],
+      ['📄', 'SHA256SUMS', '4.2 KB'],
+      ['📄', 'metadata.jsonl', '96 MB'],
+    ],
+    '~/datasets/asr-zh/shards': [
+      ['📄', 'shard-0000.tar', '512 MB'],
+      ['📄', 'shard-0001.tar', '512 MB'],
+      ['📄', 'shard-0002.tar', '512 MB'],
+      ['📄', 'shard-0003.tar', '498 MB'],
+    ],
+  };
+
+  const $ = (id) => document.getElementById(id);
+
+  function renderList() {
+    const rows = (DIRS[drawerPath] || []).map(([ico, name, size]) => `
+      <div class="frow">
+        <span class="fi">${ico}</span>
+        <span class="fn">${name}</span>
+        <span class="fs">${size}</span>
+        <span class="fa">
+          <button>下载</button>
+          <button>⋯</button>
+        </span>
+      </div>`).join('');
+    $('fileList').innerHTML =
+      `<div class="frow up-row"><span class="fi">↩︎</span><span class="fn">..</span></div>` + rows;
+    $('crumbs').textContent = drawerPath;
+  }
+  renderList();
+
+  // ── V2：实时 cwd（模拟终端里 cd） ─────────────────────
+  function setCwd(next) {
+    cwd = next;
+    $('cwdVal').textContent = next;
+    $('dropTarget').textContent = next;
+    const chip = $('cwdChip');
+    chip.classList.remove('pulse');
+    void chip.offsetWidth;
+    chip.classList.add('pulse');
+    setTimeout(() => chip.classList.remove('pulse'), 600);
+
+    if ($('drawer').classList.contains('on')) {
+      if (following) {
+        drawerPath = next;
+        renderList();
+        $('fileList').classList.remove('flash');
+        void $('fileList').offsetWidth;
+        $('fileList').classList.add('flash');
+      } else {
+        $('drift').classList.add('on');
+      }
+    }
+  }
+
+  function termAppend(html) {
+    const cur = $('termCursor');
+    cur.insertAdjacentHTML('beforebegin', html);
+    $('term').scrollTop = $('term').scrollHeight;
+  }
+
+  $('btnCd').onclick = () => {
+    if (cwd.endsWith('/shards')) return;
+    termAppend(`cd shards/\n<span class="p">root@gpu-node:~/datasets/asr-zh/shards#</span> `);
+    setCwd('~/datasets/asr-zh/shards');
+  };
+
+  // ── B：抽屉 ───────────────────────────────────────────
+  function openDrawer() {
+    if (following) { drawerPath = cwd; renderList(); }
+    $('drawer').classList.add('on');
+  }
+  $('btnFiles').onclick = openDrawer;
+  $('btnDrawerClose').onclick = () => $('drawer').classList.remove('on');
+  $('follow').onclick = () => {
+    following = !following;
+    $('follow').classList.toggle('on', following);
+    $('follow').textContent = following ? '📌 跟随终端' : '📌 已固定';
+    if (following) { $('drift').classList.remove('on'); drawerPath = cwd; renderList(); }
+  };
+  $('drift').onclick = () => {
+    $('drift').classList.remove('on');
+    drawerPath = cwd;
+    renderList();
+  };
+
+  // ── A：拖拽上传 ───────────────────────────────────────
+  const veil = $('dropVeil');
+  let dragDepth = 0;
+
+  $('fakeFile').addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/plain', '训练数据.tar.gz');
+    e.dataTransfer.effectAllowed = 'copy';
+  });
+
+  const wrap = $('termWrap');
+  wrap.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragDepth += 1;
+    veil.classList.add('on');
+  });
+  wrap.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  wrap.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) veil.classList.remove('on');
+  });
+  wrap.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    veil.classList.remove('on');
+    const names = [...e.dataTransfer.files].map(f => f.name);
+    const name = names[0] || e.dataTransfer.getData('text/plain') || '训练数据.tar.gz';
+    if (e.altKey) {
+      termAppend(`<span class="dim"># ⌥ 粘贴本地路径：/Users/edy/Downloads/${name}</span>\n<span class="p">root@gpu-node:…#</span> `);
+      return;
+    }
+    startUpload(name);
+  });
+
+  // ── 上传进度模拟 ──────────────────────────────────────
+  let uploadTimer = null;
+  function startUpload(name) {
+    const toast = $('toast');
+    toast.classList.remove('done');
+    toast.classList.add('on');
+    $('toastName').textContent = name;
+    $('toastIcon').textContent = '📦';
+    let pct = 0;
+    clearInterval(uploadTimer);
+    uploadTimer = setInterval(() => {
+      pct = Math.min(100, pct + 4 + Math.random() * 7);
+      $('toastBar').style.width = pct + '%';
+      $('toastPct').textContent = Math.floor(pct) + '%';
+      $('toastSpeed').textContent = (42 + Math.random() * 14).toFixed(0) + ' MB/s → ' + cwd;
+      if (pct >= 100) {
+        clearInterval(uploadTimer);
+        toast.classList.add('done');
+        $('toastIcon').textContent = '';
+        $('toastName').innerHTML = `<span class="okmark">✓</span> 已上传 ${name}`;
+        setTimeout(() => toast.classList.remove('on'), 6000);
+      }
+    }, 90);
+  }
+  $('btnPastePath').onclick = () => {
+    termAppend(`<span class="dim"># 已粘贴：${cwd}/训练数据.tar.gz</span>\n<span class="p">root@gpu-node:…#</span> `);
+    $('toast').classList.remove('on');
+  };
+  $('btnReveal').onclick = () => { $('toast').classList.remove('on'); openDrawer(); };
+  document.querySelector('.toast .cancel').onclick = () => {
+    clearInterval(uploadTimer);
+    $('toast').classList.remove('on');
+  };
+
+  // ── 播放完整演示 ──────────────────────────────────────
+  $('btnPlay').onclick = async () => {
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    veil.classList.add('on');                 // 1. 拖到终端上
+    await wait(1400);
+    veil.classList.remove('on');
+    startUpload('训练数据.tar.gz');            // 2. 松手上传
+    await wait(3400);
+    openDrawer();                             // 3. 打开文件抽屉
+    await wait(1600);
+    $('btnCd').click();                       // 4. 终端 cd，抽屉与 cwd chip 实时跟随
+  };
+</script>
+</body>
+</html>

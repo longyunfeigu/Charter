@@ -21,6 +21,13 @@ test('task room prioritizes the conversation and omits summary chrome', async ()
 
   try {
     await page.setViewportSize({ width: 1440, height: 900 });
+    // Message chrome follows the chosen application locale (not the language
+    // heuristically detected from one prompt), so make this Chinese-copy
+    // visual contract explicit.
+    await page.getByTestId('home-settings').click();
+    await page.getByTestId('settings-section-general').click();
+    await page.getByTestId('settings-locale').selectOption('zh-CN');
+    await page.keyboard.press('Escape');
     await page.getByTestId('surface-home').click();
     await expect(page.getByTestId('home-model')).toContainText(/mock/i, { timeout: 15000 });
     await page.getByTestId('home-mode-auto').click();

@@ -196,6 +196,40 @@ describe('unified page history', () => {
     expect(restored.sessionToolsOpen).toBe(true);
   });
 
+  it('restores the same Session tool context when its row is reopened', () => {
+    useAppStore.getState().openTaskRoom('task-remembered');
+    useAppStore.getState().openPeek('task-remembered', 'src/remembered.ts', 'diff');
+
+    useAppStore.getState().navigateBack();
+    useAppStore.getState().openTaskRoom('task-remembered');
+
+    const restored = useAppStore.getState();
+    expect(restored.taskRoomTaskId).toBe('task-remembered');
+    expect(restored.sessionTool).toBe('diff');
+    expect(restored.sessionToolsOpen).toBe(true);
+    expect(restored.sessionToolExpanded).toBe(true);
+    expect(restored.peek).toEqual({
+      taskId: 'task-remembered',
+      paths: ['src/remembered.ts'],
+      active: 'src/remembered.ts',
+      mode: 'diff',
+    });
+  });
+
+  it('does not leak one Session tool context into a different Session', () => {
+    useAppStore.getState().openTaskRoom('task-a');
+    useAppStore.getState().openPeek('task-a', 'src/a.ts', 'diff');
+
+    useAppStore.getState().openTaskRoom('task-b');
+
+    const opened = useAppStore.getState();
+    expect(opened.taskRoomTaskId).toBe('task-b');
+    expect(opened.sessionTool).toBe('summary');
+    expect(opened.sessionToolsOpen).toBe(false);
+    expect(opened.sessionToolExpanded).toBe(false);
+    expect(opened.peek).toBeNull();
+  });
+
   it('restores the selected Mission assignment and inspector tab', () => {
     useAppStore.getState().openMission('mission-1', 'assignment-2', 'session');
     useAppStore.getState().openTaskRoom('worker-task');

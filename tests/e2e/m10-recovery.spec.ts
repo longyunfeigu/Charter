@@ -257,8 +257,25 @@ test.describe('M10 — crash recovery, reliability, diagnostics', () => {
           }
         }, selector);
       await expect.poll(() => rendered('workbench'), { timeout: 25000 }).toBe(true);
-      // Session restores after the crash: workspace and tabs come back (APP-003).
-      await expect.poll(() => rendered('tab-README.md'), { timeout: 20000 }).toBe(true);
+      // ADR-0054 deliberately boots a reloaded renderer on Home, so an editor
+      // tab is not mounted until the user opens Project Files. Verify through
+      // the recovered renderer's typed bridge that its persisted workspace tab
+      // state is still readable instead of requiring a hidden editor DOM node.
+      const recoveredTabs = () =>
+        app.evaluate(async ({ webContents }) => {
+          const wc = webContents
+            .getAllWebContents()
+            .find((candidate) => !candidate.isDestroyed() && candidate.getURL().length > 0);
+          if (!wc || wc.isCrashed() || wc.isLoading()) return '';
+          try {
+            return (await wc.executeJavaScript(
+              `window.product.rpc['tabs.get']({}).then((result) => JSON.stringify(result.data ?? null))`,
+            )) as string;
+          } catch {
+            return '';
+          }
+        });
+      await expect.poll(recoveredTabs, { timeout: 20000 }).toContain('README.md');
     } finally {
       await app.close();
     }

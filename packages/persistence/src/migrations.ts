@@ -1008,4 +1008,42 @@ CREATE UNIQUE INDEX idx_work_item_external_refs_key
   ON work_item_external_refs(source, ref_key);
 `,
   },
+  {
+    version: 18,
+    name: 'outcome-contracts',
+    // Role-neutral acceptance contracts live above any one execution surface.
+    // The current document is atomic JSON so a claim verdict can never commit
+    // without its evidence/audit edge; frozen snapshots preserve the exact
+    // standard used for a historical decision.
+    up: `
+CREATE TABLE outcome_contracts (
+  id TEXT PRIMARY KEY,
+  subject_kind TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  lifecycle TEXT NOT NULL,
+  acceptance_state TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  document_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(subject_kind, subject_id)
+);
+CREATE INDEX idx_outcome_contracts_subject
+  ON outcome_contracts(subject_kind, subject_id, updated_at);
+CREATE INDEX idx_outcome_contracts_attention
+  ON outcome_contracts(lifecycle, acceptance_state, updated_at);
+
+CREATE TABLE outcome_contract_versions (
+  id TEXT PRIMARY KEY,
+  contract_id TEXT NOT NULL REFERENCES outcome_contracts(id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL,
+  document_json TEXT NOT NULL,
+  frozen_at TEXT NOT NULL,
+  UNIQUE(contract_id, revision)
+);
+CREATE INDEX idx_outcome_contract_versions_contract
+  ON outcome_contract_versions(contract_id, revision);
+`,
+  },
 ];

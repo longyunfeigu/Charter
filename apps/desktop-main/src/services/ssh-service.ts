@@ -32,6 +32,7 @@ import type { SshVaultService } from './ssh-vault-service.js';
 import {
   createSshTerminalBackend,
   remoteCliProbeCommand,
+  remoteCwdSyncSequence,
   remoteLaunchSequence,
 } from './ssh-terminal-bridge.js';
 import type { RemoteWorkerService } from './remote-worker-service.js';
@@ -563,6 +564,21 @@ export class SshService implements SshPromptBridge {
             );
           } catch (error) {
             this.logger.warn('remote Agent launch write failed', {
+              hostId: host.id,
+              terminalId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }, REMOTE_LAUNCH_DELAY_MS).unref();
+      } else if (this.settings.effective.ssh.cwdSync) {
+        // ADR-0059: plain shells get the one-line OSC 7 cwd hook so drops and
+        // the Files drawer track the live directory. Agent launches skip it —
+        // their `exec` replaces the shell, and their cwd is the managed root.
+        setTimeout(() => {
+          try {
+            backend.write(remoteCwdSyncSequence());
+          } catch (error) {
+            this.logger.warn('remote cwd sync write failed', {
               hostId: host.id,
               terminalId,
               error: error instanceof Error ? error.message : String(error),

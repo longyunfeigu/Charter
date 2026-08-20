@@ -1,0 +1,768 @@
+.outcome-contract {
+  --outcome-line: color-mix(in srgb, var(--border) 84%, transparent);
+  --outcome-soft: color-mix(in srgb, var(--bg-panel) 82%, transparent);
+  --outcome-card: var(--bg-card);
+  min-width: 0;
+  color: var(--fg);
+  font-family: var(--font-ui);
+}
+
+.outcome-work {
+  margin: 18px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--outcome-line);
+}
+
+.outcome-session {
+  height: 100%;
+  overflow: auto;
+  padding: 22px clamp(16px, 3vw, 36px) 40px;
+}
+
+.outcome-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+.outcome-head > div:first-child {
+  min-width: 0;
+}
+
+.outcome-head h3,
+.outcome-decision h4 {
+  margin: 5px 0 4px;
+  color: var(--fg);
+  font: 700 17px/1.25 var(--font-ui);
+  letter-spacing: -0.02em;
+}
+
+.outcome-head p,
+.outcome-decision p,
+.outcome-pack-picker p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.outcome-eyebrow {
+  color: var(--fg-muted);
+  font: 750 9px/1 var(--font-ui);
+  letter-spacing: 0.13em;
+}
+
+.outcome-status-pair {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.outcome-status,
+.outcome-claim-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 23px;
+  padding: 0 8px;
+  border: 1px solid var(--outcome-line);
+  border-radius: 999px;
+  background: var(--outcome-soft);
+  color: var(--fg-muted);
+  font: 700 9px/1 var(--font-ui);
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+
+.outcome-status.verified,
+.outcome-claim-state.passed,
+.outcome-status.acceptance-accepted {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border));
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.outcome-status.failed,
+.outcome-claim-state.failed,
+.outcome-status.acceptance-rejected {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--border));
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.outcome-status.blocked,
+.outcome-claim-state.blocked,
+.outcome-status.unverified,
+.outcome-claim-state.unverified {
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--border));
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.outcome-status.verifying {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-card));
+  color: var(--accent);
+}
+
+.outcome-loading,
+.outcome-error,
+.outcome-inline-error {
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.outcome-loading {
+  background: var(--outcome-soft);
+  color: var(--fg-muted);
+}
+
+.outcome-error,
+.outcome-inline-error {
+  border: 1px solid color-mix(in srgb, var(--danger) 32%, var(--border));
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.outcome-inline-error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.outcome-draft,
+.outcome-frozen {
+  display: grid;
+  gap: 14px;
+}
+
+.outcome-pack-picker,
+.outcome-questions,
+.outcome-scoreboard,
+.outcome-runbar,
+.outcome-agent-runs,
+.outcome-decision,
+.outcome-ledger {
+  border: 1px solid var(--outcome-line);
+  border-radius: var(--radius-card);
+  background: var(--outcome-card);
+  box-shadow: var(--shadow-card);
+}
+
+.outcome-pack-picker {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.7fr) minmax(240px, 1.5fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 13px;
+}
+
+.outcome-pack-picker strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--fg);
+  font-size: 10.5px;
+}
+
+.outcome-contract label {
+  min-width: 0;
+}
+
+.outcome-contract label > span,
+.outcome-evidence-requirement span,
+.outcome-oracle-editor label > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--fg-muted);
+  font: 650 9.5px/1.2 var(--font-ui);
+}
+
+.outcome-contract input,
+.outcome-contract select,
+.outcome-contract textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--outcome-line);
+  border-radius: var(--radius-control);
+  outline: 0;
+  background: var(--bg-input, var(--bg-panel));
+  color: var(--fg);
+  font: 10.5px/1.45 var(--font-ui);
+  transition:
+    border-color 120ms,
+    background 120ms,
+    box-shadow 120ms;
+}
+
+.outcome-contract input,
+.outcome-contract select {
+  height: 32px;
+  padding: 0 9px;
+}
+
+.outcome-contract textarea {
+  display: block;
+  resize: vertical;
+  padding: 8px 9px;
+}
+
+.outcome-contract input:focus,
+.outcome-contract select:focus,
+.outcome-contract textarea:focus {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--border));
+  background: var(--bg-card);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.outcome-contract input::placeholder,
+.outcome-contract textarea::placeholder {
+  color: var(--fg-faint);
+}
+
+.outcome-identity-grid,
+.outcome-claim-controls,
+.outcome-oracle-number,
+.outcome-review-line,
+.outcome-decision-fields,
+.outcome-evidence-editor {
+  display: grid;
+  gap: 9px;
+}
+
+.outcome-identity-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.outcome-objective {
+  display: block;
+}
+
+.outcome-questions {
+  overflow: hidden;
+}
+
+.outcome-questions > div {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--outcome-line);
+  color: var(--fg-muted);
+  font-size: 10.5px;
+}
+
+.outcome-questions > div:first-child {
+  border-top: 0;
+  background: var(--outcome-soft);
+}
+
+.outcome-questions > div:first-child span {
+  margin-left: 8px;
+  color: var(--fg-faint);
+  font-size: 9.5px;
+}
+
+.outcome-questions button,
+.outcome-claim-edit header button,
+.outcome-agent-run button {
+  flex: none;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--fg-muted);
+  font: 650 9px var(--font-ui);
+}
+
+.outcome-questions button:hover,
+.outcome-claim-edit header button:hover,
+.outcome-agent-run button:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.outcome-claim-list {
+  display: grid;
+  gap: 10px;
+}
+
+.outcome-claim-edit,
+.outcome-claim {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--outcome-line);
+  border-radius: var(--radius-card);
+  background: var(--outcome-card);
+  box-shadow: var(--shadow-card);
+}
+
+.outcome-claim.result-passed {
+  border-left: 3px solid var(--success);
+}
+
+.outcome-claim.result-failed {
+  border-left: 3px solid var(--danger);
+}
+
+.outcome-claim.result-blocked,
+.outcome-claim.result-unverified {
+  border-left: 3px solid var(--warning);
+}
+
+.outcome-claim-edit > header,
+.outcome-claim > header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 10px;
+}
+
+.outcome-claim-edit > header {
+  justify-content: space-between;
+  color: var(--fg-muted);
+  font: 700 9px var(--font-ui);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.outcome-claim > header strong {
+  min-width: 0;
+  flex: 1;
+  font: 650 11.5px/1.4 var(--font-ui);
+}
+
+.outcome-claim > header em {
+  flex: none;
+  color: var(--fg-faint);
+  font: 600 9px var(--font-ui);
+  text-transform: capitalize;
+}
+
+.outcome-claim-controls {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.outcome-oracle-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: var(--radius-control);
+  background: var(--outcome-soft);
+}
+
+.outcome-oracle-editor > label:last-child:nth-child(2),
+.outcome-oracle-editor > label:only-child {
+  grid-column: 1 / -1;
+}
+
+.outcome-oracle-number {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.outcome-evidence-requirement {
+  width: min(260px, 100%);
+  margin-top: 10px;
+}
+
+.outcome-draft-actions,
+.outcome-runbar,
+.outcome-decision-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.outcome-draft-actions > span,
+.outcome-runbar > span {
+  flex: 1;
+}
+
+.outcome-contract .btn {
+  min-height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--outcome-line);
+  border-radius: var(--radius-chip);
+  background: var(--bg-card);
+  color: var(--fg);
+  font: 650 10px var(--font-ui);
+}
+
+.outcome-contract .btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+
+.outcome-contract .btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.outcome-contract .btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.outcome-scoreboard {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.outcome-scoreboard > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px;
+  border-left: 1px solid var(--outcome-line);
+}
+
+.outcome-scoreboard > div:first-child {
+  border-left: 0;
+}
+
+.outcome-scoreboard strong {
+  font: 750 16px/1 var(--font-ui);
+}
+
+.outcome-scoreboard span {
+  color: var(--fg-muted);
+  font-size: 9px;
+}
+
+.outcome-runbar {
+  flex-wrap: wrap;
+  padding: 9px;
+}
+
+.outcome-runbar select {
+  width: auto;
+  min-width: 130px;
+}
+
+.outcome-agent-runs {
+  display: grid;
+  overflow: hidden;
+}
+
+.outcome-agent-run,
+.outcome-ledger > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  border-top: 1px solid var(--outcome-line);
+}
+
+.outcome-agent-run:first-child,
+.outcome-ledger > div:first-of-type {
+  border-top: 0;
+}
+
+.outcome-agent-run strong,
+.outcome-agent-run small,
+.outcome-ledger strong,
+.outcome-ledger small {
+  display: block;
+}
+
+.outcome-agent-run strong,
+.outcome-ledger strong {
+  color: var(--fg);
+  font-size: 10px;
+}
+
+.outcome-agent-run small,
+.outcome-ledger small,
+.outcome-agent-run + small {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outcome-claim-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.outcome-claim-meta span {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: var(--outcome-soft);
+  color: var(--fg-muted);
+  font-size: 9px;
+}
+
+.outcome-actual,
+.outcome-note {
+  margin: 8px 0;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.outcome-actual b {
+  margin-right: 7px;
+  color: var(--fg);
+}
+
+.outcome-note {
+  padding: 8px 9px;
+  border-radius: var(--radius-control);
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.outcome-claim details {
+  margin-top: 7px;
+  color: var(--fg-muted);
+  font-size: 9.5px;
+}
+
+.outcome-claim details summary,
+.outcome-ledger summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.outcome-claim dl {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+}
+
+.outcome-claim dl > div {
+  display: grid;
+  grid-template-columns: 105px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.outcome-claim dt {
+  color: var(--fg-faint);
+}
+
+.outcome-claim dd {
+  margin: 0;
+  color: var(--fg-muted);
+}
+
+.outcome-review-form,
+.outcome-observation-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 11px;
+  padding-top: 11px;
+  border-top: 1px solid var(--outcome-line);
+}
+
+.outcome-required-evidence {
+  display: grid;
+  gap: 8px;
+}
+
+.outcome-required-evidence > div {
+  padding: 8px;
+  border: 1px solid var(--outcome-line);
+  border-radius: var(--radius-control);
+  background: var(--outcome-soft);
+}
+
+.outcome-required-evidence > div > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--fg-muted);
+  font: 650 9px/1.35 var(--font-ui);
+}
+
+.outcome-review-line {
+  grid-template-columns: minmax(130px, 0.55fr) minmax(180px, 1fr);
+}
+
+.outcome-evidence-editor {
+  grid-template-columns: minmax(115px, 0.42fr) minmax(140px, 0.58fr) minmax(200px, 1fr);
+}
+
+.outcome-evidence-editor textarea {
+  grid-column: 1 / -1;
+}
+
+.outcome-observation-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.outcome-observation-form > .outcome-required-evidence,
+.outcome-observation-form > .outcome-inline-error {
+  grid-column: 1 / -1;
+}
+
+.outcome-decision {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(300px, 1.2fr);
+  gap: 16px;
+  padding: 14px;
+}
+
+.outcome-decision-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.outcome-decision-fields textarea,
+.outcome-override {
+  grid-column: 1 / -1;
+}
+
+.outcome-override {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: var(--warning);
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.outcome-override input {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.outcome-decision-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
+.outcome-ledger {
+  overflow: hidden;
+}
+
+.outcome-ledger summary {
+  padding: 10px 12px;
+  background: var(--outcome-soft);
+  color: var(--fg-muted);
+  font: 650 10px var(--font-ui);
+}
+
+.outcome-ledger > div {
+  grid-template-columns: minmax(90px, 0.35fr) minmax(0, 1fr) auto;
+}
+
+.outcome-ledger > div > span,
+.outcome-ledger > div > em {
+  color: var(--fg-faint);
+  font: 600 8.5px var(--font-ui);
+  text-transform: capitalize;
+}
+
+.outcome-ledger > div.stale {
+  opacity: 0.55;
+}
+
+@media (max-width: 760px) {
+  .outcome-session {
+    padding: 16px 12px 30px;
+  }
+
+  .outcome-head,
+  .outcome-pack-picker,
+  .outcome-decision {
+    grid-template-columns: 1fr;
+  }
+
+  .outcome-head {
+    display: grid;
+  }
+
+  .outcome-status-pair {
+    justify-content: flex-start;
+  }
+
+  .outcome-pack-picker {
+    align-items: stretch;
+  }
+
+  .outcome-identity-grid,
+  .outcome-claim-controls,
+  .outcome-review-line,
+  .outcome-decision-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .outcome-scoreboard {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .outcome-scoreboard > div:nth-child(3) {
+    border-left: 0;
+    border-top: 1px solid var(--outcome-line);
+  }
+
+  .outcome-scoreboard > div:nth-child(4) {
+    border-top: 1px solid var(--outcome-line);
+  }
+
+  .outcome-oracle-editor,
+  .outcome-oracle-number,
+  .outcome-evidence-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .outcome-oracle-editor > *,
+  .outcome-evidence-editor textarea {
+    grid-column: auto;
+  }
+
+  .outcome-decision-actions {
+    grid-column: auto;
+    flex-wrap: wrap;
+  }
+
+  .outcome-decision-actions .btn {
+    flex: 1;
+  }
+
+  .outcome-draft-actions,
+  .outcome-runbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .outcome-draft-actions > span,
+  .outcome-runbar > span {
+    display: none;
+  }
+
+  .outcome-runbar select {
+    width: 100%;
+  }
+
+  .outcome-agent-run,
+  .outcome-ledger > div {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .outcome-agent-run button,
+  .outcome-ledger > div > em {
+    grid-column: 2;
+    justify-self: start;
+  }
+}

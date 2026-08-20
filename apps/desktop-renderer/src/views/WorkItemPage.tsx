@@ -9,6 +9,7 @@ import type {
   WorkItemTypeDto,
 } from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
+import { t } from '../i18n.js';
 import { useAppStore } from '../store/appStore.js';
 import { useWorkItemStore } from '../store/workItemStore.js';
 import { Ic } from './home-icons.js';
@@ -566,7 +567,9 @@ export function WorkItemPage(props: {
   };
 
   const discard = (): void => {
-    if (isDirty(model) && !window.confirm('Discard this draft? Nothing has been created yet.')) {
+    // window.confirm never enters the DOM, so the compatibility layer cannot
+    // localize it — this one goes through t() directly.
+    if (isDirty(model) && !window.confirm(t('Discard this draft? Nothing has been created yet.'))) {
       return;
     }
     clearDraft();
@@ -1248,7 +1251,7 @@ export function WorkItemPage(props: {
                 ['at', 'Source person', 'sourcePerson', 'work-source-person', 'e.g. Maya Chen'],
                 [
                   'sessions',
-                  'Channel',
+                  'Source channel',
                   'sourceChannel',
                   'work-source-channel',
                   'e.g. Customer call / Slack #launch',

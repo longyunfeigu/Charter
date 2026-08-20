@@ -469,6 +469,14 @@ export class SshConnectionManager {
       client.on('ready', () => {
         if (m.gen !== gen) return superseded();
         settle(() => {
+          // Interactive latency: a keystroke is a tiny SSH packet, and Node
+          // sockets ship with Nagle enabled — each keypress would wait for the
+          // previous packet's ACK before leaving the machine. OpenSSH sets
+          // TCP_NODELAY on interactive sessions for the same reason. Through a
+          // ProxyJump the inner "socket" is a forwarded channel without
+          // setNoDelay; ssh2 type-checks before calling, so this is a no-op
+          // there (the first hop's own connect() still gets the flag).
+          client.setNoDelay(true);
           m.client = client;
           m.attempts = 0;
           this.setState(m, 'connected', null);

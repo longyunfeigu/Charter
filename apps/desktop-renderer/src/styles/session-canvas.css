@@ -595,11 +595,11 @@
   display: none;
 }
 
-/* Diff focus follows the supplied review reference: text-only tabs and no
- * competing layout control while the review itself owns the canvas. */
+/* Diff focus follows the supplied review reference with compact text tabs.
+ * Keep the layout control available: it is the only explicit way to leave a
+ * hand-dragged split for the expanded review stop. */
 .session-tool-canvas[data-active-tool='diff'] .session-tool-tablist .app-icon,
-.session-tool-canvas[data-active-tool='diff'] .session-tool-tablist small,
-.session-tool-canvas[data-active-tool='diff'] .session-tool-expand {
+.session-tool-canvas[data-active-tool='diff'] .session-tool-tablist small {
   display: none;
 }
 

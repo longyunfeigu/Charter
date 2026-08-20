@@ -469,3 +469,41 @@ describe('per-turn rollback (ADR-0032 rollbackToStates)', () => {
     expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('current\n');
   });
 });
+
+describe('stored patch size cap', () => {
+  it('stores oversized external-observation diffs as null but keeps blobs and hashes', async () => {
+    // A generated artifact (source map, lockfile) rewritten wholesale: the
+    // unified diff would exceed the cap, so only the blobs carry the content.
+    const before = `v0-${'x'.repeat(80)}\n`.repeat(9000);
+    const after = `v1-${'y'.repeat(80)}\n`.repeat(9000);
+    await service.ensureBaselineFromBytes('t1', 'a.txt', Buffer.from(before));
+    writeFileSync(join(root, 'a.txt'), after);
+
+    const change = await service.recordExternalChange('t1', 'a.txt', 'modified');
+
+    expect(change.patch).toBeNull();
+    expect(change.beforeHash).toBe(sha(before));
+    expect(change.afterHash).toBe(sha(after));
+    // Byte-exact rollback never depended on the inline patch.
+    const report = await service.rollback('t1');
+    expect(report.ok).toBe(true);
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe(before);
+  });
+
+  it('keeps ordinary diffs inline and accurate', async () => {
+    await service.ensureBaselineFromBytes('t1', 'a.txt', Buffer.from('v0\n'));
+    writeFileSync(join(root, 'a.txt'), 'v1\n');
+    const change = await service.recordExternalChange('t1', 'a.txt', 'modified');
+    expect(change.patch).toContain('-v0');
+    expect(change.patch).toContain('+v1');
+  });
+
+  it('caps agent file creations the same way', async () => {
+    const big = `${'z'.repeat(120)}\n`.repeat(12000);
+    const result = await service.createFile('t1', 'call1', { path: 'huge.txt', content: big });
+    expect(result.afterHash).toBe(sha(big));
+    const record = repo.changesFor('t1').find((c) => c.relativePath === 'huge.txt');
+    expect(record?.patch).toBeNull();
+    expect(readFileSync(join(root, 'huge.txt'), 'utf8')).toBe(big);
+  });
+});

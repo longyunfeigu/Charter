@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type {
+  OutcomeContract,
   WorkEvidenceKind,
   WorkExecutionRole,
   WorkItemDetailDto,
@@ -11,6 +12,7 @@ import { useAppStore } from '../store/appStore.js';
 import { useOrchestrationStore } from '../store/orchestrationStore.js';
 import { useTaskStore } from '../store/taskStore.js';
 import { useWorkItemStore } from '../store/workItemStore.js';
+import { OutcomeContractPanel } from './OutcomeContractPanel.js';
 import { Ic } from './home-icons.js';
 import { formatDate, t } from '../i18n.js';
 
@@ -104,6 +106,29 @@ export function buildHandoffPrompt(item: WorkItemDto, type: WorkItemTypeDto | nu
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+function outcomeContractPrompt(contract: OutcomeContract): string {
+  const status = contract.frozenAt
+    ? `FROZEN revision ${contract.revision}. Do not redefine or weaken it.`
+    : `DRAFT revision ${contract.revision}. Preserve it, but report unresolved assumptions rather than inventing authority.`;
+  return [
+    '',
+    `Outcome contract: ${status}`,
+    `Requested outcome: ${contract.objective || contract.title}`,
+    `Decision owner: ${contract.approver || 'Not named yet'}`,
+    'Criteria:',
+    ...contract.claims.map(
+      (claim, index) =>
+        `${index + 1}. [${claim.severity}; ${claim.verifier}] ${claim.statement}\n   Oracle: ${JSON.stringify(claim.oracle)}\n   Evidence: ${
+          claim.evidenceRequirements
+            .filter((requirement) => requirement.required)
+            .map((requirement) => requirement.kind)
+            .join(', ') || 'not specified'
+        }`,
+    ),
+    'Return deliverables and evidence. Your completion statement is not the acceptance verdict.',
+  ].join('\n');
 }
 
 function ExecutionPicker(props: { detail: WorkItemDetailDto; onClose(): void }): React.JSX.Element {
@@ -475,6 +500,10 @@ export function WorkItemDetail(props: {
             </section>
           ) : null}
 
+          <section className="work-outcome-contract-section">
+            <OutcomeContractPanel subjectKind="work_item" subjectId={item.id} surface="work" />
+          </section>
+
           <section className="work-checklists">
             <div className="work-section-heading">
               <span className="work-section-label">ACCEPTANCE & DELIVERABLES</span>
@@ -529,12 +558,21 @@ export function WorkItemDetail(props: {
             <button
               className="work-start-agent"
               data-testid="work-start-agent"
-              onClick={() => {
+              onClick={async () => {
+                const outcome = await rpcResult('outcomes.get', {
+                  subjectKind: 'work_item',
+                  subjectId: item.id,
+                });
+                const contractContext = outcome.ok
+                  ? outcomeContractPrompt(outcome.data.contract)
+                  : '';
                 useAppStore.getState().queueWorkHandoff({
                   workItemId: item.id,
                   title: item.title,
-                  prompt: buildHandoffPrompt(item, type),
-                  acceptance: item.acceptance.map((entry) => entry.text),
+                  prompt: `${buildHandoffPrompt(item, type)}${contractContext}`,
+                  acceptance: outcome.ok
+                    ? outcome.data.contract.claims.map((claim) => claim.statement)
+                    : item.acceptance.map((entry) => entry.text),
                 });
                 useAppStore.getState().openSessionHome();
                 useAppStore.getState().focusComposer();

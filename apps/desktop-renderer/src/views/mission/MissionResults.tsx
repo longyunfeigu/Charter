@@ -11,6 +11,13 @@ function artifactDetail(reference: Record<string, unknown>): string | null {
   return null;
 }
 
+function verificationState(reference: Record<string, unknown>): 'passed' | 'failed' | 'unknown' {
+  const state = typeof reference.state === 'string' ? reference.state.toLowerCase() : '';
+  if (state === 'passed' || state === 'success' || state === 'ok') return 'passed';
+  if (state === 'failed' || state === 'error') return 'failed';
+  return 'unknown';
+}
+
 export function MissionResults({
   snapshot,
   onAccept,
@@ -73,10 +80,15 @@ export function MissionResults({
             <b>{snapshot.mission.acceptanceCriteria.length}</b>
           </header>
           {snapshot.mission.acceptanceCriteria.length > 0 ? (
+            <p className="mission-evidence-disclaimer">
+              Criteria are the agreed standard; a team completion report is not a per-item verdict.
+            </p>
+          ) : null}
+          {snapshot.mission.acceptanceCriteria.length > 0 ? (
             <ul className="mission-check-list">
               {snapshot.mission.acceptanceCriteria.map((criterion) => (
                 <li key={criterion}>
-                  <Ic name={reviewReady || accepted ? 'checkCircle' : 'circle'} size={14} />
+                  <Ic name={accepted ? 'checkCircle' : 'circle'} size={14} />
                   <span>{criterion}</span>
                 </li>
               ))}
@@ -95,17 +107,27 @@ export function MissionResults({
           </header>
           {verifications.length > 0 ? (
             <ul className="mission-evidence-list">
-              {verifications.map((artifact) => (
-                <li key={artifact.id}>
-                  <span className="mission-evidence-ok">
-                    <Ic name="check" size={11} />
-                  </span>
-                  <span>
-                    <strong>{artifact.label}</strong>
-                    <small>{artifactDetail(artifact.reference) ?? 'Recorded verification'}</small>
-                  </span>
-                </li>
-              ))}
+              {verifications.map((artifact) => {
+                const state = verificationState(artifact.reference);
+                return (
+                  <li key={artifact.id}>
+                    <span className={`mission-evidence-state ${state}`}>
+                      <Ic
+                        name={state === 'passed' ? 'check' : state === 'failed' ? 'x' : 'circle'}
+                        size={11}
+                      />
+                    </span>
+                    <span>
+                      <strong>{artifact.label}</strong>
+                      <small>
+                        {state === 'unknown'
+                          ? 'Reported evidence · no structured verdict'
+                          : `${state} · ${artifactDetail(artifact.reference) ?? 'recorded verification'}`}
+                      </small>
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p>No structured verification evidence was reported.</p>

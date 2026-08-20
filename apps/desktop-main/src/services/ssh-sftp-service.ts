@@ -307,7 +307,19 @@ export class SshSftpService {
     this.closeTimers.set(hostId, timer);
   }
 
-  private async closeNow(hostId: string): Promise<void> {
+  private async closeNow(hostId: string, opts: { force?: boolean } = {}): Promise<void> {
+    // A running transfer owns the channel: closing the Files panel must not
+    // kill a long download/upload mid-flight. Hand teardown to the idle cycle,
+    // which re-arms itself while transfers are running (see touchIdle).
+    if (!opts.force) {
+      const hasRunning = [...this.transfers.values()].some(
+        (t) => t.state.hostId === hostId && t.state.status === 'running',
+      );
+      if (hasRunning) {
+        this.touchIdle(hostId);
+        return;
+      }
+    }
     const cached = this.sessions.get(hostId);
     this.sessions.delete(hostId);
     this.clearIdle(hostId);
@@ -325,10 +337,12 @@ export class SshSftpService {
   closeAll(): void {
     for (const timer of this.closeTimers.values()) clearTimeout(timer);
     this.closeTimers.clear();
-    for (const hostId of [...this.sessions.keys()]) void this.closeNow(hostId);
+    // Quit is the one caller allowed to cut running transfers: abort first so
+    // the forced teardown below never races a transfer that could re-arm idle.
     for (const transfer of this.transfers.values()) {
       if (transfer.state.status === 'running') transfer.controller.abort();
     }
+    for (const hostId of [...this.sessions.keys()]) void this.closeNow(hostId, { force: true });
   }
 
   private session(hostId: string): Promise<SftpSession> {

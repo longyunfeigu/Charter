@@ -682,14 +682,12 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       await addHost(page, sshd.port);
 
       // The disconnected overview has one connection action and keeps host
-      // tools in the single top-level tab strip rather than duplicating them
-      // in dashboard cards and the inspector.
+      // tools in the single top-level tab strip. The host context column was
+      // removed — the rail and the overview already carry that information.
       await expect(page.getByTestId('rm-connection-stage')).toContainText('Ready when you are');
       await expect(page.getByTestId('rm-session-empty')).toContainText('No remote sessions');
       await expect(page.getByRole('button', { name: 'Connect' })).toHaveCount(1);
-      await expect(
-        page.getByTestId('remote-inspector').getByRole('button', { name: 'Connect' }),
-      ).toHaveCount(0);
+      await expect(page.getByTestId('remote-inspector')).toHaveCount(0);
 
       // Connect → the first-use host-key modal appears with a SHA256 fingerprint.
       await page.getByTestId('rm-connect-e2e-host').click();
@@ -714,7 +712,8 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       );
       await expect(page.getByTestId('ssh-new-session')).toHaveText('New SSH Session');
       await expect(page.getByTestId('ssh-all-terminals')).toBeVisible();
-      // One host session needs no second switcher, and the local New Terminal
+      // Remote sessions are switched in the Remote Explorer rail — the view
+      // never grows a second switcher column, and the local New Terminal
       // action must never masquerade as an SSH-scoped command.
       await expect(page.getByTestId('ssh-session-switcher')).toHaveCount(0);
       await expect(page.getByTestId('terminal-new')).toHaveCount(0);
@@ -747,17 +746,13 @@ test.describe('SSH Remotes (ADR-0047)', () => {
       await expect(page.locator('[data-testid^="rm-session-term_"]')).toHaveCount(1);
 
       // The SSH-scoped header creates a second shell on the same transport.
-      // Only then does a compact, host-filtered session switcher appear.
+      // Both sessions are listed in the Remote Explorer rail — the terminal
+      // view itself never grows an in-panel switcher column.
       await page.getByTestId('ssh-new-session').click();
       await expect(page.getByTestId('session-terminal-view')).toBeVisible({ timeout: 15000 });
       await expect(page.getByTestId('remote-explorer-rail')).toBeVisible();
-      await expect(page.getByTestId('ssh-session-switcher')).toBeVisible();
-      await expect(page.getByTestId('ssh-session-switcher-heading')).toContainText(
-        'e2e-host sessions',
-      );
-      await expect(
-        page.getByTestId('ssh-session-switcher').locator('[data-testid^="terminal-tab-"]'),
-      ).toHaveCount(2);
+      await expect(page.locator('[data-testid^="rm-session-term_"]')).toHaveCount(2);
+      await expect(page.getByTestId('ssh-session-switcher')).toHaveCount(0);
       await expect(page.getByTestId('terminal-new')).toHaveCount(0);
 
       // End the currently selected shell. Its row is deleted immediately and

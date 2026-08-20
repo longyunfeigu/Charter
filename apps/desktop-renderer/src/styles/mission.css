@@ -2231,6 +2231,7 @@
   border-bottom: 0;
 }
 .mission-evidence-ok,
+.mission-evidence-state,
 .mission-deliverable-icon,
 .mission-outcome-state {
   width: 22px;
@@ -2241,6 +2242,21 @@
   border-radius: 6px;
   background: color-mix(in srgb, var(--success) 11%, transparent);
   color: var(--success);
+}
+.mission-evidence-state.failed {
+  background: color-mix(in srgb, var(--danger) 11%, transparent);
+  color: var(--danger);
+}
+.mission-evidence-state.unknown {
+  background: var(--bg-hover);
+  color: var(--fg-muted);
+}
+.mission-evidence-disclaimer {
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--fg-muted) !important;
+  line-height: 1.45;
 }
 .mission-deliverable-icon {
   background: var(--bg-hover);

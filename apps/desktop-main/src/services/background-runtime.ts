@@ -88,3 +88,22 @@ export function backgroundTrayTitle(activity: BackgroundActivitySnapshot): strin
   );
   return `Charter — ${summary.join(', ') || 'work in progress'}`;
 }
+
+/** Renderer crash recovery: reload in place — a synchronous dialog here would
+ * block the main-process event loop and freeze the (already blank) window,
+ * which is exactly the outage it is meant to resolve. Only a crash loop
+ * (repeated renderer deaths in a short window) escalates to asking the user,
+ * and that dialog must be shown asynchronously. */
+export const RENDERER_CRASH_LOOP_WINDOW_MS = 60_000;
+export const RENDERER_CRASH_LOOP_THRESHOLD = 3;
+
+export function rendererCrashAction(
+  crashTimesMs: number[],
+  nowMs: number,
+): { action: 'reload' | 'ask'; recentCrashes: number[] } {
+  const recentCrashes = crashTimesMs.filter((t) => nowMs - t <= RENDERER_CRASH_LOOP_WINDOW_MS);
+  return {
+    action: recentCrashes.length >= RENDERER_CRASH_LOOP_THRESHOLD ? 'ask' : 'reload',
+    recentCrashes,
+  };
+}

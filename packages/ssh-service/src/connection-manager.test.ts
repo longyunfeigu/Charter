@@ -83,6 +83,26 @@ describe('SshConnectionManager', () => {
     expect(mgr.snapshot('host1').state).toBe('disconnected');
   });
 
+  it('disables Nagle on the transport once connected (interactive keystroke latency)', async () => {
+    const { Client } = await import('ssh2');
+    const setNoDelay = vi.spyOn(Client.prototype, 'setNoDelay');
+    try {
+      const server = await startServer({ onShell: (ch) => ch.write('ok\r\n') });
+      servers.push(server);
+      const mgr = new SshConnectionManager({
+        hostKeys: trustingHostKeys(),
+        prompts: autoAcceptPrompts(),
+        secrets: noSecrets(),
+        agentSocket: () => '/tmp/fake-agent.sock',
+      });
+      await mgr.connect(target(server.port));
+      expect(mgr.snapshot('host1').state).toBe('connected');
+      expect(setNoDelay).toHaveBeenCalledWith(true);
+    } finally {
+      setNoDelay.mockRestore();
+    }
+  });
+
   it('authenticates with a stored password', async () => {
     const server = await startServer({ password: 's3cret', onShell: (ch) => ch.write('ok\r\n') });
     servers.push(server);

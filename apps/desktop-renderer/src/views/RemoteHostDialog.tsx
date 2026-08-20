@@ -6,8 +6,10 @@ import { Ic } from './home-icons.js';
 type AuthMethod = SshHostDto['auth'];
 
 const AUTH_METHODS: { value: AuthMethod; label: string }[] = [
-  { value: 'agent', label: 'Agent' },
-  { value: 'key', label: 'Key' },
+  // "SSH Agent"/"SSH Key" and not the bare words: the zh chrome dictionary
+  // maps "Agent" to 智能体 (AI agent), which is the wrong sense here.
+  { value: 'agent', label: 'SSH Agent' },
+  { value: 'key', label: 'SSH Key' },
   { value: 'password', label: 'Password' },
 ];
 

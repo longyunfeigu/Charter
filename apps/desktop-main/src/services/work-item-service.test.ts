@@ -110,6 +110,7 @@ describe('WorkItemService', () => {
       'Research',
       'Content',
       'Data',
+      'Finance',
       'Engineering',
       'Approval',
     ]);
@@ -125,7 +126,7 @@ describe('WorkItemService', () => {
       now: () => now,
     });
     expect(service.snapshot().columns).toHaveLength(5);
-    expect(service.snapshot().types).toHaveLength(8);
+    expect(service.snapshot().types).toHaveLength(9);
   });
 
   it('persists generic task context, source, owner, checklists and activity', () => {

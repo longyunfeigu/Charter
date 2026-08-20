@@ -72,6 +72,11 @@ interface SftpStore {
   rename(from: string, toName: string): Promise<string | null>;
   remove(entry: SftpEntry): Promise<string | null>;
   upload(localPaths: string[]): Promise<void>;
+  /** ADR-0059: upload to an explicit host + directory without opening the
+   * panel (terminal drop, Files drawer). Returns the transferIds so the
+   * caller can follow just its own transfers; progress still streams through
+   * ssh.sftpProgress into `transfers` (and the Transfer Center). */
+  uploadTo(hostId: string, remoteDir: string, localPaths: string[]): Promise<string[]>;
   /** Dual-pane download: lands in the local pane's current directory. */
   download(entries: SftpEntry[]): Promise<void>;
   cancel(transferId: string): void;
@@ -255,6 +260,14 @@ export const useSftpStore = create<SftpStore>((set, get) => {
       if (!hostId || localPaths.length === 0) return;
       await rpcResult('ssh.sftpUpload', { hostId, remoteDir: path, localPaths });
       // Progress (including per-file errors) streams via ssh.sftpProgress.
+    },
+
+    async uploadTo(hostId, remoteDir, localPaths) {
+      if (localPaths.length === 0) return [];
+      ensureInit(); // drop-initiated uploads must land in `transfers` too
+      const res = await rpcResult('ssh.sftpUpload', { hostId, remoteDir, localPaths });
+      if (!res.ok) throw new Error(res.error.userMessage);
+      return res.data.transferIds;
     },
 
     async download(entries) {
