@@ -18,6 +18,7 @@ import {
   canArchiveTask,
   isAnswered,
   modeLabel,
+  snapshotLabel,
 } from './labels.js';
 import { hasDragRef } from './dragRefs.js';
 import { useSkillSlash } from './SkillSlashPicker.js';
@@ -456,7 +457,7 @@ export const TaskRoomView = React.memo(function TaskRoomView({
                           <span>
                             Baseline
                             <strong title={task.external.snapshotRef}>
-                              Snapshot {task.external.snapshotRef.slice(0, 7)}
+                              Snapshot {snapshotLabel(task.external.snapshotRef)}
                             </strong>
                           </span>
                         ) : null}

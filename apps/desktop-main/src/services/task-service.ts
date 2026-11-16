@@ -71,7 +71,7 @@ import type {
 } from '@pi-ide/verification-service';
 import { createHash } from 'node:crypto';
 import { existsSync, promises as fsp } from 'node:fs';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { GitService } from '@pi-ide/git-service';
 import { openWorkspaceInfo } from '@pi-ide/workspace-service';
 import type { AgentHost, RuntimeKind } from './agent-host.js';
@@ -361,6 +361,26 @@ interface TaskRow {
   external_json: string | null;
   project_path: string;
   project_name: string;
+}
+
+/** Review compares images visually; larger sides are reported by size only. */
+const MAX_REVIEW_IMAGE_BYTES = 20 * 1024 * 1024;
+const REVIEW_IMAGE_MIMES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.ico': 'image/x-icon',
+  '.avif': 'image/avif',
+  '.svg': 'image/svg+xml',
+};
+
+interface ReviewImageSide {
+  dataBase64: string | null;
+  sizeBytes: number;
+  tooLarge: boolean;
 }
 
 const TASK_SELECT =
@@ -1156,6 +1176,43 @@ export class TaskService {
     const ownerTaskId = scope.baselineOwners.get(path) ?? taskId;
     const result = await this.contextForTask(ownerTaskId).changes.fileContents(ownerTaskId, path);
     return result ?? { baseline: null, current: null, binary: false };
+  }
+
+  /** Both sides of one changed image as data for the visual review compare. */
+  async reviewImage(
+    taskId: string,
+    path: string,
+  ): Promise<{
+    mime: string;
+    baseline: ReviewImageSide | null;
+    current: ReviewImageSide | null;
+  }> {
+    const mime = REVIEW_IMAGE_MIMES[extname(path).toLowerCase()];
+    if (!mime) {
+      throw new ProductFailure(
+        productError('IMG_UNSUPPORTED', { userMessage: 'This is not a supported image file.' }),
+      );
+    }
+    const scope = this.reviewScope(taskId);
+    const ownerTaskId = scope.baselineOwners.get(path) ?? taskId;
+    const result = await this.contextForTask(ownerTaskId).changes.fileBytes(
+      ownerTaskId,
+      path,
+      MAX_REVIEW_IMAGE_BYTES,
+    );
+    const side = (value: { bytes: Buffer | null; size: number } | null): ReviewImageSide | null =>
+      value
+        ? {
+            dataBase64: value.bytes ? value.bytes.toString('base64') : null,
+            sizeBytes: value.size,
+            tooLarge: value.bytes === null,
+          }
+        : null;
+    return {
+      mime,
+      baseline: side(result?.baseline ?? null),
+      current: side(result?.current ?? null),
+    };
   }
 
   /**

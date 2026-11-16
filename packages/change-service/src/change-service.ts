@@ -699,6 +699,49 @@ export class ChangeService {
     };
   }
 
+  /**
+   * Raw bytes of both sides for visual review (images). `null` means that
+   * side does not exist; a side over `maxBytes` is reported by size only.
+   */
+  async fileBytes(
+    taskId: string,
+    path: string,
+    maxBytes: number,
+  ): Promise<{
+    baseline: { bytes: Buffer | null; size: number } | null;
+    current: { bytes: Buffer | null; size: number } | null;
+  } | null> {
+    const baselines = this.repo.baselinesFor(taskId);
+    const renamedFrom =
+      this.repo.changesFor(taskId).find((c) => c.kind === 'renamed' && c.renameTo === path)
+        ?.relativePath ?? null;
+    const baseline =
+      baselines.find((b) => b.relativePath === path) ??
+      (renamedFrom ? baselines.find((b) => b.relativePath === renamedFrom) : undefined);
+    if (!baseline) return null;
+    let baselineSide: { bytes: Buffer | null; size: number } | null = null;
+    if (baseline.existed && baseline.blobHash) {
+      baselineSide =
+        baseline.size > maxBytes
+          ? { bytes: null, size: baseline.size }
+          : { bytes: await this.blobs.get(baseline.blobHash), size: baseline.size };
+    }
+    let currentSide: { bytes: Buffer | null; size: number } | null = null;
+    try {
+      const abs = await resolveInsideRoot(this.root, path);
+      const stat = await fs.stat(abs);
+      if (stat.isFile()) {
+        currentSide =
+          stat.size > maxBytes
+            ? { bytes: null, size: stat.size }
+            : { bytes: await fs.readFile(abs), size: stat.size };
+      }
+    } catch {
+      // Deleted or renamed away: the current side does not exist.
+    }
+    return { baseline: baselineSide, current: currentSide };
+  }
+
   /** CHG-010: classify every touched path before rollback. */
   async rollbackPreflight(taskId: string): Promise<{
     safe: string[];

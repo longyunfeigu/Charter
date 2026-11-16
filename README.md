@@ -164,6 +164,8 @@ Charter combines agent orchestration, a desktop IDE, controlled execution, live 
 - **Recorded file operations:** writes create checkpoints used by Diff, Review, Replay, conflict checks, and byte-exact rollback.
 - **Immutable verification history:** preserve passed, failed, stale, and superseded check results rather than replacing history with one green badge.
 - **Evidence-first Review:** keep outcome, files, hunks, checks, Preview evidence, and the final decision together.
+- **Review what readers see:** Markdown changes open as a rendered, section-aligned before/after view, and images as a reveal slider or side-by-side compare with dimensions; the source diff stays one click away.
+- **Real baselines in plain folders:** when an external Agent CLI works in a folder that is not a Git repository, Charter snapshots it first into a private repository in app data (nothing is written into the project), so Review shows the real before and rollback restores the original bytes. Dependency/build directories, nested repositories, links and very large folders are left out honestly.
 - **Reproducible Replay:** export bounded HTML/JSON receipts with per-row hashes and an explicit statement of what the ledger cannot prove.
 - **Side-effect-free PR draft:** prepare branch, body, and command guidance without silently committing, pushing, or publishing anything.
 
@@ -181,7 +183,7 @@ Charter combines agent orchestration, a desktop IDE, controlled execution, live 
 - **Isolated model loop:** the Agent Worker owns the managed model runtime but has no direct filesystem, database, or at-rest secret access.
 - **Tool Gateway boundary:** managed calls are schema-checked, path-bounded, permission-classified, redacted, executed, and audited in Electron Main.
 - **OS-backed credentials:** provider secrets use Electron `safeStorage`; the renderer receives redacted metadata only.
-- **Local evidence ledger:** projects, task state, decisions, Replay facts, and Memory metadata remain in local SQLite and bounded blob stores.
+- **Local evidence ledger:** projects, task state, decisions, Replay facts, and Memory metadata remain in local SQLite and bounded blob stores; entry snapshots of non-Git folders live in app data under `shadow-snapshots/` and expire after 30 days.
 - **Preview containment:** embedded pages are limited to detected loopback servers with navigation, popup, permission, and frame policies.
 
 > [!NOTE]

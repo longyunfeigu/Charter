@@ -29,6 +29,10 @@ export function registerM8Handlers(
         await remoteWorker?.syncTask(taskId);
         return tasks.reviewFileContents(taskId, path);
       },
+      'task.reviewImage': async ({ taskId, path }) => {
+        await remoteWorker?.syncTask(taskId);
+        return tasks.reviewImage(taskId, path);
+      },
       // ADR-0014: read-only in-room peek — current content via the task's mount.
       'task.peekFile': async ({ taskId, path }) => {
         await remoteWorker?.syncTask(taskId);

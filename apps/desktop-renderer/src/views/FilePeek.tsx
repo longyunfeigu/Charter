@@ -10,6 +10,7 @@ import { EditorArea } from '../workbench/EditorArea.js';
 import { Ic } from './home-icons.js';
 import { addCodeContext } from '../codeContext.js';
 import { CodeContextFloat, codeContextFloatRange } from './CodeContextFloat.js';
+import { ImageCompare, richDiffKind } from './RichDiff.js';
 
 /**
  * In-room file peek (ADR-0014, PIVOT-034): a resident split panel beside the
@@ -219,7 +220,7 @@ export function FilePeek(props: {
 
       <div className="tr-peek-body" data-testid="peek-body">
         {mode === 'diff' ? (
-          <PeekDiff loading={diffLoading} file={file} />
+          <PeekDiff taskId={props.taskId} loading={diffLoading} file={file} />
         ) : mode === 'file' ? (
           <PeekFile taskId={props.taskId} path={active} pulseVersion={pulseVersion} />
         ) : (
@@ -246,9 +247,11 @@ function PeekEditor({ path }: { path: string }): React.JSX.Element {
 }
 
 function PeekDiff({
+  taskId,
   loading,
   file,
 }: {
+  taskId: string;
   loading: boolean;
   file: ChangeSetDto['files'][number] | null;
 }): React.JSX.Element {
@@ -259,6 +262,9 @@ function PeekDiff({
         No recorded changes for this file in this task — switch to <b>File</b> to read it.
       </div>
     );
+  }
+  if (file.binary && richDiffKind(file.path) === 'image') {
+    return <ImageCompare taskId={taskId} path={file.path} refreshKey={file.currentHash} />;
   }
   if (file.binary) return <div className="tr-peek-note">Binary file — no text diff.</div>;
   return (

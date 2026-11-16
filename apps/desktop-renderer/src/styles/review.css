@@ -220,7 +220,35 @@
 .rv-diffwrap {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rv-diffbody {
+  flex: 1;
+  min-height: 0;
   position: relative;
+}
+.rv-viewbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.rv-viewnote {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.rv-rendered {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: var(--bg-editor);
 }
 .rv-monaco {
   position: absolute;

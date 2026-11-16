@@ -310,6 +310,13 @@ export interface ChannelDef<Req extends z.ZodType = z.ZodType, Res extends z.Zod
   response: Res;
 }
 
+const ReviewImageSideSchema = z.object({
+  /** Null when the side exceeds the preview limit (`tooLarge`). */
+  dataBase64: z.string().nullable(),
+  sizeBytes: z.number().int().nonnegative(),
+  tooLarge: z.boolean(),
+});
+
 function ch<Req extends z.ZodType, Res extends z.ZodType>(
   name: string,
   schemaVersion: number,
@@ -2320,6 +2327,18 @@ export const CHANNELS = {
       baseline: z.string().nullable(),
       current: z.string().nullable(),
       binary: z.boolean(),
+    }),
+  ),
+  /** ADR-0060: both sides of one changed image for the visual review compare.
+   * A side is null when it does not exist; oversized sides carry size only. */
+  'task.reviewImage': ch(
+    'task.reviewImage',
+    1,
+    z.object({ taskId: z.string(), path: z.string().min(1).max(4000) }).strict(),
+    z.object({
+      mime: z.string(),
+      baseline: ReviewImageSideSchema.nullable(),
+      current: ReviewImageSideSchema.nullable(),
     }),
   ),
   /** ADR-0014 (PIVOT-034): current logical content of one file in the task's

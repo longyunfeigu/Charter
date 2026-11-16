@@ -1,5 +1,12 @@
 import { errorMessage, productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import { GitService } from '@pi-ide/git-service';
+import {
+  gitSnapshotSource,
+  isShadowSnapshotRef,
+  type EntrySnapshotSource,
+  type ShadowSnapshotStore,
+  type SnapshotRead,
+} from './shadow-snapshot.js';
 import type { TerminalInputSource, TerminalManager } from '@pi-ide/terminal-service';
 import { openWorkspaceInfo, WorkspaceWatcher, type FsChange } from '@pi-ide/workspace-service';
 import type { ChangeSet } from '@pi-ide/change-service';
@@ -293,7 +300,10 @@ interface LiveSession {
   sessionId: string | null;
   isGitRepo: boolean;
   snapshotRef: string | null;
+  /** Ignore rules for Git projects; null for plain folders. */
   git: GitService | null;
+  /** Where the entry snapshot lives: the project's Git or a shadow repo. */
+  snapshot: EntrySnapshotSource | null;
   watcher: WorkspaceWatcher;
   /** File truth arrives from the versioned SSH Worker, not fs.watch. */
   remoteManaged: boolean;
@@ -559,6 +569,8 @@ export class ExternalSessionService {
       | null = null,
     /** Trusted Agent command/session policy. Provider details stay in manifests. */
     private readonly agents: AgentRegistry | null = null,
+    /** ADR-0060: entry snapshots for non-Git folders. */
+    private readonly shadowSnapshots: ShadowSnapshotStore | null = null,
   ) {
     this.unsubscribeManager = terminals.onAgentState(({ id, agent, cwd }) => {
       if (agent) void this.onAgentEnter(id, agent, cwd);
@@ -1436,9 +1448,10 @@ export class ExternalSessionService {
     }
     const git = rootInfo.isGitRepo ? new GitService(root) : null;
     let snapshotRef: string | null = reattachedTask?.external?.snapshotRef ?? null;
-    if (git && !reattachedTask) {
+    const snapshot = this.entrySnapshotSource(root, git, snapshotRef, remoteManaged);
+    if (snapshot && !reattachedTask) {
       try {
-        snapshotRef = await git.snapshotTree();
+        snapshotRef = await snapshot.capture();
       } catch (e) {
         this.logger.warn('external session snapshot failed; degrading to first-seen baselines', {
           terminalId,
@@ -1518,6 +1531,7 @@ export class ExternalSessionService {
       isGitRepo: rootInfo.isGitRepo,
       snapshotRef,
       git,
+      snapshot,
       watcher,
       remoteManaged,
       remoteWorkspaceKind,
@@ -1620,18 +1634,49 @@ export class ExternalSessionService {
   /** Rebuild accounting for writes that landed while no Electron watcher was
    * alive. Both trees include tracked and untracked files, so establishing
    * the original bytes as baselines restores Review and byte-exact rollback. */
+  /** The store that owns `ref`, or the one a fresh entry snapshot goes to. A
+   * Git tree id never resolves against a shadow repository or vice versa. */
+  private entrySnapshotSource(
+    root: string,
+    git: GitService | null,
+    ref: string | null,
+    remoteManaged: boolean,
+  ): EntrySnapshotSource | null {
+    if (isShadowSnapshotRef(ref)) {
+      return remoteManaged ? null : (this.shadowSnapshots?.source(root) ?? null);
+    }
+    if (git) return gitSnapshotSource(git);
+    // A Git ref on a folder that is no longer a repository cannot be read.
+    if (ref || remoteManaged) return null;
+    return this.shadowSnapshots?.source(root) ?? null;
+  }
+
+  private async readEntrySnapshot(session: LiveSession, path: string): Promise<SnapshotRead> {
+    if (!session.snapshot || !session.snapshotRef) return { kind: 'uncovered' };
+    try {
+      return await session.snapshot.read(session.snapshotRef, path);
+    } catch (error) {
+      this.logger.warn('entry snapshot read failed; using first-seen baseline', {
+        taskId: session.taskId,
+        path,
+        error: errorMessage(error),
+      });
+      return { kind: 'uncovered' };
+    }
+  }
+
   private async reconcileSnapshotChanges(
     session: LiveSession,
     reason: 'reattach' | 'on-demand' | 'exit',
   ): Promise<number> {
-    if (!session.git || !session.snapshotRef) return 0;
+    const snapshot = session.snapshot;
+    const snapshotRef = session.snapshotRef;
+    if (!snapshot || !snapshotRef) return 0;
     let reconciled = 0;
     session.work = session.work
       .then(async () => {
-        const currentTree = await session.git!.snapshotTree();
-        const changed = (
-          await session.git!.changedPathsBetweenTrees(session.snapshotRef!, currentTree)
-        ).filter(
+        const currentTree = await snapshot.capture();
+        const changed = (await snapshot.changedPaths(snapshotRef, currentTree)).filter(
           (change) =>
             isAccountablePath(change.path) &&
             shouldReconcileSnapshotPath(session.sharedRoot, session.seen.has(change.path)),
@@ -1639,7 +1684,9 @@ export class ExternalSessionService {
         if (changed.length === 0) return;
         const context = this.tasks.contextForTask(session.taskId);
         for (const change of changed) {
-          const baseline = await session.git!.readTreeBlob(session.snapshotRef!, change.path);
+          const read = await snapshot.read(snapshotRef, change.path);
+          if (read.kind === 'uncovered') continue;
+          const baseline = read.kind === 'bytes' ? read.bytes : null;
           const record = await context.changes.reconcileExternalChange(
             session.taskId,
             change.path,
@@ -1714,18 +1761,16 @@ export class ExternalSessionService {
           try {
             if (!session.seen.has(change.relativePath)) {
               session.seen.add(change.relativePath);
-              if (session.git && session.snapshotRef) {
-                const bytes = await session.git.readTreeBlob(
-                  session.snapshotRef,
-                  change.relativePath,
-                );
+              const read = await this.readEntrySnapshot(session, change.relativePath);
+              if (read.kind !== 'uncovered') {
                 await context.changes.ensureBaselineFromBytes(
                   session.taskId,
                   change.relativePath,
-                  bytes,
+                  read.kind === 'bytes' ? read.bytes : null,
                 );
               } else {
-                // Non-git degradation (ADR-0017): first-seen content is the baseline.
+                // No snapshot covers this path (ADR-0017 degradation, or a
+                // shadow-excluded path): first-seen content is the baseline.
                 await context.changes.ensureBaseline(session.taskId, change.relativePath);
               }
             }
@@ -2199,9 +2244,14 @@ export class ExternalSessionService {
     let external = sourceExternal;
     if (settled) {
       let snapshotRef: string | null = null;
-      if (source.gitBaseline) {
+      const snapshot = source.gitBaseline
+        ? gitSnapshotSource(new GitService(source.projectPath))
+        : sourceExternal.remote
+          ? null
+          : (this.shadowSnapshots?.source(source.projectPath) ?? null);
+      if (snapshot) {
         try {
-          snapshotRef = await new GitService(source.projectPath).snapshotTree();
+          snapshotRef = await snapshot.capture();
         } catch (e) {
           this.logger.warn('continuation snapshot failed; degrading to first-seen baselines', {
             terminalId,
@@ -2331,7 +2381,10 @@ export class ExternalSessionService {
     let snapshotRef: string | null = null;
     try {
       const info = await openWorkspaceInfo(input.projectPath);
-      if (info.isGitRepo) snapshotRef = await new GitService(input.projectPath).snapshotTree();
+      const snapshot = info.isGitRepo
+        ? gitSnapshotSource(new GitService(input.projectPath))
+        : (this.shadowSnapshots?.source(input.projectPath) ?? null);
+      if (snapshot) snapshotRef = await snapshot.capture();
     } catch (e) {
       this.logger.warn('adoption snapshot failed; degrading to first-seen baselines', {
         terminalId,
@@ -2408,6 +2461,12 @@ export class ExternalSessionService {
       isGitRepo: git !== null,
       snapshotRef: external.snapshotRef,
       git,
+      snapshot: this.entrySnapshotSource(
+        task.projectPath,
+        git,
+        external.snapshotRef,
+        Boolean(external.remote),
+      ),
       watcher,
       remoteManaged: Boolean(external.remote),
       remoteWorkspaceKind: external.remote?.workspaceKind ?? 'remote',

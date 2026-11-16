@@ -9,6 +9,7 @@ import { Ic } from './home-icons.js';
 import { stateLabel } from './labels.js';
 import { LivePreview } from './LivePreview.js';
 import { ReviewChecks } from './ReviewChecks.js';
+import { ImageCompare, MarkdownCompare, richDiffHasSource, richDiffKind } from './RichDiff.js';
 import '../styles/review.css';
 import '../styles/preview.css';
 import { createCodeContextRef } from '../codeContext.js';
@@ -67,6 +68,14 @@ function DiffPane({
   const [selection, setSelection] = useState<{ start: number; end: number; code: string } | null>(
     null,
   );
+  // ADR-0060: Markdown and images open in their rendered projection; the
+  // Monaco source diff stays mounted underneath for Request fix and hunks.
+  const kind = richDiffKind(file.path);
+  const [view, setView] = useState<'rendered' | 'source'>(kind ? 'rendered' : 'source');
+  const [texts, setTexts] = useState<{ before: string | null; after: string | null } | null>(null);
+  useEffect(() => {
+    setView(kind ? 'rendered' : 'source');
+  }, [file.path, kind]);
 
   // Load both sides whenever the file identity or its on-disk content changes
   // (a hunk reject rewrites the file — the diff must follow).
@@ -75,10 +84,12 @@ function DiffPane({
     const requestSeq = ++requestSeqRef.current;
     setLoading(true);
     setSelection(null);
+    setTexts(null);
     void rpcResult('task.reviewFile', { taskId, path: file.path }).then((res) => {
       if (cancelled || !hostRef.current) return;
       setLoading(false);
       if (!res.ok) return;
+      setTexts({ before: res.data.baseline, after: res.data.current });
       // Keep each side on a query-free URI. The TypeScript worker keys source
       // files by the complete URI and could otherwise request a path whose
       // query was already stripped during model synchronization.
@@ -146,34 +157,86 @@ function DiffPane({
     [],
   );
 
-  // Hunk chip clicks scroll the modified side.
+  // Hunk chip clicks scroll the modified side (switching to the source diff).
   useEffect(() => {
     if (revealSeq.seq === 0) return;
-    editorRef.current?.getModifiedEditor().revealLineInCenter(revealSeq.line);
+    setView('source');
+    const frame = requestAnimationFrame(() =>
+      editorRef.current?.getModifiedEditor().revealLineInCenter(revealSeq.line),
+    );
+    return () => cancelAnimationFrame(frame);
   }, [revealSeq]);
 
+  const rendered = kind !== null && (view === 'rendered' || !richDiffHasSource(file.path));
+  const showSource = !rendered && !file.binary;
   return (
     <div className="rv-diffwrap">
-      {file.binary ? (
-        <div className="empty-state">Binary file — no text diff available.</div>
-      ) : (
-        <>
-          <div ref={hostRef} className="rv-monaco" data-testid="review-diff" />
-          {loading ? <div className="rv-loading">Loading diff…</div> : null}
-          {selection ? (
+      {kind && richDiffHasSource(file.path) ? (
+        <div className="rv-viewbar">
+          <div className="rd-seg" role="radiogroup" aria-label="Diff view">
             <button
-              className="rv-requestfix"
-              data-testid="review-request-fix"
-              title="Send the selected lines back to the agent with your feedback"
-              onClick={() =>
-                onRequestFix(file.path, selection.start, selection.end, selection.code)
-              }
+              type="button"
+              role="radio"
+              aria-checked={view === 'rendered'}
+              className={view === 'rendered' ? 'on' : ''}
+              data-testid="review-view-rendered"
+              onClick={() => setView('rendered')}
             >
-              <Ic name="pencil" size={12} /> Request fix — lines {selection.start}–{selection.end}
+              Rendered
             </button>
-          ) : null}
-        </>
-      )}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={view === 'source'}
+              className={view === 'source' ? 'on' : ''}
+              data-testid="review-view-source"
+              onClick={() => setView('source')}
+            >
+              Source
+            </button>
+          </div>
+          <span className="rv-viewnote">
+            {kind === 'markdown'
+              ? 'Compare what readers will see; switch to Source to request a fix on exact lines.'
+              : 'Compare the pixels; switch to Source for the SVG markup diff.'}
+          </span>
+        </div>
+      ) : null}
+      <div className="rv-diffbody">
+        {/* One Monaco host stays mounted for every file: swapping it for a
+            sibling element would let React reuse the node with Monaco's DOM
+            still inside, and a re-created host would orphan the editor. */}
+        <div
+          ref={hostRef}
+          className="rv-monaco"
+          data-testid="review-diff"
+          style={showSource ? undefined : { visibility: 'hidden' }}
+        />
+        {rendered ? (
+          <div className="rv-rendered" data-testid="review-rendered">
+            {kind === 'image' ? (
+              <ImageCompare taskId={taskId} path={file.path} refreshKey={file.currentHash} />
+            ) : texts ? (
+              <MarkdownCompare before={texts.before} after={texts.after} />
+            ) : null}
+          </div>
+        ) : file.binary ? (
+          <div className="rv-rendered">
+            <div className="empty-state">Binary file — no text diff available.</div>
+          </div>
+        ) : null}
+        {loading && showSource ? <div className="rv-loading">Loading diff…</div> : null}
+        {selection && showSource ? (
+          <button
+            className="rv-requestfix"
+            data-testid="review-request-fix"
+            title="Send the selected lines back to the agent with your feedback"
+            onClick={() => onRequestFix(file.path, selection.start, selection.end, selection.code)}
+          >
+            <Ic name="pencil" size={12} /> Request fix — lines {selection.start}–{selection.end}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

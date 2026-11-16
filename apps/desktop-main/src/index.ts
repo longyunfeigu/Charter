@@ -90,6 +90,7 @@ import { registerPreviewHandlers } from './ipc/preview-handlers.js';
 import { registerContextAttachmentHandlers } from './ipc/context-attachment-handlers.js';
 import { PreviewService } from './services/preview-service.js';
 import { ExternalSessionService } from './services/external-session-service.js';
+import { ShadowSnapshotStore } from './services/shadow-snapshot.js';
 import { ExternalLaunchIntents } from './services/external-launch-intents.js';
 import { registerExternalHandlers } from './ipc/external-handlers.js';
 import { AgentPresenceService } from './services/agent-presence-service.js';
@@ -1962,6 +1963,10 @@ if (!gotLock) {
           });
         },
         agentRegistryRef,
+        new ShadowSnapshotStore(
+          join(paths.userData, 'shadow-snapshots'),
+          logger.child('shadow-snapshot'),
+        ),
       );
       remoteWorkerRef.attachExternalSessions(externalSessionsRef);
       externalSessionsRef.attachRemoteReconcile((taskId) => remoteWorkerRef!.syncTask(taskId));

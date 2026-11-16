@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../store/appStore.js';
 import { useExternalStore, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH } from '../store/externalStore.js';
 import { useTaskStore } from '../store/taskStore.js';
+import { snapshotLabel } from './labels.js';
 import {
   compactTerminalPath,
   useTerminalStore,
@@ -200,7 +201,9 @@ export function ExternalPanel(): React.JSX.Element | null {
           </div>
           <div className="xp-context-row">
             <span>{task?.title ?? item?.contextLabel ?? 'External terminal session'}</span>
-            {session?.snapshotRef ? <span>snapshot {session.snapshotRef.slice(0, 7)}</span> : null}
+            {session?.snapshotRef ? (
+              <span>snapshot {snapshotLabel(session.snapshotRef)}</span>
+            ) : null}
             <span>{files.length} files changed</span>
           </div>
         </div>

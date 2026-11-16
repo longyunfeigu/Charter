@@ -183,6 +183,8 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 - **编码任务可以使用独立 Worktree：** Agent 的修改不会立刻污染主 Checkout。任务结束后明确选择批准并合回，或者点击 **Discard worktree** 丢弃隔离目录。
 - **Diff 基于记录的起点，而不是 Agent 的描述：** 每次文件写入都会生成 Change Record 和内容检查点。Review 按新增、修改、删除、重命名列出文件与 `+N -N`，文本文件显示真实基线与当前内容。
 - **Review 可以从具体代码继续对话：** 选中 Diff 中的行并点击 **Request changes**，所选行和你的说明会回到同一个 Session。也可以逐文件/逐 Hunk 接受或拒绝，而不必只能“全部接受”。
+- **按读者看到的样子审查：** Markdown 改动默认以渲染后的“改前 / 改后”逐段对齐显示，图片改动给出滑杆对比和并排对比（附尺寸和大小）；源码 Diff 随时一键切回，选行“要求修改”仍在源码视图里完成。
+- **非 Git 目录也有真实起点：** 外部 Agent CLI 在不是 Git 仓库的普通目录里工作时，Charter 会先把目录快照到应用数据目录里的私有仓库（不往项目里写任何东西），所以 Review 能看到真实的修改前内容，回滚也能恢复原始字节。依赖/构建目录、嵌套仓库、链接和超大目录不进快照，并如实降级为原来的处理方式。
 - **验证历史不会被最后一次运行覆盖：** 预设或手工运行 `npm test` 等检查后，每次结果都保留命令、状态和时间；失败、通过、过期、被替代会分别显示。即使强行接受失败结果，界面也会明确标记为 unverified。
 - **最终决策是可操作按钮：** **Approve changes** 保留改动；**Rollback** 把已记录文件恢复到 Session 前的字节内容；存在 Worktree 时则使用 **Discard worktree**。检测到冲突时，危险操作会被阻止并说明原因。
 - **Replay 有三种深度：** **Recap** 先展示结果和关键变化；**Explore** 按语义章节查看过程；**Verify** 直接查看主张、证据引用、审批和验证。还可以导出 HTML/JSON 收据，逐行带哈希，并明确列出账本无法证明的边界。
@@ -201,7 +203,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 
 ### 本地状态、安全与隐私
 
-- **项目文件和任务历史默认留在本机：** 项目路径、Session、事件、验证、决策、Replay 与 Memory 元数据保存在本地 SQLite 和有界 Blob 存储中；当前 Beta 不发送遥测或 Crash Report。
+- **项目文件和任务历史默认留在本机：** 项目路径、Session、事件、验证、决策、Replay 与 Memory 元数据保存在本地 SQLite 和有界 Blob 存储中；非 Git 目录的入口快照保存在应用数据目录的 `shadow-snapshots/` 下，30 天后过期；当前 Beta 不发送遥测或 Crash Report。
 - **API Key 不进入 Renderer：** Provider 凭据使用 Electron `safeStorage` 加密。设置界面只能拿到 Provider 名称、端点和脱敏状态，无法读取明文 Key。
 - **受管 Agent 不能绕过 Tool Gateway：** 模型循环运行在独立 Worker 中，没有直接文件系统、数据库或静态密钥权限。它提出的读写和命令请求必须回到 Electron Main，经过 Schema、项目路径和权限检查后才能执行。
 - **路径边界会在主进程再次确认：** Renderer 即使传入伪造路径，Workspace 服务仍会检查它是否位于当前项目或 Worktree 内；Workspace 外写入、读取密钥、`sudo`、`git push` 和大范围破坏性命令属于硬阻止项。

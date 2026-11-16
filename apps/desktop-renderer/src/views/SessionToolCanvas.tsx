@@ -32,6 +32,12 @@ import {
   type DiffLine,
 } from './accessible-diff.js';
 import { OutcomeContractPanel } from './OutcomeContractPanel.js';
+import {
+  ImageCompare,
+  MarkdownReviewCompare,
+  richDiffHasSource,
+  richDiffKind,
+} from './RichDiff.js';
 
 const NO_CANVAS_EVENTS: never[] = [];
 
@@ -410,7 +416,7 @@ function SessionDiffReview(props: {
   const diffCardRef = useRef<HTMLElement>(null);
   // A11Y-005: an accessible text mode linearizes the diff into focusable
   // changes with F7/⇧F7 navigation and a live-region announcer.
-  const [diffMode, setDiffMode] = useState<'inline' | 'text'>('inline');
+  const [diffMode, setDiffMode] = useState<'inline' | 'text' | 'rendered'>('inline');
   const [announce, setAnnounce] = useState('');
   const changeCardRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [contextSelection, setContextSelection] = useState<{
@@ -452,6 +458,19 @@ function SessionDiffReview(props: {
       : null;
 
   useEffect(() => setContextSelection(null), [selected?.path]);
+
+  // ADR-0060: Markdown and SVG open rendered; other files never keep the mode.
+  const richKind = selected ? richDiffKind(selected.path) : null;
+  const richHasSource = selected ? richDiffHasSource(selected.path) : true;
+  useEffect(() => {
+    setDiffMode((mode) =>
+      richKind && mode === 'inline'
+        ? 'rendered'
+        : !richKind && mode === 'rendered'
+          ? 'inline'
+          : mode,
+    );
+  }, [selected?.path, richKind]);
 
   // Flat row offsets so the mouseup selection (indexed over data rows) can be
   // painted back onto the rendered rows as the mock's full-width band.
@@ -665,38 +684,55 @@ function SessionDiffReview(props: {
           <header>
             <strong className="mono">{selected.path}</strong>
             <span />
-            <div
-              className="session-diff-viewmode"
-              role="radiogroup"
-              aria-label="Diff view"
-              data-testid="diff-viewmode"
-            >
-              <button
-                type="button"
-                role="radio"
-                aria-checked={diffMode === 'inline'}
-                className={diffMode === 'inline' ? 'on' : ''}
-                data-testid="diff-viewmode-inline"
-                onClick={() => setDiffMode('inline')}
+            {richHasSource ? (
+              <div
+                className="session-diff-viewmode"
+                role="radiogroup"
+                aria-label="Diff view"
+                data-testid="diff-viewmode"
               >
-                Inline
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={diffMode === 'text'}
-                className={diffMode === 'text' ? 'on' : ''}
-                data-testid="diff-viewmode-text"
-                onClick={() => {
-                  setDiffMode('text');
-                  setAnnounce(
-                    `Text mode. ${textChanges.length} ${textChanges.length === 1 ? 'change' : 'changes'} in ${selected.path}. Press F7 to move to the first change.`,
-                  );
-                }}
-              >
-                Text mode
-              </button>
-            </div>
+                {richKind ? (
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={diffMode === 'rendered'}
+                    className={diffMode === 'rendered' ? 'on' : ''}
+                    data-testid="diff-viewmode-rendered"
+                    onClick={() => setDiffMode('rendered')}
+                  >
+                    Rendered
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={diffMode === 'inline'}
+                  className={diffMode === 'inline' ? 'on' : ''}
+                  data-testid="diff-viewmode-inline"
+                  onClick={() => setDiffMode('inline')}
+                >
+                  Inline
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={diffMode === 'text'}
+                  className={diffMode === 'text' ? 'on' : ''}
+                  data-testid="diff-viewmode-text"
+                  onClick={() => {
+                    setDiffMode('text');
+                    setAnnounce(
+                      `Text mode. ${textChanges.length} ${textChanges.length === 1 ? 'change' : 'changes'} in ${selected.path}. Press F7 to move to the first change.`,
+                    );
+                  }}
+                >
+                  Text mode
+                </button>
+              </div>
+            ) : (
+              // Raster images have no text view; keep the header grid aligned.
+              <span />
+            )}
             <button type="button" aria-label="Copy diff" title="Copy diff" onClick={copyPatch}>
               <Ic name="clipboard" size={15} />
             </button>
@@ -720,7 +756,23 @@ function SessionDiffReview(props: {
               <Ic name="x" size={15} />
             </button>
           </header>
-          {selected.binary ? (
+          {richKind === 'image' && (selected.binary || diffMode === 'rendered') ? (
+            <div className="session-rich-diff image">
+              <ImageCompare
+                taskId={props.task.id}
+                path={selected.path}
+                refreshKey={selected.currentHash}
+              />
+            </div>
+          ) : richKind === 'markdown' && diffMode === 'rendered' ? (
+            <div className="session-rich-diff">
+              <MarkdownReviewCompare
+                taskId={props.task.id}
+                path={selected.path}
+                refreshKey={selected.currentHash}
+              />
+            </div>
+          ) : selected.binary ? (
             <div className="session-diff-loading">Binary file — no inline text diff.</div>
           ) : selected.hunks.length === 0 ? (
             <div className="session-diff-loading">No text hunks recorded for this file.</div>

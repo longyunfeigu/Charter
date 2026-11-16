@@ -39,6 +39,12 @@ export const TASK_STATE_META: Record<TaskState, { label: string; short: string; 
     ARCHIVED: { label: 'Archived', short: 'Archived', tone: 'idle' },
   };
 
+/** Entry-snapshot chip: Git tree ids show as-is; non-Git folders use a
+ * private shadow repository (ADR-0060) and say so. */
+export function snapshotLabel(ref: string): string {
+  return ref.startsWith('shadow:') ? `shadow ${ref.slice(7, 14)}` : ref.slice(0, 7);
+}
+
 export function stateLabel(state: string): string {
   return TASK_STATE_META[state as TaskState]?.label ?? state;
 }
