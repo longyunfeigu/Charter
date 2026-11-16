@@ -3284,17 +3284,6 @@ export class MissionRepository {
     ).map(attemptFromRow);
   }
 
-  renewAttemptLease(attemptId: string, leaseExpiresAt: string): ExecutionAttempt {
-    const attempt = this.requireAttempt(attemptId);
-    this.db
-      .prepare(
-        `UPDATE execution_attempts SET last_heartbeat_at = ?, lease_expires_at = ?
-         WHERE id = ? AND state IN ('STARTING','RUNNING','WAITING')`,
-      )
-      .run(this.timestamp(), leaseExpiresAt, attempt.id);
-    return this.requireAttempt(attempt.id);
-  }
-
   orphanAttemptFromRuntime(attemptId: string, code: string, failure: JsonObject): Assignment {
     return this.db.transaction(() => {
       const attempt = this.requireAttempt(attemptId);
@@ -3387,19 +3376,6 @@ export class MissionRepository {
          ORDER BY created_at DESC LIMIT 1`,
       )
       .get(taskId) as MissionRow | undefined;
-    return row ? missionFromRow(row) : null;
-  }
-
-  getMissionForRuntime(runtimeSessionId: string): Mission | null {
-    const row = this.db
-      .prepare(
-        `SELECT m.* FROM missions m
-         JOIN assignments a ON a.mission_id = m.id
-         JOIN execution_attempts e ON e.assignment_id = a.id
-         WHERE e.runtime_session_id = ? AND m.deleted_at IS NULL
-         ORDER BY e.rowid DESC LIMIT 1`,
-      )
-      .get(runtimeSessionId) as MissionRow | undefined;
     return row ? missionFromRow(row) : null;
   }
 

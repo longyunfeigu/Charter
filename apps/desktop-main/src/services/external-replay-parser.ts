@@ -67,7 +67,8 @@ function text(value: unknown): string {
 }
 
 function clipped(value: unknown, max = 4000): string {
-  const source = typeof value === 'string' ? value : JSON.stringify(redactObject(value));
+  // JSON.stringify(undefined) is undefined, e.g. a tool_result without content.
+  const source = typeof value === 'string' ? value : (JSON.stringify(redactObject(value)) ?? '');
   return source.length <= max ? source : `${source.slice(0, max - 1)}…`;
 }
 
@@ -122,7 +123,7 @@ export class ExternalStructuredReplayParser {
         continue;
       }
       const next =
-        cli === 'claude' ? this.claude(parsed) : cli === 'codex' ? this.codex(parsed) : [];
+        cli === 'claude' ? this.claude(parsed) : cli === 'codex' ? this.codex(parsed) : null;
       if (next !== null || this.isProviderEnvelope(cli, parsed)) {
         structured = true;
         const safe = next ?? [];
@@ -164,7 +165,7 @@ export class ExternalStructuredReplayParser {
     if (!type) return null;
     // init/result events carry the conversation id — retained for exact resume.
     const sessionId = text(event.session_id);
-    if (sessionId) this.sessionId = sessionId;
+    if (isSafeCliSessionId(sessionId)) this.sessionId = sessionId;
     if (type === 'system' && text(event.subtype) === 'init') {
       return [
         {

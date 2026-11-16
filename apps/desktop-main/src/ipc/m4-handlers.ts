@@ -208,13 +208,16 @@ export class M4Services {
       (path, diagnostics) => broadcast('lsp.pythonDiagnostics', { path, diagnostics }),
       this.logger.child('pylsp'),
       () => {
+        if (this.python !== client) return; // replaced or disposed, not a crash
         this.pythonStatus.running = false;
         // LSP-006: restart with backoff, stop after repeated failures.
         if (this.pythonRestarts < 3 && this.host.current) {
           this.pythonRestarts += 1;
           const delay = 1000 * 2 ** this.pythonRestarts;
           setTimeout(() => {
-            if (this.host.current) this.startPython(this.host.current.canonicalPath);
+            if (this.host.current && this.python === client) {
+              this.startPython(this.host.current.canonicalPath);
+            }
           }, delay).unref();
         } else {
           this.pythonStatus.hint =
@@ -313,22 +316,6 @@ export class M4Services {
     if (!active) return false;
     active.controller.abort();
     return true;
-  }
-
-  async persistentSnapshots(): Promise<Map<string, { replay: string; sequence: number }>> {
-    if (!this.terminalDaemon) return new Map();
-    try {
-      const snapshots = await this.terminalDaemon.currentSnapshots();
-      return new Map(
-        snapshots.map((snapshot) => [
-          snapshot.info.id,
-          { replay: snapshot.replay, sequence: snapshot.sequence },
-        ]),
-      );
-    } catch (error) {
-      this.logger.warn('terminal daemon snapshot unavailable', { error: errorMessage(error) });
-      return new Map();
-    }
   }
 
   dispose(options: { closeTerminalDaemon?: boolean } = {}): void {

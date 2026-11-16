@@ -181,6 +181,11 @@ function gitBlob(root: string, tree: string, path: string): Buffer | null {
     encoding: null,
     maxBuffer: MAX_FILE_BYTES + 1024,
   });
+  // Overflowing maxBuffer kills git (status null); without this check an
+  // oversized file would read as missing instead of hitting the size error.
+  if ((result.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS') {
+    throw new Error(`File exceeds 32 MiB: ${path}`);
+  }
   if (result.status !== 0) return null;
   const bytes = result.stdout ?? Buffer.alloc(0);
   if (bytes.length > MAX_FILE_BYTES) throw new Error(`File exceeds 32 MiB: ${path}`);

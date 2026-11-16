@@ -185,6 +185,11 @@ export class SshSftpService {
     name: string,
     localDir?: string,
   ): Promise<string | null> {
+    // The name comes from the server's listing; a crafted "../x" must not
+    // escape the chosen download folder.
+    if (basename(name) !== name || name === '.' || name === '..') {
+      throw new Error('Remote file name is not a plain file name');
+    }
     const localPath = localDir
       ? await this.uniqueLocalPath(localDir, name)
       : await this.deps.chooseSavePath(name);

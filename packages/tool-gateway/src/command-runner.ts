@@ -163,8 +163,7 @@ export function runCommand(input: CommandRunInput, signal: AbortSignal): Promise
 
     termTimer = setTimeout(() => stopGently('timeout'), input.timeoutMs);
 
-    const capture = (stream: 'stdout' | 'stderr') => (chunk: Buffer) => {
-      const text = chunk.toString('utf8');
+    const capture = (stream: 'stdout' | 'stderr') => (text: string) => {
       input.onOutput?.(stream, text);
       const current = stream === 'stdout' ? stdout : stderr;
       const room = maxBytes - (stdout.length + stderr.length);
@@ -177,6 +176,10 @@ export function runCommand(input: CommandRunInput, signal: AbortSignal): Promise
       if (stream === 'stdout') stdout = current + kept;
       else stderr = current + kept;
     };
+    // Stream-level decoding keeps multibyte characters split across chunks
+    // intact (per-chunk toString would turn them into U+FFFD).
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', capture('stdout'));
     child.stderr?.on('data', capture('stderr'));
 

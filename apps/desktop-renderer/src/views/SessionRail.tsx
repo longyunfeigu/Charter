@@ -29,7 +29,6 @@ import {
   HISTORY_PERIOD_MORE_STEP,
   buildHistoryPeriods,
   buildRailGroups,
-  isHistoryEntry,
   missionSessionStatus,
   recordedTasksByProject,
   visibleHistoryPeriodEntries,

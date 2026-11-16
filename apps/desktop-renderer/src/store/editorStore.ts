@@ -3,7 +3,6 @@ import type { DocumentDto, OpenTabsState } from '@pi-ide/ipc-contracts';
 import { monaco, modelUri } from '../monaco-setup.js';
 import { onEvent, rpc, rpcResult } from '../bridge.js';
 import { okOrToast, useAppStore } from './appStore.js';
-import { useWorkspaceStore } from './workspaceStore.js';
 import {
   diffTabId,
   findTab,
@@ -78,13 +77,14 @@ interface EditorStore {
   toggleMdRich(path: string): void;
   restoreTabs(): Promise<void>;
   reset(): void;
-  dirtyCount(): number;
 }
 
 const updateTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const savedVersions = new Map<string, number>();
 const modelListeners = new Map<string, { dispose(): void }>();
+/** Bumped by reset() so an open that straddles a workspace switch is dropped. */
+let resetGeneration = 0;
 /** Models currently being refreshed from the main-process document store. */
 const syncingModels = new Set<string>();
 
@@ -290,13 +290,17 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   async openFile(path, opts = {}) {
     const group = opts.group ?? get().activeGroup;
-    const state = get();
-    const groups = state.groups.map((g) => ({ ...g, tabs: [...g.tabs] }));
-    const targetGroup = groups[Math.min(group, groups.length - 1)]!;
-
-    if (!findTab(targetGroup.tabs, path)) {
+    const before = get().groups;
+    if (!findTab(before[Math.min(group, before.length - 1)]!.tabs, path)) {
+      const generation = resetGeneration;
       const opened = await ensureDocument(path, get, set);
-      if (!opened) return;
+      if (!opened || generation !== resetGeneration) return;
+    }
+    // Clone after the await (like openDiff): a stale pre-await copy would drop
+    // tabs opened meanwhile or resurrect tabs cleared by a workspace reset.
+    const groups = get().groups.map((g) => ({ ...g, tabs: [...g.tabs] }));
+    const targetGroup = groups[Math.min(group, groups.length - 1)]!;
+    if (!findTab(targetGroup.tabs, path)) {
       targetGroup.tabs.push({ kind: 'file', path, pinned: false });
     }
     targetGroup.active = path;
@@ -543,6 +547,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   },
 
   reset() {
+    resetGeneration += 1;
     for (const listener of modelListeners.values()) listener.dispose();
     modelListeners.clear();
     for (const timer of updateTimers.values()) clearTimeout(timer);
@@ -562,10 +567,6 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       compareWith: null,
     });
     syncQuitBlockers(get());
-  },
-
-  dirtyCount() {
-    return Object.values(get().docs).filter((d) => d.dirty).length;
   },
 }));
 

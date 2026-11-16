@@ -12,8 +12,6 @@
  */
 export const CORRECTION_SIMILAR_THRESHOLD = 0.35;
 
-const CJK_RE = /[぀-ヿ㐀-䶿一-鿿豈-﫿]/;
-
 export function similarityTokens(text: string): Set<string> {
   const tokens = new Set<string>();
   const lowered = text.toLowerCase();
@@ -40,9 +38,4 @@ export function correctionSimilarity(a: string, b: string): number {
 
 export function isSimilarCorrection(a: string, b: string): boolean {
   return correctionSimilarity(a, b) >= CORRECTION_SIMILAR_THRESHOLD;
-}
-
-/** True when the text plausibly contains any CJK (used only for tests/debug). */
-export function containsCjk(text: string): boolean {
-  return CJK_RE.test(text);
 }

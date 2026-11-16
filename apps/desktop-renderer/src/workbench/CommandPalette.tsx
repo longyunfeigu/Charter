@@ -18,7 +18,9 @@ export function CommandPalette(): React.JSX.Element | null {
       (c) => `${c.category ? `${c.category}: ` : ''}${c.title}`,
       60,
     );
-  }, [query]);
+    // `open` re-reads the registry and enabled() gates on every open; commands
+    // registered after first mount would otherwise stay missing.
+  }, [query, open]);
 
   useEffect(() => {
     if (open) {

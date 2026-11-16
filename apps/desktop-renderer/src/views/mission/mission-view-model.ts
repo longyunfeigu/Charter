@@ -74,10 +74,6 @@ export function taskStateCopy(
   return TASK_COPY[state];
 }
 
-export function threadKey(message: MissionSnapshotDto['messages'][number]): string {
-  return message.threadId ?? message.id;
-}
-
 export function openActionRequests(snapshot: MissionSnapshotDto) {
   return (snapshot.actionRequests ?? []).filter((request) => request.status === 'OPEN');
 }

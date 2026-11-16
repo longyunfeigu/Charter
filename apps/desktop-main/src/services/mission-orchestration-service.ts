@@ -208,7 +208,7 @@ export class MissionOrchestrationService {
     const liveMissionStates = new Set(['PLANNING', 'RUNNING', 'BLOCKED', 'VERIFYING']);
     const liveAssignmentStates = new Set(['PENDING', 'ACTIVE', 'WAITING', 'PAUSED', 'ORPHANED']);
     let cancelled = 0;
-    for (const mission of this.repository.listMissions(200)) {
+    for (const mission of this.repository.listRecoverableMissions()) {
       if (!liveMissionStates.has(mission.state)) continue;
       const snapshot = this.repository.snapshot(mission.id);
       for (const assignment of snapshot.assignments) {
@@ -948,17 +948,6 @@ export class MissionOrchestrationService {
       ...(input.remaining ? { remaining: input.remaining } : {}),
       ...(input.blockers ? { blockers: input.blockers } : {}),
       ...(input.leaseExpiresAt !== undefined ? { leaseExpiresAt: input.leaseExpiresAt } : {}),
-    });
-    this.afterLifecycle(caller.missionId!, result.message.toAssignmentId);
-    return result;
-  }
-
-  heartbeat(callerInput: OrchestrationCallerContext, leaseExpiresAt?: string | null) {
-    const caller = this.requireActiveAttempt(callerInput);
-    const result = this.repository.recordHeartbeat({
-      attemptId: caller.attemptId!,
-      principalId: caller.principalId,
-      ...(leaseExpiresAt !== undefined ? { leaseExpiresAt } : {}),
     });
     this.afterLifecycle(caller.missionId!, result.message.toAssignmentId);
     return result;

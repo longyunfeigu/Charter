@@ -355,6 +355,9 @@ export class MemoryService {
       enabled: true,
     });
     this.upsertRuleStats(ws.id, rule.id, origin.taskId, origin.label);
+    // Write rules.md first: a failed write must leave the candidate pending
+    // (retryable) rather than approved against a rule that does not exist.
+    this.persistModel(ws, model, 'candidate-approved');
     this.db
       .prepare(
         `UPDATE memory_candidates
@@ -362,7 +365,6 @@ export class MemoryService {
          WHERE id = ?`,
       )
       .run(rule.id, nowIso, nowIso, row.id);
-    this.persistModel(ws, model, 'candidate-approved');
     // Timeline receipt in the source task (replay-traceable "why this rule exists").
     if (origin.taskId) {
       try {
@@ -502,7 +504,6 @@ export class MemoryService {
     enabled: boolean,
   ): MemorySyncStateDto[] {
     const ws = this.requireWorkspace(projectPath);
-    const nowIso = this.now().toISOString();
     this.db
       .prepare(
         `INSERT INTO memory_sync_state (workspace_id, target, enabled, status, last_synced_at)

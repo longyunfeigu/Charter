@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type {
   OrchestrationSnapshotDto,
-  OrchestrationWorkerDto,
   MissionSnapshotDto,
   PermissionCardDto,
 } from '@pi-ide/ipc-contracts';
@@ -31,15 +30,12 @@ interface OrchestrationStore {
   refreshDeletedMissions(): Promise<void>;
   refreshPermissions(): Promise<void>;
   refreshMission(taskId: string): Promise<void>;
-  workersFor(taskId: string): OrchestrationWorkerDto[];
   pauseWorker(terminalId: string, paused: boolean): Promise<void>;
   pauseFleet(taskId: string, paused: boolean): Promise<void>;
   handBack(terminalId: string): Promise<void>;
   recordCut(taskId: string, terminalId: string, reason: string): Promise<void>;
   pauseAssignment(missionRef: string, assignmentId: string, paused: boolean): Promise<void>;
-  pauseMission(missionRef: string, paused: boolean): Promise<void>;
   steerAssignment(missionRef: string, assignmentId: string, text: string): Promise<void>;
-  replyToMessage(missionRef: string, messageId: string, body: string): Promise<void>;
   resolveActionRequest(
     missionRef: string,
     requestId: string,
@@ -256,10 +252,6 @@ export const useOrchestrationStore = create<OrchestrationStore>((set, get) => ({
     }
   },
 
-  workersFor(taskId) {
-    return get().snapshot.workers.filter((worker) => worker.commanderTaskId === taskId);
-  },
-
   async pauseWorker(terminalId, paused) {
     const result = await rpcResult('orchestration.pauseWorker', { terminalId, paused });
     if (result.ok) set({ snapshot: result.data });
@@ -295,26 +287,6 @@ export const useOrchestrationStore = create<OrchestrationStore>((set, get) => ({
     else useAppStore.getState().pushToast('error', result.error.userMessage);
   },
 
-  async pauseMission(missionRef, paused) {
-    const current = missionFor(get(), missionRef);
-    if (!current) return;
-    const targets = current.assignments.filter((assignment) =>
-      paused ? ['ACTIVE', 'WAITING'].includes(assignment.state) : assignment.state === 'PAUSED',
-    );
-    for (const assignment of targets) {
-      const result = await rpcResult('mission.pauseAssignment', {
-        missionId: current.mission.id,
-        assignmentId: assignment.id,
-        paused,
-      });
-      if (!result.ok) {
-        useAppStore.getState().pushToast('error', result.error.userMessage);
-        continue;
-      }
-      set((state) => withMission(state, result.data));
-    }
-  },
-
   async steerAssignment(missionRef, assignmentId, text) {
     const current = missionFor(get(), missionRef);
     if (!current) return;
@@ -322,18 +294,6 @@ export const useOrchestrationStore = create<OrchestrationStore>((set, get) => ({
       missionId: current.mission.id,
       assignmentId,
       text,
-    });
-    if (result.ok) set((state) => withMission(state, result.data));
-    else useAppStore.getState().pushToast('error', result.error.userMessage);
-  },
-
-  async replyToMessage(missionRef, messageId, body) {
-    const current = missionFor(get(), missionRef);
-    if (!current) return;
-    const result = await rpcResult('mission.replyMessage', {
-      missionId: current.mission.id,
-      messageId,
-      body,
     });
     if (result.ok) set((state) => withMission(state, result.data));
     else useAppStore.getState().pushToast('error', result.error.userMessage);

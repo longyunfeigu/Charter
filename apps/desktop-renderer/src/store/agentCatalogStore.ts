@@ -151,11 +151,3 @@ export function installedTerminalAgents(): DetectedAgentDto[] {
     .getState()
     .agents.filter((agent) => agent.installed && agent.capabilities.terminal);
 }
-
-export function installedRuntimeAgents(): DetectedAgentDto[] {
-  return useAgentCatalogStore
-    .getState()
-    .agents.filter(
-      (agent) => agent.installed && (agent.capabilities.acp || agent.capabilities.terminal),
-    );
-}

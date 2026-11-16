@@ -261,6 +261,9 @@ export class UpdateService {
 
   syncSettings(settings: { channel: UpdateChannel; autoCheck: boolean }): void {
     const channelChanged = settings.channel !== this.channel;
+    // Called on every settings change; unrelated edits (theme, zoom) must not
+    // re-arm a GitHub check against the 60/hour unauthenticated limit.
+    if (!channelChanged && settings.autoCheck === this.autoCheck) return;
     this.channel = settings.channel;
     this.autoCheck = settings.autoCheck;
     if (this.nativeUpdater) this.configureNativeChannel(this.nativeUpdater);

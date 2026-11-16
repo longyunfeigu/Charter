@@ -807,10 +807,6 @@ export class TaskService {
     }
   }
 
-  get projectContexts(): ProjectContexts {
-    return this.contexts;
-  }
-
   // ---------- plan approval flow (M8-01, AG-007/008, §13.2) ----------
 
   private planGate(): PlanGate {
@@ -2313,14 +2309,22 @@ export class TaskService {
   ): TaskDto[] {
     const ws = this.workspace.current;
     if (scope === 'workspace' && !ws) return [];
+    // Filter archived rows in SQL, before the LIMIT: archiving bumps
+    // updated_at, so recent archives would otherwise crowd live Sessions out.
+    const archived = includeArchived ? 1 : 0;
     const rows = (scope === 'all'
-      ? this.db.prepare(`${TASK_SELECT} ORDER BY t.updated_at DESC LIMIT 300`).all()
+      ? this.db
+          .prepare(
+            `${TASK_SELECT} WHERE (? = 1 OR t.archived = 0) ORDER BY t.updated_at DESC LIMIT 300`,
+          )
+          .all(archived)
       : this.db
-          .prepare(`${TASK_SELECT} WHERE t.workspace_id = ? ORDER BY t.updated_at DESC LIMIT 300`)
-          .all(ws!.id)) as unknown as TaskRow[];
+          .prepare(
+            `${TASK_SELECT} WHERE t.workspace_id = ? AND (? = 1 OR t.archived = 0) ORDER BY t.updated_at DESC LIMIT 300`,
+          )
+          .all(ws!.id, archived)) as unknown as TaskRow[];
     return rows
       .map((r) => this.rowToDto(r))
-      .filter((t) => includeArchived || !t.archived)
       .filter((t) => {
         switch (filter) {
           case 'active':
@@ -4362,7 +4366,10 @@ export class TaskService {
       }
       const context = this.contextForTask(taskId);
       const runs = context.verifications.listForTask(taskId);
-      const failed = runs.filter((r) => r.state === 'failed' || r.state === 'timeout');
+      // Same trust boundary as acceptTask: superseded failures are history.
+      const failed = runs.filter(
+        (r) => r.supersededBy === null && (r.state === 'failed' || r.state === 'timeout'),
+      );
       if (failed.length > 0) {
         this.recordEvent(taskId, 'system.diagnostic', {
           code: 'AUTO_APPLY_SKIPPED',
@@ -4786,6 +4793,9 @@ export class TaskService {
       'REVIEW_READY',
       'INTERRUPTED',
       'FAILED',
+      // ADR-0032: a settled Session stays a live conversation and its worktree
+      // edits merge back only at archive — sweeping it would discard them.
+      'IDLE',
     ]);
     const rows = this.db
       .prepare('SELECT id, state, workspace_id FROM tasks WHERE worktree_json IS NOT NULL')

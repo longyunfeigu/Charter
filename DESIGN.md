@@ -15,7 +15,7 @@ individual feature is understood:
 
 1. **Skin-native command chrome.** The title bar, application taxonomy, status strip, and live
    workspace identity share one operational hierarchy, but their material always comes from the
-   active skin. They answer “where am I?” and “what is live?” without flattening five skins into a
+   active skin. They answer “where am I?” and “what is live?” without flattening six skins into a
    sixth global colour scheme.
 2. **Indexed navigation.** Sessions, Missions, Projects, Skills, and retrieval lists sit on the
    active skin's navigation surface. Group labels behave like an editorial index; selection uses

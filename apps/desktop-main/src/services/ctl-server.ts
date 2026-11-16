@@ -222,7 +222,11 @@ export class CtlServer {
       return;
     }
     const controller = new AbortController();
-    request.once('aborted', () => controller.abort());
+    // 'aborted' stops firing once the body is consumed, so long POST waits
+    // would outlive a killed client; an unfinished response close is reliable.
+    response.once('close', () => {
+      if (!response.writableFinished) controller.abort();
+    });
     const caller = await this.waitForCaller(terminalId, controller.signal);
     const taskId = caller?.taskId ?? null;
     const gateway = caller?.gateway ?? null;

@@ -23,8 +23,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run test
-      - run: npm run build
-      - name: E2E
+      - name: E2E (builds first)
         run: npm run test:e2e
       - name: Upload E2E failure evidence (traces + report)
         uses: actions/upload-artifact@v4

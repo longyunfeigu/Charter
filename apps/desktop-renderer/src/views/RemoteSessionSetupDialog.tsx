@@ -10,7 +10,6 @@ import type {
 } from '@pi-ide/ipc-contracts';
 import { rpcResult } from '../bridge.js';
 import { useAgentCatalogStore } from '../store/agentCatalogStore.js';
-import { useAppStore } from '../store/appStore.js';
 import { useSshStore } from '../store/sshStore.js';
 import { remoteJoin, remoteParent } from '../store/sftpStore.js';
 import { Ic, ProviderMark } from './home-icons.js';

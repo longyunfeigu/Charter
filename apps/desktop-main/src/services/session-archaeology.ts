@@ -5,7 +5,6 @@ import type { Logger } from '@pi-ide/foundation';
 import {
   CLI_SESSION_ID_RE,
   MAX_DISCOVERED_FILES,
-  MAX_DISCOVERED_SESSIONS,
   MAX_DISCOVERED_SKILLS,
   type DiscoveredCli,
   type DiscoveredSessionDto,
@@ -724,5 +723,3 @@ export class SessionArchaeologyService {
     }
   }
 }
-
-export { MAX_DISCOVERED_SESSIONS };

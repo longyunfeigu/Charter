@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { openSync, writeSync, fsyncSync, closeSync, renameSync } from 'node:fs';
+import { openSync, writeSync, fsyncSync, fchmodSync, closeSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import {
@@ -230,9 +230,18 @@ export class DocumentStore {
     const payload = (doc.encoding === 'utf8-bom' ? BOM : '') + doc.content;
     const data = Buffer.from(payload, 'utf8');
     const tmp = join(dirname(abs), `.pi-ide.${process.pid}.${Date.now()}.tmp`);
+    // The temp file replaces the original by rename, so carry its permission
+    // bits over (an executable script must stay executable).
+    let prevMode: number | null = null;
+    try {
+      prevMode = (await fs.stat(abs)).mode & 0o7777;
+    } catch {
+      // new file: default mode
+    }
     try {
       const fd = openSync(tmp, 'w');
       try {
+        if (prevMode !== null) fchmodSync(fd, prevMode);
         writeSync(fd, data);
         fsyncSync(fd);
       } finally {

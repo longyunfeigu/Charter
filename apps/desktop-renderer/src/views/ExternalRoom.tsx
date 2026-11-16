@@ -174,7 +174,6 @@ export function ExternalTerminalColumn({
   const terminalReadOnly =
     item !== null && (item.exited || lifecycle?.interactive === false || inputRepairPending);
   const hostRef = useRef<HTMLDivElement>(null);
-  const peekOpen = useAppStore((state) => state.peek?.taskId === task.id);
   const follow = useExternalStore((s) => s.follow[task.id] ?? true);
   const lastDelta = useExternalStore((s) => s.lastDelta);
   // 'drag' veils follow the pointer; 'ended' sticks after a drop on a dead

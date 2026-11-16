@@ -133,7 +133,6 @@ export function buildTerminalReplayTimeline(
   let previousRawAtMs = firstVisibleAtMs;
   const gaps: TimedGap[] = ordered.map((event) => {
     const rawMs = Math.max(0, event.atMs - firstVisibleAtMs);
-    const realGapMs = Math.max(0, event.atMs - previousRawAtMs);
     const smart = smartGap(previousRawAtMs, event.atMs, spans, expandedSpanIds);
     previousRawAtMs = Math.max(previousRawAtMs, event.atMs);
     return {

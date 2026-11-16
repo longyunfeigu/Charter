@@ -1138,8 +1138,14 @@ export class WorkItemService {
     if (delay === undefined) {
       const next = this.db
         .prepare(
-          `SELECT remind_at FROM work_item_reminders
-           WHERE state IN ('scheduled', 'snoozed') ORDER BY remind_at LIMIT 1`,
+          // Same eligibility as processDueReminders: a due reminder it would
+          // skip (archived/done item) must not pin the timer at 0ms forever.
+          `SELECT r.remind_at FROM work_item_reminders r
+           JOIN work_items i ON i.id = r.work_item_id
+           JOIN work_board_columns c ON c.id = i.column_id
+           WHERE r.state IN ('scheduled', 'snoozed')
+             AND i.archived = 0 AND c.category NOT IN ('completed', 'cancelled')
+           ORDER BY r.remind_at LIMIT 1`,
         )
         .get() as { remind_at: string } | undefined;
       if (!next) {

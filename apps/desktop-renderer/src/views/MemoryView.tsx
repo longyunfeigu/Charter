@@ -4,7 +4,6 @@ import type {
   MemoryCandidateDto,
   MemoryCharterProject,
   MemoryClaudeProjectGroup,
-  MemoryOverviewDto,
   MemoryRuleDto,
   MemorySyncStateDto,
 } from '@pi-ide/ipc-contracts';

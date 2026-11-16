@@ -557,7 +557,6 @@ function StartModal(props: { item: WorkItemDto; onClose(): void }): React.JSX.El
         agentLabel: agentDisplayName(entryAgent),
         summary: '',
       });
-      setStarting(false);
       await useForYouStore.getState().refreshDetail();
       useAppStore
         .getState()
@@ -627,7 +626,6 @@ function StartModal(props: { item: WorkItemDto; onClose(): void }): React.JSX.El
       agentLabel: `Charter Agent · ${preferred.displayName}`,
       summary: '',
     });
-    setStarting(false);
     await useForYouStore.getState().refreshDetail();
     useAppStore
       .getState()
@@ -1445,8 +1443,8 @@ function PostModal(props: { item: WorkItemDto; body: string; onClose(): void }):
       workItemId: props.item.id,
       body: props.body,
     });
-    setPosting(false);
     if (!result.ok) {
+      setPosting(false);
       setError(result.error.userMessage);
       return;
     }

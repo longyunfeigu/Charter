@@ -357,7 +357,6 @@ export const AgentAdapterManifestSchema = z
   });
 
 export type AgentAdapterManifest = z.infer<typeof AgentAdapterManifestSchema>;
-export type AgentCapabilityDeclarations = z.infer<typeof AgentCapabilityDeclarationsSchema>;
 
 const builtinLifecycles = z.array(AgentLifecycleManifestSchema).parse(builtinLifecycleData);
 const lifecycleById = new Map(builtinLifecycles.map((manifest) => [manifest.id, manifest]));

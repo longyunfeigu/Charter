@@ -1,19 +1,9 @@
-import { join } from 'node:path';
 import { GitService } from '@pi-ide/git-service';
-import {
-  BlobStore,
-  ChangeService,
-  type ChangeRepo,
-  type FileBaseline,
-  type FileChangeRecord,
-} from '@pi-ide/change-service';
+import { type ChangeRepo, type FileBaseline, type FileChangeRecord } from '@pi-ide/change-service';
 import type { SqlDatabase } from '@pi-ide/persistence';
 import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import { registerHandlers } from './router.js';
 import type { WorkspaceHost } from '../services/workspace-host.js';
-import type { StateService } from '../services/state-service.js';
-import type { AppPaths } from '../app-paths.js';
-import { workspaceDataDir } from '../app-paths.js';
 import { broadcast } from '../broadcast.js';
 
 /** ChangeRepo over the product SQLite database (spec §11.2 tables). */
@@ -144,32 +134,17 @@ export class SqliteChangeRepo implements ChangeRepo {
 
 export class M5Services {
   private git: GitService | null = null;
-  private changes: ChangeService | null = null;
-  private blobs: BlobStore | null = null;
   private gitRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(
-    private readonly host: WorkspaceHost,
-    private readonly state: StateService,
-    private readonly paths: AppPaths,
-    private readonly logger: Logger,
-  ) {
+  // Task change tracking lives in project-contexts (one ChangeService per
+  // project); this service only owns the focused workspace's git view.
+  constructor(host: WorkspaceHost) {
     host.onDidChangeWorkspace((ws) => {
       if (ws) {
         this.git = new GitService(ws.canonicalPath);
-        const dataDir = workspaceDataDir(paths, ws.id);
-        this.blobs = new BlobStore(join(dataDir, 'checkpoints', 'blobs'));
-        this.changes = new ChangeService({
-          root: ws.canonicalPath,
-          blobs: this.blobs,
-          repo: new SqliteChangeRepo(state.db),
-          documents: ws.documents,
-        });
         ws.watcher.onBatch(() => this.scheduleGitRefresh());
       } else {
         this.git = null;
-        this.changes = null;
-        this.blobs = null;
       }
     });
   }
@@ -188,14 +163,6 @@ export class M5Services {
       );
     }
     return this.git;
-  }
-
-  get changeService(): ChangeService | null {
-    return this.changes;
-  }
-
-  get blobStore(): BlobStore | null {
-    return this.blobs;
   }
 
   notifyGitChanged(reason: string): void {

@@ -57,8 +57,6 @@
     "vitest": "4.1.10"
   },
   "allowScripts": {
-    "@vscode/ripgrep@1.18.0": true,
-    "electron@43.1.0": true,
     "esbuild@0.28.1": true,
     "node-pty@1.1.0": true
   },

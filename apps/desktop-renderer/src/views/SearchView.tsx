@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { monaco, modelUri } from '../monaco-setup.js';
@@ -67,7 +67,10 @@ export const useSearchStore = create<SearchState>((set, get) => ({
   async run() {
     const state = get();
     if (state.query.trim() === '') return;
-    set({ searching: true, groups: [], truncated: false, ran: true });
+    // Drop the previous search id first so its late results cannot refill the
+    // cleared list before the new id arrives.
+    if (state.searchId) void rpcResult('search.cancel', { searchId: state.searchId });
+    set({ searching: true, groups: [], truncated: false, ran: true, searchId: null });
     const res = await rpcResult('search.textStart', {
       query: state.query,
       isRegex: state.isRegex,
@@ -150,21 +153,20 @@ export function SearchView(): React.JSX.Element {
   const store = useSearchStore();
   const taskRoomTaskId = useAppStore((state) => state.taskRoomTaskId);
   const [showReplace, setShowReplace] = useState(false);
-  const initialized = useRef(false);
 
-  useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
-    onEvent('search.results', (payload) => {
-      const current = useSearchStore.getState();
-      if (payload.searchId !== current.searchId) return;
-      useSearchStore.setState({
-        groups: payload.groups.map((g) => ({ ...g })),
-        searching: !payload.done,
-        truncated: payload.truncated,
-      });
-    });
-  }, []);
+  useEffect(
+    () =>
+      onEvent('search.results', (payload) => {
+        const current = useSearchStore.getState();
+        if (payload.searchId !== current.searchId) return;
+        useSearchStore.setState({
+          groups: payload.groups.map((g) => ({ ...g })),
+          searching: !payload.done,
+          truncated: payload.truncated,
+        });
+      }),
+    [],
+  );
 
   const totalMatches = store.groups.reduce((n, g) => n + g.matches.length, 0);
   const included = store.groups.reduce(

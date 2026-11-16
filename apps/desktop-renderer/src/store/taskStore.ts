@@ -185,13 +185,6 @@ interface TaskStore {
     fileRefs?: FileContextRefDto[],
     artifactRefs?: ArtifactFeedbackRefDto[],
   ): Promise<boolean>;
-
-  // PIVOT-005: Home fast path — one-line intent charters a task.
-  createFromIntent(input: {
-    intent: string;
-    mode: Exclude<AgentMode, 'full'>;
-    model: { providerId: string; modelId: string };
-  }): Promise<boolean>;
 }
 
 /**
@@ -913,16 +906,6 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
       .getState()
       .pushToast('info', `Rolled back ${res.data.restored?.length ?? 0} file(s).`);
     return true;
-  },
-
-  async createFromIntent(input) {
-    return get().createAndStart({
-      title: titleFromIntent(input.intent),
-      goalMd: input.intent,
-      acceptance: [],
-      mode: input.mode,
-      model: input.model,
-    });
   },
 
   async runVerification(label) {

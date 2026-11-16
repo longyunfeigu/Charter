@@ -25,7 +25,6 @@ function send(message: WorkerOutbound): void {
 
 let runtime: AgentRuntime | null = null;
 const pendingTools = new Map<string, (result: ToolResultPayload) => void>();
-const sessionTaskById = new Map<string, string>();
 
 const toolExecutor: ToolExecutor = (call, signal) =>
   new Promise<ToolResultPayload>((resolve) => {
@@ -90,7 +89,6 @@ async function handle(message: WorkerInbound): Promise<void> {
     case 'createSession': {
       try {
         const ref = await runtime!.createSession(message.input);
-        sessionTaskById.set(ref.sessionId, message.input.taskId);
         send({ type: 'response', reqId: message.reqId, ok: true, data: ref });
       } catch (e) {
         send({

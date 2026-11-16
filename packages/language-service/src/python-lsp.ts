@@ -67,6 +67,7 @@ export class PythonLspClient {
   private readonly pending = new Map<number, Pending>();
   private buffer = Buffer.alloc(0);
   private initialized = false;
+  private disposed = false;
   private readonly versions = new Map<string, number>();
   restartCount = 0;
 
@@ -88,6 +89,12 @@ export class PythonLspClient {
     this.child = spawn(this.serverPath, args, { cwd: this.rootPath });
     this.child.stdout.on('data', (chunk: Buffer) => this.onStdout(chunk));
     this.child.stderr.on('data', () => undefined);
+    // Spawn failures (ENOENT/EACCES) and writes to a dead server (EPIPE) emit
+    // 'error'; unhandled, either would throw in the main process.
+    this.child.on('error', (error) =>
+      this.logger.warn('python lsp process error', { error: error.message }),
+    );
+    this.child.stdin.on('error', () => undefined);
     this.child.on('exit', (code) => {
       this.logger.warn('python lsp exited', { code });
       this.child = null;
@@ -96,7 +103,8 @@ export class PythonLspClient {
         pending.reject(new Error('language server exited'));
       }
       this.pending.clear();
-      this.onCrash();
+      // A requested shutdown is not a crash; restarting would orphan a server.
+      if (!this.disposed) this.onCrash();
     });
 
     const initResult = await this.request('initialize', {
@@ -206,7 +214,9 @@ export class PythonLspClient {
   }
 
   async dispose(): Promise<void> {
-    if (!this.child) return;
+    this.disposed = true;
+    const child = this.child;
+    if (!child) return;
     try {
       await Promise.race([
         this.request('shutdown', null),
@@ -218,7 +228,8 @@ export class PythonLspClient {
     }
     setTimeout(() => {
       try {
-        this.child?.kill('SIGKILL');
+        // this.child is nulled below, so the fallback must hold its own handle.
+        if (child.exitCode === null) child.kill('SIGKILL');
       } catch {
         // already gone
       }

@@ -91,6 +91,15 @@ describe('command classifier (§10.2/§10.4, PERM-008/009, CMD-001/002)', () => 
     expect(classify('sh', ['-c', 'git push origin main']).level).toBe('R4');
   });
 
+  it('does not let git global option values hide the subcommand', () => {
+    expect(classify('git', ['-C', '.', 'push']).level).toBe('R4');
+    expect(classify('git', ['-c', 'a=b', 'push', 'origin', 'main']).level).toBe('R4');
+    expect(classify('sh', ['-c', 'git -C . push origin main']).level).toBe('R4');
+    // Grants stay scoped to the literal form: `git -C . status` must not reuse
+    // a standing allow for plain `git status`.
+    expect(classify('git', ['-C', '.', 'status']).ruleKey).not.toBe('run_command:git:status');
+  });
+
   // ADR-0022: forge CLIs are the same outward-action class as git push.
   it('classifies forge CLI mutations as R4 (gh pr create, gh api, glab, unknown subs fail closed)', () => {
     expect(classify('gh', ['pr', 'create', '--draft']).level).toBe('R4');

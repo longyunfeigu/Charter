@@ -54,7 +54,9 @@ function parseCustomCommand(raw: string): VerificationCommand | null {
 export function HomeView(): React.JSX.Element {
   const app = useAppStore();
   const workspaceStore = useWorkspaceStore();
-  const taskStore = useTaskStore();
+  const taskStore = useTaskStore.getState();
+  const tasks = useTaskStore((s) => s.tasks);
+  const models = useTaskStore((s) => s.models);
   const catalogAgents = useAgentCatalogStore((state) => state.agents);
   const initAgentCatalog = useAgentCatalogStore((state) => state.init);
   const externalAgents = useMemo(
@@ -235,23 +237,20 @@ export function HomeView(): React.JSX.Element {
   // ADR-0009: same-project parallelism defaults the worktree toggle ON.
   const projectBusy = useMemo(
     () =>
-      taskStore.tasks.some(
+      tasks.some(
         (t) =>
           t.projectPath === workspace?.path &&
           (RUNNING_TASK_STATES.has(t.state) ||
             t.state === 'AWAITING_PLAN_APPROVAL' ||
             t.state === 'READY'),
       ),
-    [taskStore.tasks, workspace],
+    [tasks, workspace],
   );
   useEffect(() => {
     if (!worktreeTouched) setWorktree(projectBusy && Boolean(workspace?.isGitRepo));
   }, [projectBusy, workspace, worktreeTouched]);
 
-  const configuredModels = useMemo(
-    () => taskStore.models.filter((m) => m.configured),
-    [taskStore.models],
-  );
+  const configuredModels = useMemo(() => models.filter((m) => m.configured), [models]);
   useEffect(() => {
     const selectedIsVerified = configuredModels.some(
       (model) => `${model.providerId}::${model.modelId}` === modelKey,
@@ -563,15 +562,19 @@ export function HomeView(): React.JSX.Element {
 
   useEffect(() => {
     if (!pickerOpen) return;
+    let cancelled = false;
     const handle = setTimeout(() => {
       void rpcResult('search.files', { query: pickerQuery }).then((res) => {
-        if (res.ok) {
+        if (!cancelled && res.ok) {
           setPickerFiles(res.data.items.slice(0, 8).map((i) => i.path));
           setPickerIndex(0);
         }
       });
     }, 80);
-    return () => clearTimeout(handle);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
   }, [pickerOpen, pickerQuery]);
 
   const pickFile = (path: string): void => {
@@ -600,7 +603,7 @@ export function HomeView(): React.JSX.Element {
 
   const pickerConversations = useMemo(() => {
     const query = pickerQuery.trim().toLocaleLowerCase();
-    return taskStore.tasks
+    return tasks
       .filter((task) => !task.external && task.state !== 'READY')
       .filter(
         (task) =>
@@ -609,7 +612,7 @@ export function HomeView(): React.JSX.Element {
           task.projectName.toLocaleLowerCase().includes(query),
       )
       .slice(0, 6);
-  }, [pickerQuery, taskStore.tasks]);
+  }, [pickerQuery, tasks]);
 
   const pickerItems = useMemo<ReferencePickerItem[]>(
     () => [

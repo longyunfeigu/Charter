@@ -53,7 +53,7 @@ describe('remoteCwdSyncSequence (ADR-0059)', () => {
   const line = remoteCwdSyncSequence();
   const script = line.replace(/\r$/, '');
   const shellAvailable = (shell: string): boolean =>
-    spawnSync('command', ['-v', shell], { shell: '/bin/sh' }).status === 0;
+    spawnSync('/bin/sh', ['-c', `command -v ${shell}`]).status === 0;
 
   it('is one history-hygienic line that degrades silently', () => {
     expect(line.startsWith(' ')).toBe(true); // HISTCONTROL/HIST_IGNORE_SPACE skip

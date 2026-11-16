@@ -235,7 +235,12 @@ export function registerTerminalTools(gateway: ToolGateway, services: TerminalTo
       })
       .strict(),
     preflight: (_input, call) => services.control.preflight(caller(call, services), 'create'),
-    risk: () => ({ level: 'R2', reasons: ['creates a live process and visible worker session'] }),
+    // Shell initialText is typed into a bare shell, exactly like terminal.send,
+    // so it must face the same command classifier (an R4 command stays R4).
+    risk: (input) =>
+      input.launch === 'shell' && input.initialText
+        ? classifyTerminalSend('shell', input.initialText)
+        : { level: 'R2', reasons: ['creates a live process and visible worker session'] },
     preview: async (input) => ({
       summary: `Create ${input.launch} worker terminal`,
       ...(input.initialText

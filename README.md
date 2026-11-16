@@ -9,16 +9,16 @@ Run the built-in Charter Agent and installed coding-agent CLIs such as Claude Co
 
 *The agent says it is done. Charter shows you why you should believe it.*
 
-[![Beta 5](https://img.shields.io/badge/release-v1.0.0--beta.5-C47A19?style=flat-square)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5)
+[![Beta 6](https://img.shields.io/badge/release-v1.0.0--beta.6-C47A19?style=flat-square)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.6)
 [![CI](https://img.shields.io/github/actions/workflow/status/longyunfeigu/Charter/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/longyunfeigu/Charter/actions/workflows/ci.yml)
-[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1B1A16?style=flat-square&logo=apple&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5)
-[![Windows](https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5)
-[![Linux](https://img.shields.io/badge/Linux-x64-F4B728?style=flat-square&logo=linux&logoColor=111111)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5)
+[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1B1A16?style=flat-square&logo=apple&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.6)
+[![Windows](https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.6)
+[![Linux](https://img.shields.io/badge/Linux-x64-F4B728?style=flat-square&logo=linux&logoColor=111111)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.6)
 [![MIT License](https://img.shields.io/badge/license-MIT-2F855A?style=flat-square)](LICENSE)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-[Download Beta](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5) · [Product tour](#product-tour) · [What it does](#what-it-does) · [Quick start](#quick-start) · [Architecture](#architecture)
+[Download Beta](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.6) · [Product tour](#product-tour) · [What it does](#what-it-does) · [Quick start](#quick-start) · [Architecture](#architecture)
 
 </div>
 
@@ -155,7 +155,7 @@ Charter combines agent orchestration, a desktop IDE, controlled execution, live 
 - **Quick Console:** press `Option+Space` for a persistent scratch or project terminal, then send selected output into the current Room.
 - **Clickable terminal paths:** command output can open a file, line, or local HTML page directly in Charter or the default browser.
 - **SSH Remotes:** choose **Connect remote over SSH** in New Session, verify the host key and credentials, detect server-side Agent CLIs, and run the chosen Agent in a real SSH PTY—never through a silent local fallback. Setup offers two explicit file locations. **On this server** uses an existing remote folder: Files browses that canonical folder over SFTP, while a private sparse local mirror retains only baseline/changed bytes needed for Diff and Review. **On this Mac** keeps the selected local project canonical: Charter uploads a bounded tracked/non-ignored snapshot into an isolated `~/.charter/workspaces/<session>` directory, then synchronizes file versions both ways with expected-hash checks; same-file races pause instead of overwriting either copy, and deleting the Session removes only the isolated server copy. The generated Worker id and mirror path are not shown as project identities. A separately versioned Worker, installed or updated only after an explicit click, provides entry baselines, per-file/hunk Review, byte-exact rollback, final-exit sync, restart recovery, and native CLI Resume in both modes. Local file references remain available only in local-project mode; task-owned worktrees are not bridged. Host cards remain the shell-first place for multiplexed remote terminals. Move files over SFTP in a dual-pane browser, track transfers globally, and configure local port forwards (including a single-hop jump host). File transfer also lives right in the session: drop files anywhere on a remote session to upload them straight to the shell's live working directory (⌥ pastes the local path instead, ⇧ picks the target folder first), and a **Files** drawer on the session header browses, uploads and downloads without leaving the terminal — following your `cd` in real time, pinnable when you want it to stay put. Uploads use their own SFTP channel, so they work even while a full-screen CLI owns the terminal. Passwords and key passphrases stay in the OS keychain, host keys are verified on first use, and `~/.ssh/config` imports in one click.
-- **Four coordinated skins:** Studio, Terminal, Archive, and Index change the complete interface language, not just one accent color.
+- **Six coordinated skins:** Studio, Terminal, Archive, Index, Atelier, and Codex change the complete interface language, not just one accent color.
 
 ### Preview, change control, and evidence
 
@@ -191,7 +191,7 @@ Charter combines agent orchestration, a desktop IDE, controlled execution, live 
 
 ### Download the unsigned Beta
 
-Download the current artifact and `SHA256SUMS.txt` from the [Beta 5 GitHub Release](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5).
+Download the current artifact and `SHA256SUMS.txt` from the [Beta 6 GitHub Release](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.6).
 
 | Platform | Artifact | Preview target |
 | --- | --- | --- |
@@ -199,7 +199,7 @@ Download the current artifact and `SHA256SUMS.txt` from the [Beta 5 GitHub Relea
 | Windows | NSIS installer | `x64` |
 | Linux | `.tar.gz` | `x64` Preview |
 
-The binaries are unsigned and not notarized. Gatekeeper, SmartScreen, Smart App Control, enterprise policy, or antivirus software may refuse to launch them. Read the [release notes](docs/RELEASE_NOTES.md), [known limitations](docs/KNOWN_LIMITATIONS.md), [privacy notice](PRIVACY.md), and [security policy](SECURITY.md) before using the preview on an important repository. Beta 5 automatically checks for newer GitHub prereleases and opens their verified download page; unsigned replacement remains manual.
+The binaries are unsigned and not notarized. Gatekeeper, SmartScreen, Smart App Control, enterprise policy, or antivirus software may refuse to launch them. Read the [release notes](docs/RELEASE_NOTES.md), [known limitations](docs/KNOWN_LIMITATIONS.md), [privacy notice](PRIVACY.md), and [security policy](SECURITY.md) before using the preview on an important repository. Beta 6 automatically checks for newer GitHub prereleases and opens their verified download page; unsigned replacement remains manual.
 
 ### Run from source
 
@@ -351,12 +351,12 @@ CHARTER_README_SHOTS=1 npx playwright test \
 
 Charter is being developed in public toward its first signed Stable desktop release.
 
-- **Published now:** `v1.0.0-beta.5` is the current unsigned preview for macOS Apple Silicon, Windows x64, and Linux x64.
+- **Published now:** `v1.0.0-beta.6` is the current unsigned preview for macOS Apple Silicon, Windows x64, and Linux x64.
 - **Implemented on the current source tree:** the Session-first shell, managed agent path, external CLI accounting and orchestration, live file presence, structured context, Preview, Terminal, Verification, Review, Replay, Memory, Skills, desktop update service, and core security boundaries.
 - **Release pipeline:** three-platform packaging, manifests, checksums, SBOM/license inventory, packaged-app smoke tests, database upgrade/restore rehearsal, Stable/Beta updater feeds, and credential-free gates are in place. Unsigned previews and Linux notify and link only; signed macOS/Windows builds can check and download automatically, then wait for an explicit restart/install action.
 - **Still open for Stable:** Apple notarization, trusted Windows signing, signed update qualification on both desktop platforms, fixed-task real-provider qualification, and final owner sign-off.
 
-The README follows the current source tree; the downloadable Beta may trail ongoing work on `main`. See the [Beta 5 release notes](docs/RELEASE_NOTES.md) for its exact contents and [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for current evidence.
+The README follows the current source tree; the downloadable Beta may trail ongoing work on `main`. See the [Beta 6 release notes](docs/RELEASE_NOTES.md) for its exact contents and [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for current evidence.
 
 ## Contributing
 

@@ -18,10 +18,13 @@ import {
 
 const MAX_LOG_BYTES = 5 * 1024 * 1024;
 const MAX_ROTATIONS = 5;
+const STAT_EVERY_BYTES = 64 * 1024;
 
 /** Rotating JSONL file sink; content redaction happens in createLogger (§18.4). */
 export class FileLogSink implements LogSink {
   private readonly file: string;
+  /** Bytes appended since the last stat; avoids a stat syscall per log line. */
+  private sinceStat = Number.POSITIVE_INFINITY;
   constructor(private readonly dir: string) {
     mkdirSync(dir, { recursive: true });
     this.file = join(dir, 'app.log');
@@ -30,13 +33,19 @@ export class FileLogSink implements LogSink {
   write(entry: LogEntry): void {
     try {
       this.rotateIfNeeded();
-      appendFileSync(this.file, `${JSON.stringify(entry)}\n`, 'utf8');
+      const line = `${JSON.stringify(entry)}\n`;
+      appendFileSync(this.file, line, 'utf8');
+      this.sinceStat += Buffer.byteLength(line);
     } catch {
       // Logging must never crash the app.
     }
   }
 
   private rotateIfNeeded(): void {
+    // Re-stat only once enough has been appended to possibly cross the limit;
+    // the real size still decides, so external deletion/truncation is safe.
+    if (this.sinceStat < STAT_EVERY_BYTES) return;
+    this.sinceStat = 0;
     if (!existsSync(this.file)) return;
     const size = statSync(this.file).size;
     if (size < MAX_LOG_BYTES) return;

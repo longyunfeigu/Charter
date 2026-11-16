@@ -10,7 +10,6 @@ import {
   DEFAULT_TERMINAL_PADDING_Y,
   type RecentWorkspaceDto,
   type Settings,
-  type SshHostDto,
 } from '@pi-ide/ipc-contracts';
 import { Terminal, type IMarker, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -200,7 +199,6 @@ interface TerminalStore {
   undoClose(): void;
   confirmKill(id: string, confirmed: boolean): Promise<void>;
   rename(id: string, title: string): void;
-  clearActive(): void;
   /** ADR-0059: record an OSC 7 cwd report so chips/drop targets re-render. */
   setLiveCwd(id: string, cwd: string): void;
   /** Returns false when focus is outside xterm so the caller can zoom the UI. */
@@ -1696,11 +1694,6 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     const item = get().items.find((t) => t.id === id);
     if (!item || item.liveCwd === cwd) return;
     set({ items: get().items.map((t) => (t.id === id ? { ...t, liveCwd: cwd } : t)) });
-  },
-
-  clearActive() {
-    const active = get().items.find((t) => t.id === get().active);
-    active?.term.clear();
   },
 
   zoomFocused(direction) {

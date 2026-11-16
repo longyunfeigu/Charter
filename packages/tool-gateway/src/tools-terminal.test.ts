@@ -188,6 +188,29 @@ describe('terminal.* gateway tools (ADR-0044)', () => {
     expect(sent).toBe(false);
   });
 
+  it('applies the same R4 boundary to shell initialText on terminal.create', async () => {
+    let created = false;
+    const gateway = new ToolGateway({ root: '/tmp', mode: 'full' });
+    registerTerminalTools(gateway, {
+      root: '/tmp',
+      control: control({
+        async create() {
+          created = true;
+          return { terminal: { id: 'term_2' } };
+        },
+      }),
+    });
+
+    const result = await gateway.executeCall(
+      call('terminal.create', { launch: 'shell', initialText: 'sudo rm -rf /', submit: true }),
+      new AbortController().signal,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.data).toEqual({ risk: 'R4', permanent: true });
+    expect(created).toBe(false);
+  });
+
   it('binds the authenticated external terminal identity to the control call', async () => {
     let seen: TerminalToolCaller | null = null;
     const gateway = new ToolGateway({ root: '/tmp', mode: 'ask' });

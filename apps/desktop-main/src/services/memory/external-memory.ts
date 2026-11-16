@@ -136,7 +136,11 @@ export class ExternalMemoryStore {
       dirNames = [];
     }
     const claudeProjects: ClaudeProjectGroup[] = [];
-    for (const dirName of dirNames.sort()) {
+    // Charter-known projects first, so the group cap never hides them.
+    dirNames.sort(
+      (a, b) => Number(byMunged.has(b)) - Number(byMunged.has(a)) || a.localeCompare(b),
+    );
+    for (const dirName of dirNames) {
       if (claudeProjects.length >= MAX_PROJECT_GROUPS) break;
       const files: ExternalMemoryFileDto[] = [];
       this.collectMemoryDir(files, join(projectsRoot, dirName, 'memory'));
@@ -345,7 +349,7 @@ export class ExternalMemoryStore {
 }
 
 function fileIdFor(agent: ExternalMemoryAgent, absPath: string): string {
-  return createHash('sha256').update(`${agent} ${absPath}`).digest('hex').slice(0, 16);
+  return createHash('sha256').update(`${agent}\0${absPath}`).digest('hex').slice(0, 16);
 }
 
 function readCapped(absPath: string, cap: number): { text: string; sawNul: boolean } {

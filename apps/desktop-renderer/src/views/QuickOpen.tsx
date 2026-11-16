@@ -47,7 +47,6 @@ export function QuickOpen(): React.JSX.Element | null {
       if (query === '') {
         // SRCH-001: recent files first when no query.
         const recent = recentFiles
-          .filter((p) => list.some((i) => i.path === p) || true)
           .slice(0, 15)
           .map((p) => ({ path: p, positions: [] as number[] }));
         const rest = list.filter((i) => !recentFiles.includes(i.path)).slice(0, 50);

@@ -716,12 +716,14 @@ export class OutcomeContractService {
         return [
           {
             kind: kind as OutcomeEvidenceDraft['kind'],
+            // Clip to OutcomeEvidenceSchema limits: one oversized Agent field
+            // would otherwise fail the contract parse and strand the run.
             label:
               typeof item.label === 'string' && item.label
-                ? item.label
+                ? item.label.slice(0, 300)
                 : `${result.agent} evidence`,
-            summary: typeof item.summary === 'string' ? item.summary : '',
-            reference: typeof item.reference === 'string' ? item.reference : '',
+            summary: typeof item.summary === 'string' ? item.summary.slice(0, 20_000) : '',
+            reference: typeof item.reference === 'string' ? item.reference.slice(0, 8_000) : '',
             hash: null,
             source: 'agent',
             fidelity: 'native',

@@ -9,7 +9,6 @@ import type {
 } from '@pi-ide/orchestration-domain';
 import type { GatewayTool, ToolGateway } from './gateway.js';
 import {
-  ORCHESTRATION_TOOL_NAMES,
   OrchestrationAskSchema,
   OrchestrationCancelSchema,
   OrchestrationCompleteSchema,

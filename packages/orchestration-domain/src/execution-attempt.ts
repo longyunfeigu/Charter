@@ -39,7 +39,3 @@ export const TERMINAL_ATTEMPT_STATES: readonly ExecutionAttemptState[] = [
   'CANCELLED',
   'STALE',
 ];
-
-export function isTerminalAttemptState(state: ExecutionAttemptState): boolean {
-  return TERMINAL_ATTEMPT_STATES.includes(state);
-}

@@ -577,15 +577,28 @@ export class TerminalDaemonServer {
           recording = null;
         }
       }
-      const session = new HostedTerminal(
-        { ...request.info },
-        pty,
-        dir,
-        request.scrollback,
-        recording,
-        (event) => this.publish(event),
-        () => this.dropSession(request.info.id),
-      );
+      let session: HostedTerminal;
+      try {
+        session = new HostedTerminal(
+          { ...request.info },
+          pty,
+          dir,
+          request.scrollback,
+          recording,
+          (event) => this.publish(event),
+          () => this.dropSession(request.info.id),
+        );
+      } catch (error) {
+        // The shell is already running; without an owner it would leak.
+        recording?.close();
+        try {
+          pty.kill();
+        } catch {
+          // already gone
+        }
+        reapTerminalProcessGroup(pty.pid);
+        throw error;
+      }
       this.sessions.set(request.info.id, session);
       this.respond(connection, request.requestId, true, { pid: pty.pid });
       return;

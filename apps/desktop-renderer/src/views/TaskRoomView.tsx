@@ -811,15 +811,19 @@ function RoomComposer({
 
   useEffect(() => {
     if (!pickerOpen) return;
+    let stale = false;
     const handle = setTimeout(() => {
       void rpcResult('search.files', { query: pickerQuery }).then((res) => {
-        if (res.ok) {
+        if (!stale && res.ok) {
           setPickerItems(res.data.items.slice(0, 12).map((i) => i.path));
           setPickerIndex(0);
         }
       });
     }, 80);
-    return () => clearTimeout(handle);
+    return () => {
+      stale = true;
+      clearTimeout(handle);
+    };
   }, [pickerOpen, pickerQuery]);
 
   useEffect(() => {

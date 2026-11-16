@@ -13,7 +13,7 @@ import {
   shell,
   Tray,
 } from 'electron';
-import { basename, join, normalize } from 'node:path';
+import { basename, isAbsolute, join, normalize, sep } from 'node:path';
 import {
   chmodSync,
   existsSync,
@@ -108,7 +108,6 @@ import {
   dataSummary,
   TELEMETRY_TRANSPORT_AVAILABLE,
 } from './services/privacy-service.js';
-import { join as joinPath } from 'node:path';
 import {
   TerminalControlIdentityRegistry,
   TerminalControlService,
@@ -180,7 +179,6 @@ let updateServiceRef: UpdateService | null = null;
 let m4Ref: M4Services | null = null;
 let agentVerificationRef: AgentVerificationService | null = null;
 let terminalDaemonRef: TerminalDaemonClient | null = null;
-let m5Ref: M5Services | null = null;
 let agentHostRef: AgentHost | null = null;
 let terminalRecordingRef: TerminalRecordingCoordinator | null = null;
 let terminalReplayRef: TerminalReplayService | null = null;
@@ -229,9 +227,6 @@ function refreshAgentPackIntegrations(): void {
   if (!process.env.PI_IDE_E2E || Boolean(skillHome) || Boolean(process.env.PI_IDE_AGENT_HOME)) {
     installCharterTerminalSurfaces(sources.map(({ id, root }) => ({ target: id, root })));
   }
-}
-export function getM5(): M5Services | null {
-  return m5Ref;
 }
 const quitBlockers = new Map<number, string[]>();
 let forceQuit = false;
@@ -522,7 +517,9 @@ function registerAppProtocol(rendererDist: string): void {
     let pathname = decodeURIComponent(url.pathname);
     if (pathname === '/' || pathname === '') pathname = '/index.html';
     const target = normalize(join(rendererDist, pathname));
-    if (!target.startsWith(normalize(rendererDist))) {
+    // Separator-anchored: a bare prefix check would admit sibling "dist2/".
+    const root = normalize(rendererDist);
+    if (target !== root && !target.startsWith(root + sep)) {
       return new Response('forbidden', { status: 403 });
     }
     if (!existsSync(target)) {
@@ -834,8 +831,6 @@ function registerCoreHandlers(bootstrap: Bootstrap): void {
       'app.openExternal': async ({ url }) => ({ opened: await openExternalChecked(url, logger) }),
       'app.revealPath': async ({ path }) => {
         // Reveal in Finder/Explorer — absolute existing paths only.
-        const { isAbsolute } = await import('node:path');
-        const { existsSync } = await import('node:fs');
         if (!isAbsolute(path) || !existsSync(path)) return { revealed: false };
         if (!process.env.PI_IDE_E2E) shell.showItemInFolder(path);
         return { revealed: true };
@@ -854,7 +849,7 @@ function registerCoreHandlers(bootstrap: Bootstrap): void {
         if (blockers.length > 0 && !force) return { installing: false, blockers };
         return { installing: await updateServiceRef!.install(), blockers: [] };
       },
-      'app.reportClientError': async (payload, meta) => {
+      'app.reportClientError': async (payload) => {
         logger.error(`renderer error: ${payload.message}`, { code: payload.code });
         state?.recordError(
           'renderer',
@@ -862,7 +857,6 @@ function registerCoreHandlers(bootstrap: Bootstrap): void {
             userMessage: payload.message.slice(0, 500),
           }),
         );
-        void meta;
         return { logged: true };
       },
       'app.setQuitBlockers': async ({ blockers }, meta) => {
@@ -876,7 +870,7 @@ function registerCoreHandlers(bootstrap: Bootstrap): void {
       'diagnostics.get': async () => ({
         dbOk: Boolean(state),
         dbDetail: state
-          ? `schema ok${bootstrap.startupError ? '' : ''} (migrations current)`
+          ? 'schema ok (migrations current)'
           : (bootstrap.startupError?.userMessage ?? 'database unavailable'),
         logsDir: paths.logsDir,
         components: [
@@ -1523,12 +1517,11 @@ if (!gotLock) {
         resolveVisibleAgentLaunch,
       );
       registerTerminalOpenHandlers(m4, workspaceHost, logger.child('ipc'));
-      m5Ref = new M5Services(workspaceHost, state, paths, logger.child('m5'));
-      registerM5Handlers(m5Ref, workspaceHost, logger.child('ipc'));
+      registerM5Handlers(new M5Services(workspaceHost), workspaceHost, logger.child('ipc'));
 
       const secretService = new SecretService(paths.secretsDir, logger.child('secrets'));
       agentHostRef = new AgentHost(
-        joinPath(paths.runtimeDir, 'agent'),
+        join(paths.runtimeDir, 'agent'),
         secretService,
         logger.child('agent-host'),
       );
@@ -1587,7 +1580,7 @@ if (!gotLock) {
       const memoryService = new MemoryService({
         db: state.db,
         logger: logger.child('memory'),
-        trashDir: joinPath(paths.memoryDir, 'trash'),
+        trashDir: join(paths.memoryDir, 'trash'),
         ...(memoryHome ? { homeDir: memoryHome } : {}),
         discoverExternal: !process.env.PI_IDE_E2E || Boolean(memoryHome),
         broadcast: (payload) => broadcast('memory.changed', payload),

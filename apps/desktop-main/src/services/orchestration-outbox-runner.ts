@@ -9,8 +9,12 @@ export interface OrchestrationOutboxRunnerOptions {
   retryBaseMs?: number;
 }
 
+/** Doorbell re-check interval while the recipient has no bound runtime. */
+const UNBOUND_RETRY_MS = 2_000;
+
 export class OrchestrationOutboxRunner {
   private running: Promise<void> | null = null;
+  private drainAgain = false;
   private wakeTimer: ReturnType<typeof setTimeout> | null = null;
   private wakeAt: number | null = null;
   private continuationDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
@@ -54,8 +58,9 @@ export class OrchestrationOutboxRunner {
         .catch(() => {
           // Teardown may close persistence immediately after stop(); delivery
           // remains durable and is retried on the next application start.
+          return false;
         })
-        .finally(() => {
+        .then((reachedRuntime) => {
           this.deliveringAssignments.delete(assignmentId);
           if (this.stopped) return;
           try {
@@ -65,7 +70,9 @@ export class OrchestrationOutboxRunner {
               pending.length > 0 &&
               (!this.repository.hasActiveContinuationForOwner(assignmentId) || urgent)
             ) {
-              this.signalAssignment(assignmentId, 0);
+              // No bound runtime yet (child still PLANNED / blocked): poll
+              // slowly instead of spinning a 0ms timer until it binds.
+              this.signalAssignment(assignmentId, reachedRuntime ? 0 : UNBOUND_RETRY_MS);
             }
           } catch {
             // Persistence may already be closing during application teardown.
@@ -93,9 +100,20 @@ export class OrchestrationOutboxRunner {
   }
 
   async drain(): Promise<void> {
-    if (this.running) return this.running;
+    if (this.running) {
+      // The in-flight pass may already have read the outbox; run once more
+      // after it so rows enqueued meanwhile are not stranded until the next wake.
+      this.drainAgain = true;
+      return this.running;
+    }
     this.running = this.doDrain().finally(() => {
       this.running = null;
+      if (this.drainAgain && !this.stopped) {
+        this.drainAgain = false;
+        // Drain directly: wake() would replace a later pending timer (e.g. an
+        // outbox retry deadline) and strand that row.
+        void this.drain();
+      }
     });
     return this.running;
   }
@@ -378,22 +396,23 @@ export class OrchestrationOutboxRunner {
     this.repository.updateRuntimeSessionState(attempt.id, 'ENDED');
   }
 
-  private async deliverInbox(assignmentId: string): Promise<void> {
-    if (this.stopped) return;
+  /** Resolves true when a bound runtime was reached (delivered or failed). */
+  private async deliverInbox(assignmentId: string): Promise<boolean> {
+    if (this.stopped) return false;
     const messages = this.repository.listUndeliveredMessages(assignmentId);
-    if (messages.length === 0) return;
+    if (messages.length === 0) return true;
     if (
       this.repository.hasActiveContinuationForOwner(assignmentId) &&
       !messages.some((message) => message.priority === 'urgent')
     ) {
-      return;
+      return false;
     }
     const assignment = this.repository.getAssignment(assignmentId);
-    if (!assignment?.activeAttemptId) return;
+    if (!assignment?.activeAttemptId) return false;
     const attempt = this.repository.getAttempt(assignment.activeAttemptId);
-    if (!attempt?.runtimeSessionId) return;
+    if (!attempt?.runtimeSessionId) return false;
     const adapter = this.runtimes.forRuntime(attempt.requestedRuntime);
-    if (!adapter.deliver) return;
+    if (!adapter.deliver) return false;
     const messageIds = messages.map((message) => message.id);
     const urgent = messages.some((message) => message.priority === 'urgent');
     const latest = messages.at(-1)!;
@@ -418,5 +437,6 @@ export class OrchestrationOutboxRunner {
       this.options.onChanged?.(assignment.missionId);
       this.signalAssignment(assignmentId, 1_000);
     }
+    return true;
   }
 }

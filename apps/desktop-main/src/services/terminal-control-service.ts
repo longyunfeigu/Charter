@@ -1361,9 +1361,13 @@ export class TerminalControlService implements TerminalControlPort {
     if (data.includes('\u001b[?2004h')) state.bracketedPaste = true;
     if (data.includes('\u001b[?2004l')) state.bracketedPaste = false;
     state.buffer = byteTail(`${state.buffer}${cleaned}`, TERMINAL_BUFFER_BYTES);
+    // rawTail is carried only to catch a marker split across chunks; a marker
+    // that lies wholly inside it was already counted on the previous chunk.
+    const carried = state.rawTail.length;
     const raw = `${state.rawTail}${data}`;
     OSC_133_EXIT_RE.lastIndex = 0;
     for (let match = OSC_133_EXIT_RE.exec(raw); match; match = OSC_133_EXIT_RE.exec(raw)) {
+      if (match.index + match[0].length <= carried) continue;
       state.exitSequence += 1;
       state.lastExitCode = Number(match[1] ?? -1);
     }

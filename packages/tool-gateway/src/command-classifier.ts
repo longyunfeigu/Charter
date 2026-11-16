@@ -141,8 +141,28 @@ function baseName(executable: string): string {
   return last.toLowerCase();
 }
 
-function firstSubcommand(args: string[]): string | undefined {
-  return args.find((a) => !a.startsWith('-'));
+/** git global options whose value is the next argv entry (`git -C dir push`). */
+const GIT_OPTIONS_WITH_VALUE = new Set([
+  '-C',
+  '-c',
+  '--git-dir',
+  '--work-tree',
+  '--namespace',
+  '--config-env',
+]);
+
+function firstSubcommand(exe: string, args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    // Skip an option's value too, or `git -C . push` would read "." as the
+    // subcommand and slip past the push policy.
+    if (exe === 'git' && GIT_OPTIONS_WITH_VALUE.has(arg)) {
+      i++;
+      continue;
+    }
+    if (!arg.startsWith('-')) return arg;
+  }
+  return undefined;
 }
 
 /** Extract tokens sitting in "command position" of a shell string: start and after ; | && || & newline. */
@@ -164,7 +184,7 @@ function isRootDestructive(exe: string, args: string[]): boolean {
 
 /** Classify one simple command (executable + argv, no shell operators). */
 function classifySimple(exe: string, args: string[], reasons: string[]): RiskLevel {
-  const sub = firstSubcommand(args);
+  const sub = firstSubcommand(exe, args);
 
   if (PRIVILEGE_EXECUTABLES.has(exe)) {
     reasons.push(`privilege escalation via ${exe} is forbidden`);
@@ -284,7 +304,10 @@ export function classifyCommand(spec: CommandSpec): CommandClassification {
         : `local execution of ${exe} (unrecognized command — review before allowing)`,
     );
   }
-  const sub = firstSubcommand(spec.args);
-  const ruleKey = sub ? `run_command:${exe}:${sub}` : `run_command:${exe}`;
+  // The standing-grant key keeps the literal first positional argument, so an
+  // "always allow git status" grant never extends to `git -c <config> status`
+  // or `git -C <other repo> status` (risk above still sees the real subcommand).
+  const keyword = spec.args.find((a) => !a.startsWith('-'));
+  const ruleKey = keyword ? `run_command:${exe}:${keyword}` : `run_command:${exe}`;
   return { level, reasons, recognized, ruleKey };
 }

@@ -348,8 +348,9 @@ export class SkillStore {
   private saveState(): void {
     const tmp = `${this.stateFile}.tmp`;
     writeFileSync(tmp, JSON.stringify(this.state, null, 2));
-    cpSync(tmp, this.stateFile);
-    rmSync(tmp, { force: true });
+    // rename is atomic; a copy interrupted mid-way would truncate skills.json
+    // and loadState would silently fall back to defaults.
+    renameSync(tmp, this.stateFile);
   }
 
   private definitions(): SourceDefinition[] {

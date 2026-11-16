@@ -96,10 +96,6 @@ export class OrchestrationRuntimeRegistry {
     if (override) return override;
     return this.get(adapterKindForRuntime(kind));
   }
-
-  has(kind: OrchestrationRuntimeAdapterKind): boolean {
-    return this.adapters.has(kind);
-  }
 }
 
 /** Deterministic adapter used by control-plane tests and the mock runtime. */

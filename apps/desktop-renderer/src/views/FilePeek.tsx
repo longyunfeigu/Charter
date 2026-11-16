@@ -26,7 +26,7 @@ export function FilePeek(props: {
   editableInWorkspace: boolean;
   onOpenInEditor: (path: string) => void;
 }): React.JSX.Element | null {
-  const app = useAppStore();
+  const app = useAppStore.getState();
   const peek = useAppStore((s) => s.peek);
   const [changeSet, setChangeSet] = useState<ChangeSetDto | null>(null);
   const [diffLoading, setDiffLoading] = useState(true);
@@ -377,6 +377,12 @@ function PeekFile({
       model = monaco.editor.createModel(text, undefined, uri);
     } else if (model.getValue() !== text) {
       model.setValue(text);
+    }
+    // A missing/binary state unmounts the host div; an editor bound to the
+    // detached node would render nowhere, so rebuild it on the new host.
+    if (editorRef.current && editorRef.current.getContainerDomNode() !== hostRef.current) {
+      editorRef.current.dispose();
+      editorRef.current = null;
     }
     if (!editorRef.current) {
       const editor = monaco.editor.create(hostRef.current, {

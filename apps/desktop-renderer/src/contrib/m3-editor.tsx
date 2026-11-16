@@ -4,7 +4,7 @@ import { EditorArea } from '../workbench/EditorArea.js';
 import { registerCommands } from '../commands.js';
 import { useWorkspaceStore } from '../store/workspaceStore.js';
 import { useEditorStore } from '../store/editorStore.js';
-import { monaco, modelUri } from '../monaco-setup.js';
+import { monaco } from '../monaco-setup.js';
 
 function activeEditorModelPath(): string | null {
   const state = useEditorStore.getState();
@@ -216,6 +216,3 @@ export function registerM3(): void {
     },
   ]);
 }
-
-// Referenced by EditorArea for conflicts; keep the import graph explicit.
-export { modelUri };

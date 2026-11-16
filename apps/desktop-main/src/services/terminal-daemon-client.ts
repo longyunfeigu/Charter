@@ -623,6 +623,7 @@ export class TerminalDaemonClient {
             if (message.type !== 'response' || message.requestId !== requestId) continue;
             clearTimeout(timer);
             socket.off('data', onData);
+            socket.off('error', onError);
             if (message.ok) resolve();
             else {
               socket.destroy();
@@ -635,6 +636,15 @@ export class TerminalDaemonClient {
           reject(error);
         }
       };
+      // Until attachSocket() installs its handlers this is the only 'error'
+      // listener; without it a reset from a stopping daemon crashes Main.
+      const onError = (error: Error): void => {
+        clearTimeout(timer);
+        socket.off('data', onData);
+        socket.destroy();
+        reject(error);
+      };
+      socket.once('error', onError);
       socket.on('data', onData);
       socket.write(
         encodeDaemonMessage({

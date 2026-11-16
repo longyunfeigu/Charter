@@ -135,8 +135,10 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   async loadDir(dir: string) {
+    const workspaceId = get().workspace?.id;
     const result = await rpcResult('fs.listDir', { dir, showIgnored: get().showIgnored });
-    if (result.ok) {
+    // A late listing for the previous workspace must not land in the new tree.
+    if (result.ok && get().workspace?.id === workspaceId) {
       set({
         dirs: { ...get().dirs, [dir]: result.data.entries },
         treeVersion: get().treeVersion + 1,

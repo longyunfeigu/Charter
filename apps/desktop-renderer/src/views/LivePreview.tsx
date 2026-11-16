@@ -3,7 +3,6 @@ import {
   PreviewRectSchema,
   type PreviewElementContextDto,
   type PreviewPortDto,
-  type PreviewRectDto,
   type TaskDto,
 } from '@pi-ide/ipc-contracts';
 import { onEvent, rpcResult } from '../bridge.js';
@@ -113,7 +112,8 @@ export function LivePreview({
   task: TaskDto;
   variant: 'gate' | 'rail';
 }): React.JSX.Element {
-  const store = useTaskStore();
+  const store = useTaskStore.getState();
+  const timeline = useTaskStore((s) => s.timeline);
   const app = useAppStore();
   const settings = useAppStore((s) => s.settings);
   const frameBoxRef = useRef<HTMLDivElement>(null);
@@ -458,7 +458,7 @@ export function LivePreview({
   // ── console relay + self-heal policy (am.2) ──────────────────────────────
   const lastWriteAt = useMemo(() => {
     let latest: number | null = null;
-    for (const event of store.timeline) {
+    for (const event of timeline) {
       if (event.type !== 'tool.call') continue;
       const payload = event.payload as { name?: unknown } | null;
       if (!payload || !isWriteToolName(payload.name)) continue;
@@ -466,7 +466,7 @@ export function LivePreview({
       if (Number.isFinite(at)) latest = latest === null ? at : Math.max(latest, at);
     }
     return latest;
-  }, [store.timeline]);
+  }, [timeline]);
   useEffect(() => {
     autoRef.current.lastWriteAt = lastWriteAt;
   }, [lastWriteAt]);

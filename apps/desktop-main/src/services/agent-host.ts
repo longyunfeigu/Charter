@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { app } from 'electron';
 import {
   deferred,
+  errorMessage,
   newId,
   productError,
   ProductFailure,
@@ -59,6 +60,8 @@ export class AgentHost {
   private readonly pending = new Map<string, Deferred<unknown>>();
   private readonly activeRuns = new Map<string, ActiveRun>();
   private restarts = 0;
+  /** Workers we asked to shut down; their exit is not a crash. */
+  private readonly expectedExits = new WeakSet<UtilityProcess>();
   private lastCrashAt = 0;
   private disposed = false;
   delegate: AgentHostDelegate | null = null;
@@ -213,9 +216,17 @@ export class AgentHost {
         this.pending.delete(reqId);
       }
       if (!this.disposed) {
-        this.restarts += 1;
-        this.lastCrashAt = Date.now();
-        this.logger.error('agent worker exited', { code, restarts: this.restarts });
+        // An intentional stopWorker() (credential change) must not count
+        // toward the crash budget that marks the host degraded.
+        const expected = this.expectedExits.has(child);
+        if (!expected) {
+          this.restarts += 1;
+          this.lastCrashAt = Date.now();
+        }
+        this.logger[expected ? 'info' : 'error']('agent worker exited', {
+          code,
+          restarts: this.restarts,
+        });
         broadcast('agent.workerStatus', {
           alive: false,
           restarts: this.restarts,
@@ -327,7 +338,18 @@ export class AgentHost {
         data: {},
       };
     } else {
-      result = await gateway.executeCall(call, controller.signal);
+      try {
+        result = await gateway.executeCall(call, controller.signal);
+      } catch (error) {
+        // Always answer the worker; an unanswered toolRequest hangs the run.
+        result = {
+          callId: call.callId,
+          ok: false,
+          code: 'TOOL_EXECUTION_FAILED',
+          summary: `Tool execution failed: ${errorMessage(error)}`,
+          data: {},
+        };
+      }
     }
     run?.toolControllers.delete(call.callId);
     this.delegate?.onToolLifecycle(taskId, call, {
@@ -415,6 +437,7 @@ export class AgentHost {
   async stopWorker(): Promise<void> {
     const child = this.worker;
     if (!child) return;
+    this.expectedExits.add(child);
     child.postMessage({ type: 'shutdown' });
     await new Promise((resolve) => setTimeout(resolve, 400));
     try {

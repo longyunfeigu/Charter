@@ -1370,6 +1370,15 @@ export class ExternalSessionService {
         pending.resolve();
         return;
       }
+      // The resumed session already exited; settle the waiter instead of
+      // leaving the resume request hanging with its timeout cleared.
+      pending.reject(
+        new ProductFailure(
+          productError('EXTERNAL_RESUME_NOT_DETECTED', {
+            userMessage: `${cli} started, but its resumed session had already closed. Resume again.`,
+          }),
+        ),
+      );
     }
     // A stale session on this terminal (previous CLI still open) ends first.
     if (this.byTerminal.has(terminalId)) await this.onAgentExit(terminalId);
@@ -1927,8 +1936,11 @@ export class ExternalSessionService {
       }
     };
     if (session) {
-      session.work = session.work.then(apply);
-      await session.work;
+      // Keep the shared chain alive: a failed apply surfaces to this caller
+      // only, instead of poisoning every later ingest and publish.
+      const run = session.work.then(apply);
+      session.work = run.catch(() => undefined);
+      await run;
       await this.publish(session, session.ended ? 'ended' : 'active');
     } else {
       await apply();

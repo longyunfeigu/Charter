@@ -277,24 +277,6 @@ export class AgentRegistry {
     return this.detected.get(agentId) ?? null;
   }
 
-  terminalAgentIds(): string[] {
-    return [...this.manifests.values()]
-      .filter(
-        (manifest) =>
-          manifest.capabilities.terminal && manifest.terminal && this.installed(manifest.id),
-      )
-      .map((manifest) => manifest.id);
-  }
-
-  /** All declared terminal Agent ids, including remote-only installations.
-   * Process observation and SSH known-agent declaration must not depend on
-   * whether the same CLI also happens to be installed on this Mac. */
-  terminalAgentManifestIds(): string[] {
-    return [...this.manifests.values()]
-      .filter((manifest) => manifest.capabilities.terminal && manifest.terminal)
-      .map((manifest) => manifest.id);
-  }
-
   /** Canonical Adapter ids plus every executable alias accepted by process
    * observation. Terminal state must report the Adapter id even when the
    * foreground binary has a different name (for example cursor-agent). */
@@ -385,21 +367,6 @@ export class AgentRegistry {
       args,
       promptDelivery: manifest.terminal.promptDelivery,
       sessionId,
-    };
-  }
-
-  /** Host-owned command used only when preserving an interactive login shell. */
-  terminalShellCommand(
-    agentId: string,
-    input: { prompt?: string | null; sessionId?: string | null } = {},
-  ): { command: string; promptDelivery: 'argv' | 'deferred'; sessionId: string | null } | null {
-    const spec = this.launchSpec(agentId, input);
-    if (!spec) return null;
-    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-    return {
-      command: [spec.executable, ...spec.args].map(quote).join(' '),
-      promptDelivery: spec.promptDelivery,
-      sessionId: spec.sessionId,
     };
   }
 
@@ -514,7 +481,6 @@ export class AgentRegistry {
   historySources(
     homeOverride?: string,
   ): Array<{ id: string; connector: string; dataHome: string }> {
-    const home = resolve(homeOverride ?? this.options.homeDir ?? homedir());
     return [...this.manifests.values()].flatMap((manifest) => {
       const sessions = manifest.sessions;
       if (

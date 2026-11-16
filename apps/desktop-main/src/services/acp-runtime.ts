@@ -228,11 +228,6 @@ export class AcpProcessPool {
     this.updateHandlers.delete(sessionId);
   }
 
-  observation(provider: AcpProvider): RuntimeObservation {
-    const process = this.processes.get(provider);
-    return process ? { state: 'running', detail: 'ACP process connected' } : { state: 'missing' };
-  }
-
   async shutdown(): Promise<void> {
     const processes = await Promise.allSettled(this.processes.values());
     this.processes.clear();
@@ -286,6 +281,12 @@ export class AcpProcessPool {
     const connection = app.connect(stream);
     child.once('exit', (code, signal) => {
       connection.close(new Error(`ACP ${provider} exited (${code ?? signal ?? 'unknown'}).`));
+      this.processes.delete(provider);
+    });
+    // A spawn failure (e.g. ENOENT after the binary was removed) emits only
+    // 'error'; unhandled it would crash Main and leave initialize pending.
+    child.once('error', (error) => {
+      connection.close(error);
       this.processes.delete(provider);
     });
     const initialized = await connection.agent.request(acp.methods.agent.initialize, {
@@ -447,22 +448,28 @@ export class AcpRuntimeAdapter implements OrchestrationRuntimeAdapter {
     };
     const virtualIdentity = `acp:${attempt.id}`;
     this.options.bindVirtualIdentity(virtualIdentity, request);
-    const mcp = this.options.missionMcp(request, virtualIdentity);
     const externalSessionId = runtimeSessionId.slice(`acp:${this.provider}:`.length);
-    const restored = await this.pool.loadSession(
-      this.provider,
-      externalSessionId,
-      request.workspaceRoot,
-      [
-        {
-          name: 'charter',
-          command: mcp.command,
-          args: mcp.args,
-          env: Object.entries(mcp.env).map(([name, value]) => ({ name, value })),
-        },
-      ],
-      (notification) => this.onUpdate(request, notification),
-    );
+    let restored: Awaited<ReturnType<AcpProcessPool['loadSession']>>;
+    try {
+      const mcp = this.options.missionMcp(request, virtualIdentity);
+      restored = await this.pool.loadSession(
+        this.provider,
+        externalSessionId,
+        request.workspaceRoot,
+        [
+          {
+            name: 'charter',
+            command: mcp.command,
+            args: mcp.args,
+            env: Object.entries(mcp.env).map(([name, value]) => ({ name, value })),
+          },
+        ],
+        (notification) => this.onUpdate(request, notification),
+      );
+    } catch (error) {
+      this.options.releaseVirtualIdentity(virtualIdentity);
+      throw error;
+    }
     if (!restored) {
       this.options.releaseVirtualIdentity(virtualIdentity);
       return { state: 'missing', detail: `ACP ${this.provider} does not support session/load.` };

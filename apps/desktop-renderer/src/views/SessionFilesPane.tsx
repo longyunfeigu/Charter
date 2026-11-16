@@ -230,12 +230,16 @@ export function SessionFilesPane(): React.JSX.Element {
       setResults([]);
       return;
     }
+    let stale = false;
     const handle = setTimeout(() => {
       void rpcResult('search.files', { query: trimmed }).then((res) => {
-        if (res.ok) setResults(res.data.items.slice(0, 30).map((item) => item.path));
+        if (!stale && res.ok) setResults(res.data.items.slice(0, 30).map((item) => item.path));
       });
     }, 80);
-    return () => clearTimeout(handle);
+    return () => {
+      stale = true;
+      clearTimeout(handle);
+    };
   }, [query, remoteWorkspace, workspace]);
 
   const quickAdd = quickAddTaskId

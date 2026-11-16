@@ -7,10 +7,9 @@
   "include": [
     "packages/*/src/**/*.ts",
     "apps/*/src/**/*.ts",
-    "apps/*/src/**/*.d.ts",
     "apps/*/src/**/*.tsx",
     "tests/**/*.ts",
-    "scripts/**/*.mjs.d.ts"
+    "scripts/**/*.d.mts"
   ],
   "exclude": ["node_modules", "dist", "out", "release"]
 }

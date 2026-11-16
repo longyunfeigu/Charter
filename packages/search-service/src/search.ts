@@ -239,14 +239,23 @@ export class SearchService {
       const matches: SearchMatch[] = [];
       regex.lastIndex = 0;
       let m: RegExpExecArray | null;
+      // Line bookkeeping advances incrementally (matches arrive in order);
+      // re-splitting the prefix per match was O(file size) for each hit.
+      let line = 1;
+      let lineStart = 0;
       while ((m = regex.exec(content)) !== null) {
         if (m[0].length === 0) {
           regex.lastIndex += 1;
           continue;
         }
-        const before = content.slice(0, m.index);
-        const line = before.split('\n').length;
-        const lineStart = before.lastIndexOf('\n') + 1;
+        for (
+          let nl = content.indexOf('\n', lineStart);
+          nl !== -1 && nl < m.index;
+          nl = content.indexOf('\n', nl + 1)
+        ) {
+          line += 1;
+          lineStart = nl + 1;
+        }
         const lineEnd = content.indexOf('\n', m.index);
         matches.push({
           line,
@@ -319,7 +328,17 @@ export class SearchService {
           reject(e);
         }
       });
-      child.on('close', finish);
+      child.on('close', (code) => {
+        // Exit 2 with no output means rg rejected the pattern (e.g. lookbehind or
+        // backreferences, which only the JS engine supports): fall back to the JS
+        // scan instead of reporting zero matches.
+        if (code === 2 && files.length === 0 && !settled) {
+          settled = true;
+          reject(new Error('ripgrep failed'));
+          return;
+        }
+        finish();
+      });
     });
   }
 

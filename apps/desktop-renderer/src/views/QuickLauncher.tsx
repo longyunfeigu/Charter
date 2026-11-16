@@ -81,12 +81,16 @@ export function QuickLauncher(): React.JSX.Element | null {
   // Filename search follows the query (workspace only).
   useEffect(() => {
     if (!open || !workspace) return;
+    let cancelled = false;
     const handle = setTimeout(() => {
       void rpcResult('search.files', { query }).then((res) => {
-        if (res.ok) setFiles(res.data.items.slice(0, 8).map((i) => i.path));
+        if (!cancelled && res.ok) setFiles(res.data.items.slice(0, 8).map((i) => i.path));
       });
     }, 80);
-    return () => clearTimeout(handle);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
   }, [open, workspace, query]);
 
   const entries = useMemo<Entry[]>(() => {

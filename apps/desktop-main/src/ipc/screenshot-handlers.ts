@@ -1,5 +1,5 @@
 import { promises as fsp } from 'node:fs';
-import { basename, extname, join } from 'node:path';
+import { basename, extname } from 'node:path';
 import { productError, ProductFailure, type Logger } from '@pi-ide/foundation';
 import { MAX_SCREENSHOT_BYTES, SCREENSHOT_ASSETS_DIR } from '@pi-ide/ipc-contracts';
 import { resolveInsideRoot } from '@pi-ide/workspace-service';

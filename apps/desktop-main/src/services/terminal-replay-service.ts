@@ -339,6 +339,7 @@ export class TerminalReplayService {
           const newline = pending.indexOf(0x0a);
           if (newline < 0) break;
           const line = pending.subarray(0, newline).toString('utf8');
+          const lineStart = bufferStart;
           const nextCursor = bufferStart + newline + 1;
           pending = pending.subarray(newline + 1);
           bufferStart = nextCursor;
@@ -357,6 +358,9 @@ export class TerminalReplayService {
             const absoluteMs = segment.recording.header.charter.startedAt + seconds * 1000;
             if (absoluteMs < segment.clipStartMs) continue;
             if (absoluteMs > segment.clipEndMs) {
+              // Not consumed: a live replay's next page (with a later clip end)
+              // must start at this line instead of skipping it.
+              cursor = lineStart;
               reachedClipEnd = true;
               break;
             }

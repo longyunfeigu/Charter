@@ -123,6 +123,7 @@ const ZH_CN = {
   'Not configured': '未配置',
   'Not available': '不可用',
   'Check for updates': '检查更新',
+  'Check for Updates': '检查更新',
   'Check now': '立即检查',
   'Check automatically': '自动检查',
   'Restart and install': '重启并安装',
@@ -1880,10 +1881,6 @@ export function formatDate(
 ): string {
   const date = value instanceof Date ? value : new Date(value);
   return new Intl.DateTimeFormat(activeLocale, options).format(date);
-}
-
-export function formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
-  return new Intl.NumberFormat(activeLocale, options).format(value);
 }
 
 export function formatRelativeTime(value: number, unit: Intl.RelativeTimeFormatUnit): string {

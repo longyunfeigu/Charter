@@ -980,24 +980,3 @@ function pickChapters(facts: ReplayFactDto[]): ReplayChapterDto[] {
       actualStartMs: fact.actualStartMs,
     }));
 }
-
-// ---------- playhead helpers (shared by the controller and tests) ----------
-
-/** Latest fact whose story (or actual) start is at or before the playhead. */
-export function factIndexAtTime(
-  facts: readonly ReplayFactDto[],
-  playheadMs: number,
-  mode: 'story' | 'actual',
-): number {
-  if (facts.length === 0) return 0;
-  const startOf = (fact: ReplayFactDto) =>
-    mode === 'story' ? fact.storyStartMs : fact.actualStartMs;
-  let lo = 0;
-  let hi = facts.length - 1;
-  while (lo <= hi) {
-    const mid = Math.floor((lo + hi) / 2);
-    if (startOf(facts[mid]!) <= playheadMs) lo = mid + 1;
-    else hi = mid - 1;
-  }
-  return Math.max(0, Math.min(facts.length - 1, hi));
-}

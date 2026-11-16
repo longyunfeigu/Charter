@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { monaco, modelUri } from '../monaco-setup.js';
 import { onEvent, rpcResult } from '../bridge.js';
-import { useEditorStore, replaceModelContent } from '../store/editorStore.js';
+import { useEditorStore } from '../store/editorStore.js';
 import { useAppStore } from '../store/appStore.js';
 import { revealPosition } from '../views/SearchView.js';
 

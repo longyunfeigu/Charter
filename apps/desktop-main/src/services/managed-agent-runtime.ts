@@ -11,11 +11,15 @@ import type {
 } from './orchestration-runtime-registry.js';
 
 function requestedModel(value: string | null, settings: SettingsService): ModelRef {
+  // "provider::model" or "provider/model"; split once so model ids may contain
+  // the separator, and treat a bare id as a model on the default provider.
   const separator = value?.includes('::') ? '::' : '/';
-  const [explicitProvider, explicitModel] = value?.split(separator) ?? [];
+  const at = value ? value.indexOf(separator) : -1;
+  const explicitProvider = value && at >= 0 ? value.slice(0, at) : '';
+  const explicitModel = value && at >= 0 ? value.slice(at + separator.length) : (value ?? '');
   const effective = settings.effective;
   const providerId = explicitProvider || effective.models.defaultProviderId;
-  const modelId = explicitModel || value || effective.models.defaultModelId;
+  const modelId = explicitModel || effective.models.defaultModelId;
   if (effective.models.useMockRuntime) return { providerId: 'mock', modelId: modelId ?? 'mock-1' };
   if (!providerId || !modelId) {
     throw new Error('No default managed model is configured for this Mission Assignment.');

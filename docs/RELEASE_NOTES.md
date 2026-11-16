@@ -1,4 +1,4 @@
-# Charter 1.0 Beta 5 — Unsigned Preview
+# Charter 1.0 Beta 6 — Unsigned Preview
 
 Charter's Session-first desktop workflow is available as a public, zero-cost preview for macOS
 Apple Silicon, Windows x64 and Linux x64.
@@ -8,7 +8,7 @@ Stable or Latest.
 
 ## New since the current public Beta 3
 
-The `v1.0.0-beta.4` tag did not produce a public GitHub Release, so Beta 3 remains the public comparison baseline.
+The `v1.0.0-beta.4` and `v1.0.0-beta.5` tags did not produce a public GitHub Release, so Beta 3 remains the public comparison baseline.
 
 - **Mission orchestration:** create durable multi-Agent Missions, dispatch managed or native CLI
   workers, inspect their graph and activity, handle decisions, and continue work across restarts.
@@ -61,9 +61,9 @@ Do not launch the Linux build with `--no-sandbox`.
 
 ## Updates and data
 
-Beta 5 checks for newer GitHub prereleases after startup and then periodically. Because these
+Beta 6 checks for newer GitHub prereleases after startup and then periodically. Because these
 artifacts are unsigned, Charter only shows the verified Release page; download and replacement remain
-manual. Beta 3 predates this feature, so existing Beta 3 users must install Beta 5 manually once.
+manual. Beta 3 predates this feature, so existing Beta 3 users must install Beta 6 manually once.
 
 Quit Charter before replacing it, retain a backup of the application-data directory and verify the
 new artifact. Before applying a database schema migration, Charter automatically creates a

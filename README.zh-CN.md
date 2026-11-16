@@ -9,16 +9,16 @@
 
 *Agent 说它做完了，Charter 告诉你为什么可以相信。*
 
-[![Beta 5](https://img.shields.io/badge/release-v1.0.0--beta.5-C47A19?style=flat-square)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5)
+[![Beta 6](https://img.shields.io/badge/release-v1.0.0--beta.6-C47A19?style=flat-square)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.6)
 [![CI](https://img.shields.io/github/actions/workflow/status/longyunfeigu/Charter/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/longyunfeigu/Charter/actions/workflows/ci.yml)
-[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1B1A16?style=flat-square&logo=apple&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5)
-[![Windows](https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5)
-[![Linux](https://img.shields.io/badge/Linux-x64-F4B728?style=flat-square&logo=linux&logoColor=111111)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5)
+[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-1B1A16?style=flat-square&logo=apple&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.6)
+[![Windows](https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.6)
+[![Linux](https://img.shields.io/badge/Linux-x64-F4B728?style=flat-square&logo=linux&logoColor=111111)](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.6)
 [![MIT License](https://img.shields.io/badge/license-MIT-2F855A?style=flat-square)](LICENSE)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-[下载 Beta](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5) · [产品导览](#产品导览) · [功能全景](#功能全景) · [快速开始](#快速开始) · [架构](#架构)
+[下载 Beta](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.6) · [产品导览](#产品导览) · [功能全景](#功能全景) · [快速开始](#快速开始) · [架构](#架构)
 
 </div>
 
@@ -158,7 +158,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 - **运行中也能纠偏：** Agent 尚未结束时，可以在同一个 Composer 追加“先别改这个文件”或新的文件引用；指令会进入当前 Session，而不是另开一个失去上下文的新任务。
 - **截图直通车有三个明确动作：** macOS 新截图或剪贴板截图出现后，右下角卡片可以 **Feed to agent**、**Annotate first**（画框、打码后再发），或 **Save to project assets** 保存到 `assets/screenshots/` 而不发送消息。
 - **不用守着长任务：** Agent 等待批准、完成回答或进入 Review 时，会弹出可点击通知；左侧准确的 Session 行同时产生短暂涟漪，**Needs you** 筛选也会汇总所有待处理会话。
-- **会话考古按真实时间组织：** **Agent activity** 会只读扫描受支持的 `~/.claude` 和 `~/.codex` 历史，按 Today、Yesterday、Past 7 days、Earlier 分组，并用 All / External / Tracked 筛选。外部记录可以点击 **Resume** 收编，已跟踪记录则直接 **Open**。
+- **会话考古按真实时间组织：** **Agent activity** 会只读扫描受支持的 Claude Code、Codex 与 Kimi Code 历史，按 Today、Yesterday、Past 7 days、Earlier 分组，并用 All / External / Tracked 筛选。外部记录可以点击 **Resume** 收编，已跟踪记录则直接 **Open**。
 - **状态不含糊：** 工作中、等待权限、等待计划、待审查、已回答、已批准、已回滚、已中断和外部 CLI 已结束都会使用不同状态；没有文件改动的回答不会伪装成“等待代码审查”。
 
 ### 文件、编辑器与终端
@@ -173,7 +173,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 - **`⌥Space` 速召台：** 无论当前在哪个页面，都能拉起临时或项目终端；选中一段输出后可以直接 **Send to Room**，不必把整屏日志复制进 Prompt。
 - **终端路径可以直接打开：** `src/app.ts:42` 会跳到对应文件和行；本地 HTML 可以交给默认浏览器；带空格或中文的真实路径会先经过文件系统确认，减少误识别。
 - **SSH 远程连接：** 在 **New Session** 里选择 **Connect remote over SSH**，校验主机密钥与凭据、探测服务器上的 Agent CLI，并在真实 SSH PTY 中启动它，绝不静默回退到本机 CLI。设置页提供两种明确的文件位置。**On this server** 使用已有远端目录：Files 通过 SFTP 展示真实服务器目录，本机仅保留 Diff/Review 所需的私有稀疏镜像。**On this Mac** 让本机项目保持唯一可见的主目录：Charter 把有界的 tracked/非 ignored 快照上传到服务器隔离目录 `~/.charter/workspaces/<session>`，随后按文件版本双向同步；同一文件两边同时变化时会因哈希冲突暂停，不会任选一边覆盖，删除 Session 也只删除服务器隔离副本。生成的 Worker id 和镜像路径不会作为项目名称或 Files 根目录出现。版本化 Worker 只在用户明确点击 **Install / Update Worker** 后写入 `~/.charter/worker`，两种模式都支持入口基线、普通 Diff、逐文件/逐 hunk Review、逐字节回滚、退出前最终同步、重启恢复和原生 CLI Resume。本地文件引用只在“本机目录 + 远端 Agent”模式可用；任务 Worktree 不会跨机桥接。主机卡片仍是以 shell 为主的多会话入口。SFTP 双栏、全局传输中心、单跳端口转发、系统钥匙串、首次 host key 校验与 `~/.ssh/config` 导入保持不变。传文件不再需要离开会话：把文件直接拖到远程会话的任意位置即可上传到 shell 当前所在目录（按 ⌥ 改为只粘贴本地路径、按 ⇧ 先选目标目录）；会话顶部新增 **Files** 抽屉，不离开终端就能浏览、上传、下载远端文件，默认实时跟随你的 `cd`，也可以固定住不动。上传走独立 SFTP 通道，即使全屏 CLI 正占着终端也照常传输。
-- **皮肤不只是换强调色：** Studio、Terminal、Archive 和 Index 会一起调整背景、字体、图标、编辑器与终端配色；Light / Dark / System 主题仍可独立选择。
+- **皮肤不只是换强调色：** Studio、Terminal、Archive、Index、Atelier 和 Codex 会一起调整背景、字体、图标、编辑器与终端配色；Light / Dark / System 主题仍可独立选择。
 
 ### Preview、变更控制与证据
 
@@ -216,7 +216,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 
 ### 下载 unsigned Beta
 
-从 [Beta 5 GitHub Release](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.5) 下载当前平台的安装包与 `SHA256SUMS.txt`。
+从 [Beta 6 GitHub Release](https://github.com/longyunfeigu/Charter/releases/tag/v1.0.0-beta.6) 下载当前平台的安装包与 `SHA256SUMS.txt`。
 
 | 平台 | 安装包 | 预览目标 |
 | --- | --- | --- |
@@ -224,7 +224,7 @@ Charter 会把审查反馈记录为 Memory 候选，让你编辑或丢弃，并�
 | Windows | NSIS 安装程序 | `x64` |
 | Linux | `.tar.gz` | `x64` Preview |
 
-这些安装包尚未签名或公证。Gatekeeper、SmartScreen、Smart App Control、企业策略或杀毒软件都可能拒绝启动。请在重要仓库中使用前阅读[发布说明](docs/RELEASE_NOTES.md)、[已知限制](docs/KNOWN_LIMITATIONS.md)、[隐私声明](PRIVACY.md)和[安全策略](SECURITY.md)。Beta 5 会自动检查后续 GitHub Prerelease 并打开经验证的下载页；unsigned 应用替换仍需手动完成。
+这些安装包尚未签名或公证。Gatekeeper、SmartScreen、Smart App Control、企业策略或杀毒软件都可能拒绝启动。请在重要仓库中使用前阅读[发布说明](docs/RELEASE_NOTES.md)、[已知限制](docs/KNOWN_LIMITATIONS.md)、[隐私声明](PRIVACY.md)和[安全策略](SECURITY.md)。Beta 6 会自动检查后续 GitHub Prerelease 并打开经验证的下载页；unsigned 应用替换仍需手动完成。
 
 ### 从源码运行
 
@@ -376,12 +376,12 @@ CHARTER_README_SHOTS=1 npx playwright test \
 
 Charter 正在公开开发，并朝首个签名 Stable 桌面版本推进。
 
-- **当前已发布：** `v1.0.0-beta.5` 是当前 unsigned 公开预览版，支持 macOS Apple Silicon、Windows x64 和 Linux x64。
+- **当前已发布：** `v1.0.0-beta.6` 是当前 unsigned 公开预览版，支持 macOS Apple Silicon、Windows x64 和 Linux x64。
 - **当前源码树已实现：** Session-first 壳层、受管 Agent 路径、外部 CLI 核算与编排、实时文件现场、结构化上下文、Preview、Terminal、Verification、Review、Replay、Memory、Skills、桌面更新服务和核心安全边界。
 - **发布流水线：** 三平台打包、发布清单、校验和、SBOM/许可证清单、打包态启动测试、数据库升级/恢复演练、Stable/Beta updater feed 和无凭据门禁都已就绪。unsigned 预览版与 Linux 只通知并打开下载页；signed macOS/Windows 可以自动检查和后台下载，再等待用户明确重启安装。
 - **Stable 仍待完成：** Apple 公证、可信 Windows 签名、macOS/Windows 双平台 signed update qualification、固定任务真实 Provider 评估和项目负责人最终确认。
 
-本 README 描述当前源码树；可下载 Beta 可能落后于 `main` 上正在进行的工作。Beta 5 的准确内容请查看 [Beta 5 发布说明](docs/RELEASE_NOTES.md)，当前实施证据请查看 [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md)。
+本 README 描述当前源码树；可下载 Beta 可能落后于 `main` 上正在进行的工作。Beta 6 的准确内容请查看 [Beta 6 发布说明](docs/RELEASE_NOTES.md)，当前实施证据请查看 [IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md)。
 
 ## 参与贡献
 

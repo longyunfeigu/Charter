@@ -440,7 +440,7 @@ export function PlanCard(props: {
 
 /** Agent patch hit a version conflict (M8-06, E2E-014): user edits are protected. */
 export function ConflictCard(props: { payload: Record<string, unknown> }): React.JSX.Element {
-  const editor = useEditorStore();
+  const openFile = useEditorStore((s) => s.openFile);
   const input = (props.payload.input ?? {}) as { path?: string };
   const path = typeof input.path === 'string' ? input.path : null;
   return (
@@ -460,7 +460,7 @@ export function ConflictCard(props: { payload: Record<string, unknown> }): React
           className="btn"
           style={{ marginTop: 6 }}
           data-testid="conflict-open-file"
-          onClick={() => void editor.openFile(path)}
+          onClick={() => void openFile(path)}
         >
           Open {path}
         </button>

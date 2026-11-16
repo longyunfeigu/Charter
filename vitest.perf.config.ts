@@ -19,7 +19,9 @@ export default defineConfig({
     testTimeout: 240_000,
     hookTimeout: 240_000,
     pool: 'threads',
-    poolOptions: { threads: { singleThread: true } },
+    // Vitest 4 removed poolOptions.threads.singleThread; this is its mapping.
+    maxWorkers: 1,
+    isolate: false,
     fileParallelism: false,
     reporters: ['verbose'],
   },

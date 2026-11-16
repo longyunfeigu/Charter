@@ -159,8 +159,10 @@ export class SshConnectionManager {
     const closeListeners = new Set<(exitCode: number | null) => void>();
     let exitCode: number | null = null;
     let closed = false;
-    channel.on('data', (chunk: Buffer) => {
-      const text = chunk.toString('utf8');
+    // Stream-level decoding keeps multibyte characters split across packets
+    // intact (per-chunk toString would turn them into U+FFFD).
+    channel.setEncoding('utf8');
+    channel.on('data', (text: string) => {
       for (const cb of dataListeners) cb(text);
     });
     channel.on('exit', (code: number | null) => {
@@ -274,11 +276,13 @@ export class SshConnectionManager {
         let stdout = '';
         let stderr = '';
         let code: number | null = null;
-        stream.on('data', (chunk: Buffer) => {
-          stdout += chunk.toString('utf8');
+        stream.setEncoding('utf8');
+        stream.stderr.setEncoding('utf8');
+        stream.on('data', (text: string) => {
+          stdout += text;
         });
-        stream.stderr.on('data', (chunk: Buffer) => {
-          stderr += chunk.toString('utf8');
+        stream.stderr.on('data', (text: string) => {
+          stderr += text;
         });
         stream.on('exit', (c: number | null) => {
           code = c;
@@ -426,7 +430,14 @@ export class SshConnectionManager {
     this.setState(m, m.attempts > 0 ? 'reconnecting' : 'connecting', m.error);
     const target = m.target;
     const gen = ++m.gen;
-    const config = await this.buildConnectConfig(m);
+    let config: ConnectConfig;
+    try {
+      config = await this.buildConnectConfig(m);
+    } catch (err) {
+      // No agent, unreadable key, or a cancelled prompt: leave the spinner state.
+      if (m.gen === gen) this.setState(m, 'disconnected', errorMessage(err));
+      throw err;
+    }
     if (target.proxyJump) {
       try {
         config.sock = await this.openJumpSocket(m, target.proxyJump, gen);

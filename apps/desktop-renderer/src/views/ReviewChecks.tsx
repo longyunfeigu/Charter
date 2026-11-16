@@ -26,7 +26,7 @@ function durationOf(run: VerificationRunDto): string {
 }
 
 export function ReviewChecks({ task }: { task: TaskDto }): React.JSX.Element {
-  const store = useTaskStore();
+  const store = useTaskStore.getState(); // actions only; avoid per-token re-renders
   const [runs, setRuns] = useState<VerificationRunDto[] | null>(null);
   const [running, setRunning] = useState(false);
 

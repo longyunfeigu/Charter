@@ -5,7 +5,7 @@ import {
   type NavigationSnapshot,
 } from '../store/appStore.js';
 import { handleGlobalKeydown, registerCommands, executeCommand } from '../commands.js';
-import { onEvent, platform, rpcResult } from '../bridge.js';
+import { onEvent, platform } from '../bridge.js';
 import { runInitsOnce } from './init.js';
 import { CommandPalette } from './CommandPalette.js';
 import { SettingsView } from '../views/SettingsView.js';
@@ -189,38 +189,38 @@ function useRegisterCoreCommands(): void {
       {
         id: 'skin.studio',
         title: 'Skin: Studio',
-        category: 'Preferences',
+        category: t('Preferences'),
         run: () => void store.getState().updateSettings('global', { general: { skin: 'studio' } }),
       },
       {
         id: 'skin.terminal',
         title: 'Skin: Terminal',
-        category: 'Preferences',
+        category: t('Preferences'),
         run: () =>
           void store.getState().updateSettings('global', { general: { skin: 'terminal' } }),
       },
       {
         id: 'skin.archive',
         title: 'Skin: Archive',
-        category: 'Preferences',
+        category: t('Preferences'),
         run: () => void store.getState().updateSettings('global', { general: { skin: 'archive' } }),
       },
       {
         id: 'skin.index',
         title: 'Skin: Index',
-        category: 'Preferences',
+        category: t('Preferences'),
         run: () => void store.getState().updateSettings('global', { general: { skin: 'index' } }),
       },
       {
         id: 'skin.atelier',
         title: 'Skin: Atelier',
-        category: 'Preferences',
+        category: t('Preferences'),
         run: () => void store.getState().updateSettings('global', { general: { skin: 'atelier' } }),
       },
       {
         id: 'skin.codex',
         title: 'Skin: Codex',
-        category: 'Preferences',
+        category: t('Preferences'),
         run: () => void store.getState().updateSettings('global', { general: { skin: 'codex' } }),
       },
       {
@@ -722,8 +722,4 @@ export function Workbench(): React.JSX.Element {
       </div>
     </div>
   );
-}
-
-export function setQuitBlockers(blockers: string[]): void {
-  void rpcResult('app.setQuitBlockers', { blockers });
 }

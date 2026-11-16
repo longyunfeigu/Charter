@@ -7,16 +7,14 @@ import '../styles/replay.css';
 
 /** A Replay request owns a standalone, exact terminal black-box surface. */
 export function ReplayView(): React.JSX.Element | null {
-  const store = useTaskStore();
-  const request = store.replayRequest;
+  const request = useTaskStore((s) => s.replayRequest);
   if (!request) return null;
   return <ReplayShell key={request.taskId} request={request} />;
 }
 
 function ReplayShell({ request }: { request: ReplayRequest }): React.JSX.Element | null {
-  const store = useTaskStore();
   // Bind to request.taskId — never to whatever activeTaskId later becomes.
-  const knownTask = store.tasks.find((t) => t.id === request.taskId) ?? null;
+  const knownTask = useTaskStore((s) => s.tasks.find((t) => t.id === request.taskId) ?? null);
   const [fetchedTask, setFetchedTask] = useState<TaskDto | null>(null);
   useEffect(() => {
     if (knownTask) return;
