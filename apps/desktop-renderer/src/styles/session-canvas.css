@@ -584,6 +584,18 @@
   border-left: 1px solid var(--border-soft);
 }
 
+/* Labels that do not fit collapse to icons (title + aria-label keep the name);
+ * the active tab always keeps its label. */
+.session-tool-canvas .session-tool-tablist.compact button:not(.active) > span {
+  display: none;
+}
+.session-tool-canvas .session-tool-tablist.compact button:not(.active) .app-icon {
+  display: block;
+}
+.session-tool-tablist.compact button:not(.active) {
+  padding: 0 8px;
+}
+
 .session-tool-close {
   flex: none;
   display: none;
@@ -930,7 +942,20 @@ button.hm-board-now:hover {
   margin-bottom: 8px;
 }
 
-.session-evidence-section > header > span {
+.session-evidence-section > header > .session-diff-total {
+  display: inline;
+  min-width: 0;
+  height: auto;
+  margin-left: auto;
+  border-radius: 0;
+  background: none;
+  font: 11px var(--font-mono);
+}
+.session-evidence-section > header > .session-diff-total i {
+  font-style: normal;
+}
+
+.session-evidence-section > header > span:not(.session-diff-total) {
   min-width: 18px;
   height: 18px;
   display: grid;
@@ -1433,6 +1458,22 @@ button.hm-board-now:hover {
   min-width: 112px;
 }
 
+/* The recommended action always ends the row, whichever button it is. */
+.session-action-dock.review-decision > .btn.primary {
+  order: 3;
+}
+
+/* Review summary: the first changed file is shown in place. */
+.session-diff-review.embedded {
+  min-height: 0;
+  gap: 0;
+  padding: 4px 0 18px;
+  background: transparent;
+}
+.session-diff-review.embedded .session-inline-diff > header {
+  grid-template-columns: minmax(0, auto) 1fr auto 30px;
+}
+
 .session-action-dock.review-decision {
   min-height: 68px;
   flex-wrap: wrap;
@@ -1495,8 +1536,9 @@ button.hm-board-now:hover {
   color: var(--fg-muted);
 }
 
+/* Unverified work is a decision for the user (amber), not an incident (red). */
 .session-action-risk {
-  color: var(--danger);
+  color: var(--warning);
   font-weight: 650;
 }
 

@@ -53,8 +53,14 @@
 }
 .work-header h1 {
   margin: 0 12px 0 0;
-  font: 700 17px/1 var(--font-ui);
-  letter-spacing: -0.02em;
+  font: 400 var(--page-title-size) / var(--page-title-leading) var(--font-display);
+  letter-spacing: var(--page-title-tracking);
+}
+.work-empty-note {
+  margin: 0;
+  padding: 14px clamp(16px, 2.4vw, 24px) 0;
+  color: var(--fg-muted);
+  font-size: var(--page-lede-size);
 }
 .work-view-tab {
   height: 34px;

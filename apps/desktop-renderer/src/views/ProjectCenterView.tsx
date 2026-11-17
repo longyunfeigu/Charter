@@ -188,34 +188,37 @@ function OverviewTab(props: {
 
   return (
     <div className="pc-overview" data-testid="project-center-overview">
-      <section className="pc-metrics" aria-label="Project status">
-        <button onClick={() => props.onTab('sessions')}>
-          <span>Live now</span>
-          <strong data-testid="project-live-count">{live}</strong>
-          <small>{live === 0 ? 'No agents running' : 'Open running sessions'}</small>
-        </button>
-        <button className={attention > 0 ? 'warn' : ''} onClick={() => props.onTab('sessions')}>
-          <span>Needs you</span>
-          <strong>{attention}</strong>
-          <small>{attention === 0 ? 'Nothing blocking' : 'Review pending decisions'}</small>
-        </button>
-        <button onClick={() => props.onTab('changes')}>
-          <span>Working tree</span>
-          <strong>{inspection.git.entries.length}</strong>
-          <small>
-            {!inspection.git.isRepo
-              ? 'Not a Git repository'
-              : inspection.git.entries.length === 0
-                ? 'Clean'
-                : 'Changed files'}
-          </small>
-        </button>
-        <div>
-          <span>Last activity</span>
-          <strong className="pc-metric-time">{relativeTime(lastActivity ?? null)}</strong>
-          <small>{history.length} known sessions</small>
-        </div>
-      </section>
+      {/* DESIGN.md: a project with no sessions and a clean tree shows no zeros. */}
+      {tasks.length > 0 || history.length > 0 || inspection.git.entries.length > 0 ? (
+        <section className="pc-metrics" aria-label="Project status">
+          <button onClick={() => props.onTab('sessions')}>
+            <span>Live now</span>
+            <strong data-testid="project-live-count">{live}</strong>
+            <small>{live === 0 ? 'No agents running' : 'Open running sessions'}</small>
+          </button>
+          <button className={attention > 0 ? 'warn' : ''} onClick={() => props.onTab('sessions')}>
+            <span>Needs you</span>
+            <strong>{attention}</strong>
+            <small>{attention === 0 ? 'Nothing blocking' : 'Review pending decisions'}</small>
+          </button>
+          <button onClick={() => props.onTab('changes')}>
+            <span>Working tree</span>
+            <strong>{inspection.git.entries.length}</strong>
+            <small>
+              {!inspection.git.isRepo
+                ? 'Not a Git repository'
+                : inspection.git.entries.length === 0
+                  ? 'Clean'
+                  : 'Changed files'}
+            </small>
+          </button>
+          <div>
+            <span>Last activity</span>
+            <strong className="pc-metric-time">{relativeTime(lastActivity ?? null)}</strong>
+            <small>{history.length} known sessions</small>
+          </div>
+        </section>
+      ) : null}
 
       <div className="pc-overview-grid">
         <section className="pc-panel pc-recent-sessions">
@@ -263,10 +266,7 @@ function OverviewTab(props: {
             </header>
             {inspection.git.isRepo ? (
               <dl>
-                <div>
-                  <dt>Branch</dt>
-                  <dd>{inspection.git.branch ?? inspection.git.head?.slice(0, 8) ?? 'Detached'}</dd>
-                </div>
+                {/* Branch is in the header; the change count is the Working tree metric. */}
                 <div>
                   <dt>Sync</dt>
                   <dd>
@@ -274,10 +274,6 @@ function OverviewTab(props: {
                     {inspection.git.behind > 0 ? ` ↓${inspection.git.behind}` : ''}
                     {inspection.git.ahead === 0 && inspection.git.behind === 0 ? 'Up to date' : ''}
                   </dd>
-                </div>
-                <div>
-                  <dt>Changes</dt>
-                  <dd>{inspection.git.entries.length}</dd>
                 </div>
               </dl>
             ) : (
@@ -930,10 +926,8 @@ export function ProjectCenterView(): React.JSX.Element {
           {inspection?.git.isRepo ? (
             <span className="pc-header-git">
               <Ic name="branch" size={11} />
+              {/* The change count lives in the Working tree metric and Changes tab. */}
               {inspection.git.branch ?? inspection.git.head?.slice(0, 8) ?? 'Detached'}
-              {inspection.git.entries.length > 0
-                ? ` · ${inspection.git.entries.length} changes`
-                : ' · clean'}
             </span>
           ) : null}
         </div>

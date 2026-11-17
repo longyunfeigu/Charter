@@ -19,23 +19,13 @@
 
 .pc-header {
   position: relative;
-  min-height: 148px;
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 30px clamp(24px, 4vw, 56px) 24px;
+  padding: 26px clamp(24px, 4vw, 56px) 20px;
   border-bottom: 1px solid var(--chrome-line);
   background: var(--chrome-ink);
   color: var(--chrome-paper);
-}
-.pc-header::after {
-  position: absolute;
-  top: 17px;
-  right: clamp(24px, 4vw, 56px);
-  color: var(--chrome-paper-muted);
-  font: 700 8px var(--font-mono);
-  letter-spacing: 0.1em;
-  content: 'PROJECT INTELLIGENCE / LIVE CONTEXT';
 }
 .pc-identity {
   min-width: 0;
@@ -52,8 +42,8 @@
   overflow: hidden;
   margin: 0;
   color: var(--chrome-paper);
-  font: 400 clamp(32px, 3.7vw, 48px) / 1.03 var(--font-display);
-  letter-spacing: -0.042em;
+  font: 400 var(--page-title-size) / var(--page-title-leading) var(--font-display);
+  letter-spacing: var(--page-title-tracking);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

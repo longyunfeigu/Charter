@@ -120,8 +120,12 @@ test('a commander Diff includes files produced by its bound worker Sessions', as
         { timeout: 15_000 },
       )
       .toEqual(['examples/aggregate-diff/app.js', 'examples/aggregate-diff/worker.js']);
+    // ADR-0061: Review states the change-set count itself, so the Diff tab
+    // badge stays hidden while Review is open (one state, said once).
+    await expect(second.page.getByTestId('review-bar')).toContainText('2 files changed', {
+      timeout: 15_000,
+    });
     const diffTab = second.page.getByTestId('session-tool-diff');
-    await expect(diffTab).toContainText('2', { timeout: 15_000 });
     await diffTab.click();
 
     await expect(second.page.getByTestId('session-diff-review')).toContainText('2 files changed');

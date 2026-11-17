@@ -189,7 +189,11 @@ test.describe('Home v2 — advanced charter, persistent Inbox, context feeding',
       await expect(page.getByTestId('task-state')).toHaveAttribute('data-state', 'REVIEW_READY', {
         timeout: 30000,
       });
-      await expect(page.getByTestId('checks-unverified')).toContainText('No verification has run');
+      // ADR-0061: the Action Dock states "not run" once; the checks pane lists
+      // the configured commands with Run as the recommended action.
+      await expect(page.getByTestId('review-failed-checks-warning')).toContainText('not run');
+      await expect(page.getByTestId('checks-configured')).toContainText('npm test');
+      await expect(page.getByTestId('checks-unverified')).toHaveCount(0);
       await page.getByTestId('checks-run').click();
       await expect(page.getByTestId('tl-verification-passed')).toBeVisible({ timeout: 30000 });
       await expect(page.getByTestId('checks-unverified')).toHaveCount(0);

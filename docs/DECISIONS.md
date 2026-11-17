@@ -40,6 +40,7 @@
 | [ADR-0055](adr/ADR-0055-session-switch-continuity.md) | Proposed | 会话切换连续性：per-task 时间线缓存、渐进首绘、房间常驻池 | 2026-08-09 | ADR-0052、M11-04 |
 | [ADR-0056](adr/ADR-0056-github-issue-import.md) | Proposed | 只读 GitHub issue 导入 Work board：手动 URL 导入、PAT 优先/gh CLI 兜底/公开仓库匿名、v17 外部身份去重、remote.origin.url 映射本地项目；不触碰 ADR-0022 外部写边界，回写需独立 ADR | 2026-08-09 | ADR-0051/0022/0047、external-work-inbox mock、单测+双 e2e（含真实 API 验证） |
 | [ADR-0057](adr/ADR-0057-scm-diff-in-editor.md) | Accepted | SCM diff 成为编辑器一等 tab（工作树 diff 右侧=可编辑实时 buffer、staged 只读、新文件默认行内），删除 GitDiffModal；确立壳内全屏浮层必须 portal 到 body（修复被 Session rail 压住的一类层级 bug） | 2026-08-09 | ADR-0014/0054、tab 持久化 schema 加 kind/staged |
+| [ADR-0061](adr/ADR-0061-interface-standards-pass.md) | Accepted | 界面标准落地（用户 2026-11-16 认可的 DESIGN.md 标准 1–3、5–7）：会话验收只在 Action Dock 说一次结论、Review 面板直接展示首个改动文件 diff、未验证接受改为非红色二次确认、工具页签放不下时收成图标不再截断、全产品统一 30px 页面标题与 `.page-head`、去掉装饰性眉标与英雄卡、Agent 回答正文 15px/70ch、空状态不再展示一排 0；标准 4（一级入口 ≤3）待信息架构决策 | 2026-11-16 | ADR-0016/0020/0022、ui-standards e2e |
 | [ADR-0060](adr/ADR-0060-rich-review-and-shadow-snapshots.md) | Accepted | 审查富投影与影子快照：Markdown 按读者视图分块对齐对比、图片滑杆/并排对比（task.reviewImage v1）；非 Git 目录的外部 CLI 会话用 app 数据目录里的私有影子仓库做入口快照（精确字节、显式覆盖清单、预算外诚实降级、30 天保留） | 2026-11-16 | ADR-0013/0014/0017、单测 + review-rich-diff e2e |
 
 ## ADR 模板

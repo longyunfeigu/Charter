@@ -487,10 +487,17 @@ function DoneMilestone({
   payload,
   copy,
   rolledBackLater,
+  underReview,
 }: {
   payload: Record<string, unknown>;
   copy: RoomCopy;
   rolledBackLater: boolean;
+  /**
+   * The turn the review panel and Action Dock are presenting right now. They
+   * already state its change set and verification, so the milestone does not
+   * repeat them (DESIGN.md: one state, said once).
+   */
+  underReview: boolean;
 }): React.JSX.Element {
   const executionFailed = payload.outcome === 'failed';
   const changed = payload.changed as
@@ -498,14 +505,14 @@ function DoneMilestone({
   const verification = payload.verification as
     { runs: unknown[]; passed: number; failed: number } | undefined;
   const parts: string[] = [];
-  if (changed && changed.files > 0) {
+  if (changed && changed.files > 0 && !underReview) {
     parts.push(
       copy.locale === 'zh'
         ? `${changed.files} 个文件 +${changed.additions} −${changed.deletions}`
         : `${changed.files} file${changed.files === 1 ? '' : 's'} +${changed.additions} −${changed.deletions}`,
     );
   }
-  if (verification && verification.runs.length > 0) {
+  if (verification && verification.runs.length > 0 && !underReview) {
     parts.push(
       `${copy.checks} ${verification.passed} ${copy.passed}${
         verification.failed > 0 ? `, ${verification.failed} ${copy.failed}` : ''
@@ -515,7 +522,8 @@ function DoneMilestone({
   if (rolledBackLater) {
     parts.push(copy.locale === 'zh' ? '回滚前的历史结果' : 'historical result before rollback');
   }
-  if (payload.unverified === true) parts.push(copy.locale === 'zh' ? '未验证' : 'unverified');
+  if (payload.unverified === true && !underReview)
+    parts.push(copy.locale === 'zh' ? '未验证' : 'unverified');
   if (executionFailed) {
     const execution = payload.execution as { failedWriteCalls?: number } | undefined;
     const failedWrites = execution?.failedWriteCalls ?? 0;
@@ -544,7 +552,7 @@ function DoneMilestone({
               ? '完成'
               : 'Done'
       }
-      meta={parts.join(' · ') || `outcome: ${String(payload.outcome)}`}
+      meta={parts.join(' · ') || (underReview ? '' : `outcome: ${String(payload.outcome)}`)}
       testid="tl-done"
     />
   );
@@ -880,6 +888,9 @@ function eventNode(
           copy={copy}
           rolledBackLater={
             context.latestRollbackSeq !== null && context.latestRollbackSeq > event.sequence
+          }
+          underReview={
+            context.taskState === 'REVIEW_READY' && context.latestReportSeq === event.sequence
           }
         />
       );

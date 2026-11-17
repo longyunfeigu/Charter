@@ -33,7 +33,12 @@ test.describe('Room ending — review bar (ADR-0016, direction B)', () => {
       // unverified flag (edit-basic runs no verification commands).
       await expect(page.getByTestId('review-bar')).toBeVisible();
       await expect(page.getByTestId('review-bar')).toContainText('1 file changed');
-      await expect(page.getByTestId('checks-unverified')).toContainText('No verification has run');
+      await expect(page.getByTestId('review-failed-checks-warning')).toContainText(
+        'No verification has run',
+      );
+      // ADR-0061: what the reviewer judges is visible without a click.
+      await expect(page.getByTestId('session-review-diff')).toBeVisible();
+      await expect(page.getByTestId('session-inline-diff')).toContainText('src/index.ts');
 
       // Primary action: straight into the review surface, then back.
       await page.getByTestId('review-bar-open').click();

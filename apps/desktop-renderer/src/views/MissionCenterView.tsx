@@ -59,41 +59,38 @@ export function MissionCenterView(): React.JSX.Element {
 
   return (
     <main className="mission-center" data-testid="mission-center">
-      <header className="mission-center-head">
-        <span className="mission-center-mark">
-          <Ic name="compass" size={22} />
-        </span>
-        <span>
-          <small>Mission Center</small>
-          <h1>Outcome-driven work, in one place.</h1>
-          <p>
-            Follow work, handle actions explicitly assigned to you, and review evidence without
-            managing Agent terminals.
-          </p>
-        </span>
+      <header className="mission-center-head page-head">
+        <h1>Missions</h1>
+        <p>
+          Follow work, handle actions explicitly assigned to you, and review evidence without
+          managing Agent terminals.
+        </p>
       </header>
-      <section className="mission-center-metrics">
-        <article>
-          <b>{active.length}</b>
-          <span>Active Missions</span>
-          <small>moving toward a goal</small>
-        </article>
-        <article className={attention.length > 0 ? 'attention' : ''}>
-          <b>{humanActionCount}</b>
-          <span>Your actions</span>
-          <small>explicit requests from Mission Leads</small>
-        </article>
-        <article className={issueCount > 0 ? 'issues' : ''}>
-          <b>{issueCount}</b>
-          <span>Issues</span>
-          <small>runtime or coordination problems</small>
-        </article>
-        <article className={review.length > 0 ? 'review' : ''}>
-          <b>{review.length}</b>
-          <span>Ready to review</span>
-          <small>waiting for acceptance</small>
-        </article>
-      </section>
+      {/* DESIGN.md: an empty surface says what to do next — it never shows a row of zeros. */}
+      {missions.length > 0 ? (
+        <section className="mission-center-metrics">
+          <article>
+            <b>{active.length}</b>
+            <span>Active Missions</span>
+            <small>moving toward a goal</small>
+          </article>
+          <article className={attention.length > 0 ? 'attention' : ''}>
+            <b>{humanActionCount}</b>
+            <span>Your actions</span>
+            <small>explicit requests from Mission Leads</small>
+          </article>
+          <article className={issueCount > 0 ? 'issues' : ''}>
+            <b>{issueCount}</b>
+            <span>Issues</span>
+            <small>runtime or coordination problems</small>
+          </article>
+          <article className={review.length > 0 ? 'review' : ''}>
+            <b>{review.length}</b>
+            <span>Ready to review</span>
+            <small>waiting for acceptance</small>
+          </article>
+        </section>
+      ) : null}
 
       {loading && missions.length === 0 ? (
         <div className="mission-center-empty">Loading Missions…</div>

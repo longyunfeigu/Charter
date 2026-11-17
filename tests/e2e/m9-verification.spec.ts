@@ -135,8 +135,12 @@ test.describe('M9 verification, final report and rollback (E2E-016/017/018)', ()
         timeout: 30000,
       });
 
-      // The Session evidence ledger clearly flags missing verification (VER-007).
-      await expect(page.getByTestId('checks-unverified')).toContainText('No verification has run');
+      // Missing verification is flagged beside the decision (VER-007; ADR-0061
+      // keeps that one statement in the Action Dock rather than repeating it).
+      await expect(page.getByTestId('review-failed-checks-warning')).toContainText(
+        'No verification has run',
+      );
+      await expect(page.getByTestId('checks-unverified')).toHaveCount(0);
 
       await page.getByTestId('review-bar-open').click();
       await expect(page.getByTestId('review-view')).toBeVisible();

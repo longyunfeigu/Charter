@@ -25,7 +25,18 @@ function durationOf(run: VerificationRunDto): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
 }
 
-export function ReviewChecks({ task }: { task: TaskDto }): React.JSX.Element {
+export function ReviewChecks({
+  task,
+  hideWhenEmpty = false,
+}: {
+  task: TaskDto;
+  /**
+   * In the Session review the Action Dock already states "unverified" beside
+   * the decision (VER-007), so an empty record list shows only the configured
+   * commands and their Run action — or nothing when no command is configured.
+   */
+  hideWhenEmpty?: boolean;
+}): React.JSX.Element | null {
   const store = useTaskStore.getState(); // actions only; avoid per-token re-renders
   const [runs, setRuns] = useState<VerificationRunDto[] | null>(null);
   const [running, setRunning] = useState(false);
@@ -59,17 +70,28 @@ export function ReviewChecks({ task }: { task: TaskDto }): React.JSX.Element {
     }
   };
 
+  const quietEmpty = hideWhenEmpty && runs !== null && grouped.length === 0;
+  if (hideWhenEmpty && (runs === null || grouped.length === 0) && task.verification.length === 0) {
+    return null;
+  }
+
   return (
     <div className="ck-pane" data-testid="checks-pane">
       <div className="ck-toolbar">
-        <span className="ck-hint">
-          Records keep their history: a re-run marks the old run <i>superseded</i>, code changes
-          mark runs <i>stale</i> — nothing is overwritten.
-        </span>
+        {quietEmpty ? (
+          <span className="ck-hint mono" data-testid="checks-configured">
+            {task.verification.map((check) => check.label).join(' · ')}
+          </span>
+        ) : (
+          <span className="ck-hint">
+            Records keep their history: a re-run marks the old run <i>superseded</i>, code changes
+            mark runs <i>stale</i> — nothing is overwritten.
+          </span>
+        )}
         <span className="pv-sp" />
         {task.verification.length > 0 ? (
           <button
-            className="btn"
+            className={quietEmpty ? 'btn primary' : 'btn'}
             data-testid="checks-run"
             disabled={running}
             onClick={() => void runAll()}
@@ -80,7 +102,7 @@ export function ReviewChecks({ task }: { task: TaskDto }): React.JSX.Element {
       </div>
       {runs === null ? (
         <div className="pv-note">Loading verification records…</div>
-      ) : grouped.length === 0 ? (
+      ) : quietEmpty ? null : grouped.length === 0 ? (
         <div className="ck-unverified" data-testid="checks-unverified">
           <div className="ck-unverified-title">
             <Ic name="alert" size={14} /> Unverified

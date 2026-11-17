@@ -406,10 +406,15 @@
 }
 .rt-bubble.agent .rt-text {
   width: 100%;
+  /* The Agent's answer is the text read most in Charter, so it gets the
+     product's best reading measure: a step above UI copy, ~70 characters. */
+  max-width: 70ch;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--fg);
+  font-size: 15px;
+  line-height: 1.72;
   padding: 0;
 }
 .rt-bubble.you .rt-text :is(a, .md-link) {

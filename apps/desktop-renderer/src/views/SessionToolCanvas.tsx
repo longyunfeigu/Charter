@@ -112,6 +112,31 @@ export function SessionToolCanvas(props: {
     }
   }, [task.state, task.id, files.length]);
 
+  // The tab strip never scrolls its own labels out of view (a hidden-scrollbar
+  // strip clipped "Output" to "tput"). When the labels do not fit, inactive
+  // tabs collapse to icon + tooltip; the full width is measured only while
+  // expanded so the compact state cannot oscillate.
+  const [compactTabs, setCompactTabs] = useState(false);
+  const fullTabsWidth = useRef(0);
+  const tabsSignature = toolTabs.map((item) => item.id).join(',');
+  useEffect(() => {
+    fullTabsWidth.current = 0;
+    setCompactTabs(false);
+  }, [tabsSignature]);
+  useEffect(() => {
+    const list = tablistRef.current;
+    if (!list || !open) return;
+    const measure = (): void => {
+      if (!compactTabs) fullTabsWidth.current = list.scrollWidth;
+      const next = fullTabsWidth.current > list.clientWidth + 1;
+      if (next !== compactTabs) setCompactTabs(next);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [open, compactTabs, tabsSignature]);
+
   useEffect(() => {
     if (!open) return;
     const frame = window.requestAnimationFrame(() => {
@@ -166,7 +191,7 @@ export function SessionToolCanvas(props: {
       <header className="session-tool-tabs">
         <div
           ref={tablistRef}
-          className="session-tool-tablist"
+          className={`session-tool-tablist${compactTabs ? ' compact' : ''}`}
           role="tablist"
           aria-label="Session tools"
         >
@@ -190,7 +215,9 @@ export function SessionToolCanvas(props: {
               >
                 <Ic name={item.icon} size={13} />
                 <span>{item.label}</span>
-                {item.id === 'diff' && files.length > 0 ? <small>{files.length}</small> : null}
+                {item.id === 'diff' && files.length > 0 && tool !== 'review' && tool !== 'diff' ? (
+                  <small>{files.length}</small>
+                ) : null}
               </button>
             );
           })}
@@ -400,6 +427,13 @@ function SessionDiffReview(props: {
   files: string[];
   fileStats: Record<string, SessionFileStat>;
   verifications: SessionVerification[];
+  /**
+   * Inside the Review summary the diff is the evidence being judged, so the
+   * first changed file opens immediately (DESIGN.md: what you judge is visible
+   * without a click). The summary owns the file list and the Action Dock owns
+   * verification, so both are omitted here.
+   */
+  embedded?: boolean;
 }): React.JSX.Element {
   // ADR-0055: changeSet is the ACTIVE task's projection — a hidden kept-alive
   // room pins to constants so the visible session's churn never re-renders it.
@@ -444,7 +478,11 @@ function SessionDiffReview(props: {
   // count must win over the watcher-derived fallback or the heading can say
   // "3 files" while the list visibly contains six aggregated worker changes.
   const displayedFiles = displayedDiffFiles(changeFiles, props.files);
-  const requestedPath = peek?.taskId === props.task.id ? peek.active : null;
+  const requestedPath = props.embedded
+    ? (changeFiles[0]?.path ?? null)
+    : peek?.taskId === props.task.id
+      ? peek.active
+      : null;
   // Approved design D (docs/design/diff-panel-redesign.html): no file expands
   // until the reviewer picks one, and the pick is reversible. Dismissal is
   // view-local so collapsing the card never drops the shared peek tabs; any
@@ -633,45 +671,50 @@ function SessionDiffReview(props: {
   };
 
   return (
-    <div className="session-diff-review" data-testid="session-diff-review">
-      <section className="session-diff-overview" aria-label="Changed files">
-        <header>
-          <h2>
-            {displayedFiles.length} file{displayedFiles.length === 1 ? '' : 's'} changed
-          </h2>
-          <span className="session-diff-grand-total mono">
-            <i className="plus">+{additions}</i> <i className="minus">−{deletions}</i>
-          </span>
-        </header>
-        <div className="session-diff-file-list">
-          {displayedFiles.map((entry) => {
-            const path = typeof entry === 'string' ? entry : entry.path;
-            const stat = typeof entry === 'string' ? props.fileStats[path] : entry;
-            const active = selected?.path === path;
-            return (
-              <button
-                key={path}
-                type="button"
-                className={active ? 'active' : ''}
-                data-testid={`session-diff-file-${path}`}
-                aria-pressed={active}
-                onClick={() => selectFile(path)}
-              >
-                <span className="session-code-file-icon">
-                  <Ic name="terminal" size={12} strokeWidth={1.9} />
-                </span>
-                <span>{path}</span>
-                {stat ? (
-                  <small className="mono">
-                    <i className="plus">+{stat.additions}</i>{' '}
-                    <i className="minus">−{stat.deletions}</i>
-                  </small>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      </section>
+    <div
+      className={`session-diff-review${props.embedded ? ' embedded' : ''}`}
+      data-testid={props.embedded ? 'session-review-diff' : 'session-diff-review'}
+    >
+      {props.embedded ? null : (
+        <section className="session-diff-overview" aria-label="Changed files">
+          <header>
+            <h2>
+              {displayedFiles.length} file{displayedFiles.length === 1 ? '' : 's'} changed
+            </h2>
+            <span className="session-diff-grand-total mono">
+              <i className="plus">+{additions}</i> <i className="minus">−{deletions}</i>
+            </span>
+          </header>
+          <div className="session-diff-file-list">
+            {displayedFiles.map((entry) => {
+              const path = typeof entry === 'string' ? entry : entry.path;
+              const stat = typeof entry === 'string' ? props.fileStats[path] : entry;
+              const active = selected?.path === path;
+              return (
+                <button
+                  key={path}
+                  type="button"
+                  className={active ? 'active' : ''}
+                  data-testid={`session-diff-file-${path}`}
+                  aria-pressed={active}
+                  onClick={() => selectFile(path)}
+                >
+                  <span className="session-code-file-icon">
+                    <Ic name="terminal" size={12} strokeWidth={1.9} />
+                  </span>
+                  <span>{path}</span>
+                  {stat ? (
+                    <small className="mono">
+                      <i className="plus">+{stat.additions}</i>{' '}
+                      <i className="minus">−{stat.deletions}</i>
+                    </small>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {!selected && !dismissed && requestedPath && loadingChangeSet ? (
         <div className="session-diff-loading">Computing the review diff…</div>
@@ -736,25 +779,29 @@ function SessionDiffReview(props: {
             <button type="button" aria-label="Copy diff" title="Copy diff" onClick={copyPatch}>
               <Ic name="clipboard" size={15} />
             </button>
-            <button
-              type="button"
-              className="session-open-review-details"
-              aria-label="Open advanced review"
-              title="Open advanced review"
-              onClick={() => void store.openReview()}
-            >
-              <Ic name="sliders" size={14} />
-              <span>Full review</span>
-            </button>
-            <button
-              type="button"
-              aria-label="Collapse diff"
-              title="Collapse diff"
-              data-testid="session-diff-collapse"
-              onClick={() => setDismissed(true)}
-            >
-              <Ic name="x" size={15} />
-            </button>
+            {props.embedded ? null : (
+              <>
+                <button
+                  type="button"
+                  className="session-open-review-details"
+                  aria-label="Open advanced review"
+                  title="Open advanced review"
+                  onClick={() => void store.openReview()}
+                >
+                  <Ic name="sliders" size={14} />
+                  <span>Full review</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Collapse diff"
+                  title="Collapse diff"
+                  data-testid="session-diff-collapse"
+                  onClick={() => setDismissed(true)}
+                >
+                  <Ic name="x" size={15} />
+                </button>
+              </>
+            )}
           </header>
           {richKind === 'image' && (selected.binary || diffMode === 'rendered') ? (
             <div className="session-rich-diff image">
@@ -849,7 +896,9 @@ function SessionDiffReview(props: {
         {announce}
       </div>
 
-      <SessionDiffVerification task={props.task} verifications={props.verifications} />
+      {props.embedded ? null : (
+        <SessionDiffVerification task={props.task} verifications={props.verifications} />
+      )}
     </div>
   );
 }
@@ -1096,28 +1145,11 @@ function SessionReviewSummary(props: {
     changeSet?.totalDeletions ??
     Object.values(props.fileStats).reduce((sum, stat) => sum + stat.deletions, 0);
 
+  // DESIGN.md "one state, said once": the Action Dock owns the verdict
+  // (ready / unverified / failed), so this panel carries only the evidence —
+  // what the Agent says it did, what changed, and the change itself.
   return (
     <div className="session-review-summary" data-testid="review-bar">
-      <section className="session-review-lead">
-        <span className={`session-review-icon ${executionFailed ? 'failed' : ''}`}>
-          <Ic name={executionFailed ? 'alert' : 'check'} size={16} />
-        </span>
-        <div>
-          <span>{executionFailed ? 'Latest request did not complete' : copy.reviewReady}</span>
-          <strong>
-            {props.files.length} file{props.files.length === 1 ? '' : 's'} changed
-          </strong>
-          <p>
-            {executionFailed
-              ? 'A requested file action failed. These existing changes remain reviewable, but the latest fix is not proven complete.'
-              : copy.evidenceNote}
-          </p>
-        </div>
-        <span className="session-diff-total mono">
-          <i className="plus">+{additions}</i> <i className="minus">−{deletions}</i>
-        </span>
-      </section>
-
       {agentSummary ? (
         <section className="session-review-narrative">
           <h3>{executionFailed ? "Agent's unverified summary" : "Agent's summary"}</h3>
@@ -1129,9 +1161,20 @@ function SessionReviewSummary(props: {
         files={props.files}
         fileStats={props.fileStats}
         onOpenDiff={props.onOpenDiff}
+        title={`${props.files.length} file${props.files.length === 1 ? '' : 's'} changed`}
+        // A single file's row already carries its +/−; totals only add
+        // information once there is more than one file.
+        {...(props.files.length > 1 ? { totals: { additions, deletions } } : {})}
+      />
+      <SessionDiffReview
+        task={props.task}
+        files={props.files}
+        fileStats={props.fileStats}
+        verifications={props.verifications}
+        embedded
       />
       <div className="session-review-checks">
-        <ReviewChecks task={props.task} />
+        <ReviewChecks task={props.task} hideWhenEmpty />
       </div>
 
       {risks.length > 0 ? (
@@ -1165,12 +1208,22 @@ function EvidenceSection(props: {
   files: string[];
   fileStats: Record<string, SessionFileStat>;
   onOpenDiff: (path: string) => void;
+  /** Review replaces the generic heading with the change-set headline. */
+  title?: string;
+  totals?: { additions: number; deletions: number };
 }): React.JSX.Element {
   return (
     <section className="session-evidence-section">
       <header>
-        <h3>Changed files</h3>
-        <span>{props.files.length}</span>
+        <h3>{props.title ?? 'Changed files'}</h3>
+        {props.totals ? (
+          <span className="session-diff-total mono">
+            <i className="plus">+{props.totals.additions}</i>{' '}
+            <i className="minus">−{props.totals.deletions}</i>
+          </span>
+        ) : props.title ? null : (
+          <span>{props.files.length}</span>
+        )}
       </header>
       {props.files.length === 0 ? (
         <p className="session-tool-muted">Nothing touched yet.</p>
@@ -1377,7 +1430,9 @@ export function SessionActionDock({
         ) : !task.external ? (
           <button
             type="button"
-            className="btn"
+            // A failed request or failed check is fixed by asking again, so
+            // that becomes the recommended action instead of accepting.
+            className={executionFailed || failedChecks.length > 0 ? 'btn primary' : 'btn'}
             data-testid="session-request-changes"
             onClick={() => {
               app.setSessionTool('summary');
@@ -1418,6 +1473,7 @@ export function SessionActionDock({
                   : 'Confirm — accept unverified changes'
             }
             testid="review-bar-accept"
+            tone="caution"
             onConfirm={() => void store.acceptTask({ confirmEvidenceRisk: true })}
           />
         ) : (

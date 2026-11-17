@@ -637,10 +637,7 @@ export function HomeView(): React.JSX.Element {
     <main className="hm-main" data-testid="home-view">
       <div className="hm-main-top" />
 
-      <div className="hm-hero">
-        <div className="hm-eyebrow">
-          <span /> New session brief
-        </div>
+      <div className="hm-hero page-head">
         <h1>What should we build?</h1>
       </div>
 

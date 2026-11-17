@@ -44,6 +44,26 @@ hairline operational controls with one action accent. Charter does not reproduce
 6. **Density without tiny type.** Metadata may be compact, but primary labels and decision copy
    must remain comfortably readable at desktop and narrow widths.
 
+## Interface standards (ADR-0061)
+
+Accepted by the product owner on 2026-11-16. Every interface change is reviewed against
+these, and each can be checked on a screenshot.
+
+1. **One state, said once where it is needed.** On one screen a fact appears at most once;
+   a list row carries at most one state marker. In a Session review the Action Dock owns
+   the verdict, the Review panel owns the evidence.
+2. **What the user judges is visible without a click.** Opening work that waits for
+   review shows the change and the check results on the first screen.
+3. **The primary action's colour means "recommended".** Red is reserved for actions that
+   discard or overwrite. When evidence is missing, the recommended action is to produce it
+   (run checks, request changes); accepting stays available as a neutral two-step choice.
+4. **At most three top-level nouns.** Open — requires an information architecture decision.
+5. **One page grammar.** Every primary surface opens with the same `.page-head`: title at
+   `--page-title-size`, one-line description, actions. No hero cards or decorative eyebrows.
+6. **The text read most gets the best typography.** Agent answers use the reading measure
+   (15 px, ~70 characters); titles yield to them.
+7. **Empty surfaces state the next step.** No metric strips or rows of zeros without data.
+
 ## Visual roles
 
 Charter uses the existing theme variables so every skin preserves content semantics. Product chrome

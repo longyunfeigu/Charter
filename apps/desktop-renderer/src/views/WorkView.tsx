@@ -502,28 +502,31 @@ export function WorkView(): React.JSX.Element {
           <span className="work-view-tab">
             <Ic name="layout" size={13} /> Board
           </span>
-          <section className="work-summary" aria-label="Work summary">
-            <div>
-              <strong>{openCount}</strong>
-              <span>Open</span>
-            </div>
-            <div>
-              <strong>{activeCount}</strong>
-              <span>In progress</span>
-            </div>
-            <div>
-              <strong>{reviewCount}</strong>
-              <span>Review</span>
-            </div>
-            <button
-              className={attentionOnly ? 'active' : ''}
-              data-testid="work-attention-filter"
-              onClick={() => setAttentionOnly(!attentionOnly)}
-            >
-              <strong>{attention}</strong>
-              <span>Attention</span>
-            </button>
-          </section>
+          {/* DESIGN.md: no row of zeros on an empty board. */}
+          {snapshot.items.length > 0 ? (
+            <section className="work-summary" aria-label="Work summary">
+              <div>
+                <strong>{openCount}</strong>
+                <span>Open</span>
+              </div>
+              <div>
+                <strong>{activeCount}</strong>
+                <span>In progress</span>
+              </div>
+              <div>
+                <strong>{reviewCount}</strong>
+                <span>Review</span>
+              </div>
+              <button
+                className={attentionOnly ? 'active' : ''}
+                data-testid="work-attention-filter"
+                onClick={() => setAttentionOnly(!attentionOnly)}
+              >
+                <strong>{attention}</strong>
+                <span>Attention</span>
+              </button>
+            </section>
+          ) : null}
         </div>
         <div className="work-header-actions">
           <button
@@ -587,6 +590,12 @@ export function WorkView(): React.JSX.Element {
         ) : null}
         <span className="work-save-state">{loading ? 'Syncing…' : 'Saved locally'}</span>
       </section>
+
+      {snapshot.items.length === 0 && !loading ? (
+        <p className="work-empty-note" data-testid="work-empty-note">
+          No work yet. Use New work, or add an item straight into a stage with its + button.
+        </p>
+      ) : null}
 
       <div className="work-board" data-testid="work-board" aria-label="Work board">
         {snapshot.columns.map((column) => {

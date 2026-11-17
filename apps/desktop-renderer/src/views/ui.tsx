@@ -33,11 +33,18 @@ export function ConfirmDangerButton(props: {
   testid: string;
   disabled?: boolean;
   quiet?: boolean;
+  /**
+   * `caution` is for a deliberate choice that is not destructive (accepting
+   * unverified work): it keeps the two-step confirmation without painting the
+   * button red. Red stays reserved for actions that discard or overwrite.
+   */
+  tone?: 'danger' | 'caution';
   icon?: string;
   title?: string;
   onConfirm: () => void;
 }): React.JSX.Element {
   const [armed, setArmed] = useState(false);
+  const caution = props.tone === 'caution';
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -51,7 +58,7 @@ export function ConfirmDangerButton(props: {
   if (!armed) {
     return (
       <button
-        className={props.quiet ? 'btn quiet-danger' : 'btn danger'}
+        className={caution ? 'btn' : props.quiet ? 'btn quiet-danger' : 'btn danger'}
         data-testid={props.testid}
         disabled={props.disabled === true}
         {...(props.title ? { title: props.title } : {})}
@@ -75,7 +82,7 @@ export function ConfirmDangerButton(props: {
       ) : null}
       <span className="confirm-danger-actions">
         <button
-          className="btn danger"
+          className={caution ? 'btn primary' : 'btn danger'}
           data-testid={`${props.testid}-confirm`}
           onClick={() => {
             setArmed(false);

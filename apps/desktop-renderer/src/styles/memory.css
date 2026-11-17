@@ -126,51 +126,24 @@
 }
 .mv-page-head {
   position: relative;
-  min-height: 176px;
   display: flex;
   align-items: flex-end;
   gap: 24px;
   margin-bottom: 4px;
-  padding: 28px 32px;
-  overflow: hidden;
-  border: 1px solid var(--chrome-line);
-  border-radius: 22px 22px 22px 6px;
-  background:
-    radial-gradient(
-      circle at 82% 16%,
-      color-mix(in srgb, var(--accent) 15%, transparent),
-      transparent 34%
-    ),
-    var(--bg-card);
-}
-.mv-page-head::after {
-  position: absolute;
-  top: 19px;
-  right: 24px;
-  color: var(--fg-faint);
-  font: 700 8px var(--font-mono);
-  letter-spacing: 0.1em;
-  content: 'AGENT KNOWLEDGE / PROJECT RULES';
+  padding: 8px 2px 20px;
+  border-bottom: 1px solid var(--border-soft);
 }
 .mv-page-copy {
   min-width: 0;
   flex: 1;
 }
-.mv-page-copy > span {
-  display: block;
-  margin-bottom: 9px;
-  color: var(--accent);
-  font: 700 9px var(--font-mono);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
 .mv-page-head h1 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(36px, 4.2vw, 54px);
-  font-weight: 420;
-  letter-spacing: -0.04em;
-  line-height: 0.98;
+  font-size: var(--page-title-size);
+  font-weight: 400;
+  letter-spacing: var(--page-title-tracking);
+  line-height: var(--page-title-leading);
 }
 .mv-page-head p {
   max-width: 670px;
@@ -840,10 +813,9 @@
 
 @media (max-width: 760px) {
   .mv-page-head {
-    min-height: 0;
     align-items: stretch;
     flex-direction: column;
-    padding: 44px 22px 22px;
+    padding: 8px 2px 18px;
   }
   .mv-page-head .mv-btn {
     align-self: flex-start;

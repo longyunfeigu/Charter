@@ -816,19 +816,16 @@ export function MemoryView(props: { embedded?: boolean } = {}): React.JSX.Elemen
   const page =
     agent === 'claude'
       ? {
-          eyebrow: 'Claude Code knowledge',
           title: 'Claude Code Memory',
           description:
             'Inspect global instructions and private project notes without changing who owns them.',
         }
       : agent === 'codex'
         ? {
-            eyebrow: 'Codex knowledge',
             title: 'Codex Memory',
             description: 'Review the instruction files Codex carries into its work.',
           }
         : {
-            eyebrow: 'Charter knowledge',
             title: 'Project Rules',
             description:
               'Turn reviewed corrections into explicit, shareable rules for future Agent work.',
@@ -839,7 +836,6 @@ export function MemoryView(props: { embedded?: boolean } = {}): React.JSX.Elemen
       <div className="mv-main-inner">
         <header className="mv-page-head">
           <div className="mv-page-copy">
-            <span>{page.eyebrow}</span>
             <h1>{page.title}</h1>
             <p>{page.description}</p>
           </div>

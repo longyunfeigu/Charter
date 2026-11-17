@@ -193,9 +193,10 @@
 .st-content-head h1 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(28px, 3vw, 40px);
-  font-weight: 520;
-  letter-spacing: -0.03em;
+  font-size: var(--page-title-size);
+  font-weight: 400;
+  letter-spacing: var(--page-title-tracking);
+  line-height: var(--page-title-leading);
 }
 .st-content-head p {
   max-width: 700px;
@@ -917,11 +918,6 @@
   .st-body.workspace .mv-main-inner,
   .st-body.workspace .skills-main-inner {
     width: calc(100% - 30px);
-  }
-  .st-body.workspace .mv-page-head,
-  .st-body.workspace .skills-page-head {
-    min-height: 154px;
-    padding: 23px 24px;
   }
   .mv-agent-tabs button {
     padding: 0 7px;

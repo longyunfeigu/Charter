@@ -146,7 +146,6 @@ export function RemoteRail(): React.JSX.Element {
         <header className="rr-head">
           <div className="rr-title-row">
             <span>
-              <small>Infrastructure</small>
               <strong>Remote Explorer</strong>
             </span>
             <button title="New Host" aria-label="New Host" onClick={() => setNewHostOpen(true)}>

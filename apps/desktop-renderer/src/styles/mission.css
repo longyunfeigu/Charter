@@ -439,41 +439,9 @@
   padding: clamp(24px, 4vw, 52px) clamp(22px, 5vw, 70px) 70px;
 }
 .mission-center-head {
-  position: relative;
   max-width: 1180px;
-  min-height: 236px;
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  overflow: hidden;
-  padding: clamp(28px, 4vw, 48px);
-  border: 1px solid var(--chrome-line);
-  border-radius: 22px 22px 22px 6px;
-  background: var(--chrome-ink);
-  color: var(--chrome-paper);
-  margin: 0 auto;
+  margin: 0 auto 22px;
 }
-.mission-center-head::after {
-  position: absolute;
-  top: 20px;
-  right: 24px;
-  color: var(--chrome-paper-muted);
-  font: 700 8px var(--font-mono);
-  letter-spacing: 0.11em;
-  content: 'LIVE ORCHESTRATION / OUTCOMES';
-}
-.mission-center-mark {
-  width: 58px;
-  height: 58px;
-  display: grid;
-  place-items: center;
-  flex: none;
-  border-radius: 17px 17px 17px 5px;
-  background: var(--chrome-signal);
-  color: var(--chrome-ink);
-  box-shadow: none;
-}
-.mission-center-head small,
 .mission-center-section header small,
 .mission-section-heading small,
 .mission-review-hero small {
@@ -482,29 +450,12 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.mission-center-head h1 {
-  max-width: 780px;
-  margin: 6px 0 11px;
-  color: var(--chrome-paper);
-  font-family: var(--font-display);
-  font-size: clamp(38px, 4.6vw, 58px);
-  font-weight: 400;
-  letter-spacing: -0.043em;
-  line-height: 0.98;
-}
-.mission-center-head p {
-  max-width: 700px;
-  margin: 0;
-  color: var(--chrome-paper-muted);
-  font-size: 13px;
-  line-height: 1.55;
-}
 .mission-center-metrics {
   max-width: 1180px;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1px;
-  margin: 16px auto 38px;
+  margin: 0 auto 30px;
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: 12px;

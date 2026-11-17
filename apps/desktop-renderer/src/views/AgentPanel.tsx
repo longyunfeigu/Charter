@@ -632,6 +632,8 @@ export interface TimelineContext {
     superseded?: boolean;
   }>;
   latestRollbackSeq: number | null;
+  /** Sequence of the newest final report — the turn the review panel is presenting. */
+  latestReportSeq: number | null;
   taskState: string;
 }
 
@@ -1151,6 +1153,7 @@ function timelineContextEquals(a: TimelineContext, b: TimelineContext): boolean 
     a.verificationCommands !== b.verificationCommands ||
     a.openPlanSeq !== b.openPlanSeq ||
     a.latestRollbackSeq !== b.latestRollbackSeq ||
+    a.latestReportSeq !== b.latestReportSeq ||
     a.permissionResolutions.size !== b.permissionResolutions.size ||
     a.answeredCallIds.size !== b.answeredCallIds.size ||
     a.visiblePlanSeqs.size !== b.visiblePlanSeqs.size ||
@@ -1207,6 +1210,7 @@ export function useTimelineContext(
     let openPlanSeq: number | null = null;
     let pendingPlanSeq: number | null = null;
     let latestRollbackSeq: number | null = null;
+    let latestReportSeq: number | null = null;
     for (const event of timeline) {
       const payload = event.payload as Record<string, unknown>;
       if (event.type === 'permission.decided' && typeof payload.requestId === 'string') {
@@ -1242,6 +1246,7 @@ export function useTimelineContext(
       if (event.type === 'task.rolledBack' || event.type === 'turn.rolledBack') {
         latestRollbackSeq = event.sequence;
       }
+      if (event.type === 'report.final') latestReportSeq = event.sequence;
     }
     if (pendingPlanSeq !== null) visiblePlanSeqs.add(pendingPlanSeq);
     return {
@@ -1252,6 +1257,7 @@ export function useTimelineContext(
       verificationCommands,
       verificationRuns: [...verificationByLabel.values()],
       latestRollbackSeq,
+      latestReportSeq,
       taskState,
     };
   }, [timeline, taskState, verificationCommands]);

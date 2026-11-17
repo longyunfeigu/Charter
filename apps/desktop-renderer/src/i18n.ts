@@ -951,6 +951,8 @@ const ZH_CN = {
   'Session status': '会话状态',
   'Nothing touched yet.': '尚未修改任何内容。',
   'Run checks': '运行检查',
+  'No work yet. Use New work, or add an item straight into a stage with its + button.':
+    '还没有工作项。点"新建工作"，或用某个阶段的 + 按钮直接添加。',
   'Re-run checks': '重新运行检查',
   'Keeps reviewed files in your workspace · does not create a Git commit':
     '将已审查文件保留在工作区中 · 不会创建 Git 提交',
@@ -1773,6 +1775,8 @@ function dynamicChinese(message: string): string | null {
   if (match) return `上传 ${match[1]} 个文件到此目录？`;
   match = message.match(/^(\d+) files$/);
   if (match) return `${match[1]} 个文件`;
+  match = message.match(/^(\d+) files? changed$/);
+  if (match) return `${match[1]} 个文件已更改`;
   match = message.match(/^Browse files on (.+) without leaving this session$/);
   if (match) return `浏览 ${match[1]} 上的文件，无需离开此会话`;
   match = message.match(/^Terminal moved to (.+)$/);
